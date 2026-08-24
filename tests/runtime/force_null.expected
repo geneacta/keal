@@ -1,0 +1,6 @@
+runtime error: `!!` was applied to a null value
+  --> tests/runtime/force_null.keal:3:9
+  |
+3 | println(m["missing"]!!)
+  |         ^
+  = note: handle the null case with `?:` or an `if` instead

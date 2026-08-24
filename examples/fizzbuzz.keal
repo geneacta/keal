@@ -1,0 +1,32 @@
+// The classic, three ways — a warm-up tour of Keal's expression forms.
+
+fun classic(n: Int): String {
+    if (n % 15 == 0) { return "FizzBuzz" }
+    if (n % 3 == 0) { return "Fizz" }
+    if (n % 5 == 0) { return "Buzz" }
+    return n.toString()
+}
+
+// `when` without a subject reads like a table of conditions.
+fun withWhen(n: Int): String {
+    return when {
+        n % 15 == 0 -> "FizzBuzz"
+        n % 3 == 0 -> "Fizz"
+        n % 5 == 0 -> "Buzz"
+        else -> n.toString()
+    }
+}
+
+// Built from the parts, using string concatenation and `?:`.
+fun compositional(n: Int): String {
+    val fizz = if (n % 3 == 0) { "Fizz" } else { "" }
+    val buzz = if (n % 5 == 0) { "Buzz" } else { "" }
+    val both = fizz + buzz
+    return if (both == "") { n.toString() } else { both }
+}
+
+for (n in 1..16) {
+    val a = classic(n)
+    assert(a == withWhen(n) && a == compositional(n), "the three agree")
+    println(a)
+}

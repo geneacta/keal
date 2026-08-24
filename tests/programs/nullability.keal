@@ -1,0 +1,119 @@
+// Nullable types, the null-safe operators and smart casts.
+
+fun findFirst(xs: List<Int>, min: Int): Int? {
+    for (x in xs) {
+        if (x > min) { return x }
+    }
+    return null
+}
+
+val xs = [1, 5, 9]
+
+// `?:` supplies a fallback for null.
+assert(findFirst(xs, 4) == 5, "a nullable result that is present")
+assert(findFirst(xs, 100) == null, "a nullable result that is absent")
+assert((findFirst(xs, 100) ?: -1) == -1, "elvis supplies a fallback")
+assert((findFirst(xs, 4) ?: -1) == 5, "elvis leaves non-null values alone")
+
+// `?:` is right-associative, so fallbacks chain.
+val a: Int? = null
+val b: Int? = null
+assert((a ?: b ?: 7) == 7, "chained elvis")
+
+// `!!` asserts non-null and narrows the type.
+val present: Int? = 3
+assert(present!! + 1 == 4, "!! narrows to the underlying type")
+
+// Comparing against null narrows an immutable binding in the guarded branch.
+val maybe: String? = "text"
+if (maybe != null) {
+    assert(maybe.length == 4, "smart cast after a null check")
+}
+if (maybe == null) {
+    assert(false, "unreachable")
+} else {
+    assert(maybe.toUpper() == "TEXT", "smart cast in the else branch")
+}
+
+// The same works through `&&`, where the right operand sees the narrowing.
+assert(maybe != null && maybe.length == 4, "smart cast across &&")
+
+// `?.` short-circuits to null instead of failing.
+val absent: String? = null
+assert(absent?.length == null, "safe call on null yields null")
+assert(maybe?.length == 4, "safe call on a value calls through")
+
+// Safe calls chain, and the whole chain is nullable.
+class Node(val name: String, val next: Node?)
+val chain = Node("a", Node("b", null))
+assert(chain.next?.name == "b", "safe call reaching a field")
+assert(chain.next?.next?.name == null, "a null anywhere in the chain wins")
+
+// Nullable containers and nullable elements are distinct.
+val holes: List<Int?> = [1, null, 3]
+assert(holes.size == 3, "a list may hold nulls")
+assert(holes[1] == null, "reading a null element")
+assert(holes.map({ it ?: 0 }) == [1, 0, 3], "mapping over nullable elements")
+
+// Map lookups are nullable because the key may be missing.
+val m = {"a": 1}
+assert(m["a"] == 1, "present key")
+assert(m["b"] == null, "missing key")
+assert((m["b"] ?: 0) == 0, "fallback for a missing key")
+
+// `is` narrows an `Any` to something usable.
+fun lengthOf(v: Any): Int {
+    if (v is String) { return v.length }
+    if (v is List) { return v.size }
+    return 0
+}
+assert(lengthOf("abcd") == 4, "is String narrows")
+assert(lengthOf([1, 2]) == 2, "is List narrows")
+assert(lengthOf(1.0) == 0, "no branch matched")
+
+// A guard that always leaves narrows the rest of the block.
+fun shout(s: String?): String {
+    if (s == null) { return "(nothing)" }
+    return s.toUpper()
+}
+assert(shout("hi") == "HI", "narrowing after an early return")
+assert(shout(null) == "(nothing)", "the guard branch still runs")
+
+fun mustHave(s: String?): Int {
+    if (s == null) { panic("expected a value") }
+    return s.length
+}
+assert(mustHave("abcd") == 4, "narrowing after a guard that panics")
+
+// Reaching a later `when` arm means the earlier ones did not match.
+fun label(s: String?): String {
+    return when {
+        s == null -> "none"
+        s == "" -> "empty"
+        else -> "${s.length} characters"
+    }
+}
+assert(label(null) == "none", "first arm")
+assert(label("") == "empty", "second arm sees s as non-null")
+assert(label("abc") == "3 characters", "else arm sees s as non-null")
+
+// The same for a `when` with a subject that lists `null`.
+fun describeOrDefault(n: Int?): String {
+    return when (n) {
+        null -> "missing"
+        else -> "${n + 1}"
+    }
+}
+assert(describeOrDefault(null) == "missing", "null arm")
+assert(describeOrDefault(4) == "5", "else arm narrows the subject")
+
+// A single condition also narrows its own arm.
+fun firstChar(s: String?): String {
+    return when {
+        s != null && s.length > 0 -> s[0]
+        else -> "?"
+    }
+}
+assert(firstChar("xyz") == "x", "arm body sees its own condition")
+assert(firstChar(null) == "?", "fallback")
+assert(firstChar("") == "?", "fallback")

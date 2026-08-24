@@ -1,0 +1,24 @@
+error: cannot assign to `fixed`
+  --> tests/errors/mutability.keal:2:1
+  |
+2 | fixed = 2
+  | ^
+  = note: it is declared with `val`; use `var` to make it mutable
+error: cannot assign to field `Point.x`
+  --> tests/errors/mutability.keal:6:1
+  |
+6 | p.x = 10
+  | ^
+  = note: it is declared with `val`; use `var` to make it mutable
+error: cannot assign to `param`
+  --> tests/errors/mutability.keal:10:5
+   |
+10 |     param = 3
+   |     ^
+  = note: parameters cannot be reassigned; copy it into a `var` first
+error: `shadowed` is already declared in this scope
+  --> tests/errors/mutability.keal:16:5
+   |
+16 |     val shadowed = 2
+   |     ^
+4 errors found

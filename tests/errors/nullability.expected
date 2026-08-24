@@ -1,0 +1,42 @@
+error: `String?` may be null, so `.length` is not allowed
+  --> tests/errors/nullability.keal:2:14
+  |
+2 |     return s.length
+  |              ^
+  = note: use `?.`, `!!`, or check for null first
+error: initializer has type `String?`, but `String` was expected
+  --> tests/errors/nullability.keal:6:22
+  |
+6 | val forced: String = maybe
+  |                      ^
+  = note: the value may be null; use `?:`, `!!` or a null check
+error: cannot index into nullable type `String?`
+  --> tests/errors/nullability.keal:7:15
+  |
+7 | val indexed = maybe[0]
+  |               ^
+  = note: use `?.get(...)`, `!!` or a null check first
+error: `!!` applied to non-nullable type `String`
+  --> tests/errors/nullability.keal:9:17
+  |
+9 | val pointless = notNullable!!
+  |                 ^
+error: `?.` used on non-nullable type `String`
+  --> tests/errors/nullability.keal:10:34
+   |
+10 | val alsoPointless = notNullable?.length
+   |                                  ^
+  = note: a plain `.` is enough here
+error: `?:` applied to non-nullable type `String`
+  --> tests/errors/nullability.keal:11:21
+   |
+11 | val neverNull = "x" ?: "y"
+   |                     ^
+  = note: the right-hand side can never be reached
+error: `String?` may be null, so `.length` is not allowed
+  --> tests/errors/nullability.keal:16:24
+   |
+16 |         return mutable.length
+   |                        ^
+  = note: `mutable` is a `var`, so a null check cannot narrow it; copy it into a `val` first
+7 errors found

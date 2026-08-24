@@ -1,0 +1,46 @@
+error: `add` is missing argument(s): `b`
+  --> tests/errors/arity.keal:6:14
+  |
+6 | val tooFew = add(1)
+  |              ^
+error: `add` takes 2 argument(s), but 3 were given
+  --> tests/errors/arity.keal:7:15
+  |
+7 | val tooMany = add(1, 2, 3)
+  |               ^
+error: `greet` is missing argument(s): `name`
+  --> tests/errors/arity.keal:8:15
+  |
+8 | val badName = greet(nmae = "Ada")
+  |               ^
+error: `greet` has no parameter named `nmae`
+  --> tests/errors/arity.keal:8:28
+  |
+8 | val badName = greet(nmae = "Ada")
+  |                            ^
+error: `add` is missing argument(s): `b`
+  --> tests/errors/arity.keal:9:13
+  |
+9 | val twice = add(1, a = 2)
+  |             ^
+error: parameter `a` is given more than once
+  --> tests/errors/arity.keal:9:24
+  |
+9 | val twice = add(1, a = 2)
+  |                        ^
+error: positional arguments cannot follow named ones
+  --> tests/errors/arity.keal:10:41
+   |
+10 | val outOfOrder = greet(greeting = "yo", "Ada")
+   |                                         ^
+error: constructor `Point` is missing argument(s): `y`
+  --> tests/errors/arity.keal:11:15
+   |
+11 | val badCtor = Point(1)
+   |               ^
+error: `List<Int>.join` takes 0 to 1 argument(s), but 2 were given
+  --> tests/errors/arity.keal:12:24
+   |
+12 | val listArity = [1, 2].join(", ", "extra")
+   |                        ^
+9 errors found

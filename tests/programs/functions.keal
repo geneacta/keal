@@ -1,0 +1,87 @@
+// Functions, default and named arguments, lambdas and closures.
+
+fun add(a: Int, b: Int): Int { return a + b }
+
+// The last expression of a body is the result; `return` is optional.
+fun mul(a: Int, b: Int): Int { a * b }
+
+fun greet(name: String, greeting: String = "hello", punctuation: String = "!"): String {
+    return "${greeting}, ${name}${punctuation}"
+}
+
+// A later default may refer to an earlier parameter.
+fun rectangle(width: Int, height: Int = width): Int { width * height }
+
+fun apply(x: Int, f: (Int) -> Int): Int { f(x) }
+
+fun compose(f: (Int) -> Int, g: (Int) -> Int): (Int) -> Int {
+    return { x -> g(f(x)) }
+}
+
+fun counter(start: Int = 0): () -> Int {
+    var n = start
+    return { -> n += 1; n }
+}
+
+fun fact(n: Int): Int {
+    return if (n <= 1) { 1 } else { n * fact(n - 1) }
+}
+
+// Mutual recursion works because all top-level functions are visible at once.
+fun isEven(n: Int): Bool { if (n == 0) { true } else { isOdd(n - 1) } }
+fun isOdd(n: Int): Bool { if (n == 0) { false } else { isEven(n - 1) } }
+
+assert(add(2, 3) == 5, "positional arguments")
+assert(mul(2, 3) == 6, "implicit result from the last expression")
+assert(add(b = 3, a = 2) == 5, "named arguments may be reordered")
+assert(add(2, b = 3) == 5, "named arguments may follow positional ones")
+
+assert(greet("Ada") == "hello, Ada!", "both defaults used")
+assert(greet("Ada", "hi") == "hi, Ada!", "one default overridden")
+assert(greet("Ada", punctuation = "?") == "hello, Ada?", "skipping to a later parameter")
+assert(rectangle(3) == 9, "a default referring to an earlier parameter")
+assert(rectangle(3, 4) == 12, "that default overridden")
+
+assert(fact(6) == 720, "recursion")
+assert(isEven(10), "mutual recursion")
+assert(!isEven(7), "mutual recursion")
+
+// Lambdas: explicit parameters, inferred parameters, and the implicit `it`.
+val double = { x: Int -> x * 2 }
+assert(double(21) == 42, "lambda with an annotated parameter")
+assert(apply(5, { x -> x + 1 }) == 6, "parameter type inferred from context")
+assert(apply(5, { it * it }) == 25, "the implicit `it`")
+assert(apply(5, double) == 10, "a lambda value passed by name")
+
+val addThenDouble = compose({ it + 1 }, { it * 2 })
+assert(addThenDouble(5) == 12, "composed functions")
+
+// Closures capture variables, not values.
+val next = counter(10)
+assert(next() == 11, "closure state")
+assert(next() == 12, "closure state advances")
+val other = counter()
+assert(other() == 1, "each closure has its own state")
+assert(next() == 13, "the first closure is unaffected")
+
+// A local function is an ordinary binding and can capture too.
+fun outer(base: Int): Int {
+    fun inner(k: Int): Int { base + k }
+    return inner(1) + inner(2)
+}
+assert(outer(10) == 23, "nested function capturing a parameter")
+
+// Functions are values.
+val ops: List<(Int) -> Int> = [{ it + 1 }, { it * 2 }, double]
+assert(ops.map({ f -> f(10) }) == [11, 20, 20], "a list of functions")
+
+// A lambda needs a context to infer `it` from, so the map is annotated.
+val table: Map<String, (Int) -> Int> = {"inc": { it + 1 }, "dec": { it - 1 }}
+assert(table["inc"]!!(5) == 6, "a map of functions")
+
+// Unit-returning functions are statements, not values.
+var log = ""
+fun record(s: String) { log += s }
+record("a")
+record("b")
+assert(log == "ab", "side effects in order")

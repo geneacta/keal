@@ -1,0 +1,9 @@
+// Both imports pull in geometry.keal, but it is only loaded once.
+import "./geometry.keal"
+import "./text.keal"
+
+val a = Vec2(3.0, 4.0)
+assert(a.length() == 5.0, "method from an imported class")
+assert(dot(a, Vec2(1.0, 0.0)) == 3.0, "function from an imported module")
+assert(ORIGIN.x == 0.0, "value from an imported module")
+assert(describe(a) == "Vec2(3.0, 4.0) of length 5.0", "transitive import")

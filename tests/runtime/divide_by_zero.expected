@@ -1,0 +1,7 @@
+runtime error: division by zero
+  --> tests/runtime/divide_by_zero.keal:1:36
+  |
+1 | fun ratio(a: Int, b: Int): Int { a / b }
+  |                                    ^
+  in `ratio` at tests/runtime/divide_by_zero.keal:5:13
+  in `main` at tests/runtime/divide_by_zero.keal:8:1

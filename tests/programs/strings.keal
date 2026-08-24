@@ -1,0 +1,48 @@
+// String literals, interpolation and the String methods.
+
+val name = "Ada"
+val year = 1815
+
+assert("hello" + " " + "world" == "hello world", "concatenation")
+assert("count: " + 3 == "count: 3", "String + Any appends the rendered value")
+assert("${name} was born in ${year}" == "Ada was born in 1815", "interpolation")
+assert("$name!" == "Ada!", "short interpolation form")
+assert("${1 + 2}" == "3", "expressions interpolate")
+assert("\$name" == "$" + "name", "escaped dollar")
+assert("a\tb\nc" .length == 5, "escapes count as one character each")
+assert("\u{1F600}".length == 1, "unicode escape")
+
+assert("Hello".length == 5, "length")
+assert("héllo".length == 5, "length counts characters, not bytes")
+assert("héllo"[1] == "é", "indexing counts characters")
+assert("abc"[-1] == "c", "negative indices count from the end")
+
+assert("  pad  ".trim() == "pad", "trim")
+assert("Mixed".toUpper() == "MIXED", "toUpper")
+assert("Mixed".toLower() == "mixed", "toLower")
+assert("abc".reversed() == "cba", "reversed")
+assert("na".repeat(3) == "nanana", "repeat")
+assert("banana".replace("na", "NA") == "baNANA", "replace")
+assert("banana".indexOf("na") == 2, "indexOf")
+assert("banana".indexOf("z") == -1, "indexOf misses return -1")
+assert("banana".contains("nan"), "contains")
+assert("banana".startsWith("ban"), "startsWith")
+assert("banana".endsWith("ana"), "endsWith")
+assert("a,b,c".split(",") == ["a", "b", "c"], "split")
+assert("abc".split("") == ["a", "b", "c"], "split on empty string yields characters")
+assert("abcdef".substring(1, 4) == "bcd", "substring")
+assert("abcdef".take(2) == "ab", "take")
+assert("abcdef".drop(4) == "ef", "drop")
+assert("abc".chars() == ["a", "b", "c"], "chars")
+
+assert("42".toInt() == 42, "toInt")
+assert(" 42 ".toInt() == 42, "toInt ignores surrounding space")
+assert("4.5".toFloat() == 4.5, "toFloat")
+assert("nope".toInt() == null, "toInt returns null on failure")
+
+assert("apple" < "banana", "strings compare lexicographically")
+assert(!("b" < "a"), "string comparison")
+
+var joined = ""
+for (c in "abc") { joined += c.toUpper() }
+assert(joined == "ABC", "for over a string")

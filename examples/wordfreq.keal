@@ -1,0 +1,46 @@
+// Word frequencies: string handling, maps, sorting and formatting.
+
+val TEXT = "the quick brown fox jumps over the lazy dog " +
+    "the dog barks and the fox runs the fox is quick"
+
+/// Splits on whitespace, drops punctuation, and lowercases.
+fun words(text: String): List<String> {
+    val cleaned = text.toLower().replace(",", " ").replace(".", " ")
+    return cleaned.split(" ").filter({ it != "" })
+}
+
+fun countWords(text: String): Map<String, Int> {
+    val counts: Map<String, Int> = {}
+    for (word in words(text)) {
+        counts[word] = (counts[word] ?: 0) + 1
+    }
+    return counts
+}
+
+/// Keys ordered by descending count, ties broken alphabetically.
+fun ranked(counts: Map<String, Int>): List<String> {
+    val keys = counts.keys().sorted()
+    return keys.sortedBy({ -(counts[it] ?: 0) })
+}
+
+fun bar(n: Int): String { "#".repeat(n) }
+
+fun padded(s: String, width: Int): String {
+    if (s.length >= width) { return s }
+    return s + " ".repeat(width - s.length)
+}
+
+val counts = countWords(TEXT)
+val order = ranked(counts)
+
+println("${counts.size} distinct words in ${words(TEXT).size} total")
+println("")
+
+for (word in order.take(8)) {
+    val n = counts[word] ?: 0
+    println("${padded(word, 8)} ${padded(n.toString(), 3)} ${bar(n)}")
+}
+
+val once = order.filter({ (counts[it] ?: 0) == 1 })
+println("")
+println("appearing once: ${once.sorted().join(", ")}")

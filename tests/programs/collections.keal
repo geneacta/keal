@@ -1,0 +1,81 @@
+// Lists and maps: literals, mutation, and the functional operations.
+
+val xs = [3, 1, 4, 1, 5, 9, 2, 6]
+
+assert(xs.size == 8, "size")
+assert(!xs.isEmpty(), "isEmpty")
+assert(xs[0] == 3, "indexing")
+assert(xs[-1] == 6, "negative indexing")
+assert(xs.first() == 3, "first")
+assert(xs.last() == 6, "last")
+assert([].isEmpty(), "empty list literal")
+
+assert(xs.contains(9), "contains")
+assert(9 in xs, "in is contains")
+assert(7 !in xs, "!in")
+assert(xs.indexOf(4) == 2, "indexOf")
+assert(xs.indexOf(7) == -1, "indexOf misses return -1")
+
+assert(xs.sorted() == [1, 1, 2, 3, 4, 5, 6, 9], "sorted")
+assert(xs.reversed()[0] == 6, "reversed")
+assert(xs.slice(1, 4) == [1, 4, 1], "slice")
+assert(xs.take(3) == [3, 1, 4], "take")
+assert(xs.drop(6) == [2, 6], "drop")
+assert(xs.sum() == 31, "sum")
+
+assert(xs.map({ it * 2 }).take(3) == [6, 2, 8], "map with the implicit `it`")
+assert(xs.filter({ n -> n > 4 }) == [5, 9, 6], "filter")
+assert(xs.fold(0, { acc, n -> acc + n }) == 31, "fold")
+assert(xs.count({ it == 1 }) == 2, "count")
+assert(xs.any({ it > 8 }), "any")
+assert(xs.all({ it > 0 }), "all")
+assert(xs.none({ it > 100 }), "none")
+assert(xs.find({ it > 4 }) == 5, "find")
+assert(xs.find({ it > 100 }) == null, "find returns null when nothing matches")
+assert([[1, 2], [3]].flatMap({ it }) == [1, 2, 3], "flatMap")
+assert(["b", "a"].sortedBy({ it }) == ["a", "b"], "sortedBy")
+assert([1, 2, 3].join("-") == "1-2-3", "join")
+assert([1, 2, 3].join() == "1, 2, 3", "join has a default separator")
+
+// Lists are mutable reference values.
+val ys: List<Int> = []
+ys.add(1)
+ys.add(2)
+ys.insert(0, 0)
+assert(ys == [0, 1, 2], "add and insert")
+ys[1] = 10
+assert(ys == [0, 10, 2], "index assignment")
+assert(ys.removeAt(0) == 0, "removeAt returns the element")
+assert(ys == [10, 2], "removeAt shrinks the list")
+val alias = ys
+alias.add(99)
+assert(ys.size == 3, "lists are shared, not copied")
+ys.clear()
+assert(ys.isEmpty(), "clear")
+
+// Maps preserve insertion order.
+val ages = {"ada": 36, "grace": 45}
+ages["alan"] = 41
+assert(ages.size == 3, "map size")
+assert(ages["ada"] == 36, "map lookup")
+assert(ages["nobody"] == null, "missing keys read as null")
+assert(ages.containsKey("grace"), "containsKey")
+assert("grace" in ages, "in checks keys")
+assert(ages.keys() == ["ada", "grace", "alan"], "keys keep insertion order")
+assert(ages.values() == [36, 45, 41], "values keep insertion order")
+assert(ages.remove("ada") == 36, "remove returns the old value")
+assert(ages.size == 2, "remove shrinks the map")
+assert({}.isEmpty(), "empty map literal")
+
+var names = ""
+for (k in ages) { names += k }
+assert(names == "gracealan", "for over a map walks its keys")
+
+// Nested collections.
+val grid = [[1, 2], [3, 4]]
+assert(grid[1][0] == 3, "nested indexing")
+assert(grid.map({ row -> row.sum() }) == [3, 7], "map over nested lists")
+
+// Equality is structural for lists and maps.
+assert([1, [2]] == [1, [2]], "structural list equality")
+assert({"a": 1} == {"a": 1}, "structural map equality")

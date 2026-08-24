@@ -1,0 +1,19 @@
+fun length(s: String?): Int {
+    return s.length
+}
+
+val maybe: String? = null
+val forced: String = maybe
+val indexed = maybe[0]
+val notNullable: String = "x"
+val pointless = notNullable!!
+val alsoPointless = notNullable?.length
+val neverNull = "x" ?: "y"
+
+var mutable: String? = "x"
+fun readMutable(): Int {
+    if (mutable != null) {
+        return mutable.length
+    }
+    return 0
+}

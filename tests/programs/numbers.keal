@@ -1,0 +1,42 @@
+// Arithmetic, integer/float separation and the numeric built-ins.
+
+assert(2 + 3 * 4 == 14, "precedence")
+assert((2 + 3) * 4 == 20, "parentheses")
+assert(7 / 2 == 3, "integer division truncates")
+assert(-7 / 2 == -3, "integer division truncates towards zero")
+assert(7 % 3 == 1, "remainder")
+assert(-7 % 3 == -1, "remainder keeps the sign of the left operand")
+
+assert(2.0 + 0.5 == 2.5, "float addition")
+assert(7.0 / 2.0 == 3.5, "float division")
+
+// An integer literal adapts to a Float context; a variable does not.
+val half: Float = 1 / 2.0
+assert(half == 0.5, "literal widening inside an expression")
+val three: Float = 3
+assert(three == 3.0, "literal widening at a binding")
+
+val n = 3
+assert(n.toFloat() / 2.0 == 1.5, "explicit conversion")
+assert(3.9.toInt() == 3, "toInt truncates")
+assert((-3.9).toInt() == -3, "toInt truncates towards zero")
+assert(3.9.round() == 4, "round")
+assert(3.2.ceil() == 4, "ceil")
+assert(3.8.floor() == 3, "floor")
+
+assert((-5).abs() == 5, "Int.abs")
+assert((-5.5).abs() == 5.5, "Float.abs")
+assert(2.pow(10) == 1024, "Int.pow")
+assert(sqrt(16.0) == 4.0, "sqrt")
+assert(min(3, 7) == 3, "min over Int")
+assert(max(3.0, 7.0) == 7.0, "max over Float")
+assert(abs(-2) == 2, "abs picks the Int overload")
+
+// Ranges are half-open.
+assert((0..3).toList() == [0, 1, 2], "range is exclusive at the end")
+assert(2 in 0..3, "in range")
+assert(3 !in 0..3, "not in range")
+
+var total = 0
+for (i in 1..5) { total += i }
+assert(total == 10, "for over a range")

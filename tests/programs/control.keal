@@ -1,0 +1,89 @@
+// if / when / loops, and the fact that blocks are expressions.
+
+// `if` is an expression: a block's value is its last expression.
+val sign = if (-4 < 0) { "neg" } else { "pos" }
+assert(sign == "neg", "if as an expression")
+
+val grade = if (95 >= 90) { "A" } else if (95 >= 80) { "B" } else { "C" }
+assert(grade == "A", "else if chain")
+
+val computed = if (true) {
+    val a = 2
+    val b = 3
+    a * b
+} else {
+    0
+}
+assert(computed == 6, "a block's value is its last expression")
+
+// `when` with a subject.
+fun describe(n: Int): String {
+    return when (n) {
+        0 -> "zero"
+        1, 2, 3 -> "small"
+        in 4..10 -> "medium"
+        else -> "large"
+    }
+}
+assert(describe(0) == "zero", "when: single value")
+assert(describe(2) == "small", "when: several values in one arm")
+assert(describe(7) == "medium", "when: range arm")
+assert(describe(99) == "large", "when: else")
+
+// `when` without a subject behaves like a chain of conditions.
+fun bucket(n: Int): String {
+    return when {
+        n < 0 -> "negative"
+        n == 0 -> "zero"
+        else -> "positive"
+    }
+}
+assert(bucket(-1) == "negative", "subject-less when")
+assert(bucket(0) == "zero", "subject-less when")
+assert(bucket(1) == "positive", "subject-less when")
+
+// `when` with `is` narrows the subject inside the arm.
+fun render(v: Any): String {
+    return when (v) {
+        is Int -> "int:${v + 1}"
+        is String -> "str:${v.toUpper()}"
+        is List -> "list:${v.size}"
+        else -> "other"
+    }
+}
+assert(render(1) == "int:2", "is Int narrows to Int")
+assert(render("a") == "str:A", "is String narrows to String")
+assert(render([1, 2]) == "list:2", "is List narrows to a list")
+assert(render(1.5) == "other", "is falls through to else")
+
+// while, break and continue.
+var i = 0
+var seen = 0
+while (true) {
+    i += 1
+    if (i % 2 == 0) { continue }
+    if (i > 7) { break }
+    seen += i
+}
+assert(seen == 1 + 3 + 5 + 7, "while with continue and break")
+
+// Nested loops: break only leaves the innermost one.
+var pairs = 0
+for (a in 0..3) {
+    for (b in 0..3) {
+        if (b == 2) { break }
+        pairs += 1
+    }
+}
+assert(pairs == 6, "break leaves only the inner loop")
+
+// Short-circuit evaluation.
+var calls = 0
+fun bump(): Bool {
+    calls += 1
+    return true
+}
+assert(false && bump() == true || true, "&& short-circuits")
+assert(calls == 0, "the right operand of && was never evaluated")
+assert(true || bump(), "|| short-circuits")
+assert(calls == 0, "the right operand of || was never evaluated")

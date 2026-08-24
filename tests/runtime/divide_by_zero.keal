@@ -1,0 +1,8 @@
+fun ratio(a: Int, b: Int): Int { a / b }
+
+fun main() {
+    println(ratio(10, 2))
+    println(ratio(1, 0))
+}
+
+main()

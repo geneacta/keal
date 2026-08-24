@@ -1,0 +1,150 @@
+// A complete arithmetic evaluator written in Keal: tokenizer, recursive
+// descent parser with precedence, and evaluation — all in about 120 lines.
+//
+//     keal examples/calculator.keal
+
+class Token(val kind: String, val text: String)
+
+/// Splits `src` into tokens. Returns null on the first unrecognised character.
+fun tokenize(src: String): List<Token>? {
+    val out: List<Token> = []
+    var i = 0
+    while (i < src.length) {
+        val c = src[i]
+        if (c == " " || c == "\t") {
+            i += 1
+            continue
+        }
+        if (c in "0123456789") {
+            var text = ""
+            var seenDot = false
+            while (i < src.length && (src[i] in "0123456789" || (src[i] == "." && !seenDot))) {
+                if (src[i] == ".") { seenDot = true }
+                text += src[i]
+                i += 1
+            }
+            out.add(Token("number", text))
+            continue
+        }
+        if (c in "+-*/%()") {
+            out.add(Token(c, c))
+            i += 1
+            continue
+        }
+        println("unexpected character `${c}` at position ${i}")
+        return null
+    }
+    out.add(Token("end", ""))
+    return out
+}
+
+/// A recursive-descent parser that evaluates as it goes.
+///
+/// The grammar it accepts, lowest precedence first:
+///
+///     expr   := term (("+" | "-") term)*
+///     term   := unary (("*" | "/" | "%") unary)*
+///     unary  := "-" unary | atom
+///     atom   := number | "(" expr ")"
+class Parser(val tokens: List<Token>) {
+    var pos: Int = 0
+    var error: String? = null
+
+    fun peek(): Token { this.tokens[this.pos] }
+
+    fun advance(): Token {
+        val t = this.tokens[this.pos]
+        if (this.pos < this.tokens.size - 1) { this.pos += 1 }
+        return t
+    }
+
+    fun fail(message: String): Float {
+        // Only the first error is worth reporting; later ones are noise.
+        if (this.error == null) { this.error = message }
+        return 0.0
+    }
+
+    fun expr(): Float {
+        var value = this.term()
+        while (this.peek().kind == "+" || this.peek().kind == "-") {
+            val op = this.advance().kind
+            val rhs = this.term()
+            value = if (op == "+") { value + rhs } else { value - rhs }
+        }
+        return value
+    }
+
+    fun term(): Float {
+        var value = this.unary()
+        while (this.peek().kind in ["*", "/", "%"]) {
+            val op = this.advance().kind
+            val rhs = this.unary()
+            value = when (op) {
+                "*" -> value * rhs
+                "/" -> if (rhs == 0.0) { this.fail("division by zero") } else { value / rhs }
+                else -> if (rhs == 0.0) { this.fail("remainder by zero") } else { value % rhs }
+            }
+        }
+        return value
+    }
+
+    fun unary(): Float {
+        if (this.peek().kind == "-") {
+            this.advance()
+            return -this.unary()
+        }
+        return this.atom()
+    }
+
+    fun atom(): Float {
+        val t = this.advance()
+        if (t.kind == "number") {
+            return t.text.toFloat() ?: this.fail("malformed number `${t.text}`")
+        }
+        if (t.kind == "(") {
+            val inner = this.expr()
+            if (this.advance().kind != ")") { return this.fail("missing `)`") }
+            return inner
+        }
+        if (t.kind == "end") { return this.fail("unexpected end of input") }
+        return this.fail("unexpected `${t.text}`")
+    }
+}
+
+fun evaluate(source: String) {
+    val tokens = tokenize(source)
+    if (tokens == null) { return }
+
+    val parser = Parser(tokens)
+    val value = parser.expr()
+
+    val leftover = parser.peek()
+    val message = parser.error ?: if (leftover.kind != "end") {
+        "unexpected trailing `${leftover.text}`"
+    } else {
+        ""
+    }
+
+    if (message == "") {
+        println("${source} = ${value}")
+    } else {
+        println("${source} -> error: ${message}")
+    }
+}
+
+val inputs = [
+    "1 + 2 * 3",
+    "(1 + 2) * 3",
+    "10 / 4",
+    "2 * (3 + 4) - 5",
+    "-3 * -4",
+    "7 % 3",
+    "1 / 0",
+    "2 +",
+    "(1 + 2",
+    "4 $ 5",
+]
+
+for (line in inputs) {
+    evaluate(line)
+}

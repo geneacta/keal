@@ -1,0 +1,8 @@
+runtime error: maximum call depth exceeded
+  --> tests/runtime/deep_recursion.keal:1:28
+  |
+1 | fun forever(n: Int): Int { forever(n + 1) }
+  |                            ^
+  = note: this usually means a recursive call with no base case
+  in `forever` at tests/runtime/deep_recursion.keal:1:28 (x9999)
+  in `forever` at tests/runtime/deep_recursion.keal:2:1

@@ -1,0 +1,5 @@
+runtime error: index 7 is out of bounds for a list of 3 element(s)
+  --> tests/runtime/index_out_of_bounds.keal:3:9
+  |
+3 | println(xs[7])
+  |         ^

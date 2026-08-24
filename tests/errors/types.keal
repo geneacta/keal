@@ -1,0 +1,18 @@
+fun add(a: Int, b: Int): Int { a + b }
+
+val wrongType: Int = "text"
+val badCompare = "a" < 1
+val notCallable = 42
+val called = notCallable()
+val noValue: Int = if (true) { 1 }
+val fromNull = null
+
+fun missingReturn(): Int {
+    val x = 1
+}
+
+fun wrongReturn(): String { 42 }
+
+val unknown: Widget = add(1, 2)
+val badMethod = [1, 2].frobnicate()
+val badOperand = 1 + "two"

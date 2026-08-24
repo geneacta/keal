@@ -1,0 +1,91 @@
+// Classes: constructors, fields, methods, identity and `toString`.
+
+class Point(val x: Float, val y: Float) {
+    // A field with an initializer; it may refer to the constructor parameters.
+    val magnitude: Float = sqrt(x * x + y * y)
+    var label: String = "?"
+
+    fun plus(other: Point): Point {
+        return Point(this.x + other.x, this.y + other.y)
+    }
+
+    fun scaled(k: Float): Point {
+        return Point(this.x * k, this.y * k)
+    }
+
+    fun toString(): String {
+        return "${this.label}(${this.x}, ${this.y})"
+    }
+}
+
+class Counter {
+    var count: Int = 0
+    fun bump(by: Int = 1): Int {
+        this.count += by
+        return this.count
+    }
+}
+
+class Account(val owner: String, var balance: Int = 0) {
+    fun deposit(amount: Int) {
+        if (amount <= 0) { panic("deposit must be positive") }
+        this.balance += amount
+    }
+    fun withdraw(amount: Int): Bool {
+        if (amount > this.balance) { return false }
+        this.balance -= amount
+        return true
+    }
+}
+
+val p = Point(3.0, 4.0)
+assert(p.x == 3.0, "constructor parameter becomes a field")
+assert(p.magnitude == 5.0, "field initializer sees constructor parameters")
+assert(p.label == "?", "field default")
+
+p.label = "P"
+assert(p.label == "P", "var fields are assignable")
+assert(p.toString() == "P(3.0, 4.0)", "user toString")
+assert("${p}" == "P(3.0, 4.0)", "interpolation uses toString")
+
+val q = p.plus(Point(1.0, 1.0))
+assert(q.x == 4.0 && q.y == 5.0, "method returning a new instance")
+assert(p.scaled(2.0).magnitude == 10.0, "chained construction")
+
+// Without a `toString` method, instances render field by field.
+class Pair(val a: Int, val b: String)
+assert(Pair(1, "x").toString() == "Pair(a=1, b=\"x\")", "default rendering")
+
+// Instances compare by identity, not by field values.
+assert(p == p, "an instance equals itself")
+assert(Pair(1, "x") != Pair(1, "x"), "distinct instances are not equal")
+
+val c = Counter()
+assert(c.bump() == 1, "default argument on a method")
+assert(c.bump(10) == 11, "explicit argument")
+assert(c.count == 11, "mutable field")
+
+val acct = Account("Ada")
+assert(acct.balance == 0, "constructor default")
+acct.deposit(100)
+assert(acct.withdraw(30), "withdraw succeeds")
+assert(!acct.withdraw(1000), "withdraw fails when short")
+assert(acct.balance == 70, "balance after transactions")
+
+val named = Account(balance = 50, owner = "Grace")
+assert(named.owner == "Grace" && named.balance == 50, "named constructor arguments")
+
+// A method reference is an ordinary function value.
+val bump = c.bump
+assert(bump(5) == 16, "method reference keeps its receiver")
+
+// Instances can hold and mutate collections.
+class Bag {
+    val items: List<String> = []
+    fun add(s: String): Bag {
+        this.items.add(s)
+        return this
+    }
+}
+val bag = Bag().add("a").add("b")
+assert(bag.items == ["a", "b"], "fluent methods")

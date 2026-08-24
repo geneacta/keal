@@ -1,0 +1,5 @@
+error: expected `)` to close the parameter list, found `b`
+  --> tests/errors/syntax.keal:1:19
+  |
+1 | fun broken(a: Int b: Int): Int {
+  |                   ^

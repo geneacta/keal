@@ -1,0 +1,95 @@
+// A tour of Keal. Every construct in the language appears here.
+
+class Point(val x: Float, val y: Float) {
+    var label: String = "?"
+
+    fun norm(): Float {
+        return sqrt(this.x * this.x + this.y * this.y)
+    }
+
+    fun scaled(k: Float): Point {
+        return Point(this.x * k, this.y * k)
+    }
+
+    fun show(): String {
+        return "${this.label}(${this.x}, ${this.y})"
+    }
+}
+
+fun classify(n: Int): String {
+    return when {
+        n < 0 -> "negative"
+        n == 0 -> "zero"
+        n in 1..9 -> "digit"
+        else -> "big"
+    }
+}
+
+fun describe(value: Any): String {
+    return when (value) {
+        is Int -> "int ${value}"
+        is String -> "string of length ${value.length}"
+        is Bool -> "bool"
+        else -> "something else"
+    }
+}
+
+/// Returns null when the list is empty, exercising nullable types.
+fun firstEven(xs: List<Int>): Int? {
+    for (x in xs) {
+        if (x % 2 == 0) {
+            return x
+        }
+    }
+    return null
+}
+
+fun main() {
+    val p = Point(3.0, 4.0)
+    p.label = "P"
+    println(p.show() + " has norm " + p.norm().toString())
+
+    val doubled = p.scaled(2.0)
+    println("doubled: ${doubled.show()}")
+
+    var total = 0
+    for (i in 1..10) {
+        if (i % 3 == 0) {
+            continue
+        }
+        total += i
+    }
+    println("total = ${total}")
+
+    val nums = [5, 3, 9, 1, 7]
+    val big = nums.filter({ n -> n > 4 }).map({ n -> n * 10 })
+    println("big = ${big}")
+    println("sum = ${nums.fold(0, { acc, n -> acc + n })}")
+    println("sorted = ${nums.sorted()}")
+
+    val names = ["ada", "grace", "alan"]
+    println(names.map({ it.toUpper() }).join(", "))
+
+    val found = firstEven(nums)
+    println("first even: ${found ?: -1}")
+    if (found != null) {
+        println("doubled first even: ${found * 2}")
+    }
+
+    val ages = {"ada": 36, "grace": 45}
+    ages["alan"] = 41
+    for (name in ages.keys()) {
+        println("${name} -> ${ages[name] ?: 0}")
+    }
+
+    var i = 0
+    while (i < 3) {
+        println(classify(i * 7))
+        i += 1
+    }
+
+    println(describe(42))
+    println(describe("hello"))
+}
+
+main()

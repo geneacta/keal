@@ -1,0 +1,10 @@
+// A module: everything it declares becomes visible to whoever imports it.
+
+class Vec2(val x: Float, val y: Float) {
+    fun length(): Float { sqrt(this.x * this.x + this.y * this.y) }
+    fun toString(): String { "Vec2(${this.x}, ${this.y})" }
+}
+
+fun dot(a: Vec2, b: Vec2): Float { a.x * b.x + a.y * b.y }
+
+val ORIGIN = Vec2(0.0, 0.0)

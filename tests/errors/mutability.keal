@@ -1,0 +1,17 @@
+val fixed = 1
+fixed = 2
+
+class Point(val x: Int, var y: Int)
+val p = Point(1, 2)
+p.x = 10
+p.y = 20
+
+fun f(param: Int): Int {
+    param = 3
+    return param
+}
+
+fun g() {
+    val shadowed = 1
+    val shadowed = 2
+}
