@@ -111,11 +111,65 @@ immutable, like `val`.
 ### Operators, tightest binding last
 
 ```
+xor xnor nand nor implies
 ||   &&   ==  !=   <  <=  >  >=   is   in   ?:   ..   +  -   *  /  %   unary - !   . ?. [] ()
 ```
 
-`&&` and `||` short-circuit. `+` on a `String` appends the rendered form of
-whatever is on the right (`"n = " + 3`).
+`+` on a `String` appends the rendered form of whatever is on the right
+(`"n = " + 3`).
+
+### The eight logical connectives
+
+Keal has a native operator for each of the eight two-valued connectives.
+`!`, `&&` and `||` keep their usual symbols; the rest are words, because
+`!&&` and `==>` are harder to read than what they mean.
+
+| | Written | True when |
+|---|---|---|
+| NOT | `!a` | `a` is false |
+| AND | `a && b` | both |
+| OR | `a \|\| b` | either |
+| XOR | `a xor b` | exactly one |
+| XNOR | `a xnor b` | both or neither |
+| NAND | `a nand b` | not both |
+| NOR | `a nor b` | neither |
+| IMPLIES | `a implies b` | `b` holds whenever `a` does |
+
+The words are **contextual**: they are only read as operators where a binary
+operator may appear, so a variable may still be called `nor`.
+
+**Short-circuiting.** `&&`, `||`, `nand`, `nor` and `implies` stop as soon as
+the left operand settles the answer:
+
+```koda
+false nand slow()      // true, slow() never runs
+true nor slow()        // false
+false implies slow()   // true — an implication with a false premise holds
+```
+
+`xor` and `xnor` **always** evaluate both operands: neither can be decided
+from one side alone.
+
+**Precedence and grouping.** The five words bind more loosely than `&&` and
+`||`, so `a && b implies c || d` reads as `(a && b) implies (c || d)`.
+
+Beyond that, Keal refuses to guess. Two different word operators side by side
+need parentheses, and `nand`/`nor` do not chain even with themselves, because
+they are not associative — `(a nand b) nand c` and `a nand (b nand c)` differ:
+
+```koda
+a nand b nor c         // error: `nand` and `nor` cannot be combined
+(a nand b) nor c       // fine
+a xor b xor c          // fine: xor is associative
+a implies b implies c  // fine: chains to the right, as in logic
+```
+
+**`implies` and null checks.** Because the right operand of `implies` is only
+reached when the left one is true, a null check on the left carries across it:
+
+```koda
+fun nonEmpty(s: String?): Bool { s != null implies s.length > 0 }
+```
 
 ### Blocks are expressions
 
@@ -345,7 +399,101 @@ Classes may only be declared at the top level.
 
 ---
 
-## 9. Modules
+## 9. Generics
+
+Functions and classes may take type parameters. They are written after the
+name, as in `fun name<T>(...)` and `class Box<T>`:
+
+```koda
+fun firstOr<T>(xs: List<T>, fallback: T): T {
+    for (x in xs) { return x }
+    return fallback
+}
+
+fun mapAll<T, R>(xs: List<T>, f: (T) -> R): List<R> {
+    val out: List<R> = []
+    for (x in xs) { out.add(f(x)) }
+    return out
+}
+
+class Box<T>(val value: T) {
+    fun get(): T { this.value }
+    fun then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
+}
+```
+
+Type arguments are inferred from the call, one argument at a time, so a later
+lambda knows the type an earlier argument fixed:
+
+```koda
+mapAll([1, 2, 3], { it * 10 })     // T = Int, then R = Int
+mapAll(["a", "bb"], { it.length }) // T = String, then R = Int
+```
+
+When the arguments cannot settle a parameter, the surrounding annotation can:
+
+```koda
+val empty: Stack<Int> = Stack()
+```
+
+**Every type parameter must come out concrete.** Keal is meant to compile by
+monomorphisation — a generic is emitted once per instantiation — so there is
+no boxed representation to fall back on when inference comes up short. Two
+consequences follow:
+
+* A generic function cannot be used as a value; it must be called.
+* `is T` is rejected: a type parameter has no run-time identity to test.
+
+## 10. Traits
+
+A trait is a named set of method signatures. It is what type-parameter bounds
+are written in.
+
+```koda
+trait Show {
+    fun show(): String
+    fun shout(): String { this.show().toUpper() }   // a default body
+}
+
+trait Ordered {
+    fun compareTo(other: Self): Int
+}
+
+class Version(val major: Int, val minor: Int) : Show, Ordered {
+    fun show(): String { "v${this.major}.${this.minor}" }
+    fun compareTo(other: Version): Int {
+        if (this.major != other.major) { return this.major - other.major }
+        return this.minor - other.minor
+    }
+}
+```
+
+* A method with a body is a **default**: an implementer inherits it, or
+  overrides it by declaring its own.
+* `Self` stands for the implementing type. In `Version`, `compareTo` takes a
+  `Version`.
+* The checker verifies that every required method is present and that its
+  signature matches once `Self` is read as the class.
+
+A **bound** makes a trait's methods reachable through a type parameter.
+Several bounds are joined with `+`:
+
+```koda
+fun describe<T: Show>(value: T): String { value.show() }
+
+fun loudest<T: Show + Ordered>(a: T, b: T): String {
+    return if (a.compareTo(b) > 0) { a.shout() } else { b.shout() }
+}
+```
+
+Without a bound, nothing is known about a type parameter and no method can be
+called on it. Bounds apply to classes too: `class Labelled<T: Show>(...)`.
+
+A default method's body is checked in each class that inherits it, not once in
+the abstract — the same rule C++ templates follow. A trait nobody implements
+is therefore never type-checked.
+
+## 11. Modules
 
 ```keal
 import "./geometry.keal"
@@ -357,7 +505,7 @@ most once, so diamond imports and cycles are both fine.
 
 ---
 
-## 10. Standard library
+## 12. Standard library
 
 ### Free functions
 
@@ -424,7 +572,7 @@ negative indices. `sorted` works on `Int`, `Float`, `String` and `Bool`.
 
 ---
 
-## 11. Errors
+## 13. Errors
 
 The checker reports every independent error it can find in one pass, sorted
 by source position:
@@ -444,8 +592,9 @@ and a call stack.
 
 ---
 
-## 12. What is not here yet
+## 14. What is not here yet
 
-Inheritance and interfaces · user-defined generics · exceptions and
-`try`/`catch` · pattern destructuring · operator overloading · a module
-namespace (imports are flat) · a bytecode VM (the evaluator walks the AST).
+Class inheritance · exceptions and `try`/`catch` · pattern destructuring ·
+operator overloading for user types · associated types on traits · a module
+namespace (imports are flat) · and the native backend: pointers, `constexpr`,
+C interop and LLVM code generation. The evaluator walks the AST.

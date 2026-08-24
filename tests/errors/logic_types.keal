@@ -1,0 +1,6 @@
+val a = true
+val n = 1
+
+val notBool = n xor a
+val alsoNotBool = a implies n
+val negated = !n

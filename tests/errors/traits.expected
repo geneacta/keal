@@ -1,0 +1,36 @@
+error: `Broken` does not implement `Show`: `tag` is missing
+  --> tests/errors/traits.keal:11:1
+   |
+11 | class Broken(val n: Int) : Show {
+   | ^
+  = note: add `fun tag(prefix: String): String`
+error: `Broken.show` does not match `Show`, which declares `fun show(): String`
+  --> tests/errors/traits.keal:12:5
+   |
+12 |     fun show(): Int { this.n }
+   |     ^
+  = note: found `fun show(): Int`
+error: `Wrong.compareTo` does not match `Ordered`, which declares `fun compareTo(other: Wrong): Int`
+  --> tests/errors/traits.keal:17:5
+   |
+17 |     fun compareTo(other: Int): Int { this.n - other }
+   |     ^
+  = note: found `fun compareTo(other: Int): Int`
+error: `Missing` does not implement `Ordered`: `compareTo` is missing
+  --> tests/errors/traits.keal:20:1
+   |
+20 | class Missing(val n: Int) : Ordered
+   | ^
+  = note: add `fun compareTo(other: Missing): Int`
+error: `Show` is listed twice on `Twice`
+  --> tests/errors/traits.keal:22:33
+   |
+22 | class Twice(val n: Int) : Show, Show {
+   |                                 ^
+error: `Broken` is not a trait
+  --> tests/errors/traits.keal:27:31
+   |
+27 | class NotATrait(val n: Int) : Broken
+   |                               ^
+  = note: a class may only list traits after `:`
+6 errors found

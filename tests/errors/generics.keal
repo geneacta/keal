@@ -1,0 +1,29 @@
+trait Show {
+    fun show(): String
+}
+
+class Plain(val n: Int)
+class Shown(val n: Int) : Show {
+    fun show(): String { "${this.n}" }
+}
+
+fun identity<T>(value: T): T { value }
+fun describe<T: Show>(value: T): String { value.show() }
+fun nothing<T>(): Int { 1 }
+
+fun opaque<T>(value: T): Int {
+    return value.length
+}
+
+fun untestable<T>(value: T): Bool {
+    return value is T
+}
+
+val notATrait: List<Int> = []
+fun bad<T: Plain>(value: T): Int { 1 }
+
+val unsolved = nothing()
+val wrongBound = describe(Plain(1))
+val badArity: Shown<Int> = Shown(1)
+val fine = describe(Shown(2))
+val asValue = identity

@@ -14,15 +14,26 @@ pub struct Program {
 pub enum Item {
     Fun(FunDecl),
     Class(ClassDecl),
+    Trait(TraitDecl),
     /// `import "./other.keal"` — resolved and inlined by the module loader.
     Import { path: String, span: Span },
     /// A top-level statement, executed in order when the program runs.
     Stmt(Stmt),
 }
 
+/// One entry of a `<T, U: Comparable>` list. Bounds are parsed now and
+/// enforced once traits exist.
+#[derive(Clone, Debug)]
+pub struct TypeParam {
+    pub name: String,
+    pub bounds: Vec<TypeExpr>,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug)]
 pub struct FunDecl {
     pub name: String,
+    pub type_params: Vec<TypeParam>,
     pub params: Rc<Vec<Param>>,
     pub ret: Option<TypeExpr>,
     pub body: Rc<Block>,
@@ -37,9 +48,29 @@ pub struct Param {
     pub span: Span,
 }
 
+/// A named set of method signatures a class can promise to provide, and the
+/// vocabulary that type-parameter bounds are written in.
+#[derive(Clone, Debug)]
+pub struct TraitDecl {
+    pub name: String,
+    pub methods: Vec<TraitMethod>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct TraitMethod {
+    pub decl: FunDecl,
+    /// False when the trait only states the signature and every implementer
+    /// must supply the body.
+    pub has_default: bool,
+}
+
 #[derive(Clone, Debug)]
 pub struct ClassDecl {
     pub name: String,
+    pub type_params: Vec<TypeParam>,
+    /// The traits written after `:` in `class Version(...) : Comparable`.
+    pub traits: Vec<TypeExpr>,
     /// Primary-constructor parameters. Those marked `val`/`var` become fields.
     pub ctor: Vec<CtorParam>,
     pub fields: Vec<FieldDecl>,
@@ -112,8 +143,9 @@ pub enum ExprKind {
 
     Unary { op: UnOp, rhs: Box<Expr> },
     Binary { op: BinOp, lhs: Box<Expr>, rhs: Box<Expr> },
-    /// `&&` / `||`, kept separate because they short-circuit.
-    Logical { or: bool, lhs: Box<Expr>, rhs: Box<Expr> },
+    /// A binary logical connective, kept apart from `Binary` because most of
+    /// them short-circuit.
+    Logical { op: LogicalOp, lhs: Box<Expr>, rhs: Box<Expr> },
     /// `a ?: b` — evaluates `b` only when `a` is null.
     Elvis { lhs: Box<Expr>, rhs: Box<Expr> },
     Assign { target: Box<Expr>, op: Option<BinOp>, value: Box<Expr> },
@@ -170,6 +202,83 @@ pub enum WhenPattern {
 pub enum InterpPart {
     Lit(String),
     Expr(Expr),
+}
+
+/// The binary logical connectives. `Not` is a unary operator, so it lives in
+/// `UnOp` instead.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum LogicalOp {
+    And,
+    Or,
+    Xor,
+    Xnor,
+    Nand,
+    Nor,
+    Implies,
+}
+
+impl LogicalOp {
+    pub fn symbol(self) -> &'static str {
+        match self {
+            LogicalOp::And => "&&",
+            LogicalOp::Or => "||",
+            LogicalOp::Xor => "xor",
+            LogicalOp::Xnor => "xnor",
+            LogicalOp::Nand => "nand",
+            LogicalOp::Nor => "nor",
+            LogicalOp::Implies => "implies",
+        }
+    }
+
+    /// Applies the connective to two known operands.
+    pub fn apply(self, a: bool, b: bool) -> bool {
+        match self {
+            LogicalOp::And => a && b,
+            LogicalOp::Or => a || b,
+            LogicalOp::Xor => a != b,
+            LogicalOp::Xnor => a == b,
+            LogicalOp::Nand => !(a && b),
+            LogicalOp::Nor => !(a || b),
+            LogicalOp::Implies => !a || b,
+        }
+    }
+
+    /// When the left operand alone settles the result, that result.
+    ///
+    /// `xor` and `xnor` are absent on purpose: both depend on the right
+    /// operand whatever the left one is, so they always evaluate it.
+    pub fn short_circuit(self, left: bool) -> Option<bool> {
+        match (self, left) {
+            (LogicalOp::And, false) => Some(false),
+            (LogicalOp::Or, true) => Some(true),
+            (LogicalOp::Nand, false) => Some(true),
+            (LogicalOp::Nor, true) => Some(false),
+            (LogicalOp::Implies, false) => Some(true),
+            _ => None,
+        }
+    }
+
+    /// The truth the left operand must have for the right one to be reached.
+    /// This is what lets `x != null implies x.length > 0` type-check.
+    pub fn guard(self) -> Option<bool> {
+        match self {
+            LogicalOp::And | LogicalOp::Nand | LogicalOp::Implies => Some(true),
+            LogicalOp::Or | LogicalOp::Nor => Some(false),
+            LogicalOp::Xor | LogicalOp::Xnor => None,
+        }
+    }
+
+    /// When the whole expression is known to be `outcome`, the truth both
+    /// operands must then have, if it is forced.
+    pub fn implied_operands(self, outcome: bool) -> Option<bool> {
+        match (self, outcome) {
+            (LogicalOp::And, true) => Some(true),
+            (LogicalOp::Or, false) => Some(false),
+            (LogicalOp::Nand, false) => Some(true),
+            (LogicalOp::Nor, true) => Some(false),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

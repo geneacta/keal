@@ -1,0 +1,5 @@
+val a = true
+val b = false
+val c = true
+
+val mixed = a nand b nor c

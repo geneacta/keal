@@ -1,0 +1,41 @@
+error: `T` has no property `length`
+  --> tests/errors/generics.keal:15:18
+   |
+15 |     return value.length
+   |                  ^
+error: `is` cannot test the type parameter `T`
+  --> tests/errors/generics.keal:19:21
+   |
+19 |     return value is T
+   |                     ^
+  = note: type parameters have no run-time identity to check against
+error: `Plain` is not a trait, so it cannot bound `T`
+  --> tests/errors/generics.keal:23:12
+   |
+23 | fun bad<T: Plain>(value: T): Int { 1 }
+   |            ^
+  = note: declare it with `trait Name { ... }`
+error: cannot infer type parameter(s) `T` for `nothing`
+  --> tests/errors/generics.keal:25:16
+   |
+25 | val unsolved = nothing()
+   |                ^
+  = note: annotate the result, e.g. `val xs: List<Int> = ...`
+error: `Plain` does not implement `Show`, required by `T` of `describe`
+  --> tests/errors/generics.keal:26:18
+   |
+26 | val wrongBound = describe(Plain(1))
+   |                  ^
+  = note: declare it with `class Plain : Show`
+error: `Shown` takes 0 type argument(s), found 1
+  --> tests/errors/generics.keal:27:15
+   |
+27 | val badArity: Shown<Int> = Shown(1)
+   |               ^
+error: `identity` is generic over T and cannot be used as a value
+  --> tests/errors/generics.keal:29:15
+   |
+29 | val asValue = identity
+   |               ^
+  = note: call it instead; each instantiation compiles to its own function
+7 errors found

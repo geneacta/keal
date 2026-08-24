@@ -31,27 +31,44 @@ struct Parser {
 /// Binding powers, lowest first. Assignment is handled at statement level.
 fn binary_power(tok: &Tok) -> Option<(u8, BinOp)> {
     Some(match tok {
-        Tok::EqEq => (3, BinOp::Eq),
-        Tok::BangEq => (3, BinOp::Ne),
-        Tok::Lt => (4, BinOp::Lt),
-        Tok::LtEq => (4, BinOp::Le),
-        Tok::Gt => (4, BinOp::Gt),
-        Tok::GtEq => (4, BinOp::Ge),
-        Tok::Plus => (7, BinOp::Add),
-        Tok::Minus => (7, BinOp::Sub),
-        Tok::Star => (8, BinOp::Mul),
-        Tok::Slash => (8, BinOp::Div),
-        Tok::Percent => (8, BinOp::Rem),
+        Tok::EqEq => (4, BinOp::Eq),
+        Tok::BangEq => (4, BinOp::Ne),
+        Tok::Lt => (5, BinOp::Lt),
+        Tok::LtEq => (5, BinOp::Le),
+        Tok::Gt => (5, BinOp::Gt),
+        Tok::GtEq => (5, BinOp::Ge),
+        Tok::Plus => (8, BinOp::Add),
+        Tok::Minus => (8, BinOp::Sub),
+        Tok::Star => (9, BinOp::Mul),
+        Tok::Slash => (9, BinOp::Div),
+        Tok::Percent => (9, BinOp::Rem),
         _ => return None,
     })
 }
 
-const P_OR: u8 = 1;
-const P_AND: u8 = 2;
-const P_CMP: u8 = 4;
-const P_ELVIS: u8 = 5;
-const P_RANGE: u8 = 6;
-const P_UNARY: u8 = 9;
+/// `xor`, `xnor`, `nand`, `nor` and `implies` are contextual: they are only
+/// read as operators where a binary operator may appear, so a variable may
+/// still be called `nor`. Semicolon insertion keeps that safe across lines.
+fn word_op(tok: &Tok) -> Option<LogicalOp> {
+    let Tok::Ident(name) = tok else { return None };
+    Some(match name.as_str() {
+        "xor" => LogicalOp::Xor,
+        "xnor" => LogicalOp::Xnor,
+        "nand" => LogicalOp::Nand,
+        "nor" => LogicalOp::Nor,
+        "implies" => LogicalOp::Implies,
+        _ => return None,
+    })
+}
+
+/// The word operators all sit at one level, below `&&` and `||`.
+const P_WORD: u8 = 1;
+const P_OR: u8 = 2;
+const P_AND: u8 = 3;
+const P_CMP: u8 = 5;
+const P_ELVIS: u8 = 6;
+const P_RANGE: u8 = 7;
+const P_UNARY: u8 = 10;
 
 impl Parser {
     // ---- token helpers -------------------------------------------------
@@ -142,6 +159,7 @@ impl Parser {
         match self.peek() {
             Tok::Fun => Ok(Item::Fun(self.fun_decl()?)),
             Tok::Class => Ok(Item::Class(self.class_decl()?)),
+            Tok::Ident(name) if name == "trait" => Ok(Item::Trait(self.trait_decl()?)),
             Tok::Import => {
                 let span = self.span();
                 self.advance();
@@ -167,10 +185,49 @@ impl Parser {
         let span = self.span();
         self.expect(Tok::Fun, "to start a function declaration")?;
         let (name, _) = self.expect_ident("a function name")?;
+        let type_params = self.type_param_list()?;
         let params = self.param_list()?;
         let ret = if self.eat(&Tok::Colon) { Some(self.type_expr()?) } else { None };
         let body = self.block()?;
-        Ok(FunDecl { name, params: Rc::new(params), ret, body: Rc::new(body), span })
+        Ok(FunDecl {
+            name,
+            type_params,
+            params: Rc::new(params),
+            ret,
+            body: Rc::new(body),
+            span,
+        })
+    }
+
+    /// An optional `<T, U: Bound, V>` after a `fun` or `class` name.
+    fn type_param_list(&mut self) -> Result<Vec<TypeParam>, Diag> {
+        let mut out = Vec::new();
+        if !self.at(&Tok::Lt) {
+            return Ok(out);
+        }
+        self.advance();
+        while !self.at(&Tok::Gt) {
+            let (name, span) = self.expect_ident("a type parameter name")?;
+            let mut bounds = Vec::new();
+            if self.eat(&Tok::Colon) {
+                loop {
+                    bounds.push(self.type_expr()?);
+                    // `T: A + B` requires every bound at once.
+                    if !self.eat(&Tok::Plus) {
+                        break;
+                    }
+                }
+            }
+            out.push(TypeParam { name, bounds, span });
+            if !self.eat(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(Tok::Gt, "to close the type parameter list")?;
+        if out.is_empty() {
+            return Err(self.err_here("a type parameter list cannot be empty"));
+        }
+        Ok(out)
     }
 
     fn param_list(&mut self) -> Result<Vec<Param>, Diag> {
@@ -190,10 +247,50 @@ impl Parser {
         Ok(params)
     }
 
+    /// `trait Name { fun m(...): T ; fun d(...): T { default body } }`
+    ///
+    /// `trait` is a contextual keyword: it only introduces a declaration at
+    /// the start of an item, so existing code using it as a name still works.
+    fn trait_decl(&mut self) -> Result<TraitDecl, Diag> {
+        let span = self.span();
+        self.advance();
+        let (name, _) = self.expect_ident("a trait name")?;
+        self.expect(Tok::LBrace, "to open the trait body")?;
+        let mut methods = Vec::new();
+        loop {
+            self.skip_semis();
+            if self.at(&Tok::RBrace) || self.at(&Tok::Eof) {
+                break;
+            }
+            let mspan = self.span();
+            self.expect(Tok::Fun, "to start a trait method")?;
+            let (mname, _) = self.expect_ident("a method name")?;
+            let type_params = self.type_param_list()?;
+            let params = self.param_list()?;
+            let ret = if self.eat(&Tok::Colon) { Some(self.type_expr()?) } else { None };
+            let has_default = self.at(&Tok::LBrace);
+            let body = if has_default { self.block()? } else { Block { stmts: Vec::new() } };
+            methods.push(TraitMethod {
+                decl: FunDecl {
+                    name: mname,
+                    type_params,
+                    params: Rc::new(params),
+                    ret,
+                    body: Rc::new(body),
+                    span: mspan,
+                },
+                has_default,
+            });
+        }
+        self.expect(Tok::RBrace, "to close the trait body")?;
+        Ok(TraitDecl { name, methods, span })
+    }
+
     fn class_decl(&mut self) -> Result<ClassDecl, Diag> {
         let span = self.span();
         self.expect(Tok::Class, "to start a class declaration")?;
         let (name, _) = self.expect_ident("a class name")?;
+        let type_params = self.type_param_list()?;
 
         let mut ctor = Vec::new();
         if self.at(&Tok::LParen) {
@@ -219,11 +316,21 @@ impl Parser {
             self.expect(Tok::RParen, "to close the constructor parameter list")?;
         }
 
+        let mut traits = Vec::new();
+        if self.eat(&Tok::Colon) {
+            loop {
+                traits.push(self.type_expr()?);
+                if !self.eat(&Tok::Comma) {
+                    break;
+                }
+            }
+        }
+
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         // A class whose state is entirely in its constructor needs no body.
         if !self.at(&Tok::LBrace) {
-            return Ok(ClassDecl { name, ctor, fields, methods, span });
+            return Ok(ClassDecl { name, type_params, traits, ctor, fields, methods, span });
         }
         self.expect(Tok::LBrace, "to open the class body")?;
         loop {
@@ -259,7 +366,7 @@ impl Parser {
             }
         }
         self.expect(Tok::RBrace, "to close the class body")?;
-        Ok(ClassDecl { name, ctor, fields, methods, span })
+        Ok(ClassDecl { name, type_params, traits, ctor, fields, methods, span })
     }
 
     // ---- statements ----------------------------------------------------
@@ -378,13 +485,54 @@ impl Parser {
             let span = self.span();
             // Logical, elvis, range and `is`/`in` are infix operators that do
             // not map onto BinOp, so they get their own arms.
+            if let Some(op) = word_op(self.peek()) {
+                if P_WORD < min_bp {
+                    break;
+                }
+                self.advance();
+                // `implies` chains to the right: `a implies b implies c`
+                // reads as `a implies (b implies c)`, as in logic.
+                let rhs_bp = if op == LogicalOp::Implies { P_WORD } else { P_WORD + 1 };
+                let rhs = self.binary(rhs_bp)?;
+                lhs = Expr {
+                    span,
+                    kind: ExprKind::Logical { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
+                };
+                // Two different connectives in a row read ambiguously, and
+                // `nand`/`nor` are not associative even with themselves.
+                if let Some(next) = word_op(self.peek()) {
+                    let chainable = next == op && matches!(op, LogicalOp::Xor | LogicalOp::Xnor);
+                    if !chainable {
+                        let what = if next == op {
+                            format!("`{}` does not chain", op.symbol())
+                        } else {
+                            format!(
+                                "`{}` and `{}` cannot be combined without parentheses",
+                                op.symbol(),
+                                next.symbol()
+                            )
+                        };
+                        return Err(Diag::new(self.span(), what).with_note(format!(
+                            "group the operands explicitly, e.g. `(a {} b) {} c`",
+                            op.symbol(),
+                            next.symbol()
+                        )));
+                    }
+                }
+                continue;
+            }
+
             match self.peek() {
                 Tok::OrOr if P_OR >= min_bp => {
                     self.advance();
                     let rhs = self.binary(P_OR + 1)?;
                     lhs = Expr {
                         span,
-                        kind: ExprKind::Logical { or: true, lhs: Box::new(lhs), rhs: Box::new(rhs) },
+                        kind: ExprKind::Logical {
+                            op: LogicalOp::Or,
+                            lhs: Box::new(lhs),
+                            rhs: Box::new(rhs),
+                        },
                     };
                     continue;
                 }
@@ -394,7 +542,7 @@ impl Parser {
                     lhs = Expr {
                         span,
                         kind: ExprKind::Logical {
-                            or: false,
+                            op: LogicalOp::And,
                             lhs: Box::new(lhs),
                             rhs: Box::new(rhs),
                         },

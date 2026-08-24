@@ -228,12 +228,15 @@ impl Interp {
                 self.binary(*op, a, b, span)
             }
 
-            ExprKind::Logical { or, lhs, rhs } => {
-                let a = self.eval(lhs, env)?;
-                if a.truthy() == *or {
-                    return Ok(a);
+            ExprKind::Logical { op, lhs, rhs } => {
+                let a = self.eval(lhs, env)?.truthy();
+                // `xor` and `xnor` fall through: neither can be settled
+                // without its right operand.
+                if let Some(settled) = op.short_circuit(a) {
+                    return Ok(Value::Bool(settled));
                 }
-                self.eval(rhs, env)
+                let b = self.eval(rhs, env)?.truthy();
+                Ok(Value::Bool(op.apply(a, b)))
             }
 
             ExprKind::Elvis { lhs, rhs } => {

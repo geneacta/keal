@@ -14,7 +14,7 @@ use std::rc::Rc;
 use crate::ast::*;
 use crate::builtins;
 use crate::span::{Diag, Span};
-use crate::types::{FunType, ParamType, Type};
+use crate::types::{self_subst, FunType, ParamType, Subst, Type};
 
 pub fn check(program: &mut Program) -> Vec<Diag> {
     Checker::new().check_program(program).0
@@ -43,10 +43,33 @@ impl BindKind {
     }
 }
 
+/// A declared type parameter: its name and the traits it must satisfy.
+#[derive(Clone)]
+struct ParamDef {
+    name: Rc<str>,
+    bounds: Vec<Rc<str>>,
+}
+
+struct TraitInfo {
+    methods: HashMap<String, Rc<MethodInfo>>,
+    /// Methods the trait declares without a body; an implementer must supply
+    /// each one.
+    required: Vec<String>,
+}
+
 #[derive(Clone)]
 struct Binding {
     ty: Type,
     kind: BindKind,
+    /// Non-empty for a generic function. Because the backend monomorphises,
+    /// such a name must be called, not passed around as a value.
+    type_params: Vec<ParamDef>,
+}
+
+impl Binding {
+    fn new(ty: Type, kind: BindKind) -> Binding {
+        Binding { ty, kind, type_params: Vec::new() }
+    }
 }
 
 impl Binding {
@@ -60,9 +83,19 @@ struct FieldInfo {
     mutable: bool,
 }
 
+struct MethodInfo {
+    /// The method's own `<R>`, separate from the class's parameters.
+    type_params: Vec<ParamDef>,
+    sig: Rc<FunType>,
+}
+
 struct ClassInfo {
+    /// The class's own type parameters, in declaration order. Member types
+    /// are stored with these left as `Type::Param`, and substituted with the
+    /// receiver's type arguments each time a member is accessed.
+    type_params: Vec<ParamDef>,
     fields: Vec<(String, FieldInfo)>,
-    methods: HashMap<String, Rc<FunType>>,
+    methods: HashMap<String, Rc<MethodInfo>>,
     ctor: Rc<FunType>,
 }
 
@@ -87,6 +120,12 @@ pub struct Checker {
     this_ty: Vec<Type>,
     loop_depth: usize,
     errors: Vec<Diag>,
+    /// Type parameters currently in scope, innermost last. A name found here
+    /// resolves to `Type::Param` rather than to a class.
+    type_params: Vec<Vec<ParamDef>>,
+    traits: HashMap<String, TraitInfo>,
+    /// Which traits each class declares that it implements.
+    impls: HashMap<String, Vec<Rc<str>>>,
     /// Facts established by an early-exit guard such as
     /// `if (x == null) { return }`. Set while checking the guard, then
     /// consumed by `check_stmts` and applied to the rest of the block.
@@ -105,6 +144,9 @@ impl Checker {
             this_ty: Vec::new(),
             loop_depth: 0,
             errors: Vec::new(),
+            type_params: Vec::new(),
+            traits: HashMap::new(),
+            impls: HashMap::new(),
             guard_narrowing: None,
             repl: false,
         }
@@ -145,7 +187,7 @@ impl Checker {
     }
 
     fn declare(&mut self, name: &str, ty: Type, kind: BindKind) {
-        self.scopes.last_mut().unwrap().insert(name.to_string(), Binding { ty, kind });
+        self.scopes.last_mut().unwrap().insert(name.to_string(), Binding::new(ty, kind));
     }
 
     fn lookup(&self, name: &str) -> Option<&Binding> {
@@ -155,6 +197,26 @@ impl Checker {
     // ---- driver --------------------------------------------------------
 
     fn run(&mut self, program: &mut Program) -> Option<Type> {
+        // 0. Traits first: bounds and implements lists are written in terms
+        //    of them, so every later phase needs them already registered.
+        for item in &program.items {
+            if let Item::Trait(t) = item {
+                if self.traits.contains_key(&t.name) && !self.repl {
+                    self.error(t.span, format!("trait `{}` is declared twice", t.name));
+                }
+                self.traits.insert(
+                    t.name.clone(),
+                    TraitInfo { methods: HashMap::new(), required: Vec::new() },
+                );
+            }
+        }
+        for item in &program.items {
+            if let Item::Trait(t) = item {
+                self.collect_trait(t);
+            }
+        }
+        self.expand_trait_defaults(program);
+
         // 1. Class names, so classes may reference one another in signatures.
         for item in &program.items {
             if let Item::Class(c) = item {
@@ -166,11 +228,46 @@ impl Checker {
                 self.classes.insert(
                     c.name.clone(),
                     ClassInfo {
+                        type_params: c
+                            .type_params
+                            .iter()
+                            .map(|p| ParamDef {
+                                name: Rc::from(p.name.as_str()),
+                                bounds: Vec::new(),
+                            })
+                            .collect(),
                         fields: Vec::new(),
                         methods: HashMap::new(),
                         ctor: Rc::new(FunType { params: Vec::new(), ret: Type::Unit }),
                     },
                 );
+            }
+        }
+
+        // 1b. Which traits each class claims to implement.
+        for item in &program.items {
+            if let Item::Class(c) = item {
+                let mut names = Vec::new();
+                for t in &c.traits {
+                    match self.trait_name_of(t) {
+                        Some(n) => {
+                            if names.contains(&n) {
+                                self.error(
+                                    t.span,
+                                    format!("`{}` is listed twice on `{}`", n, c.name),
+                                );
+                            } else {
+                                names.push(n);
+                            }
+                        }
+                        None => self.error_note(
+                            t.span,
+                            format!("`{}` is not a trait", type_expr_name(t)),
+                            "a class may only list traits after `:`",
+                        ),
+                    }
+                }
+                self.impls.insert(c.name.clone(), names);
             }
         }
 
@@ -180,6 +277,13 @@ impl Checker {
                 Item::Class(c) => self.collect_class(c),
                 Item::Fun(f) => self.collect_fun(f),
                 _ => {}
+            }
+        }
+
+        // 3b. Every promise made after `:` must actually be kept.
+        for item in &program.items {
+            if let Item::Class(c) = item {
+                self.verify_impls(c);
             }
         }
 
@@ -215,10 +319,31 @@ impl Checker {
         if self.scopes[0].contains_key(&f.name) && !self.repl {
             self.error(f.span, format!("function `{}` is declared twice", f.name));
         }
-        self.scopes[0].insert(f.name.clone(), Binding { ty, kind: BindKind::Fun });
+        let type_params = self.param_defs(&f.type_params);
+        self.scopes[0]
+            .insert(f.name.clone(), Binding { ty, kind: BindKind::Fun, type_params });
+    }
+
+    /// Records a declaration's type parameters without bringing them into
+    /// scope; used for the copy stored alongside a callable's signature.
+    fn param_defs(&mut self, params: &[TypeParam]) -> Vec<ParamDef> {
+        params
+            .iter()
+            .map(|p| ParamDef {
+                name: Rc::from(p.name.as_str()),
+                bounds: p.bounds.iter().filter_map(|b| self.trait_name_of(b)).collect(),
+            })
+            .collect()
     }
 
     fn fun_type(&mut self, f: &FunDecl) -> FunType {
+        self.push_type_params(&f.type_params);
+        let ft = self.fun_type_inner(f);
+        self.pop_type_params();
+        ft
+    }
+
+    fn fun_type_inner(&mut self, f: &FunDecl) -> FunType {
         let params = f
             .params
             .iter()
@@ -232,7 +357,156 @@ impl Checker {
         FunType { params, ret }
     }
 
+    fn collect_trait(&mut self, t: &TraitDecl) {
+        // Inside the declaration `Self` is opaque: it stands for whichever
+        // type ends up implementing the trait.
+        self.this_ty.push(Type::SelfTy);
+        let mut methods = HashMap::new();
+        let mut required = Vec::new();
+        for m in &t.methods {
+            if methods.contains_key(&m.decl.name) {
+                self.error(
+                    m.decl.span,
+                    format!("`{}` declares `{}` twice", t.name, m.decl.name),
+                );
+            }
+            let sig = self.fun_type(&m.decl);
+            let tps = self.param_defs(&m.decl.type_params);
+            if !m.has_default {
+                required.push(m.decl.name.clone());
+            }
+            methods.insert(
+                m.decl.name.clone(),
+                Rc::new(MethodInfo { type_params: tps, sig: Rc::new(sig) }),
+            );
+        }
+        self.this_ty.pop();
+        self.traits.insert(t.name.clone(), TraitInfo { methods, required });
+    }
+
+    /// Copies each trait's default methods into the classes that implement it
+    /// and do not override them.
+    ///
+    /// Doing this as a source-level expansion means the rest of the checker,
+    /// and the evaluator, only ever see ordinary methods — and it matches what
+    /// a monomorphising backend would emit anyway.
+    fn expand_trait_defaults(&mut self, program: &mut Program) {
+        let mut defaults: HashMap<String, Vec<FunDecl>> = HashMap::new();
+        for item in &program.items {
+            if let Item::Trait(t) = item {
+                let ms: Vec<FunDecl> =
+                    t.methods.iter().filter(|m| m.has_default).map(|m| m.decl.clone()).collect();
+                if !ms.is_empty() {
+                    defaults.insert(t.name.clone(), ms);
+                }
+            }
+        }
+        if defaults.is_empty() {
+            return;
+        }
+        for item in &mut program.items {
+            let Item::Class(c) = item else { continue };
+            for t in &c.traits {
+                let TypeExprKind::Named { name, .. } = &t.kind else { continue };
+                let Some(ms) = defaults.get(name) else { continue };
+                for m in ms {
+                    if !c.methods.iter().any(|own| own.name == m.name) {
+                        c.methods.push(m.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Checks that a class supplies every method its traits require, with a
+    /// signature that matches once `Self` is read as the class itself.
+    fn verify_impls(&mut self, c: &ClassDecl) {
+        let Some(trait_names) = self.impls.get(&c.name).cloned() else { return };
+        if trait_names.is_empty() {
+            return;
+        }
+        let self_ty = Type::class(
+            &c.name,
+            self.classes
+                .get(&c.name)
+                .map(|i| i.type_params.iter().map(|p| Type::Param(p.name.clone())).collect())
+                .unwrap_or_default(),
+        );
+        let subst = self_subst(&self_ty);
+
+        for tname in trait_names {
+            let Some(info) = self.traits.get(&*tname) else { continue };
+            let required = info.required.clone();
+            let sigs: Vec<(String, Rc<FunType>)> = info
+                .methods
+                .iter()
+                .map(|(n, m)| (n.clone(), m.sig.clone()))
+                .collect();
+
+            for name in &required {
+                let has = self
+                    .classes
+                    .get(&c.name)
+                    .map(|i| i.methods.contains_key(name))
+                    .unwrap_or(false);
+                if !has {
+                    // Show the signature as the class must write it, with
+                    // `Self` already read as the class itself.
+                    let wanted = sigs
+                        .iter()
+                        .find(|(n, _)| n == name)
+                        .map(|(_, s)| render_signature(name, &s.substitute(&subst)))
+                        .unwrap_or_else(|| name.clone());
+                    self.error_note(
+                        c.span,
+                        format!("`{}` does not implement `{}`: `{}` is missing", c.name, tname, name),
+                        format!("add `{}`", wanted),
+                    );
+                }
+            }
+
+            for (name, want) in &sigs {
+                let Some(got) = self
+                    .classes
+                    .get(&c.name)
+                    .and_then(|i| i.methods.get(name))
+                    .map(|m| m.sig.clone())
+                else {
+                    continue;
+                };
+                let want = want.substitute(&subst);
+                let mismatch = want.params.len() != got.params.len()
+                    || want
+                        .params
+                        .iter()
+                        .zip(&got.params)
+                        .any(|(a, b)| a.ty != b.ty)
+                    || want.ret != got.ret;
+                if mismatch {
+                    let where_ = c
+                        .methods
+                        .iter()
+                        .find(|m| m.name == *name)
+                        .map(|m| m.span)
+                        .unwrap_or(c.span);
+                    self.error_note(
+                        where_,
+                        format!(
+                            "`{}.{}` does not match `{}`, which declares `{}`",
+                            c.name,
+                            name,
+                            tname,
+                            render_signature(name, &want)
+                        ),
+                        format!("found `{}`", render_signature(name, &got)),
+                    );
+                }
+            }
+        }
+    }
+
     fn collect_class(&mut self, c: &ClassDecl) {
+        let type_params = self.push_type_params(&c.type_params);
         let mut fields: Vec<(String, FieldInfo)> = Vec::new();
         let mut ctor_params = Vec::new();
         for p in &c.ctor {
@@ -268,24 +542,45 @@ impl Checker {
                 self.error(m.span, format!("method `{}` is declared twice", m.name));
             }
             let ft = self.fun_type(m);
-            methods.insert(m.name.clone(), Rc::new(ft));
+            let tps = self.param_defs(&m.type_params);
+            methods.insert(m.name.clone(), Rc::new(MethodInfo { type_params: tps, sig: Rc::new(ft) }));
         }
 
+        // A constructor returns the class instantiated at its own
+        // parameters; a call site then solves them from the arguments.
+        let self_ty = Type::class(
+            &c.name,
+            type_params.iter().map(|p| Type::Param(p.name.clone())).collect(),
+        );
         let info = ClassInfo {
+            type_params: type_params.clone(),
             fields,
             methods,
-            ctor: Rc::new(FunType {
-                params: ctor_params,
-                ret: Type::Class(Rc::from(c.name.as_str())),
-            }),
+            ctor: Rc::new(FunType { params: ctor_params, ret: self_ty }),
         };
+        self.pop_type_params();
         self.classes.insert(c.name.clone(), info);
+    }
+
+    /// Maps a class's type parameters onto the arguments a receiver supplies,
+    /// so `Box<Int>.value` reads as `Int` rather than as `T`.
+    fn class_subst(&self, name: &str, args: &[Type]) -> Subst {
+        let mut subst = Subst::new();
+        if let Some(info) = self.classes.get(name) {
+            for (p, a) in info.type_params.iter().zip(args) {
+                subst.insert(p.name.clone(), a.clone());
+            }
+        }
+        subst
     }
 
     /// Second pass over a class: infer un-annotated field types, then check
     /// initializers and method bodies.
     fn check_class_body(&mut self, c: &mut ClassDecl) {
-        let this = Type::Class(Rc::from(c.name.as_str()));
+        self.validate_type_params(&c.type_params);
+        let names = self.push_type_params(&c.type_params);
+        let this =
+            Type::class(&c.name, names.iter().map(|p| Type::Param(p.name.clone())).collect());
 
         // Field initializers see the constructor parameters and `this`.
         self.push_scope();
@@ -326,10 +621,13 @@ impl Checker {
         for m in &mut c.methods {
             self.check_fun_body(m, Some(this.clone()));
         }
+        self.pop_type_params();
     }
 
     fn check_fun_body(&mut self, f: &mut FunDecl, this: Option<Type>) {
-        let ft = self.fun_type(f);
+        self.validate_type_params(&f.type_params);
+        self.push_type_params(&f.type_params);
+        let ft = self.fun_type_inner(f);
         self.push_scope();
         let has_this = this.is_some();
         if let Some(t) = this {
@@ -370,6 +668,7 @@ impl Checker {
             self.this_ty.pop();
         }
         self.pop_scope();
+        self.pop_type_params();
     }
 
     // ---- types ---------------------------------------------------------
@@ -434,7 +733,32 @@ impl Checker {
                             self.resolve_quiet(&args[1])?,
                         ))
                     }
-                    other if self.classes.contains_key(other) => simple(Type::Class(Rc::from(other))),
+                    "Self" => match self.this_ty.last() {
+                        Some(t) => simple(t.clone()),
+                        None => Err(Diag::new(
+                            te.span,
+                            "`Self` is only available inside a trait or a class",
+                        )),
+                    },
+                    other if self.type_param_in_scope(other) => simple(Type::param(other)),
+                    other if self.classes.contains_key(other) => {
+                        let info = &self.classes[other];
+                        let wanted = info.type_params.len();
+                        if arity != wanted {
+                            return Err(Diag::new(
+                                te.span,
+                                format!(
+                                    "`{}` takes {} type argument(s), found {}",
+                                    other, wanted, arity
+                                ),
+                            ));
+                        }
+                        let resolved = args
+                            .iter()
+                            .map(|a| self.resolve_quiet(a))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        Ok(Type::class(other, resolved))
+                    }
                     other => Err(Diag::new(te.span, format!("unknown type `{}`", other))),
                 }
             }
@@ -448,6 +772,14 @@ impl Checker {
     /// element type is not observable and narrowing to it would be unsound.
     fn resolve_is_type(&mut self, te: &TypeExpr) -> Type {
         if let TypeExprKind::Named { name, args } = &te.kind {
+            if args.is_empty() && self.type_param_in_scope(name) {
+                self.error_note(
+                    te.span,
+                    format!("`is` cannot test the type parameter `{}`", name),
+                    "type parameters have no run-time identity to check against",
+                );
+                return Type::Error;
+            }
             let container = matches!(name.as_str(), "List" | "Map");
             if container && args.is_empty() {
                 return if name == "List" {
@@ -480,6 +812,92 @@ impl Checker {
             }
         }
         self.resolve_quiet(te)
+    }
+
+    fn type_param_in_scope(&self, name: &str) -> bool {
+        self.find_param(name).is_some()
+    }
+
+    fn find_param(&self, name: &str) -> Option<&ParamDef> {
+        self.type_params.iter().rev().find_map(|s| s.iter().find(|p| &*p.name == name))
+    }
+
+    /// Brings a declaration's `<T, U>` into scope while its signature and
+    /// body are checked. Returns the names so the caller can pop them.
+    fn push_type_params(&mut self, params: &[TypeParam]) -> Vec<ParamDef> {
+        let defs = self.param_defs(params);
+        self.type_params.push(defs.clone());
+        defs
+    }
+
+    /// Reports what is wrong with a `<T, U: Bound>` list.
+    ///
+    /// Kept apart from `push_type_params`, which runs once per pass over a
+    /// declaration and would otherwise report each problem several times.
+    fn validate_type_params(&mut self, params: &[TypeParam]) {
+        for p in params {
+            if self.classes.contains_key(&p.name) {
+                self.error_note(
+                    p.span,
+                    format!("type parameter `{}` shadows a class of the same name", p.name),
+                    "pick a different name for the type parameter",
+                );
+            }
+            for b in &p.bounds {
+                if self.trait_name_of(b).is_none() {
+                    self.error_note(
+                        b.span,
+                        format!("`{}` is not a trait, so it cannot bound `{}`", type_expr_name(b), p.name),
+                        "declare it with `trait Name { ... }`",
+                    );
+                }
+            }
+        }
+    }
+
+    /// Reads a `TypeExpr` written in bound or implements position.
+    fn trait_name_of(&self, te: &TypeExpr) -> Option<Rc<str>> {
+        match &te.kind {
+            TypeExprKind::Named { name, args } if args.is_empty() => {
+                self.traits.contains_key(name).then(|| Rc::from(name.as_str()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Does `ty` provide everything `trait_name` requires?
+    fn implements(&self, ty: &Type, trait_name: &str) -> bool {
+        match ty {
+            Type::Class(name, _) => self
+                .impls
+                .get(&**name)
+                .map(|ts| ts.iter().any(|t| &**t == trait_name))
+                .unwrap_or(false),
+            Type::Param(name) => self
+                .find_param(name)
+                .map(|p| p.bounds.iter().any(|t| &**t == trait_name))
+                .unwrap_or(false),
+            // Errors already reported elsewhere must not cascade.
+            Type::Error | Type::Never => true,
+            _ => false,
+        }
+    }
+
+    /// Finds a method reachable through a type parameter's bounds.
+    fn bound_method(&self, param: &str, method: &str) -> Option<(Rc<str>, Rc<MethodInfo>)> {
+        let def = self.find_param(param)?;
+        for t in &def.bounds {
+            if let Some(info) = self.traits.get(&**t) {
+                if let Some(m) = info.methods.get(method) {
+                    return Some((t.clone(), m.clone()));
+                }
+            }
+        }
+        None
+    }
+
+    fn pop_type_params(&mut self) {
+        self.type_params.pop();
     }
 
     fn expect_assignable(&mut self, actual: &Type, expected: &Type, span: Span, what: &str) {
@@ -676,7 +1094,11 @@ impl Checker {
 
     fn collect_local_fun(&mut self, f: &FunDecl) {
         let ty = Type::Fun(Rc::new(self.fun_type(f)));
-        self.declare(&f.name.clone(), ty, BindKind::Fun);
+        let type_params = self.param_defs(&f.type_params);
+        self.scopes
+            .last_mut()
+            .unwrap()
+            .insert(f.name.clone(), Binding { ty, kind: BindKind::Fun, type_params });
     }
 
     // ---- expressions ---------------------------------------------------
@@ -719,6 +1141,20 @@ impl Checker {
             },
             ExprKind::Ident(name) => {
                 if let Some(b) = self.lookup(name) {
+                    if !b.type_params.is_empty() {
+                        let listed: Vec<String> =
+                            b.type_params.iter().map(|p| p.name.to_string()).collect();
+                        self.error_note(
+                            span,
+                            format!(
+                                "`{}` is generic over {} and cannot be used as a value",
+                                name,
+                                listed.join(", ")
+                            ),
+                            "call it instead; each instantiation compiles to its own function",
+                        );
+                        return Type::Error;
+                    }
                     return b.ty.clone();
                 }
                 if self.classes.contains_key(name) {
@@ -768,12 +1204,16 @@ impl Checker {
                 self.binary_result(op, &lt, &rt, span)
             }
 
-            ExprKind::Logical { lhs, rhs, or } => {
-                let or = *or;
+            ExprKind::Logical { lhs, rhs, op } => {
+                let op = *op;
                 let lt = self.check_expr(lhs, Some(&Type::Bool));
                 self.expect_assignable(&lt, &Type::Bool, lhs.span, "operand of a logical operator");
-                // The right operand sees what the left one proved.
-                let narrowed = self.narrowings(lhs, !or);
+                // Where the right operand is only reached once the left one
+                // has a known truth value, it may rely on what that proves.
+                let narrowed = match op.guard() {
+                    Some(truth) => self.narrowings(lhs, truth),
+                    None => Vec::new(),
+                };
                 self.push_scope();
                 self.apply(narrowed);
                 let rt = self.check_expr(rhs, Some(&Type::Bool));
@@ -815,6 +1255,9 @@ impl Checker {
             ExprKind::Is { value, ty, negated: _ } => {
                 let vt = self.check_expr(value, None);
                 let target = self.resolve_is_type(ty);
+                if target == Type::Error {
+                    return Type::Bool;
+                }
                 if target.is_nullable() && !matches!(target, Type::Null) {
                     self.error_note(
                         span,
@@ -830,7 +1273,9 @@ impl Checker {
 
             ExprKind::ListLit(items) => {
                 let hint = match expected {
-                    Some(Type::List(t)) => Some((**t).clone()),
+                    // While `T` is unsolved it says nothing about the
+                    // elements; infer them and let unification do the rest.
+                    Some(Type::List(t)) if !t.has_params() => Some((**t).clone()),
                     _ => None,
                 };
                 let mut elem = Type::Never;
@@ -850,7 +1295,9 @@ impl Checker {
 
             ExprKind::MapLit(entries) => {
                 let hint = match expected {
-                    Some(Type::Map(k, v)) => Some(((**k).clone(), (**v).clone())),
+                    Some(Type::Map(k, v)) if !k.has_params() && !v.has_params() => {
+                        Some(((**k).clone(), (**v).clone()))
+                    }
                     _ => None,
                 };
                 let (mut kt, mut vt) = (Type::Never, Type::Never);
@@ -895,7 +1342,11 @@ impl Checker {
                 }
                 let mut param_tys = Vec::new();
                 for (i, p) in params.iter().enumerate() {
-                    let ty = match (&p.ty, hint.as_ref().and_then(|f| f.params.get(i))) {
+                    let from_hint = hint
+                        .as_ref()
+                        .and_then(|f| f.params.get(i))
+                        .filter(|pt| !pt.ty.has_params());
+                    let ty = match (&p.ty, from_hint) {
                         (Some(t), _) => self.resolve(t),
                         (None, Some(pt)) => pt.ty.clone(),
                         (None, None) => {
@@ -1024,7 +1475,7 @@ impl Checker {
                         return Type::Error;
                     }
                 };
-                let t = self.method_call(&base, &name, args, span);
+                let t = self.method_call(&base, &name, args, span, expected);
                 if nullable {
                     t.nullable()
                 } else {
@@ -1032,7 +1483,7 @@ impl Checker {
                 }
             }
 
-            ExprKind::Call { callee, args } => self.check_call(callee, args, span),
+            ExprKind::Call { callee, args } => self.check_call(callee, args, span, expected),
 
             ExprKind::Assign { target, op, value } => {
                 let op = *op;
@@ -1113,14 +1564,30 @@ impl Checker {
         if let Some(t) = builtins::property_sig(base, name) {
             return t;
         }
-        if let Type::Class(cls) = base {
+        if let Type::Class(cls, targs) = base {
             let cls = cls.to_string();
+            let subst = self.class_subst(&cls, targs);
             if let Some(info) = self.classes.get(&cls) {
                 if let Some(f) = info.field(name) {
-                    return f.ty.clone();
+                    return f.ty.substitute(&subst);
                 }
                 if let Some(m) = info.methods.get(name) {
-                    return Type::Fun(m.clone());
+                    if !m.type_params.is_empty() {
+                        let generic =
+                            m.type_params.iter().map(|p| p.name.to_string()).collect::<Vec<_>>();
+                        self.error_note(
+                            span,
+                            format!(
+                                "`{}.{}` is generic over {} and cannot be used as a value",
+                                cls,
+                                name,
+                                generic.join(", ")
+                            ),
+                            "call it instead; a generic function has no single compiled form",
+                        );
+                        return Type::Error;
+                    }
+                    return Type::Fun(Rc::new(m.sig.substitute(&subst)));
                 }
             }
             self.error(span, format!("`{}` has no field or method `{}`", cls, name));
@@ -1133,7 +1600,15 @@ impl Checker {
         Type::Error
     }
 
-    fn method_call(&mut self, base: &Type, name: &str, args: &mut Vec<Arg>, span: Span) -> Type {
+    fn method_call(
+        &mut self,
+        base: &Type,
+        method: &str,
+        args: &mut Vec<Arg>,
+        span: Span,
+        expected: Option<&Type>,
+    ) -> Type {
+        let name = method;
         if *base == Type::Error {
             for a in args.iter_mut() {
                 self.check_expr(&mut a.value, None);
@@ -1141,12 +1616,65 @@ impl Checker {
             return Type::Error;
         }
 
+        // A value whose type is a parameter can only be used through the
+        // traits that parameter is bounded by.
+        if let Type::Param(name) = base {
+            let name = name.to_string();
+            match self.bound_method(&name, method) {
+                Some((_, m)) => {
+                    let sig = m.sig.substitute(&self_subst(base));
+                    return self.check_args(
+                        &sig,
+                        &m.type_params,
+                        args,
+                        span,
+                        &format!("method `{}`", method),
+                        expected,
+                    );
+                }
+                None => {
+                    for a in args.iter_mut() {
+                        self.check_expr(&mut a.value, None);
+                    }
+                    let bounds = self
+                        .find_param(&name)
+                        .map(|p| p.bounds.clone())
+                        .unwrap_or_default();
+                    let note = if bounds.is_empty() {
+                        format!(
+                            "`{}` has no bounds, so nothing is known about it; add one, e.g. `<{}: SomeTrait>`",
+                            name, name
+                        )
+                    } else {
+                        let listed: Vec<String> =
+                            bounds.iter().map(|b| format!("`{}`", b)).collect();
+                        format!("`{}` is only known to implement {}", name, listed.join(", "))
+                    };
+                    self.error_note(
+                        span,
+                        format!("`{}` has no method `{}`", name, method),
+                        note,
+                    );
+                    return Type::Error;
+                }
+            }
+        }
+
         // User-declared methods take priority over the built-in table.
-        if let Type::Class(cls) = base {
+        if let Type::Class(cls, targs) = base {
             let cls = cls.to_string();
+            let subst = self.class_subst(&cls, targs);
             let found = self.classes.get(&cls).and_then(|i| i.methods.get(name).cloned());
-            if let Some(ft) = found {
-                return self.check_args(&ft, args, span, &format!("method `{}`", name));
+            if let Some(m) = found {
+                let sig = m.sig.substitute(&subst);
+                return self.check_args(
+                    &sig,
+                    &m.type_params,
+                    args,
+                    span,
+                    &format!("method `{}`", name),
+                    expected,
+                );
             }
             let is_field = self
                 .classes
@@ -1160,7 +1688,7 @@ impl Checker {
             }
             // Fall through to the universal methods, such as `toString`.
             if let Some(ft) = builtins::method_sig(base, name, &vec![None; args.len()]) {
-                return self.check_args(&ft, args, span, &format!("method `{}`", name));
+                return self.check_args(&ft, &[], args, span, &format!("method `{}`", name), expected);
             }
             for a in args.iter_mut() {
                 self.check_expr(&mut a.value, None);
@@ -1221,14 +1749,28 @@ impl Checker {
         ft.ret
     }
 
-    fn check_call(&mut self, callee: &mut Expr, args: &mut Vec<Arg>, span: Span) -> Type {
+    fn check_call(
+        &mut self,
+        callee: &mut Expr,
+        args: &mut Vec<Arg>,
+        span: Span,
+        expected: Option<&Type>,
+    ) -> Type {
         // Constructor call, or a call to a built-in global.
         if let ExprKind::Ident(name) = &callee.kind {
             let name = name.clone();
             if self.lookup(&name).is_none() {
                 if let Some(info) = self.classes.get(&name) {
                     let ctor = info.ctor.clone();
-                    return self.check_args(&ctor, args, span, &format!("constructor `{}`", name));
+                    let tps = info.type_params.clone();
+                    return self.check_args(
+                        &ctor,
+                        &tps,
+                        args,
+                        span,
+                        &format!("constructor `{}`", name),
+                        expected,
+                    );
                 }
                 if builtins::global_sig(&name, &[None, None]).is_some() {
                     return self.check_global_call(&name, args, span);
@@ -1245,13 +1787,24 @@ impl Checker {
             ExprKind::Field { name, .. } => format!("`{}`", name),
             _ => "this expression".to_string(),
         };
+        // A generic function is resolved here rather than through
+        // `check_expr`, which would reject it as an un-instantiated value.
+        if let ExprKind::Ident(n) = &callee.kind {
+            let generic = self
+                .lookup(n)
+                .filter(|b| !b.type_params.is_empty())
+                .map(|b| (b.ty.clone(), b.type_params.clone()));
+            if let Some((Type::Fun(ft), tps)) = generic {
+                return self.check_args(&ft, &tps, args, span, &what, expected);
+            }
+        }
         let ct = self.check_expr(callee, None);
         self.call_fun_type(&ct, args, span, &what)
     }
 
     fn call_fun_type(&mut self, ct: &Type, args: &mut Vec<Arg>, span: Span, what: &str) -> Type {
         match ct {
-            Type::Fun(ft) => self.check_args(&ft.clone(), args, span, what),
+            Type::Fun(ft) => self.check_args(&ft.clone(), &[], args, span, what, None),
             Type::Error => {
                 for a in args.iter_mut() {
                     self.check_expr(&mut a.value, None);
@@ -1312,8 +1865,24 @@ impl Checker {
         ft.ret
     }
 
-    /// Matches call arguments (positional and named) against a signature.
-    fn check_args(&mut self, ft: &FunType, args: &mut Vec<Arg>, span: Span, what: &str) -> Type {
+    /// Matches call arguments (positional and named) against a signature,
+    /// solving `type_params` as it goes.
+    ///
+    /// Each argument is checked against the parameter type with whatever has
+    /// been solved so far already substituted in, then contributes what it
+    /// proves back to the solution. That ordering is what lets a lambda in a
+    /// later argument know the element type fixed by an earlier one, as in
+    /// `map(xs, { it + 1 })`.
+    fn check_args(
+        &mut self,
+        ft: &FunType,
+        type_params: &[ParamDef],
+        args: &mut Vec<Arg>,
+        span: Span,
+        what: &str,
+        expected: Option<&Type>,
+    ) -> Type {
+        let mut subst = Subst::new();
         let mut filled: Vec<bool> = vec![false; ft.params.len()];
         let mut next_positional = 0usize;
         let mut seen_named = false;
@@ -1359,8 +1928,13 @@ impl Checker {
                         );
                     }
                     filled[i] = true;
-                    let want = ft.params[i].ty.clone();
-                    let got = self.check_coerced(&mut arg.value, &want);
+                    let declared = ft.params[i].ty.clone();
+                    let hint = declared.substitute(&subst);
+                    let got = self.check_coerced(&mut arg.value, &hint);
+                    Type::unify(&declared, &got, &mut subst);
+                    // Re-substitute: this argument may have solved the very
+                    // parameter its own type is expressed in terms of.
+                    let want = declared.substitute(&subst);
                     self.expect_assignable(
                         &got,
                         &want,
@@ -1398,7 +1972,10 @@ impl Checker {
                 format!("{} is missing argument(s): {}", what, missing.join(", ")),
             );
         }
-        ft.ret.clone()
+        if type_params.is_empty() {
+            return ft.ret.clone();
+        }
+        self.finish_inference(ft, type_params, &mut subst, expected, span, what)
     }
 
     /// Returns the target's type and, when it cannot be assigned, a
@@ -1427,10 +2004,12 @@ impl Checker {
                     self.error(span, "`?.` cannot be used on the left of an assignment");
                 }
                 let ot = self.check_expr(obj, None);
-                if let Type::Class(cls) = &ot {
+                if let Type::Class(cls, targs) = &ot {
                     let cls = cls.to_string();
+                    let subst = self.class_subst(&cls, targs);
                     if let Some(info) = self.classes.get(&cls) {
                         if let Some(f) = info.field(&name) {
+                            let fty = f.ty.substitute(&subst);
                             let problem = (!f.mutable).then(|| {
                                 (
                                     format!("field `{}.{}`", cls, name),
@@ -1438,7 +2017,7 @@ impl Checker {
                                         .to_string(),
                                 )
                             });
-                            return (f.ty.clone(), problem);
+                            return (fty, problem);
                         }
                     }
                     self.error(span, format!("`{}` has no field `{}`", cls, name));
@@ -1675,9 +2254,11 @@ impl Checker {
             ExprKind::Unary { op: UnOp::Not, rhs } => {
                 self.collect_narrowings(rhs, !positive, out)
             }
-            ExprKind::Logical { or, lhs, rhs } => {
-                // `a && b` proves both when true; `a || b` proves both when false.
-                if *or != positive {
+            ExprKind::Logical { op, lhs, rhs } => {
+                // Some outcomes pin both operands down: `a && b` being true
+                // means each is true, `a nor b` being true means each is
+                // false. Only then does the fact carry to the operands.
+                if op.implied_operands(positive) == Some(positive) {
                     self.collect_narrowings(lhs, positive, out);
                     self.collect_narrowings(rhs, positive, out);
                 }
@@ -1720,6 +2301,79 @@ impl Checker {
             let kind = self.lookup(&name).map(|b| b.kind).unwrap_or(BindKind::Val);
             self.declare(&name, ty, kind);
         }
+    }
+
+    /// Solves a call's type parameters and reports any that stayed unknown.
+    /// Every parameter must come out concrete: a monomorphising backend has
+    /// no boxed representation to fall back on when one does not.
+    fn finish_inference(
+        &mut self,
+        ft: &FunType,
+        type_params: &[ParamDef],
+        subst: &mut Subst,
+        expected: Option<&Type>,
+        span: Span,
+        what: &str,
+    ) -> Type {
+        let mut ret = ft.ret.substitute(subst);
+        // A parameter that appears only in the return type can still be
+        // pinned down by the context the call sits in.
+        if ret.has_params() {
+            if let Some(want) = expected {
+                Type::unify(&ret, want, subst);
+                ret = ft.ret.substitute(subst);
+            }
+        }
+        let unsolved: Vec<String> = type_params
+            .iter()
+            .filter(|p| !subst.contains_key(&p.name))
+            .map(|p| format!("`{}`", p.name))
+            .collect();
+        if !unsolved.is_empty() {
+            self.error_note(
+                span,
+                format!("cannot infer type parameter(s) {} for {}", unsolved.join(", "), what),
+                "annotate the result, e.g. `val xs: List<Int> = ...`",
+            );
+            return Type::Error;
+        }
+        // Now that every parameter is concrete, its bounds can be checked.
+        for p in type_params {
+            let Some(actual) = subst.get(&p.name) else { continue };
+            for bound in &p.bounds {
+                if !self.implements(actual, bound) {
+                    self.error_note(
+                        span,
+                        format!(
+                            "`{}` does not implement `{}`, required by `{}` of {}",
+                            actual, bound, p.name, what
+                        ),
+                        format!("declare it with `class {} : {}`", actual, bound),
+                    );
+                }
+            }
+        }
+        ret
+    }
+}
+
+/// The name a `TypeExpr` mentions, for error messages about non-traits.
+fn type_expr_name(te: &TypeExpr) -> String {
+    match &te.kind {
+        TypeExprKind::Named { name, .. } => name.clone(),
+        TypeExprKind::Nullable(inner) => format!("{}?", type_expr_name(inner)),
+        TypeExprKind::Fun { .. } => "a function type".to_string(),
+    }
+}
+
+/// Renders a signature the way the user would write it.
+fn render_signature(name: &str, ft: &FunType) -> String {
+    let params: Vec<String> =
+        ft.params.iter().map(|p| format!("{}: {}", p.name, p.ty)).collect();
+    if ft.ret == Type::Unit {
+        format!("fun {}({})", name, params.join(", "))
+    } else {
+        format!("fun {}({}): {}", name, params.join(", "), ft.ret)
     }
 }
 

@@ -1,0 +1,16 @@
+error: operand of a logical operator has type `Int`, but `Bool` was expected
+  --> tests/errors/logic_types.keal:4:15
+  |
+4 | val notBool = n xor a
+  |               ^
+error: operand of a logical operator has type `Int`, but `Bool` was expected
+  --> tests/errors/logic_types.keal:5:29
+  |
+5 | val alsoNotBool = a implies n
+  |                             ^
+error: operand of `!` has type `Int`, but `Bool` was expected
+  --> tests/errors/logic_types.keal:6:16
+  |
+6 | val negated = !n
+  |                ^
+3 errors found

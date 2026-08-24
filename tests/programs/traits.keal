@@ -1,0 +1,64 @@
+// Traits: required methods, default methods, and type-parameter bounds.
+
+trait Show {
+    fun show(): String
+    // A default body; an implementer may take it or override it.
+    fun shout(): String { this.show().toUpper() }
+}
+
+trait Ordered {
+    // `Self` stands for whichever type implements the trait.
+    fun compareTo(other: Self): Int
+}
+
+class Version(val major: Int, val minor: Int) : Show, Ordered {
+    fun show(): String { "v${this.major}.${this.minor}" }
+    fun compareTo(other: Version): Int {
+        if (this.major != other.major) { return this.major - other.major }
+        return this.minor - other.minor
+    }
+}
+
+class Tag(val name: String) : Show {
+    fun show(): String { "#${this.name}" }
+    fun shout(): String { "<<${this.name}>>" }   // overrides the default
+}
+
+class Score(val points: Int) : Ordered {
+    fun compareTo(other: Score): Int { this.points - other.points }
+}
+
+fun describe<T: Show>(value: T): String { value.show() }
+
+fun largest<T: Ordered>(xs: List<T>, fallback: T): T {
+    var best = fallback
+    for (x in xs) {
+        if (x.compareTo(best) > 0) { best = x }
+    }
+    return best
+}
+
+// A parameter may carry several bounds at once.
+fun loudest<T: Show + Ordered>(a: T, b: T): String {
+    return if (a.compareTo(b) > 0) { a.shout() } else { b.shout() }
+}
+
+val v1 = Version(1, 4)
+val v2 = Version(2, 0)
+
+assert(describe(v1) == "v1.4", "a bound makes the method reachable")
+assert(describe(Tag("keal")) == "#keal", "the same function at another type")
+
+assert(v1.shout() == "V1.4", "the trait's default method is inherited")
+assert(Tag("x").shout() == "<<x>>", "a class may override a default")
+
+assert(largest([v1, v2], v1).show() == "v2.0", "Self resolved to Version")
+assert(largest([Score(3), Score(9)], Score(0)).points == 9, "and to Score")
+
+assert(loudest(v1, v2) == "V2.0", "both bounds in use")
+
+// A trait method reached through a bound, inside a generic class.
+class Labelled<T: Show>(val value: T) {
+    fun label(): String { "[${this.value.show()}]" }
+}
+assert(Labelled(Tag("a")).label() == "[#a]", "a bound on a class type parameter")

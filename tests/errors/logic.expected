@@ -1,0 +1,6 @@
+error: `nand` and `nor` cannot be combined without parentheses
+  --> tests/errors/logic.keal:5:22
+  |
+5 | val mixed = a nand b nor c
+  |                      ^
+  = note: group the operands explicitly, e.g. `(a nand b) nor c`

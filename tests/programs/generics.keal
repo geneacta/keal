@@ -1,0 +1,75 @@
+// User-defined generics: functions, classes, methods, and inference.
+//
+// Every type parameter must come out concrete at each call site, because the
+// intended backend monomorphises: there is no boxed form to fall back on.
+
+fun firstOr<T>(xs: List<T>, fallback: T): T {
+    for (x in xs) { return x }
+    return fallback
+}
+
+fun mapAll<T, R>(xs: List<T>, f: (T) -> R): List<R> {
+    val out: List<R> = []
+    for (x in xs) { out.add(f(x)) }
+    return out
+}
+
+fun pairUp<A, B>(a: A, b: B): Pair<A, B> { Pair(a, b) }
+
+class Box<T>(val value: T) {
+    fun get(): T { this.value }
+    fun then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
+}
+
+class Pair<A, B>(val first: A, val second: B) {
+    fun swap(): Pair<B, A> { Pair(this.second, this.first) }
+    fun toString(): String { "(${this.first}, ${this.second})" }
+}
+
+class Stack<T> {
+    val items: List<T> = []
+    fun push(v: T): Stack<T> {
+        this.items.add(v)
+        return this
+    }
+    fun pop(): T? {
+        if (this.items.isEmpty()) { return null }
+        return this.items.removeAt(-1)
+    }
+    fun size(): Int { this.items.size }
+}
+
+// Inference from an argument.
+assert(firstOr([3, 1, 2], 0) == 3, "T inferred from a list argument")
+assert(firstOr(["a"], "z") == "a", "the same function at String")
+assert(firstOr([], "empty") == "empty", "an empty list leaves T to the fallback")
+
+// A later argument's lambda knows the type an earlier one fixed.
+assert(mapAll([1, 2, 3], { it * 10 }) == [10, 20, 30], "T then R")
+assert(mapAll(["a", "bb"], { it.length }) == [1, 2], "R differs from T")
+
+// Generic classes.
+val b = Box(42)
+assert(b.get() + 1 == 43, "field type follows the type argument")
+assert(b.then({ it.toString() + "!" }).get() == "42!", "a generic method on a generic class")
+
+val p = Pair(1, "one")
+assert(p.first + 1 == 2, "first is Int")
+assert(p.second.toUpper() == "ONE", "second is String")
+assert(p.swap().toString() == "(one, 1)", "swapping swaps the type arguments")
+assert(pairUp(true, 1.5).toString() == "(true, 1.5)", "a generic function returning a generic class")
+
+val s: Stack<String> = Stack()
+s.push("a").push("b")
+assert(s.size() == 2, "a generic class with no constructor parameters")
+assert(s.pop() == "b", "pop returns T?")
+assert(s.pop() == "a", "and again")
+assert(s.pop() == null, "empty")
+
+// An annotation can supply what the arguments cannot.
+val empty: Stack<Int> = Stack()
+assert(empty.size() == 0, "the type argument came from the annotation")
+
+// Nested instantiations.
+val nested = Box(Pair(1, [2, 3]))
+assert(nested.get().second == [2, 3], "a type argument that is itself generic")

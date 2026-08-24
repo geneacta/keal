@@ -5,7 +5,8 @@ Rust with no dependencies.
 
 Keal takes its shape from Kotlin — declared types with inference, null safety
 in the type system, classes with primary constructors, `when`, lambdas — over
-a C-family surface syntax.
+a C-family surface syntax, and is heading towards a native backend: generics
+are designed for monomorphisation rather than erasure.
 
 ```keal
 class Point(val x: Float, val y: Float) {
@@ -57,6 +58,13 @@ snapshot tests for the diagnostics.
   after an early-return guard, and across `&&`.
 - **Classes.** Primary constructors that declare fields, field initializers,
   methods, and a `toString` hook that `println` respects.
+- **Generics and traits.** `fun first<T>(...)`, `class Box<T>`, inferred one
+  argument at a time so a later lambda knows what an earlier argument fixed.
+  Traits carry required and default methods, `Self`, and bounds (`<T: Show +
+  Ordered>`) that the checker enforces.
+- **Eight logical connectives.** `!`, `&&`, `||`, and `xor`, `xnor`, `nand`,
+  `nor`, `implies` as contextual keywords. The ones that can short-circuit do;
+  `xor` and `xnor` cannot and say so. Mixing two of them needs parentheses.
 - **Functions as values.** Lambdas with inferred parameter types and an
   implicit `it`, closures that capture variables, nested functions, default
   and named arguments.
@@ -83,7 +91,8 @@ src/
   lexer.rs     tokens; automatic semicolon insertion; string interpolation
   parser.rs    recursive descent, precedence climbing for binary operators
   ast.rs       the syntax tree
-  types.rs     the type lattice: assignability, joins, nullability
+  types.rs     the type lattice: assignability, joins, nullability,
+               substitution and unification for generics
   builtins.rs  type signatures for the standard library
   checker.rs   name resolution, type checking, null-safety analysis
   value.rs     runtime values, environments
@@ -105,15 +114,21 @@ could end one, the way Go does it. The cost is that an opening brace must
 share a line with its construct; the benefit is a newline-insensitive grammar
 and no semicolons in normal code.
 
-**Built-in generics without a generic system.** `List<T>.map` needs the type
-of its lambda's result to type its own. Rather than build inference for
-user-facing generics, the checker re-derives a built-in method's signature
-after each argument it checks, so `xs.fold(0, { acc, n -> acc + n })` types
-the accumulator from the initial value.
+**Inference argument by argument.** `xs.fold(0, { acc, n -> acc + n })` needs
+the accumulator's type before it can type the lambda. Both the built-in table
+and user generics resolve a signature after each argument they check, so
+whatever an earlier argument settles is available to a later one.
+
+**Monomorphisation decided up front.** Generics solve to concrete types at
+every call site, and the checker refuses a call it cannot fully solve. That
+rules out a generic function as a value and `is T` on a type parameter — both
+would need a uniform boxed representation, which a monomorphising backend does
+not have. Choosing this now avoids designing the type checker twice.
 
 ## Not there yet
 
-Inheritance and interfaces, user-defined generics, exceptions, destructuring,
-operator overloading, namespaced imports, and a bytecode VM. The evaluator
-walks the AST; it is fast enough to be pleasant and slow enough that a VM
-would be the obvious next project.
+Class inheritance, exceptions, destructuring patterns, operator overloading for
+user types, namespaced imports — and the native half of the plan: pointers and
+references, `constexpr`, macros, C interop, and LLVM code generation. The
+evaluator walks the AST, which is the development mode rather than the
+destination.
