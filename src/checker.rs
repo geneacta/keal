@@ -867,6 +867,9 @@ impl Checker {
 
     /// Does `ty` provide everything `trait_name` requires?
     fn implements(&self, ty: &Type, trait_name: &str) -> bool {
+        if builtin_implements(ty, trait_name) {
+            return true;
+        }
         match ty {
             Type::Class(name, _) => self
                 .impls
@@ -1176,6 +1179,10 @@ impl Checker {
                 let t = self.check_expr(rhs, expected);
                 match op {
                     UnOp::Neg => {
+                        // `-value` on a user type goes through `Neg.negate`.
+                        if overloadable(&t) {
+                            return self.rewrite_unary_neg(e, &t, span);
+                        }
                         if !t.is_numeric() && t != Type::Error {
                             self.error(span, format!("cannot negate a value of type `{}`", t));
                             return Type::Error;
@@ -1189,20 +1196,7 @@ impl Checker {
                 }
             }
 
-            ExprKind::Binary { op, lhs, rhs } => {
-                let op = *op;
-                let mut lt = self.check_expr(lhs, None);
-                let mut rt = self.check_expr(rhs, None);
-                // Mixed Int/Float is fine as long as the Int side is literal.
-                if lt == Type::Float && rt == Type::Int && can_widen(rhs) {
-                    widen(rhs);
-                    rt = Type::Float;
-                } else if rt == Type::Float && lt == Type::Int && can_widen(lhs) {
-                    widen(lhs);
-                    lt = Type::Float;
-                }
-                self.binary_result(op, &lt, &rt, span)
-            }
+            ExprKind::Binary { .. } => self.check_binary(e, span),
 
             ExprKind::Logical { lhs, rhs, op } => {
                 let op = *op;
@@ -2052,6 +2046,157 @@ impl Checker {
         }
     }
 
+    /// Types a binary operator, rewriting it into a trait method call when
+    /// the left operand is a user type or a bounded type parameter.
+    ///
+    /// The right operand is deliberately not checked before that decision, so
+    /// that whichever path is taken checks it exactly once.
+    fn check_binary(&mut self, e: &mut Expr, span: Span) -> Type {
+        let op = match &e.kind {
+            ExprKind::Binary { op, .. } => *op,
+            _ => unreachable!("check_binary called on a non-binary expression"),
+        };
+
+        let lt = match &mut e.kind {
+            ExprKind::Binary { lhs, .. } => self.check_expr(lhs, None),
+            _ => unreachable!(),
+        };
+
+        if overloadable(&lt) {
+            let (trait_name, method) = operator_trait(op);
+            let equality = matches!(op, BinOp::Eq | BinOp::Ne);
+            if self.implements(&lt, trait_name) {
+                return self.rewrite_operator(e, &lt, op, method, span);
+            }
+            // Every type already has identity equality; a class only gains
+            // structural equality by implementing `Eq`.
+            if !equality {
+                let rt = match &mut e.kind {
+                    ExprKind::Binary { rhs, .. } => self.check_expr(rhs, None),
+                    _ => unreachable!(),
+                };
+                let _ = rt;
+                if lt != Type::Error {
+                    self.error_note(
+                        span,
+                        format!(
+                            "`{}` cannot be used with `{}`: it does not implement `{}`",
+                            lt,
+                            op.symbol(),
+                            trait_name
+                        ),
+                        format!("declare it with `class {} : {}` and define `{}`", lt, trait_name, method),
+                    );
+                }
+                return Type::Error;
+            }
+        }
+
+        let mut lt = lt;
+        let mut rt = match &mut e.kind {
+            ExprKind::Binary { rhs, .. } => self.check_expr(rhs, None),
+            _ => unreachable!(),
+        };
+        // Mixed Int/Float is fine as long as the Int side is literal.
+        match &mut e.kind {
+            ExprKind::Binary { lhs, rhs, .. } => {
+                if lt == Type::Float && rt == Type::Int && can_widen(rhs) {
+                    widen(rhs);
+                    rt = Type::Float;
+                } else if rt == Type::Float && lt == Type::Int && can_widen(lhs) {
+                    widen(lhs);
+                    lt = Type::Float;
+                }
+            }
+            _ => unreachable!(),
+        }
+        self.binary_result(op, &lt, &rt, span)
+    }
+
+    /// Replaces `a OP b` with the call the operator stands for.
+    fn rewrite_operator(
+        &mut self,
+        e: &mut Expr,
+        lt: &Type,
+        op: BinOp,
+        method: &str,
+        span: Span,
+    ) -> Type {
+        let (lhs, rhs) = match std::mem::replace(&mut e.kind, ExprKind::Null) {
+            ExprKind::Binary { lhs, rhs, .. } => (lhs, rhs),
+            _ => unreachable!(),
+        };
+        let mut args = vec![Arg { name: None, value: *rhs }];
+        // This is where the right operand is checked, and where a mismatched
+        // operand type is reported against the trait method's signature.
+        let result = self.method_call(lt, method, &mut args, span, None);
+        let call = Expr {
+            span,
+            kind: ExprKind::MethodCall {
+                obj: lhs,
+                name: method.to_string(),
+                args,
+                safe: false,
+            },
+        };
+
+        match op {
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+                e.kind = call.kind;
+                result
+            }
+            BinOp::Eq => {
+                e.kind = call.kind;
+                Type::Bool
+            }
+            BinOp::Ne => {
+                e.kind = ExprKind::Unary { op: UnOp::Not, rhs: Box::new(call) };
+                Type::Bool
+            }
+            // `a < b` becomes `a.compareTo(b) < 0`.
+            _ => {
+                e.kind = ExprKind::Binary {
+                    op,
+                    lhs: Box::new(call),
+                    rhs: Box::new(Expr { span, kind: ExprKind::Int(0) }),
+                };
+                if result != Type::Int && result != Type::Error {
+                    self.error(
+                        span,
+                        format!("`compareTo` must return `Int`, but returns `{}`", result),
+                    );
+                }
+                Type::Bool
+            }
+        }
+    }
+
+    fn rewrite_unary_neg(&mut self, e: &mut Expr, t: &Type, span: Span) -> Type {
+        if !self.implements(t, "Neg") {
+            if *t != Type::Error {
+                self.error_note(
+                    span,
+                    format!("`{}` cannot be negated: it does not implement `Neg`", t),
+                    format!("declare it with `class {} : Neg` and define `negate`", t),
+                );
+            }
+            return Type::Error;
+        }
+        let rhs = match std::mem::replace(&mut e.kind, ExprKind::Null) {
+            ExprKind::Unary { rhs, .. } => rhs,
+            _ => unreachable!(),
+        };
+        let mut args = Vec::new();
+        let result = self.method_call(t, "negate", &mut args, span, None);
+        e.kind = ExprKind::MethodCall {
+            obj: rhs,
+            name: "negate".to_string(),
+            args,
+            safe: false,
+        };
+        result
+    }
+
     fn binary_result(&mut self, op: BinOp, lt: &Type, rt: &Type, span: Span) -> Type {
         use BinOp::*;
         if *lt == Type::Error || *rt == Type::Error {
@@ -2355,6 +2500,42 @@ impl Checker {
         }
         ret
     }
+}
+
+/// The prelude trait an operator is wired to, and the method it calls.
+fn operator_trait(op: BinOp) -> (&'static str, &'static str) {
+    match op {
+        BinOp::Add => ("Add", "plus"),
+        BinOp::Sub => ("Sub", "minus"),
+        BinOp::Mul => ("Mul", "times"),
+        BinOp::Div => ("Div", "div"),
+        BinOp::Rem => ("Rem", "rem"),
+        BinOp::Eq | BinOp::Ne => ("Eq", "equals"),
+        BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => ("Ord", "compareTo"),
+    }
+}
+
+/// The operator traits the built-in types already satisfy, so that a bound
+/// like `<T: Add>` accepts `Int` as readily as a user type.
+///
+/// Operators on these types are still evaluated directly; this table only
+/// makes the bounds satisfiable and the generic rewrite land somewhere real.
+fn builtin_implements(ty: &Type, trait_name: &str) -> bool {
+    match ty {
+        Type::Int | Type::Float => matches!(
+            trait_name,
+            "Add" | "Sub" | "Mul" | "Div" | "Rem" | "Neg" | "Eq" | "Ord"
+        ),
+        Type::Str => matches!(trait_name, "Add" | "Eq" | "Ord"),
+        Type::Bool => matches!(trait_name, "Eq"),
+        _ => false,
+    }
+}
+
+/// True for the types whose operators go through a trait method rather than
+/// being evaluated directly.
+fn overloadable(ty: &Type) -> bool {
+    matches!(ty, Type::Class(_, _) | Type::Param(_))
 }
 
 /// The name a `TypeExpr` mentions, for error messages about non-traits.

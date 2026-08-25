@@ -111,8 +111,8 @@ immutable, like `val`.
 ### Operators, tightest binding last
 
 ```
-xor xnor nand nor implies
-||   &&   ==  !=   <  <=  >  >=   is   in   ?:   ..   +  -   *  /  %   unary - !   . ?. [] ()
+not and or xor xnor nand nor implies
+==  !=   <  <=  >  >=   is   in   ?:   ..   +  -   *  /  %   unary -   . ?. [] ()
 ```
 
 `+` on a `String` appends the rendered form of whatever is on the right
@@ -120,25 +120,64 @@ xor xnor nand nor implies
 
 ### The eight logical connectives
 
-Keal has a native operator for each of the eight two-valued connectives.
-`!`, `&&` and `||` keep their usual symbols; the rest are words, because
-`!&&` and `==>` are harder to read than what they mean.
+Keal has a native operator for each of the eight two-valued connectives. The
+recommended spelling is the word; the familiar symbols are accepted aliases
+for four of them, and mean exactly the same thing.
 
-| | Written | True when |
-|---|---|---|
-| NOT | `!a` | `a` is false |
-| AND | `a && b` | both |
-| OR | `a \|\| b` | either |
-| XOR | `a xor b` | exactly one |
-| XNOR | `a xnor b` | both or neither |
-| NAND | `a nand b` | not both |
-| NOR | `a nor b` | neither |
-| IMPLIES | `a implies b` | `b` holds whenever `a` does |
+| | Written | Alias | True when |
+|---|---|---|---|
+| NOT | `not a` | `!a` | `a` is false |
+| AND | `a and b` | `a && b` | both |
+| OR | `a or b` | `a \|\| b` | either |
+| XOR | `a xor b` | `a ^ b` | exactly one |
+| XNOR | `a xnor b` | — | both or neither |
+| NAND | `a nand b` | — | not both |
+| NOR | `a nor b` | — | neither |
+| IMPLIES | `a implies b` | — | `b` holds whenever `a` does |
 
-The words are **contextual**: they are only read as operators where a binary
-operator may appear, so a variable may still be called `nor`.
+All eight are reserved words.
 
-**Short-circuiting.** `&&`, `||`, `nand`, `nor` and `implies` stop as soon as
+**No relative precedence.** This is the rule that most distinguishes Keal from
+its neighbours: **no connective binds tighter than any other.** Two different
+ones side by side is a syntax error, and the parentheses are required even in
+the case every other language settles silently:
+
+```koda
+a or b and c            // error: `or` and `and` need parentheses
+(a or b) and c          // fine
+a or (b and c)          // fine — and a different value
+```
+
+Most languages give `and` precedence over `or` by convention inherited from
+arithmetic. With eight connectives in play that convention stops carrying its
+weight: nobody reliably knows how `nand` ranks against `implies`. Rather than
+invent an order and expect it to be remembered, Keal asks.
+
+Repeating one connective is allowed exactly where it cannot change the
+meaning — that is, where the operator is associative:
+
+```koda
+a and b and c           // fine
+a xor b xor c           // fine
+a nand b nand c         // error: `nand` does not chain
+a implies b implies c   // error: group it explicitly
+```
+
+`nand` and `nor` are not associative: `(a nand b) nand c` and
+`a nand (b nand c)` differ. `implies` is right-associative in logic, but that
+is a convention Keal declines to assume on your behalf.
+
+Comparison and arithmetic still bind tighter than every connective, so the
+ordinary case needs no parentheses at all:
+
+```koda
+1 < 2 and 3 > 2         // (1 < 2) and (3 > 2)
+```
+
+`not` is unary and binds as tightly as `!` always has, tighter than any binary
+connective: `not a and b` is `(not a) and b`.
+
+**Short-circuiting.** `and`, `or`, `nand`, `nor` and `implies` stop as soon as
 the left operand settles the answer:
 
 ```koda
@@ -149,20 +188,6 @@ false implies slow()   // true — an implication with a false premise holds
 
 `xor` and `xnor` **always** evaluate both operands: neither can be decided
 from one side alone.
-
-**Precedence and grouping.** The five words bind more loosely than `&&` and
-`||`, so `a && b implies c || d` reads as `(a && b) implies (c || d)`.
-
-Beyond that, Keal refuses to guess. Two different word operators side by side
-need parentheses, and `nand`/`nor` do not chain even with themselves, because
-they are not associative — `(a nand b) nand c` and `a nand (b nand c)` differ:
-
-```koda
-a nand b nor c         // error: `nand` and `nor` cannot be combined
-(a nand b) nor c       // fine
-a xor b xor c          // fine: xor is associative
-a implies b implies c  // fine: chains to the right, as in logic
-```
 
 **`implies` and null checks.** Because the right operand of `implies` is only
 reached when the left one is true, a null check on the left carries across it:
@@ -493,7 +518,62 @@ A default method's body is checked in each class that inherits it, not once in
 the abstract — the same rule C++ templates follow. A trait nobody implements
 is therefore never type-checked.
 
-## 11. Modules
+## 11. Operator overloading
+
+Operators are wired to the traits the prelude declares. A class that
+implements one gains the operator; nothing else changes.
+
+| Operator | Trait | Method |
+|---|---|---|
+| `a + b` | `Add` | `fun plus(other: Self): Self` |
+| `a - b` | `Sub` | `fun minus(other: Self): Self` |
+| `a * b` | `Mul` | `fun times(other: Self): Self` |
+| `a / b` | `Div` | `fun div(other: Self): Self` |
+| `a % b` | `Rem` | `fun rem(other: Self): Self` |
+| `-a` | `Neg` | `fun negate(): Self` |
+| `a == b`, `a != b` | `Eq` | `fun equals(other: Self): Bool` |
+| `a < b`, `<=`, `>`, `>=` | `Ord` | `fun compareTo(other: Self): Int` |
+
+```koda
+class Vec2(val x: Float, val y: Float) : Add, Neg, Eq {
+    fun plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
+    fun negate(): Vec2 { Vec2(-this.x, -this.y) }
+    fun equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
+}
+
+Vec2(1.0, 2.0) + Vec2(3.0, 4.0)     // Vec2(4.0, 6.0)
+```
+
+`a + b` on a class is *rewritten* into `a.plus(b)`, and `a < b` into
+`a.compareTo(b) < 0`. The methods stay ordinary methods: you can call
+`a.plus(b)` yourself.
+
+**Equality is the exception.** `==` already works on every type by comparing
+identity, so a class without `Eq` is not an error — it simply keeps comparing
+identity, and two separately built instances are never equal. Implementing
+`Eq` is how a class opts into structural equality.
+
+**The built-in types implement these traits too.** `Int` and `Float` provide
+all of them, `String` provides `Add`, `Eq` and `Ord`, and `Bool` provides
+`Eq`. So a bound is satisfied by a built-in as readily as by your own type:
+
+```koda
+fun total<T: Add>(xs: List<T>, zero: T): T {
+    var acc = zero
+    for (x in xs) { acc = acc + x }
+    return acc
+}
+
+total([1, 2, 3], 0)                      // 6
+total(["a", "b"], "")                    // "ab"
+total([Vec2(1.0, 1.0)], Vec2(0.0, 0.0))  // Vec2(1.0, 1.0)
+```
+
+Only a class or a bounded type parameter goes through a method call. `1 + 2`
+is added directly; the built-in implementations exist so that generic code —
+which *is* rewritten — has something to land on.
+
+## 12. Modules
 
 ```keal
 import "./geometry.keal"
@@ -505,7 +585,7 @@ most once, so diamond imports and cycles are both fine.
 
 ---
 
-## 12. Standard library
+## 13. Standard library
 
 ### Free functions
 
@@ -572,7 +652,7 @@ negative indices. `sorted` works on `Int`, `Float`, `String` and `Bool`.
 
 ---
 
-## 13. Errors
+## 14. Errors
 
 The checker reports every independent error it can find in one pass, sorted
 by source position:
@@ -592,9 +672,10 @@ and a call stack.
 
 ---
 
-## 14. What is not here yet
+## 15. What is not here yet
 
 Class inheritance · exceptions and `try`/`catch` · pattern destructuring ·
-operator overloading for user types · associated types on traits · a module
-namespace (imports are flat) · and the native backend: pointers, `constexpr`,
-C interop and LLVM code generation. The evaluator walks the AST.
+indexing and call operators (`Index`, `Invoke`) · associated types on traits ·
+a module namespace (imports are flat) · and the native backend: pointers,
+`constexpr`, macros, C interop and LLVM code generation. The evaluator walks
+the AST.

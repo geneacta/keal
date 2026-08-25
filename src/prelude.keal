@@ -1,0 +1,53 @@
+// The prelude: traits every program can rely on, loaded before its own code.
+//
+// These are ordinary Keal traits — there is nothing the compiler knows about
+// them that you could not write yourself. What makes them special is only
+// that the operators are wired to their methods:
+//
+//     a + b   is  a.plus(b)          -a  is  a.negate()
+//     a - b   is  a.minus(b)         a == b  is  a.equals(b)
+//     a * b   is  a.times(b)         a < b   is  a.compareTo(b) < 0
+//     a / b   is  a.div(b)
+//     a % b   is  a.rem(b)
+//
+// The built-in types already implement the ones that make sense for them, so
+// `fun total<T: Add>(xs: List<T>, zero: T): T` works at `Int` and at your own
+// types alike. Operators on built-in types are evaluated directly; the
+// rewrite only happens for a class or a bounded type parameter.
+
+trait Add {
+    fun plus(other: Self): Self
+}
+
+trait Sub {
+    fun minus(other: Self): Self
+}
+
+trait Mul {
+    fun times(other: Self): Self
+}
+
+trait Div {
+    fun div(other: Self): Self
+}
+
+trait Rem {
+    fun rem(other: Self): Self
+}
+
+trait Neg {
+    fun negate(): Self
+}
+
+/// Structural equality. Without it, `==` on two instances compares identity,
+/// so two separately built values are never equal.
+trait Eq {
+    fun equals(other: Self): Bool
+}
+
+/// A total order. `compareTo` returns a negative number, zero, or a positive
+/// number according as the receiver is less than, equal to, or greater than
+/// `other` — the same convention as `Int.compareTo`.
+trait Ord {
+    fun compareTo(other: Self): Int
+}

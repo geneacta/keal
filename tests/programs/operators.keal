@@ -1,0 +1,74 @@
+// Operator overloading, carried by the prelude's traits.
+//
+// An operator on a class or on a bounded type parameter is rewritten into the
+// trait method it stands for; on a built-in type it is evaluated directly.
+
+class Vec2(val x: Float, val y: Float) : Add, Sub, Mul, Neg, Eq {
+    fun plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
+    fun minus(other: Vec2): Vec2 { Vec2(this.x - other.x, this.y - other.y) }
+    fun times(other: Vec2): Vec2 { Vec2(this.x * other.x, this.y * other.y) }
+    fun negate(): Vec2 { Vec2(-this.x, -this.y) }
+    fun equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
+    fun toString(): String { "(${this.x}, ${this.y})" }
+}
+
+class Money(val cents: Int) : Add, Sub, Ord, Eq {
+    fun plus(other: Money): Money { Money(this.cents + other.cents) }
+    fun minus(other: Money): Money { Money(this.cents - other.cents) }
+    fun compareTo(other: Money): Int { this.cents - other.cents }
+    fun equals(other: Money): Bool { this.cents == other.cents }
+}
+
+// A class with no `Eq`: `==` keeps comparing identity.
+class Opaque(val n: Int)
+
+val a = Vec2(1.0, 2.0)
+val b = Vec2(3.0, 4.0)
+
+assert((a + b).toString() == "(4.0, 6.0)", "Add.plus")
+assert((b - a).toString() == "(2.0, 2.0)", "Sub.minus")
+assert((a * b).toString() == "(3.0, 8.0)", "Mul.times")
+assert((-a).toString() == "(-1.0, -2.0)", "Neg.negate")
+
+// `Eq` upgrades `==` from identity to structure.
+assert(a == Vec2(1.0, 2.0), "Eq.equals makes distinct instances equal")
+assert(a != b, "and `!=` is its negation")
+assert(Opaque(1) != Opaque(1), "without Eq, `==` still compares identity")
+
+// `Ord` drives all four comparisons through `compareTo`.
+val m = Money(500)
+val n = Money(150)
+assert(m > n, "Ord: greater")
+assert(n < m, "Ord: less")
+assert(m >= Money(500), "Ord: greater or equal")
+assert(n <= Money(150), "Ord: less or equal")
+assert(m == Money(500), "Eq alongside Ord")
+assert((m - n).cents == 350, "Sub on the same class")
+
+// Generic code bounded by an operator trait works at a class and at the
+// built-in types alike, because they implement the same traits.
+fun total<T: Add>(xs: List<T>, zero: T): T {
+    var acc = zero
+    for (x in xs) { acc = acc + x }
+    return acc
+}
+
+fun biggest<T: Ord>(xs: List<T>, fallback: T): T {
+    var best = fallback
+    for (x in xs) { if (x > best) { best = x } }
+    return best
+}
+
+assert(total([a, b], Vec2(0.0, 0.0)).toString() == "(4.0, 6.0)", "generic Add at a class")
+assert(total([1, 2, 3], 0) == 6, "generic Add at Int")
+assert(total([1.5, 2.5], 0.0) == 4.0, "generic Add at Float")
+assert(total(["a", "b"], "") == "ab", "generic Add at String")
+
+assert(biggest([m, n], Money(0)).cents == 500, "generic Ord at a class")
+assert(biggest([3, 9, 4], 0) == 9, "generic Ord at Int")
+assert(biggest(["pear", "apple"], "") == "pear", "generic Ord at String")
+
+// The trait methods are ordinary methods and may be called by name.
+assert(a.plus(b).toString() == "(4.0, 6.0)", "plus called directly")
+assert(1.plus(2) == 3, "the built-in implementation is real too")
+assert(2.compareTo(5) < 0, "Int.compareTo")

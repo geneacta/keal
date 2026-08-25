@@ -43,6 +43,31 @@ pub fn property_sig(recv: &Type, name: &str) -> Option<Type> {
     }
 }
 
+/// The prelude's operator methods, as the built-in types implement them.
+///
+/// `1 + 2` never goes through these — the evaluator adds the integers
+/// directly. They exist so that generic code bounded by `Add` or `Ord`, which
+/// *is* rewritten into a method call, has something to land on when its type
+/// parameter turns out to be a built-in.
+fn operator_sig(recv: &Type, name: &str) -> Option<FunType> {
+    let t = recv.clone();
+    let arithmetic = matches!(recv, Type::Int | Type::Float);
+    match name {
+        "plus" if arithmetic || *recv == Type::Str => {
+            sig(vec![p("other", t.clone())], t)
+        }
+        "minus" | "times" | "div" | "rem" if arithmetic => {
+            sig(vec![p("other", t.clone())], t)
+        }
+        "negate" if arithmetic => sig(vec![], t),
+        "equals" => sig(vec![p("other", t)], Type::Bool),
+        "compareTo" if arithmetic || *recv == Type::Str => {
+            sig(vec![p("other", t)], Type::Int)
+        }
+        _ => None,
+    }
+}
+
 /// Methods callable on any value, whatever its type.
 fn universal_sig(name: &str, _args: &[Option<Type>]) -> Option<FunType> {
     match name {
@@ -56,7 +81,7 @@ pub fn method_sig(recv: &Type, name: &str, args: &[Option<Type>]) -> Option<FunT
         Type::Str => string_sig(name, args),
         Type::Int => int_sig(name, args),
         Type::Float => float_sig(name, args),
-        Type::Bool => None,
+        Type::Bool => operator_sig(&Type::Bool, name),
         Type::List(elem) => list_sig(elem, name, args),
         Type::Map(k, v) => map_sig(k, v, name, args),
         Type::Range => range_sig(name, args),
@@ -66,6 +91,9 @@ pub fn method_sig(recv: &Type, name: &str, args: &[Option<Type>]) -> Option<FunT
 }
 
 fn string_sig(name: &str, _args: &[Option<Type>]) -> Option<FunType> {
+    if let Some(ft) = operator_sig(&Type::Str, name) {
+        return Some(ft);
+    }
     let s = Type::Str;
     match name {
         "isEmpty" => sig(vec![], Type::Bool),
@@ -86,6 +114,9 @@ fn string_sig(name: &str, _args: &[Option<Type>]) -> Option<FunType> {
 }
 
 fn int_sig(name: &str, _args: &[Option<Type>]) -> Option<FunType> {
+    if let Some(ft) = operator_sig(&Type::Int, name) {
+        return Some(ft);
+    }
     match name {
         "toFloat" => sig(vec![], Type::Float),
         "abs" => sig(vec![], Type::Int),
@@ -97,6 +128,9 @@ fn int_sig(name: &str, _args: &[Option<Type>]) -> Option<FunType> {
 }
 
 fn float_sig(name: &str, _args: &[Option<Type>]) -> Option<FunType> {
+    if let Some(ft) = operator_sig(&Type::Float, name) {
+        return Some(ft);
+    }
     match name {
         "toInt" | "floor" | "ceil" | "round" => sig(vec![], Type::Int),
         "abs" | "sqrt" => sig(vec![], Type::Float),

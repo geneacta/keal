@@ -41,7 +41,7 @@ assert("4.5".toFloat() == 4.5, "toFloat")
 assert("nope".toInt() == null, "toInt returns null on failure")
 
 assert("apple" < "banana", "strings compare lexicographically")
-assert(!("b" < "a"), "string comparison")
+assert(not ("b" < "a"), "string comparison")
 
 var joined = ""
 for (c in "abc") { joined += c.toUpper() }

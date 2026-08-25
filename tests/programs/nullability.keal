@@ -36,7 +36,7 @@ if (maybe == null) {
 }
 
 // The same works through `&&`, where the right operand sees the narrowing.
-assert(maybe != null && maybe.length == 4, "smart cast across &&")
+assert(maybe != null and maybe.length == 4, "smart cast across &&")
 
 // `?.` short-circuits to null instead of failing.
 val absent: String? = null
@@ -110,7 +110,7 @@ assert(describeOrDefault(4) == "5", "else arm narrows the subject")
 // A single condition also narrows its own arm.
 fun firstChar(s: String?): String {
     return when {
-        s != null && s.length > 0 -> s[0]
+        s != null and s.length > 0 -> s[0]
         else -> "?"
     }
 }

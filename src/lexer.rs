@@ -35,6 +35,17 @@ pub enum Tok {
     Is,
     Import,
 
+    // The logical connectives. These are the spelling the language
+    // recommends; `&&`, `||`, `!` and `^` are accepted as aliases.
+    KwNot,
+    KwAnd,
+    KwOr,
+    KwXor,
+    KwXnor,
+    KwNand,
+    KwNor,
+    KwImplies,
+
     // operators & punctuation
     Plus,
     Minus,
@@ -53,6 +64,7 @@ pub enum Tok {
     GtEq,
     AndAnd,
     OrOr,
+    Caret,
     PlusEq,
     MinusEq,
     StarEq,
@@ -148,6 +160,14 @@ impl Tok {
             Tok::When => "when",
             Tok::Is => "is",
             Tok::Import => "import",
+            Tok::KwNot => "not",
+            Tok::KwAnd => "and",
+            Tok::KwOr => "or",
+            Tok::KwXor => "xor",
+            Tok::KwXnor => "xnor",
+            Tok::KwNand => "nand",
+            Tok::KwNor => "nor",
+            Tok::KwImplies => "implies",
             Tok::Plus => "+",
             Tok::Minus => "-",
             Tok::Star => "*",
@@ -164,6 +184,7 @@ impl Tok {
             Tok::GtEq => ">=",
             Tok::AndAnd => "&&",
             Tok::OrOr => "||",
+            Tok::Caret => "^",
             Tok::PlusEq => "+=",
             Tok::MinusEq => "-=",
             Tok::StarEq => "*=",
@@ -403,6 +424,7 @@ impl<'a> Lexer<'a> {
                         Tok::Question
                     }
                 }
+                b'^' => Tok::Caret,
                 b'.' => self.pick(b'.', Tok::DotDot, Tok::Dot),
                 b',' => Tok::Comma,
                 b':' => Tok::Colon,
@@ -515,6 +537,14 @@ impl<'a> Lexer<'a> {
             "when" => Tok::When,
             "is" => Tok::Is,
             "import" => Tok::Import,
+            "not" => Tok::KwNot,
+            "and" => Tok::KwAnd,
+            "or" => Tok::KwOr,
+            "xor" => Tok::KwXor,
+            "xnor" => Tok::KwXnor,
+            "nand" => Tok::KwNand,
+            "nor" => Tok::KwNor,
+            "implies" => Tok::KwImplies,
             _ => Tok::Ident(text),
         };
         self.push(tok, span);

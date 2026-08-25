@@ -27,6 +27,6 @@ fun compositional(n: Int): String {
 
 for (n in 1..16) {
     val a = classic(n)
-    assert(a == withWhen(n) && a == compositional(n), "the three agree")
+    assert(a == withWhen(n) and a == compositional(n), "the three agree")
     println(a)
 }

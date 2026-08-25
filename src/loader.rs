@@ -11,12 +11,25 @@ use crate::lexer;
 use crate::parser;
 use crate::span::{Diag, Sources, Span};
 
+/// Traits the operators are wired to. Compiled into the binary so that a
+/// program never has to import them, and written in Keal so that they are
+/// nothing a user could not have declared.
+const PRELUDE: &str = include_str!("prelude.keal");
+
 pub fn load(entry: &str, sources: &mut Sources) -> Result<Program, Diag> {
     let mut seen = HashSet::new();
-    let mut items = Vec::new();
+    let mut items = prelude(sources)?;
     let path = normalise(Path::new(entry));
     load_file(&path, None, sources, &mut seen, &mut items)?;
     Ok(Program { items })
+}
+
+/// Parses the prelude and registers it with `sources`, so a diagnostic that
+/// points into it still renders.
+pub fn prelude(sources: &mut Sources) -> Result<Vec<Item>, Diag> {
+    let file = sources.add("<prelude>", PRELUDE.to_string());
+    let tokens = lexer::lex(PRELUDE, file)?;
+    Ok(parser::parse(tokens)?.items)
 }
 
 /// Loads `path` and everything it imports, appending to `items` so that a

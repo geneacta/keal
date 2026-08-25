@@ -218,10 +218,12 @@ pub enum LogicalOp {
 }
 
 impl LogicalOp {
+    /// The spelling Keal recommends. `&&`, `||` and `^` are accepted aliases,
+    /// but diagnostics always suggest the word.
     pub fn symbol(self) -> &'static str {
         match self {
-            LogicalOp::And => "&&",
-            LogicalOp::Or => "||",
+            LogicalOp::And => "and",
+            LogicalOp::Or => "or",
             LogicalOp::Xor => "xor",
             LogicalOp::Xnor => "xnor",
             LogicalOp::Nand => "nand",

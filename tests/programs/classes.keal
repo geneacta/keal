@@ -49,7 +49,7 @@ assert(p.toString() == "P(3.0, 4.0)", "user toString")
 assert("${p}" == "P(3.0, 4.0)", "interpolation uses toString")
 
 val q = p.plus(Point(1.0, 1.0))
-assert(q.x == 4.0 && q.y == 5.0, "method returning a new instance")
+assert(q.x == 4.0 and q.y == 5.0, "method returning a new instance")
 assert(p.scaled(2.0).magnitude == 10.0, "chained construction")
 
 // Without a `toString` method, instances render field by field.
@@ -69,11 +69,11 @@ val acct = Account("Ada")
 assert(acct.balance == 0, "constructor default")
 acct.deposit(100)
 assert(acct.withdraw(30), "withdraw succeeds")
-assert(!acct.withdraw(1000), "withdraw fails when short")
+assert(not acct.withdraw(1000), "withdraw fails when short")
 assert(acct.balance == 70, "balance after transactions")
 
 val named = Account(balance = 50, owner = "Grace")
-assert(named.owner == "Grace" && named.balance == 50, "named constructor arguments")
+assert(named.owner == "Grace" and named.balance == 50, "named constructor arguments")
 
 // A method reference is an ordinary function value.
 val bump = c.bump

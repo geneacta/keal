@@ -1,0 +1,17 @@
+class Plain(val n: Int)
+
+class BadAdd(val n: Int) : Add {
+    fun plus(other: Int): BadAdd { BadAdd(this.n + other) }
+}
+
+class BadOrd(val n: Int) : Ord {
+    fun compareTo(other: BadOrd): Bool { true }
+}
+
+val p = Plain(1)
+val summed = p + p
+val negated = -p
+val ordered = p < p
+val identity = p == p
+
+val wrongOperand = BadAdd(1) + 2

@@ -22,6 +22,20 @@ pub fn run() -> ExitCode {
     let mut checker = Checker::new();
     checker.set_repl(true);
     let mut vm = Interp::new();
+
+    // The REPL loads the prelude the same way a program does.
+    match crate::loader::prelude(&mut sources) {
+        Ok(items) => {
+            let mut p = crate::ast::Program { items };
+            checker.check_program(&mut p);
+            let _ = vm.run(&p);
+        }
+        Err(d) => {
+            eprint!("{}", sources.render("error", &d));
+            return ExitCode::FAILURE;
+        }
+    }
+
     let stdin = std::io::stdin();
     let mut lines = stdin.lock().lines();
     let mut buffer = String::new();

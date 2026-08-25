@@ -9,8 +9,8 @@ error: operand of a logical operator has type `Int`, but `Bool` was expected
 5 | val alsoNotBool = a implies n
   |                             ^
 error: operand of `!` has type `Int`, but `Bool` was expected
-  --> tests/errors/logic_types.keal:6:16
+  --> tests/errors/logic_types.keal:6:19
   |
-6 | val negated = !n
-  |                ^
+6 | val negated = not n
+  |                   ^
 3 errors found

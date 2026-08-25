@@ -6,26 +6,26 @@ fun rows(f: (Bool, Bool) -> Bool): List<Bool> {
     return [f(true, true), f(true, false), f(false, true), f(false, false)]
 }
 
-assert(rows({ a, b -> a && b }) == [true, false, false, false], "AND")
-assert(rows({ a, b -> a || b }) == [true, true, true, false], "OR")
+assert(rows({ a, b -> a and b }) == [true, false, false, false], "AND")
+assert(rows({ a, b -> a or b }) == [true, true, true, false], "OR")
 assert(rows({ a, b -> a xor b }) == [false, true, true, false], "XOR")
 assert(rows({ a, b -> a xnor b }) == [true, false, false, true], "XNOR")
 assert(rows({ a, b -> a nand b }) == [false, true, true, true], "NAND")
 assert(rows({ a, b -> a nor b }) == [false, false, false, true], "NOR")
 assert(rows({ a, b -> a implies b }) == [true, false, true, true], "IMPLIES")
 
-assert(!true == false, "NOT")
-assert(!false == true, "NOT")
+assert(not true == false, "NOT")
+assert(not false == true, "NOT")
 
 // De Morgan and friends, checked exhaustively.
 for (a in [true, false]) {
     for (b in [true, false]) {
-        assert((a nand b) == !(a && b), "nand is negated and")
-        assert((a nor b) == !(a || b), "nor is negated or")
-        assert((a xor b) == !(a xnor b), "xor is negated xnor")
-        assert((a implies b) == (!a || b), "implication")
-        assert((a nand b) == (!a || !b), "de Morgan")
-        assert((a nor b) == (!a && !b), "de Morgan")
+        assert((a nand b) == not (a and b), "nand is negated and")
+        assert((a nor b) == not (a or b), "nor is negated or")
+        assert((a xor b) == not (a xnor b), "xor is negated xnor")
+        assert((a implies b) == (not a or b), "implication")
+        assert((a nand b) == (not a or not b), "de Morgan")
+        assert((a nor b) == (not a and not b), "de Morgan")
     }
 }
 
@@ -33,7 +33,7 @@ for (a in [true, false]) {
 var calls = 0
 fun touch(): Bool { calls += 1; return true }
 assert((false nand touch()), "nand short-circuits on false")
-assert(!(true nor touch()), "nor short-circuits on true")
+assert(not (true nor touch()), "nor short-circuits on true")
 assert((false implies touch()), "implies short-circuits on false")
 assert(calls == 0, "no right operand was evaluated")
 assert((true xor touch()) == false, "xor always evaluates the right operand")
@@ -43,11 +43,21 @@ assert(calls == 1, "xor evaluated it")
 fun safe(s: String?): Bool { s != null implies s.length > 0 }
 assert(safe(null), "vacuously true")
 assert(safe("ab"), "true side")
-assert(!safe(""), "false side")
+assert(not safe(""), "false side")
 
-// `implies` chains to the right.
-assert((false implies false implies false) == true, "right-associative")
+// Keal gives the connectives no relative precedence: two different ones side
+// by side is a syntax error, so grouping is always explicit and always means
+// what it looks like.
+assert(((true and false) implies (false or true)) == true, "explicit grouping")
+assert((true implies (true and false)) == false, "grouped one way")
+assert(((true implies true) and false) == false, "grouped the other way")
 
-// Precedence: the word operators bind more loosely than `&&` and `||`.
-assert((true && false implies false || true) == true, "&& and || bind tighter")
-assert((true implies true && false) == false, "&& bound tighter than implies")
+// Comparison binds tighter than the connectives, so the common case needs no
+// parentheses at all.
+assert(1 < 2 and 3 > 2, "comparison binds tighter than `and`")
+
+// Words and symbols are the same operators.
+assert((true and false) == (true && false), "`and` is `&&`")
+assert((true or false) == (true || false), "`or` is `||`")
+assert((true xor false) == (true ^ false), "`xor` is `^`")
+assert((not true) == (!true), "`not` is `!`")

@@ -83,7 +83,7 @@ fun bump(): Bool {
     calls += 1
     return true
 }
-assert(false && bump() == true || true, "&& short-circuits")
-assert(calls == 0, "the right operand of && was never evaluated")
-assert(true || bump(), "|| short-circuits")
-assert(calls == 0, "the right operand of || was never evaluated")
+assert((false and bump()) == false, "`and` short-circuits on a false left operand")
+assert(calls == 0, "the right operand of `and` was never evaluated")
+assert((true or bump()) == true, "`or` short-circuits on a true left operand")
+assert(calls == 0, "the right operand of `or` was never evaluated")

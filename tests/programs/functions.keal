@@ -44,7 +44,7 @@ assert(rectangle(3, 4) == 12, "that default overridden")
 
 assert(fact(6) == 720, "recursion")
 assert(isEven(10), "mutual recursion")
-assert(!isEven(7), "mutual recursion")
+assert(not isEven(7), "mutual recursion")
 
 // Lambdas: explicit parameters, inferred parameters, and the implicit `it`.
 val double = { x: Int -> x * 2 }

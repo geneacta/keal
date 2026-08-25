@@ -31,44 +31,43 @@ struct Parser {
 /// Binding powers, lowest first. Assignment is handled at statement level.
 fn binary_power(tok: &Tok) -> Option<(u8, BinOp)> {
     Some(match tok {
-        Tok::EqEq => (4, BinOp::Eq),
-        Tok::BangEq => (4, BinOp::Ne),
-        Tok::Lt => (5, BinOp::Lt),
-        Tok::LtEq => (5, BinOp::Le),
-        Tok::Gt => (5, BinOp::Gt),
-        Tok::GtEq => (5, BinOp::Ge),
-        Tok::Plus => (8, BinOp::Add),
-        Tok::Minus => (8, BinOp::Sub),
-        Tok::Star => (9, BinOp::Mul),
-        Tok::Slash => (9, BinOp::Div),
-        Tok::Percent => (9, BinOp::Rem),
+        Tok::EqEq => (2, BinOp::Eq),
+        Tok::BangEq => (2, BinOp::Ne),
+        Tok::Lt => (3, BinOp::Lt),
+        Tok::LtEq => (3, BinOp::Le),
+        Tok::Gt => (3, BinOp::Gt),
+        Tok::GtEq => (3, BinOp::Ge),
+        Tok::Plus => (6, BinOp::Add),
+        Tok::Minus => (6, BinOp::Sub),
+        Tok::Star => (7, BinOp::Mul),
+        Tok::Slash => (7, BinOp::Div),
+        Tok::Percent => (7, BinOp::Rem),
         _ => return None,
     })
 }
 
-/// `xor`, `xnor`, `nand`, `nor` and `implies` are contextual: they are only
-/// read as operators where a binary operator may appear, so a variable may
-/// still be called `nor`. Semicolon insertion keeps that safe across lines.
-fn word_op(tok: &Tok) -> Option<LogicalOp> {
-    let Tok::Ident(name) = tok else { return None };
-    Some(match name.as_str() {
-        "xor" => LogicalOp::Xor,
-        "xnor" => LogicalOp::Xnor,
-        "nand" => LogicalOp::Nand,
-        "nor" => LogicalOp::Nor,
-        "implies" => LogicalOp::Implies,
+/// Maps a token to the connective it writes. Symbols and words are the same
+/// operators: `&&` is `and`, `^` is `xor`.
+fn logical_op(tok: &Tok) -> Option<LogicalOp> {
+    Some(match tok {
+        Tok::AndAnd | Tok::KwAnd => LogicalOp::And,
+        Tok::OrOr | Tok::KwOr => LogicalOp::Or,
+        Tok::Caret | Tok::KwXor => LogicalOp::Xor,
+        Tok::KwXnor => LogicalOp::Xnor,
+        Tok::KwNand => LogicalOp::Nand,
+        Tok::KwNor => LogicalOp::Nor,
+        Tok::KwImplies => LogicalOp::Implies,
         _ => return None,
     })
 }
 
-/// The word operators all sit at one level, below `&&` and `||`.
-const P_WORD: u8 = 1;
-const P_OR: u8 = 2;
-const P_AND: u8 = 3;
-const P_CMP: u8 = 5;
-const P_ELVIS: u8 = 6;
-const P_RANGE: u8 = 7;
-const P_UNARY: u8 = 10;
+/// Every binary connective shares one level: none binds tighter than another,
+/// so mixing two of them is a syntax error rather than a silent reading.
+const P_LOGIC: u8 = 1;
+const P_CMP: u8 = 3;
+const P_ELVIS: u8 = 4;
+const P_RANGE: u8 = 5;
+const P_UNARY: u8 = 8;
 
 impl Parser {
     // ---- token helpers -------------------------------------------------
@@ -485,35 +484,38 @@ impl Parser {
             let span = self.span();
             // Logical, elvis, range and `is`/`in` are infix operators that do
             // not map onto BinOp, so they get their own arms.
-            if let Some(op) = word_op(self.peek()) {
-                if P_WORD < min_bp {
+            if let Some(op) = logical_op(self.peek()) {
+                if P_LOGIC < min_bp {
                     break;
                 }
                 self.advance();
-                // `implies` chains to the right: `a implies b implies c`
-                // reads as `a implies (b implies c)`, as in logic.
-                let rhs_bp = if op == LogicalOp::Implies { P_WORD } else { P_WORD + 1 };
-                let rhs = self.binary(rhs_bp)?;
+                let rhs = self.binary(P_LOGIC + 1)?;
                 lhs = Expr {
                     span,
                     kind: ExprKind::Logical { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
                 };
-                // Two different connectives in a row read ambiguously, and
-                // `nand`/`nor` are not associative even with themselves.
-                if let Some(next) = word_op(self.peek()) {
-                    let chainable = next == op && matches!(op, LogicalOp::Xor | LogicalOp::Xnor);
-                    if !chainable {
+                // No connective binds tighter than another, so a second one is
+                // only allowed where repeating it cannot change the meaning.
+                if let Some(next) = logical_op(self.peek()) {
+                    let repeats_associative = next == op
+                        && matches!(
+                            op,
+                            LogicalOp::And | LogicalOp::Or | LogicalOp::Xor | LogicalOp::Xnor
+                        );
+                    if !repeats_associative {
                         let what = if next == op {
                             format!("`{}` does not chain", op.symbol())
                         } else {
                             format!(
-                                "`{}` and `{}` cannot be combined without parentheses",
+                                "`{}` and `{}` need parentheses to say which applies first",
                                 op.symbol(),
                                 next.symbol()
                             )
                         };
                         return Err(Diag::new(self.span(), what).with_note(format!(
-                            "group the operands explicitly, e.g. `(a {} b) {} c`",
+                            "logical operators have no relative precedence in Keal; write `(a {} b) {} c` or `a {} (b {} c)`",
+                            op.symbol(),
+                            next.symbol(),
                             op.symbol(),
                             next.symbol()
                         )));
@@ -523,32 +525,6 @@ impl Parser {
             }
 
             match self.peek() {
-                Tok::OrOr if P_OR >= min_bp => {
-                    self.advance();
-                    let rhs = self.binary(P_OR + 1)?;
-                    lhs = Expr {
-                        span,
-                        kind: ExprKind::Logical {
-                            op: LogicalOp::Or,
-                            lhs: Box::new(lhs),
-                            rhs: Box::new(rhs),
-                        },
-                    };
-                    continue;
-                }
-                Tok::AndAnd if P_AND >= min_bp => {
-                    self.advance();
-                    let rhs = self.binary(P_AND + 1)?;
-                    lhs = Expr {
-                        span,
-                        kind: ExprKind::Logical {
-                            op: LogicalOp::And,
-                            lhs: Box::new(lhs),
-                            rhs: Box::new(rhs),
-                        },
-                    };
-                    continue;
-                }
                 Tok::Elvis if P_ELVIS >= min_bp => {
                     self.advance();
                     // Right-associative: `a ?: b ?: c` is `a ?: (b ?: c)`.
@@ -642,7 +618,8 @@ impl Parser {
         let span = self.span();
         let op = match self.peek() {
             Tok::Minus => UnOp::Neg,
-            Tok::Bang => UnOp::Not,
+            // `not` is the word form of `!` and binds exactly as tightly.
+            Tok::Bang | Tok::KwNot => UnOp::Not,
             _ => return self.postfix(),
         };
         self.advance();

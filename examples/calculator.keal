@@ -11,14 +11,14 @@ fun tokenize(src: String): List<Token>? {
     var i = 0
     while (i < src.length) {
         val c = src[i]
-        if (c == " " || c == "\t") {
+        if (c == " " or c == "\t") {
             i += 1
             continue
         }
         if (c in "0123456789") {
             var text = ""
             var seenDot = false
-            while (i < src.length && (src[i] in "0123456789" || (src[i] == "." && !seenDot))) {
+            while (i < src.length and (src[i] in "0123456789" or (src[i] == "." and not seenDot))) {
                 if (src[i] == ".") { seenDot = true }
                 text += src[i]
                 i += 1
@@ -66,7 +66,7 @@ class Parser(val tokens: List<Token>) {
 
     fun expr(): Float {
         var value = this.term()
-        while (this.peek().kind == "+" || this.peek().kind == "-") {
+        while (this.peek().kind == "+" or this.peek().kind == "-") {
             val op = this.advance().kind
             val rhs = this.term()
             value = if (op == "+") { value + rhs } else { value - rhs }

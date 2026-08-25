@@ -58,13 +58,18 @@ snapshot tests for the diagnostics.
   after an early-return guard, and across `&&`.
 - **Classes.** Primary constructors that declare fields, field initializers,
   methods, and a `toString` hook that `println` respects.
+- **Operator overloading through traits.** `+`, `-`, `*`, `/`, `%`, unary `-`,
+  `==` and the four comparisons are wired to prelude traits (`Add`, `Ord`, …).
+  The built-in types implement them too, so `fun total<T: Add>(...)` accepts
+  `Int` and your own type alike.
 - **Generics and traits.** `fun first<T>(...)`, `class Box<T>`, inferred one
   argument at a time so a later lambda knows what an earlier argument fixed.
   Traits carry required and default methods, `Self`, and bounds (`<T: Show +
   Ordered>`) that the checker enforces.
-- **Eight logical connectives.** `!`, `&&`, `||`, and `xor`, `xnor`, `nand`,
-  `nor`, `implies` as contextual keywords. The ones that can short-circuit do;
-  `xor` and `xnor` cannot and say so. Mixing two of them needs parentheses.
+- **Eight logical connectives**, spelled as words: `not`, `and`, `or`, `xor`,
+  `xnor`, `nand`, `nor`, `implies` (`!`, `&&`, `||` and `^` are accepted
+  aliases). The ones that can short-circuit do; `xor` and `xnor` cannot and
+  say so. **None binds tighter than another** — see below.
 - **Functions as values.** Lambdas with inferred parameter types and an
   implicit `it`, closures that capture variables, nested functions, default
   and named arguments.
@@ -98,6 +103,7 @@ src/
   value.rs     runtime values, environments
   interp.rs    the evaluator
   native.rs    runtime implementations of the standard library
+  prelude.keal the operator traits, written in Keal and compiled in
   loader.rs    module resolution
   repl.rs      interactive session
   span.rs      source locations and diagnostic rendering
@@ -118,6 +124,15 @@ and no semicolons in normal code.
 the accumulator's type before it can type the lambda. Both the built-in table
 and user generics resolve a signature after each argument they check, so
 whatever an earlier argument settles is available to a later one.
+
+**Logical operators have no relative precedence.** `a or b and c` is a syntax
+error in Keal; the parentheses are required. Most languages rank `and` above
+`or` by a convention inherited from arithmetic, but with eight connectives
+that convention stops carrying its weight — nobody reliably knows how `nand`
+ranks against `implies`. Rather than invent an order and expect it to be
+remembered, Keal asks. Repeating one connective is still allowed where it
+cannot change the meaning, so `a and b and c` is fine while
+`a nand b nand c` is not.
 
 **Monomorphisation decided up front.** Generics solve to concrete types at
 every call site, and the checker refuses a call it cannot fully solve. That

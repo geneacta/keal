@@ -184,6 +184,9 @@ pub fn call_method(
     if name == "toString" && args.is_empty() {
         return Ok(Value::str(it.display(&recv, span)?));
     }
+    if let Some(v) = operator_method(&recv, name, &args, span) {
+        return v;
+    }
     match &recv {
         Value::Str(s) => string_method(s, name, &args, span),
         Value::Int(n) => int_method(*n, name, &args, span),
@@ -192,6 +195,55 @@ pub fn call_method(
         Value::Map(_) => map_method(&recv, name, &args, span),
         Value::Range(a, b) => range_method(it, *a, *b, name, &args, span),
         other => err(span, format!("`{}` has no method `{}`", other.type_name(), name)),
+    }
+}
+
+/// The built-in types' implementations of the prelude's operator traits.
+///
+/// Reached only from generic code, which is rewritten into method calls; a
+/// literal `1 + 2` is evaluated directly by the interpreter.
+fn operator_method(recv: &Value, name: &str, args: &[Value], span: Span) -> Option<R<Value>> {
+    let arith = |f: fn(i64, i64) -> Option<i64>, g: fn(f64, f64) -> f64| -> Option<R<Value>> {
+        match (recv, args.first()?) {
+            (Value::Int(a), Value::Int(b)) => Some(match f(*a, *b) {
+                Some(v) => Ok(Value::Int(v)),
+                None => err(span, format!("integer overflow in `{}`", name)),
+            }),
+            (Value::Float(a), Value::Float(b)) => Some(Ok(Value::Float(g(*a, *b)))),
+            _ => None,
+        }
+    };
+    match name {
+        "plus" => match (recv, args.first()?) {
+            (Value::Str(a), Value::Str(b)) => Some(Ok(Value::str(format!("{}{}", a, b)))),
+            _ => arith(i64::checked_add, |a, b| a + b),
+        },
+        "minus" => arith(i64::checked_sub, |a, b| a - b),
+        "times" => arith(i64::checked_mul, |a, b| a * b),
+        "div" => match (recv, args.first()?) {
+            (Value::Int(_), Value::Int(0)) => Some(err(span, "division by zero")),
+            _ => arith(i64::checked_div, |a, b| a / b),
+        },
+        "rem" => match (recv, args.first()?) {
+            (Value::Int(_), Value::Int(0)) => Some(err(span, "remainder by zero")),
+            _ => arith(i64::checked_rem, |a, b| a % b),
+        },
+        "negate" => match recv {
+            Value::Int(n) => Some(match n.checked_neg() {
+                Some(v) => Ok(Value::Int(v)),
+                None => err(span, "integer overflow while negating"),
+            }),
+            Value::Float(f) => Some(Ok(Value::Float(-f))),
+            _ => None,
+        },
+        "equals" => Some(Ok(Value::Bool(values_equal(recv, args.first()?)))),
+        "compareTo" => match compare(recv, args.first()?) {
+            Some(Ordering::Less) => Some(Ok(Value::Int(-1))),
+            Some(Ordering::Equal) => Some(Ok(Value::Int(0))),
+            Some(Ordering::Greater) => Some(Ok(Value::Int(1))),
+            None => None,
+        },
+        _ => None,
     }
 }
 
