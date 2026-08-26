@@ -177,6 +177,14 @@ hoping. Declaring that is future work; recognising it is not.
 backend covers: the count at the head of every string, retain and release,
 and checked arithmetic so that native code fails where the interpreters fail.
 
+A class becomes exactly the struct described in section 2 — the count, then
+the fields in declaration order. Each class gets its own retain and release,
+rather than a destructor pointer in the header, because the compiler knows the
+static type at every site and the header is meant to stay one word. Releasing
+the last reference to an object releases each of the references it held, then
+frees it; that cascade is generated from the field types, so it is the layout
+table that decides it.
+
 The rule the emitter follows is deliberately blunt: **every counted value is a
 named temporary that its block owns, and the block releases it on the way out
 by any route.** A binding, an assignment or a returned value takes a reference

@@ -20,7 +20,8 @@ fn compile(path: &str) -> Result<String, ExitCode> {
         }
     };
 
-    let errors = checker::check(&mut program);
+    let mut checker = checker::Checker::new();
+    let (errors, _) = checker.check_program(&mut program);
     if !errors.is_empty() {
         for d in &errors {
             eprint!("{}", sources.render("error", d));
@@ -28,7 +29,7 @@ fn compile(path: &str) -> Result<String, ExitCode> {
         return Err(ExitCode::FAILURE);
     }
 
-    cbackend::emit(&program).map_err(|diags| {
+    cbackend::emit(&program, &checker.class_shapes()).map_err(|diags| {
         for d in &diags {
             eprint!("{}", sources.render("error", d));
         }

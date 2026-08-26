@@ -1,9 +1,9 @@
 // Everything here is beyond the C backend for now. Each one must be named
 // rather than silently mis-compiled, so the snapshot is the promise.
 
-record Point(val x: Int, val y: Int)
-
 fun identity<T>(value: T): T { value }
+
+record Boxed<T>(val value: T)
 
 fun withDefault(n: Int = 1): Int { n }
 
@@ -22,5 +22,7 @@ fun useWhen(n: Int): String {
 }
 
 fun useNullable(s: String?): Int { s?.length ?: 0 }
+
+fun useMethodOnBuiltin(s: String): Int { s.length }
 
 println(useWhen(0))

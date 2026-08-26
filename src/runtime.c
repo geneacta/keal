@@ -55,14 +55,14 @@ KEAL_FN void* keal_alloc(size_t n) {
 
 /* Returns its argument so that a retain can be written inline, which is what
  * lets the generated code read as expressions rather than as statements. */
-KEAL_FN KealStr* keal_retain(KealStr* s) {
+KEAL_FN KealStr* keal_str_retain(KealStr* s) {
     if (s != NULL) {
         s->rc++;
     }
     return s;
 }
 
-KEAL_FN void keal_release(KealStr* s) {
+KEAL_FN void keal_str_release(KealStr* s) {
     if (s == NULL) {
         return;
     }
@@ -161,6 +161,82 @@ KEAL_FN void keal_print(KealStr* s, bool newline) {
     } else {
         fflush(stdout);
     }
+}
+
+/* ---- building strings ------------------------------------------------- */
+
+/* A growable buffer, used by the rendering functions the compiler generates
+ * for each class. Concatenating with `keal_concat` would allocate once per
+ * field; this allocates once per object. */
+typedef struct KealBuf {
+    char* data;
+    int64_t len;
+    int64_t cap;
+} KealBuf;
+
+KEAL_FN void keal_buf_init(KealBuf* b) {
+    b->cap = 32;
+    b->len = 0;
+    b->data = (char*)keal_alloc((size_t)b->cap);
+}
+
+KEAL_FN void keal_buf_reserve(KealBuf* b, int64_t extra) {
+    if (b->len + extra <= b->cap) {
+        return;
+    }
+    while (b->cap < b->len + extra) {
+        b->cap *= 2;
+    }
+    char* grown = (char*)keal_alloc((size_t)b->cap);
+    memcpy(grown, b->data, (size_t)b->len);
+    free(b->data);
+    b->data = grown;
+}
+
+KEAL_FN void keal_buf_bytes(KealBuf* b, const char* s, int64_t n) {
+    keal_buf_reserve(b, n);
+    memcpy(b->data + b->len, s, (size_t)n);
+    b->len += n;
+}
+
+KEAL_FN void keal_buf_lit(KealBuf* b, const char* s) {
+    keal_buf_bytes(b, s, (int64_t)strlen(s));
+}
+
+/* Takes a reference and consumes it, which is what the generated rendering
+ * code wants: it makes a string, appends it, and is done with it. */
+KEAL_FN void keal_buf_str(KealBuf* b, KealStr* s) {
+    keal_buf_bytes(b, s->bytes, s->len);
+    keal_str_release(s);
+}
+
+KEAL_FN KealStr* keal_buf_finish(KealBuf* b) {
+    keal_buf_reserve(b, 1);
+    b->data[b->len] = '\0';
+    return keal_str_owning(b->data, b->len);
+}
+
+/* How a string appears *inside* a rendered value: quoted and escaped, so
+ * that `["a", "b"]` reads differently from `[a, b]`. Matches what the
+ * interpreters print. */
+KEAL_FN KealStr* keal_str_repr(KealStr* s) {
+    KealBuf b;
+    keal_buf_init(&b);
+    keal_buf_lit(&b, "\"");
+    for (int64_t i = 0; i < s->len; i++) {
+        char c = s->bytes[i];
+        switch (c) {
+            case '"': keal_buf_lit(&b, "\\\""); break;
+            case '\\': keal_buf_lit(&b, "\\\\"); break;
+            case '\n': keal_buf_lit(&b, "\\n"); break;
+            case '\t': keal_buf_lit(&b, "\\t"); break;
+            case '\r': keal_buf_lit(&b, "\\r"); break;
+            default: keal_buf_bytes(&b, &c, 1); break;
+        }
+    }
+    keal_buf_lit(&b, "\"");
+    keal_str_release(s);
+    return keal_buf_finish(&b);
 }
 
 /* ---- checked integer arithmetic --------------------------------------- */

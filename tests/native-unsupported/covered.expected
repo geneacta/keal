@@ -1,13 +1,13 @@
-error: the C backend cannot compile classes and records yet
-  --> tests/native-unsupported/covered.keal:4:8
+error: the C backend cannot compile generic classes and records yet
+  --> tests/native-unsupported/covered.keal:6:8
   |
-4 | record Point(val x: Int, val y: Int)
+6 | record Boxed<T>(val value: T)
   |        ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile generic functions yet
-  --> tests/native-unsupported/covered.keal:6:1
+  --> tests/native-unsupported/covered.keal:4:1
   |
-6 | fun identity<T>(value: T): T { value }
+4 | fun identity<T>(value: T): T { value }
   | ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile default arguments yet
@@ -16,11 +16,11 @@ error: the C backend cannot compile default arguments yet
 8 | fun withDefault(n: Int = 1): Int { n }
   |                 ^
   = note: run it on the bytecode VM instead, which supports the whole language
-error: the C backend cannot compile this expression yet
-  --> tests/native-unsupported/covered.keal:10:32
+error: the C backend cannot compile list literals yet
+  --> tests/native-unsupported/covered.keal:10:22
    |
 10 | fun useList(): Int { [1, 2, 3].size }
-   |                                ^
+   |                      ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile values of type `(Int) -> Int` yet
   --> tests/native-unsupported/covered.keal:13:5
@@ -34,7 +34,7 @@ error: the C backend cannot compile `when` yet
 18 |     return when (n) {
    |            ^
   = note: run it on the bytecode VM instead, which supports the whole language
-error: the C backend cannot compile this type yet
+error: the C backend cannot compile the type `String?` yet
   --> tests/native-unsupported/covered.keal:24:17
    |
 24 | fun useNullable(s: String?): Int { s?.length ?: 0 }

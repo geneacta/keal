@@ -1,0 +1,75 @@
+// Records and classes compiled natively: the struct layout, the constructor,
+// the cascade of releases when the last reference goes, and the rendering.
+
+record Point(val x: Int, val y: Int)
+record Named(val label: String, val n: Int)
+record Nested(val inner: Point, val tag: String)
+
+class Counter {
+    var n: Int = 0
+    proc bump() { this.n += 1 }
+    proc add(k: Int) { this.n += k }
+    fun value(): Int { this.n }
+}
+
+class Accumulator {
+    var text: String = ""
+    proc append(s: String) { this.text += s }
+    fun result(): String { this.text }
+}
+
+class Vec2(val x: Float, val y: Float) {
+    fun plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
+    fun scaled(k: Float): Vec2 { Vec2(this.x * k, this.y * k) }
+    fun toString(): String { "(${this.x}, ${this.y})" }
+}
+
+// A field computed from the constructor's parameters.
+class Sized(val width: Int, val height: Int) {
+    val area: Int = width * height
+}
+
+val p = Point(3, 4)
+println(p)
+println(p.x + p.y)
+
+// A record's equality compares its fields; a class's compares identity.
+println(Point(3, 4) == Point(3, 4))
+println(Point(3, 4) == Point(9, 9))
+
+// A string field is quoted when it is rendered inside a value.
+println(Named("hi", 1))
+println(Nested(Point(1, 2), "tag"))
+
+val c = Counter()
+c.bump()
+c.bump()
+c.add(10)
+println(c.value())
+
+// A counted field, replaced repeatedly: the old string must be released each
+// time, which is what the leak check on this program is watching for.
+val acc = Accumulator()
+for (i in 0..5) {
+    acc.append("${i},")
+}
+println(acc.result())
+
+val v = Vec2(3.0, 4.0)
+println(v)
+println(v.scaled(2.0))
+println(v.plus(Vec2(1.0, 1.0)))
+
+println(Sized(3, 4).area)
+
+// Instances held in locals, passed as arguments, and returned.
+fun further(a: Point, b: Point): Point {
+    return Point(a.x + b.x, a.y + b.y)
+}
+println(further(Point(1, 2), Point(10, 20)))
+
+fun describe(pt: Point): String {
+    if (pt.x > pt.y) { return "wide" }
+    return "tall"
+}
+println(describe(Point(5, 1)) + " " + describe(Point(1, 5)))
