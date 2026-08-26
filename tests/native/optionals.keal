@@ -1,0 +1,57 @@
+// Nullable values compiled natively. `Int?` and `Float?` are a tag beside
+// the value; `Bool?` fits in its byte's spare pattern — the exact prices
+// `keal layout` quotes. Smart casts unwrap: after a null check the checker
+// reads the bare type, and the backend reads through the tag to match.
+
+fun firstEven(xs: List<Int>): Int? {
+    for (x in xs) {
+        if (x % 2 == 0) { return x }
+    }
+    return null
+}
+
+val hit = firstEven([3, 4, 5])
+val miss = firstEven([1, 3])
+println(hit)
+println(miss)
+println(hit != null)
+println(miss == null)
+println(hit ?: -1)
+println(miss ?: -1)
+println(hit!! * 10)
+
+val declared: Int? = 5
+println(declared ?: 0)
+val declaredNull: Int? = null
+println(declaredNull ?: 42)
+println(declaredNull)
+
+fun describe(n: Int?): String {
+    if (n == null) { return "none" }
+    return "got ${n}"
+}
+println(describe(7))
+println(describe(null))
+println(describe(hit))
+
+val f: Float? = 2.5
+println(f ?: 0.0)
+println(f)
+val fnull: Float? = null
+println(fnull ?: 9.9)
+
+val b: Bool? = true
+println(b ?: false)
+println(b)
+val bnull: Bool? = null
+println(bnull == null)
+println(bnull ?: true)
+println(bnull)
+
+// A map of value type, looked up bare now that Int? exists... still via ?:.
+val m = {"a": 1}
+println(m["a"] ?: 0)
+
+fun chain(n: Int?): Int { return n ?: 100 }
+println(chain(3))
+println(chain(null))

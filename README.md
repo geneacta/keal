@@ -334,10 +334,14 @@ by monomorphisation**: the checker records the solved type arguments on every
 call, and the backend emits one C copy of the function or class per distinct
 set, on demand. `firstOr<T>` used at `Int` and `String` becomes two plain C
 functions; `Boxed<T>` and the tuples become one struct per instantiation,
-each with its own retain, release, equality and rendering. What
-does not compile yet is short: capturing a `var`, `Any`, and nullable
-*values* like `Int?` — `Map` and default arguments landed. Anything it cannot
-compile is **named**, not mis-compiled:
+each with its own retain, release, equality and rendering. What does
+not compile natively is now exactly one thing: `Any`, the dynamically-typed
+escape hatch, which needs run-time type information that scalar native code
+does not carry. Everything else landed — `Map`, default and named arguments,
+generic methods, `var` capture through shared heap cells, `Int?` as the
+tagged struct `keal layout` always priced it at, and the host trio
+(`args()`, `readFile`, `writeFile`, `exit`) that self-hosting waits on.
+Anything it cannot compile is **named**, not mis-compiled:
 
 ```
 error: the C backend cannot compile list literals yet

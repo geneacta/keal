@@ -511,6 +511,21 @@ KEAL_FN bool keal_opt_str_eq(KealStr* a, KealStr* b) {
     return keal_str_cmp(a, b) == 0;
 }
 
+/* ---- nullable values -------------------------------------------------- */
+
+/* `Int?` and `Float?`: a tag beside the value, exactly as `keal layout`
+ * prices them. `Bool?` instead uses a spare pattern of its byte — 0, 1, and
+ * 2 for null — which is the layout table's promise kept. */
+typedef struct KealOptI64 {
+    bool has;
+    int64_t v;
+} KealOptI64;
+
+typedef struct KealOptF64 {
+    bool has;
+    double v;
+} KealOptF64;
+
 /* ---- cells ------------------------------------------------------------ */
 
 /* A mutable variable some closure captures. The frame and every closure

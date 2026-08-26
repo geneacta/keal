@@ -122,6 +122,9 @@ struct CBackend {
     /// Bodies of generated lambda functions, emitted after everything else.
     lambda_defs: String,
     next_lambda: usize,
+    /// The declared return type of the function being emitted, which is the
+    /// target a `return`'s value coerces to.
+    current_ret: Option<Type>,
     /// The `var`s of the frame being emitted that some lambda captures.
     /// Each lives in a shared heap cell rather than a C local, so the frame
     /// and its closures see one variable — reads and writes go through it.
@@ -180,6 +183,7 @@ impl CBackend {
             param_alias: None,
             celled: HashMap::new(),
             frame_cells: std::collections::HashSet::new(),
+            current_ret: None,
             tsubst: crate::types::Subst::new(),
             fun_decls: HashMap::new(),
             externs: HashMap::new(),
@@ -276,8 +280,17 @@ impl CBackend {
                 }
             }
             // `T?` over a reference is the same pointer, allowed to be null.
-            // Over a value it would need a tag beside it, which is not built.
             Type::Nullable(inner) if is_reference(inner) => self.ctype(inner, span),
+            // Over a value: a tag beside it, or Bool's spare pattern.
+            Type::Nullable(inner) => match &**inner {
+                Type::Int => Some("KealOptI64".to_string()),
+                Type::Float => Some("KealOptF64".to_string()),
+                Type::Bool => Some("int8_t".to_string()),
+                other => {
+                    self.unsupported(span, &format!("the type `{}?`", other));
+                    None
+                }
+            },
             Type::Null => Some("void*".to_string()),
             other => {
                 self.unsupported(span, &format!("values of type `{}`", other));
@@ -820,16 +833,16 @@ impl CBackend {
     }
 
     fn function_named(&mut self, f: &FunDecl, cname: &str) {
-        let ret = match &f.ret {
-            Some(t) => match self.resolved(t, f.span) {
-                Some(ty) => match self.ctype(&ty, f.span) {
-                    Some(c) => c.to_string(),
-                    None => return,
-                },
+        let ret_ty = f.ret.as_ref().and_then(|t| self.resolved(t, f.span));
+        let ret = match (&f.ret, &ret_ty) {
+            (Some(_), Some(ty)) => match self.ctype(ty, f.span) {
+                Some(c) => c,
                 None => return,
             },
-            None => "void".to_string(),
+            (Some(_), None) => return,
+            (None, _) => "void".to_string(),
         };
+        self.current_ret = ret_ty.clone();
 
         let mut params = Vec::new();
         for p in f.params.iter() {
@@ -947,13 +960,16 @@ impl CBackend {
     }
 
     fn method_named(&mut self, c: &ClassDecl, m: &FunDecl, name: &str, fn_name: &str) {
-        let ret = match &m.ret {
-            Some(t) => match self.resolved(t, m.span).and_then(|ty| self.ctype(&ty, m.span)) {
+        let ret_ty = m.ret.as_ref().and_then(|t| self.resolved(t, m.span));
+        let ret = match (&m.ret, &ret_ty) {
+            (Some(_), Some(ty)) => match self.ctype(ty, m.span) {
                 Some(c) => c,
                 None => return,
             },
-            None => "void".to_string(),
+            (Some(_), None) => return,
+            (None, _) => "void".to_string(),
         };
+        self.current_ret = ret_ty;
         let mut params = vec![format!("{}* self", name)];
         for p in m.params.iter() {
             let Some(te) = &p.ty else { return };
@@ -1030,15 +1046,16 @@ impl CBackend {
             },
             TypeExprKind::Nullable(inner) => {
                 let ty = self.resolved(inner, span)?;
-                if is_reference(&ty) {
-                    Some(ty.nullable())
+                let reference = is_reference(&ty);
+                let opt = ty.nullable();
+                // A reference is its own pointer; a value gets the tagged
+                // form; anything else has no representation and says so.
+                if reference || is_value_opt(&opt) {
+                    Some(opt)
                 } else {
-                    let name = type_expr_name(inner);
-                    self.refuse(
+                    self.unsupported(
                         span,
-                        &format!("the type `{}?`", name),
-                        "a nullable value needs a tag beside it, which is not built yet; \
-                         a nullable reference is just a pointer and does compile",
+                        &format!("the type `{}?`", type_expr_name(inner)),
                     );
                     None
                 }
@@ -1178,8 +1195,19 @@ impl CBackend {
 
     fn stmt(&mut self, s: &Stmt) {
         match &s.kind {
-            StmtKind::Let { name, init, mutable, .. } => {
-                let Some(ty) = self.ety(init) else { return };
+            StmtKind::Let { name, ty: ann, init, mutable } => {
+                // The declared type wins where it exists: `val x: Int? = 5`
+                // stores a wrapped value, not a bare one.
+                let declared = ann.as_ref().and_then(|t| {
+                    let before = self.errors.len();
+                    let r = self.resolved(t, s.span);
+                    if r.is_none() {
+                        self.errors.truncate(before);
+                    }
+                    r
+                });
+                let inferred = self.ety(init);
+                let Some(ty) = declared.clone().or(inferred) else { return };
                 let Some(c) = self.ctype(&ty, s.span) else { return };
                 let var = mangle(name);
                 // A binding at the program's top level is a C global, so
@@ -1188,8 +1216,9 @@ impl CBackend {
                 // nothing releases it.
                 if self.at_top_level && self.scopes.len() == 1 {
                     self.global_vars.insert(name.clone());
+                    self.declare_local(name, &ty, *mutable);
                     let _ = writeln!(self.global_decls, "static {} {};", c, var);
-                    let value = self.expr(init);
+                    let value = self.coerced_to(init, &ty);
                     self.line(format!("{} = {};", var, Self::retained(&ty, &value)));
                     return;
                 }
@@ -1207,7 +1236,7 @@ impl CBackend {
                     self.celled.insert(name.clone(), (ty, kind));
                     return;
                 }
-                let value = self.expr(init);
+                let value = self.coerced_to(init, &ty);
                 if Self::counted(&ty) {
                     self.line(format!("{} {} = {};", c, var, Self::retained(&ty, &value)));
                     self.own(&var, &ty);
@@ -1225,8 +1254,18 @@ impl CBackend {
             }
             StmtKind::Return(value) => match value {
                 Some(e) => {
-                    let Some(ty) = self.ety(e) else { return };
-                    let v = self.expr(e);
+                    let target = self.current_ret.clone();
+                    let ty = match &target {
+                        Some(t) => t.clone(),
+                        None => match self.ety(e) {
+                            Some(t) => t,
+                            None => return,
+                        },
+                    };
+                    let v = match &target {
+                        Some(t) => self.coerced_to(e, t),
+                        None => self.expr(e),
+                    };
                     let Some(c) = self.ctype(&ty, e.span) else { return };
                     if Self::counted(&ty) {
                         // The caller becomes the owner, so this block must
@@ -1433,6 +1472,31 @@ impl CBackend {
                 self.own_temp(format!("keal_str_retain(_str{})", idx))
             }
             ExprKind::Ident(name) => {
+                // Smart casts change the type without changing the variable:
+                // after `if (n == null) return`, the checker reads `n` as
+                // `Int`, but the C local is still the tagged struct its
+                // declaration made it. The declared type says whether to
+                // unwrap.
+                let declared = self
+                    .locals
+                    .iter()
+                    .rev()
+                    .flat_map(|sc| sc.iter().rev())
+                    .find(|(n, _, _)| n == name)
+                    .map(|(_, t, _)| t.clone());
+                if let Some(decl_ty) = &declared {
+                    if is_value_opt(decl_ty) {
+                        let narrowed = match self.ety(e) {
+                            Some(t) => !is_value_opt(&t.clone().nullable()) || !matches!(t, Type::Nullable(_)),
+                            None => false,
+                        };
+                        let Type::Nullable(inner) = decl_ty else { unreachable!() };
+                        if narrowed && self.ety(e).map(|t| t == **inner).unwrap_or(false) {
+                            let v = self.var_ref(name);
+                            return opt_get(inner, &v);
+                        }
+                    }
+                }
                 if let Some((ty, kind)) = self.celled.get(name).cloned() {
                     let access = kind.unword(&format!("{}->w", self.var_ref(name)));
                     if Self::counted(&ty) {
@@ -1469,6 +1533,17 @@ impl CBackend {
             ExprKind::Null => "NULL".to_string(),
             ExprKind::Elvis { lhs, rhs } => self.elvis(e, lhs, rhs),
             ExprKind::NotNull(inner) => {
+                if let Some(Type::Nullable(it)) = self.ety(inner) {
+                    if is_value_opt(&Type::Nullable(it.clone())) {
+                        let v = self.expr(inner);
+                        self.line(format!(
+                            "if (!{}) {{ keal_panic(\"`!!` was applied to a null value\", {}); }}",
+                            opt_has(&it, &v),
+                            e.span.line
+                        ));
+                        return opt_get(&it, &v);
+                    }
+                }
                 let v = self.expr(inner);
                 self.line(format!(
                     "if ({} == NULL) {{ keal_panic(\"`!!` was applied to a null value\", {}); }}",
@@ -1524,6 +1599,11 @@ impl CBackend {
             // same box the frame writes through, so both see one variable.
             if let Some((ty, _)) = self.celled.get(&name).cloned() {
                 captures.push((name, ty, true));
+                continue;
+            }
+            // A top-level binding is a C global — read directly, whatever
+            // its mutability, exactly as the interpreters' global scope is.
+            if self.global_vars.contains(&name) {
                 continue;
             }
             let local = self
@@ -1619,6 +1699,7 @@ impl CBackend {
                 None => return "0".to_string(),
             }
         };
+        let lambda_ret = (ft.ret != Type::Unit).then(|| ft.ret.clone());
         let mut sig = format!("static {} {}_call(KealClosure* _c", ret_c, env_name);
         for (p, pt) in params.iter().zip(&ft.params) {
             let Some(ct) = self.ctype(&pt.ty, e.span) else { return "0".to_string() };
@@ -1653,8 +1734,10 @@ impl CBackend {
             }
         }
         let saved_top = std::mem::replace(&mut self.at_top_level, false);
+        let saved_ret = std::mem::replace(&mut self.current_ret, lambda_ret);
         self.line(format!("{n}* env = ({n}*)_c;\n    (void)env;", n = env_name));
         self.emit_body(&body.stmts, &ret_c);
+        self.current_ret = saved_ret;
         self.close_scope();
         if ret_c == "void" {
             self.line("return;");
@@ -2156,6 +2239,37 @@ impl CBackend {
                 return self.map_get(e, obj, index, Some(rhs));
             }
         }
+        // A tagged value: test the tag, take the value or the fallback.
+        if let Some(Type::Nullable(inner)) = self.ety(lhs) {
+            if is_value_opt(&Type::Nullable(inner.clone())) {
+                let Some(result_ty) = self.ety(e) else { return "0".to_string() };
+                let Some(ct) = self.ctype(&result_ty, e.span) else {
+                    return "0".to_string();
+                };
+                let v = self.expr(lhs);
+                let slot = self.temp();
+                self.line(format!("{} {};", ct, slot));
+                self.line(format!("if ({}) {{", opt_has(&inner, &v)));
+                self.indent += 1;
+                let taken = opt_get(&inner, &v);
+                let taken = if is_value_opt(&result_ty) {
+                    opt_wrap(&inner, &taken)
+                } else {
+                    taken
+                };
+                self.line(format!("{} = {};", slot, taken));
+                self.indent -= 1;
+                self.line("} else {");
+                self.indent += 1;
+                self.open_scope();
+                let fb = self.coerced_to(rhs, &result_ty);
+                self.line(format!("{} = {};", slot, fb));
+                self.close_scope();
+                self.indent -= 1;
+                self.line("}");
+                return slot;
+            }
+        }
         let Some(ty) = self.ety(e) else { return "0".to_string() };
         let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
         let a = self.expr(lhs);
@@ -2525,6 +2639,31 @@ impl CBackend {
             ));
             return t;
         }
+        // `x == null` on a tagged value is a presence test, not a compare.
+        if matches!(op, BinOp::Eq | BinOp::Ne) {
+            let (opt_side, other_null) = if matches!(rhs.kind, ExprKind::Null) {
+                (Some(lhs), true)
+            } else if matches!(lhs.kind, ExprKind::Null) {
+                (Some(rhs), true)
+            } else {
+                (None, false)
+            };
+            if other_null {
+                if let Some(side) = opt_side {
+                    if let Some(Type::Nullable(inner)) = self.ety(side) {
+                        if is_value_opt(&Type::Nullable(inner.clone())) {
+                            let v = self.expr(side);
+                            let has = opt_has(&inner, &v);
+                            return if op == BinOp::Eq {
+                                format!("(!{})", has)
+                            } else {
+                                has
+                            };
+                        }
+                    }
+                }
+            }
+        }
         let nullable_str = matches!(&lty, Some(Type::Nullable(i)) if **i == Type::Str)
             || matches!(&self.ety(rhs), Some(Type::Nullable(i)) if **i == Type::Str);
         let against_null =
@@ -2585,7 +2724,7 @@ impl CBackend {
                 let slot = self.temp();
                 self.line(format!("KealStr* {} = NULL;", slot));
                 self.own(&slot, &Type::Str);
-                self.line(format!("if ({} == NULL) {{", v));
+                self.line(format!("if (!{}) {{", opt_has(&inner, &v)));
                 self.indent += 1;
                 self.line(format!("{} = keal_str_static(\"null\", 4);", slot));
                 self.indent -= 1;
@@ -2596,6 +2735,9 @@ impl CBackend {
                     Type::Class(name, cargs) => {
                         format!("{}_show({})", struct_name_of(name, cargs), v)
                     }
+                    Type::Int => format!("keal_str_from_int({})", opt_get(&inner, &v)),
+                    Type::Float => format!("keal_str_from_float({})", opt_get(&inner, &v)),
+                    Type::Bool => format!("keal_str_from_bool({})", opt_get(&inner, &v)),
                     other => {
                         self.unsupported(
                             e.span,
@@ -2937,7 +3079,22 @@ impl CBackend {
                     i
                 }
             };
-            slots[idx] = Some(self.expr(&a.value));
+            // The declared parameter type decides whether a wrap is needed.
+            let target = params
+                .get(idx)
+                .and_then(|p| p.ty.as_ref())
+                .and_then(|te| {
+                    let before = self.errors.len();
+                    let r = self.resolved(te, span);
+                    if r.is_none() {
+                        self.errors.truncate(before);
+                    }
+                    r
+                });
+            slots[idx] = Some(match target {
+                Some(t) => self.coerced_to(&a.value, &t),
+                None => self.expr(&a.value),
+            });
         }
 
         let saved_subst = self.tsubst.clone();
@@ -2965,6 +3122,26 @@ impl CBackend {
         }
         self.tsubst = saved_subst;
         slots.into_iter().collect()
+    }
+
+    /// Emits `e` coerced to `target`: `Int` into `Int?`, `null` into the
+    /// absent form. Everywhere a plain value meets a nullable slot goes
+    /// through here, so the wrapping exists in exactly one place.
+    fn coerced_to(&mut self, e: &Expr, target: &Type) -> String {
+        if is_value_opt(target) {
+            let Type::Nullable(inner) = target else { unreachable!() };
+            if matches!(e.kind, ExprKind::Null) {
+                return opt_null(inner);
+            }
+            match self.ety(e) {
+                Some(t) if t == **inner => {
+                    let v = self.expr(e);
+                    return opt_wrap(inner, &v);
+                }
+                _ => {}
+            }
+        }
+        self.expr(e)
     }
 
     /// Binds a call's result according to its type, or emits it for effect.
@@ -3503,6 +3680,50 @@ fn describe_expr(kind: &ExprKind) -> &'static str {
         ExprKind::Null => "`null`",
         _ => "this expression",
     }
+}
+
+/// The nullable-value helpers: how `Int?`, `Float?` and `Bool?` are built,
+/// tested and unwrapped. Everything the backend does with one goes through
+/// these, so the representation lives in one place — `Bool?` in its byte's
+/// spare pattern, the other two as a tag beside the value.
+fn opt_wrap(inner: &Type, v: &str) -> String {
+    match inner {
+        Type::Int => format!("(KealOptI64){{ true, {} }}", v),
+        Type::Float => format!("(KealOptF64){{ true, {} }}", v),
+        Type::Bool => format!("(int8_t)(({}) ? 1 : 0)", v),
+        _ => v.to_string(),
+    }
+}
+
+fn opt_null(inner: &Type) -> String {
+    match inner {
+        Type::Int => "(KealOptI64){ false, 0 }".to_string(),
+        Type::Float => "(KealOptF64){ false, 0.0 }".to_string(),
+        Type::Bool => "(int8_t)2".to_string(),
+        _ => "NULL".to_string(),
+    }
+}
+
+fn opt_has(inner: &Type, x: &str) -> String {
+    match inner {
+        Type::Int | Type::Float => format!("{}.has", x),
+        Type::Bool => format!("({} != 2)", x),
+        _ => format!("({} != NULL)", x),
+    }
+}
+
+fn opt_get(inner: &Type, x: &str) -> String {
+    match inner {
+        Type::Int | Type::Float => format!("{}.v", x),
+        Type::Bool => format!("(bool)({} == 1)", x),
+        _ => x.to_string(),
+    }
+}
+
+/// True when `T?` needs the tagged form rather than a pointer.
+fn is_value_opt(ty: &Type) -> bool {
+    matches!(ty, Type::Nullable(inner)
+        if matches!(**inner, Type::Int | Type::Float | Type::Bool))
 }
 
 /// True for a type held behind a pointer, which therefore has null to spare.

@@ -4,10 +4,4 @@ error: the C backend cannot compile the type `Any` yet
 5 | fun useIsArm(v: Any): String {
   |              ^
   = note: run it on the bytecode VM instead, which supports the whole language
-error: the C backend cannot compile the type `Int?` yet
-  --> tests/native-unsupported/covered.keal:14:20
-   |
-14 | fun useNullableInt(n: Int?): Int { n ?: 0 }
-   |                    ^
-  = note: a nullable value needs a tag beside it, which is not built yet; a nullable reference is just a pointer and does compile
-2 constructs the C backend does not cover yet
+1 construct the C backend does not cover yet

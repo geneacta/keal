@@ -9,10 +9,6 @@ fun useIsArm(v: Any): String {
     }
 }
 
-// A nullable *reference* compiles; a nullable value would need a tag beside
-// it, which is not built yet.
-fun useNullableInt(n: Int?): Int { n ?: 0 }
-
 fun useMethodOnBuiltin(s: String): Int { s.length }
 
 println(useIsArm(1))
