@@ -34,10 +34,10 @@ error: the C backend cannot compile `when` yet
 18 |     return when (n) {
    |            ^
   = note: run it on the bytecode VM instead, which supports the whole language
-error: the C backend cannot compile the type `String?` yet
-  --> tests/native-unsupported/covered.keal:24:17
+error: the C backend cannot compile the type `Int?` yet
+  --> tests/native-unsupported/covered.keal:26:20
    |
-24 | fun useNullable(s: String?): Int { s?.length ?: 0 }
-   |                 ^
-  = note: run it on the bytecode VM instead, which supports the whole language
+26 | fun useNullableInt(n: Int?): Int { n ?: 0 }
+   |                    ^
+  = note: a nullable value needs a tag beside it, which is not built yet; a nullable reference is just a pointer and does compile
 7 constructs the C backend does not cover yet

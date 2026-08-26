@@ -21,7 +21,9 @@ fun useWhen(n: Int): String {
     }
 }
 
-fun useNullable(s: String?): Int { s?.length ?: 0 }
+// A nullable *reference* compiles; a nullable value would need a tag beside
+// it, which is not built yet.
+fun useNullableInt(n: Int?): Int { n ?: 0 }
 
 fun useMethodOnBuiltin(s: String): Int { s.length }
 

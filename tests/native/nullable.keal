@@ -1,0 +1,76 @@
+// Nullable references compiled natively. A `T?` over a reference is the same
+// pointer, allowed to be null — so it costs nothing, and it is what makes a
+// recursive structure possible.
+
+record Point(val x: Int, val y: Int)
+
+class Node(val label: String, var next: Node?) {
+    fun depth(): Int {
+        val rest = this.next
+        if (rest == null) { return 1 }
+        return 1 + rest.depth()
+    }
+    fun last(): String {
+        val rest = this.next
+        unless (rest == null) { return rest.last() }
+        return this.label
+    }
+}
+
+fun firstOrNull(hit: Bool): Point? {
+    if (hit) { return Point(1, 2) }
+    return null
+}
+
+fun nameOf(p: Point?): String {
+    if (p == null) { return "none" }
+    return "${p.x},${p.y}"
+}
+
+val present = firstOrNull(true)
+val absent = firstOrNull(false)
+
+// An absent value renders as `null`, here and inside a record.
+println(present)
+println(absent)
+println(nameOf(present))
+println(nameOf(absent))
+
+// The checker narrows after a null check, so the field access needs no guard.
+println(present != null)
+println(absent == null)
+
+// `?:` reaches its fallback only when the left side is absent.
+println(absent ?: Point(0, 0))
+println(present ?: Point(0, 0))
+
+// `!!` asserts, and fails at run time if it is wrong.
+println(present!!.x)
+
+// A chain, which is the point of a nullable reference.
+val chain = Node("a", Node("b", Node("c", null)))
+println(chain.depth())
+println(chain.last())
+println(chain.next?.label)
+println(chain.next?.next?.label)
+println(chain.next?.next?.next?.label)
+
+// A nullable field renders as `null` when it is absent.
+println(Node("solo", null).depth())
+
+// Nullable strings compare by content, not by pointer.
+val s1: String? = "abc"
+val s2: String? = "abc"
+val s3: String? = null
+println(s1 == s2)
+println(s1 == s3)
+println(s3 == null)
+println(s1 ?: "fallback")
+println(s3 ?: "fallback")
+
+// Reassigning a nullable field releases what it held.
+val head = Node("head", null)
+head.next = Node("tail", null)
+println(head.depth())
+head.next = null
+println(head.depth())

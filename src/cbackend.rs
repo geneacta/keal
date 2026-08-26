@@ -93,10 +93,18 @@ impl CBackend {
     }
 
     fn unsupported(&mut self, span: Span, what: &str) {
+        self.refuse(
+            span,
+            what,
+            "run it on the bytecode VM instead, which supports the whole language",
+        );
+    }
+
+    /// Refuses with a note that says why, rather than only where to go.
+    fn refuse(&mut self, span: Span, what: &str, note: &str) {
         self.errors.push(
-            Diag::new(span, format!("the C backend cannot compile {} yet", what)).with_note(
-                "run it on the bytecode VM instead, which supports the whole language",
-            ),
+            Diag::new(span, format!("the C backend cannot compile {} yet", what))
+                .with_note(note),
         );
     }
 
@@ -108,6 +116,16 @@ impl CBackend {
     fn temp(&mut self) -> String {
         self.next_temp += 1;
         format!("_t{}", self.next_temp)
+    }
+
+    /// A condition, bound to a name. Binary operators already parenthesise
+    /// themselves, so testing one directly would emit `if ((a == b))`, which
+    /// a C compiler is entitled to complain about.
+    fn condition(&mut self, cond: &Expr) -> String {
+        let c = self.expr(cond);
+        let t = self.temp();
+        self.line(format!("const bool {} = {};", t, c));
+        t
     }
 
     // ---- types ---------------------------------------------------------
@@ -124,6 +142,10 @@ impl CBackend {
             Type::Class(name, args) if args.is_empty() && self.shapes.contains_key(&**name) => {
                 Some(format!("{}*", struct_name(name)))
             }
+            // `T?` over a reference is the same pointer, allowed to be null.
+            // Over a value it would need a tag beside it, which is not built.
+            Type::Nullable(inner) if is_reference(inner) => self.ctype(inner, span),
+            Type::Null => Some("void*".to_string()),
             other => {
                 self.unsupported(span, &format!("values of type `{}`", other));
                 None
@@ -133,7 +155,11 @@ impl CBackend {
 
     /// True for a type whose values hold a reference that must be released.
     fn counted(ty: &Type) -> bool {
-        matches!(ty, Type::Str | Type::Class(_, _))
+        match ty {
+            Type::Str | Type::Class(_, _) => true,
+            Type::Nullable(inner) => Self::counted(inner),
+            _ => false,
+        }
     }
 
     /// The function that takes a reference to a value of this type.
@@ -141,6 +167,9 @@ impl CBackend {
         match ty {
             Type::Str => Some("keal_str_retain".to_string()),
             Type::Class(name, _) => Some(format!("{}_retain", struct_name(name))),
+            // Retain and release both accept null, so a nullable needs no
+            // special case beyond reaching through it.
+            Type::Nullable(inner) => Self::retain_fn(inner),
             _ => None,
         }
     }
@@ -150,6 +179,7 @@ impl CBackend {
         match ty {
             Type::Str => Some("keal_str_release".to_string()),
             Type::Class(name, _) => Some(format!("{}_release", struct_name(name))),
+            Type::Nullable(inner) => Self::release_fn(inner),
             _ => None,
         }
     }
@@ -269,6 +299,27 @@ impl CBackend {
             }
             let _ = write!(f, "    keal_buf_lit(&b, {});\n", c_string(&format!("{}=", fname)));
             let field = format!("o->{}", mangle(fname));
+            // An absent field renders as `null`, which needs a branch rather
+            // than an expression.
+            if let Type::Nullable(inner) = ty {
+                let present = match &**inner {
+                    Type::Str => format!("keal_str_repr(keal_str_retain({}))", field),
+                    Type::Class(cname, _) => format!("{}_show({})", struct_name(cname), field),
+                    other => {
+                        self.unsupported(
+                            c.span,
+                            &format!("rendering a field of type `{}?`", other),
+                        );
+                        return;
+                    }
+                };
+                let _ = write!(
+                    f,
+                    "    if ({} == NULL) {{\n        keal_buf_lit(&b, \"null\");\n    }} else {{\n        keal_buf_str(&b, {});\n    }}\n",
+                    field, present
+                );
+                continue;
+            }
             let rendered = match ty {
                 // Inside a value, a string is quoted, so `[a]` and `[\"a\"]`
                 // read differently — as they do on the interpreters.
@@ -498,8 +549,19 @@ impl CBackend {
                 }
             },
             TypeExprKind::Nullable(inner) => {
-                self.unsupported(span, &format!("the type `{}?`", type_expr_name(inner)));
-                None
+                let ty = self.resolved(inner, span)?;
+                if is_reference(&ty) {
+                    Some(ty.nullable())
+                } else {
+                    let name = type_expr_name(inner);
+                    self.refuse(
+                        span,
+                        &format!("the type `{}?`", name),
+                        "a nullable value needs a tag beside it, which is not built yet; \
+                         a nullable reference is just a pointer and does compile",
+                    );
+                    None
+                }
             }
             TypeExprKind::Fun { .. } => {
                 self.unsupported(span, "function types");
@@ -632,8 +694,8 @@ impl CBackend {
                 self.line("while (1) {");
                 self.indent += 1;
                 self.open_scope();
-                let c = self.expr(cond);
-                self.line(format!("if (!({})) {{", c));
+                let c = self.condition(cond);
+                self.line(format!("if (!{}) {{", c));
                 self.indent += 1;
                 self.release_through(1);
                 self.line("break;");
@@ -725,6 +787,16 @@ impl CBackend {
                 self.assign(target, *op, value, e.span);
                 "0".to_string()
             }
+            ExprKind::Null => "NULL".to_string(),
+            ExprKind::Elvis { lhs, rhs } => self.elvis(e, lhs, rhs),
+            ExprKind::NotNull(inner) => {
+                let v = self.expr(inner);
+                self.line(format!(
+                    "if ({} == NULL) {{ keal_panic(\"`!!` was applied to a null value\", {}); }}",
+                    v, e.span.line
+                ));
+                v
+            }
             ExprKind::This => match &self.this_name {
                 Some(n) => n.clone(),
                 None => {
@@ -747,15 +819,40 @@ impl CBackend {
         }
     }
 
+    /// `a ?: b` reaches `b` only when `a` is absent, so the fallback is
+    /// emitted inside the branch rather than before it.
+    fn elvis(&mut self, e: &Expr, lhs: &Expr, rhs: &Expr) -> String {
+        let Some(ty) = e.ty().cloned() else { return "0".to_string() };
+        let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
+        let a = self.expr(lhs);
+        let slot = self.temp();
+        self.line(format!("{} {};", c, slot));
+        if Self::counted(&ty) {
+            self.own(&slot, &ty);
+        }
+        self.line(format!("if ({} != NULL) {{", a));
+        self.indent += 1;
+        self.line(format!("{} = {};", slot, Self::retained(&ty, &a)));
+        self.indent -= 1;
+        self.line("} else {");
+        self.indent += 1;
+        self.open_scope();
+        let b = self.expr(rhs);
+        self.line(format!("{} = {};", slot, Self::retained(&ty, &b)));
+        self.close_scope();
+        self.indent -= 1;
+        self.line("}");
+        slot
+    }
+
     /// Reading a field yields an owned reference when the field is counted,
     /// so that the reader's lifetime does not depend on the object's.
     fn field(&mut self, e: &Expr, obj: &Expr, name: &str, safe: bool) -> String {
-        if safe {
-            self.unsupported(e.span, "`?.`");
-            return "0".to_string();
-        }
         let receiver = self.expr(obj);
         let access = format!("{}->{}", receiver, mangle(name));
+        if safe {
+            return self.guarded(e, &receiver, access);
+        }
         match e.ty().cloned() {
             Some(ty) if Self::counted(&ty) => {
                 let call = Self::retained(&ty, &access);
@@ -763,6 +860,24 @@ impl CBackend {
             }
             _ => access,
         }
+    }
+
+    /// The body of a `?.`: the access happens only when the receiver is
+    /// there, and the whole thing is null when it is not.
+    fn guarded(&mut self, e: &Expr, receiver: &str, access: String) -> String {
+        let Some(ty) = e.ty().cloned() else { return "0".to_string() };
+        let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
+        let slot = self.temp();
+        self.line(format!("{} {} = NULL;", c, slot));
+        if Self::counted(&ty) {
+            self.own(&slot, &ty);
+        }
+        self.line(format!("if ({} != NULL) {{", receiver));
+        self.indent += 1;
+        self.line(format!("{} = {};", slot, Self::retained(&ty, &access)));
+        self.indent -= 1;
+        self.line("}");
+        slot
     }
 
     fn method_call(
@@ -773,11 +888,8 @@ impl CBackend {
         args: &[Arg],
         safe: bool,
     ) -> String {
-        if safe {
-            self.unsupported(e.span, "`?.`");
-            return "0".to_string();
-        }
-        let Some(Type::Class(class, _)) = obj.ty().cloned() else {
+        let receiver_ty = obj.ty().cloned().map(|t| if safe { t.non_null() } else { t });
+        let Some(Type::Class(class, _)) = receiver_ty else {
             self.unsupported(e.span, "calling a method on a built-in type");
             return "0".to_string();
         };
@@ -786,7 +898,7 @@ impl CBackend {
             return "0".to_string();
         }
         let receiver = self.expr(obj);
-        let mut rendered = vec![receiver];
+        let mut rendered = vec![receiver.clone()];
         for a in args {
             rendered.push(self.expr(&a.value));
         }
@@ -796,6 +908,9 @@ impl CBackend {
             mangle_method(name),
             rendered.join(", ")
         );
+        if safe {
+            return self.guarded(e, &receiver, call);
+        }
 
         let Some(ty) = e.ty().cloned() else { return call };
         if ty == Type::Unit {
@@ -853,6 +968,19 @@ impl CBackend {
             ));
             return t;
         }
+        let nullable_str = matches!(&lty, Some(Type::Nullable(i)) if **i == Type::Str)
+            || matches!(&rhs.ty(), Some(Type::Nullable(i)) if **i == Type::Str);
+        let against_null =
+            matches!(lhs.kind, ExprKind::Null) || matches!(rhs.kind, ExprKind::Null);
+        if nullable_str && !against_null && matches!(op, BinOp::Eq | BinOp::Ne) {
+            let t = self.temp();
+            let negate = if op == BinOp::Ne { "!" } else { "" };
+            self.line(format!(
+                "const bool {} = {}keal_opt_str_eq({}, {});",
+                t, negate, a, b
+            ));
+            return t;
+        }
         if matches!(lty, Some(Type::Str)) && op != BinOp::Add {
             let t = self.temp();
             let cmp = match op {
@@ -880,6 +1008,34 @@ impl CBackend {
             Some(Type::Float) => format!("keal_str_from_float({})", v),
             Some(Type::Bool) => format!("keal_str_from_bool({})", v),
             Some(Type::Class(name, _)) => format!("{}_show({})", struct_name(&name), v),
+            Some(Type::Null) => "keal_str_static(\"null\", 4)".to_string(),
+            Some(Type::Nullable(inner)) => {
+                // Absent renders as `null`; present renders as itself.
+                let slot = self.temp();
+                self.line(format!("KealStr* {} = NULL;", slot));
+                self.own(&slot, &Type::Str);
+                self.line(format!("if ({} == NULL) {{", v));
+                self.indent += 1;
+                self.line(format!("{} = keal_str_static(\"null\", 4);", slot));
+                self.indent -= 1;
+                self.line("} else {");
+                self.indent += 1;
+                let rendered = match &*inner {
+                    Type::Str => format!("keal_str_retain({})", v),
+                    Type::Class(name, _) => format!("{}_show({})", struct_name(name), v),
+                    other => {
+                        self.unsupported(
+                            e.span,
+                            &format!("rendering a value of type `{}?`", other),
+                        );
+                        return "keal_str_empty()".to_string();
+                    }
+                };
+                self.line(format!("{} = {};", slot, rendered));
+                self.indent -= 1;
+                self.line("}");
+                return slot;
+            }
             other => {
                 self.unsupported(
                     e.span,
@@ -961,7 +1117,7 @@ impl CBackend {
             None
         };
 
-        let c = self.expr(cond);
+        let c = self.condition(cond);
         self.line(format!("if ({}) {{", c));
         self.indent += 1;
         self.branch(&then.stmts, slot.as_deref());
@@ -1196,6 +1352,11 @@ fn describe_expr(kind: &ExprKind) -> &'static str {
         ExprKind::Null => "`null`",
         _ => "this expression",
     }
+}
+
+/// True for a type held behind a pointer, which therefore has null to spare.
+fn is_reference(ty: &Type) -> bool {
+    matches!(ty, Type::Str | Type::Class(_, _))
 }
 
 /// The C struct a class is emitted as.

@@ -299,9 +299,10 @@ guarantees: integer overflow is checked rather than wrapped, so a program
 fails where it would have failed on either interpreter.
 
 **The backend covers part of the language, not all of it.** Functions,
-control flow, `Int`, `Float`, `Bool`, `String`, and classes and records with
-their methods all compile. Generics, collections, lambdas, `when` and
-nullables do not, yet. Anything it cannot compile is **named**, not
+control flow, `Int`, `Float`, `Bool`, `String`, classes and records with their
+methods, and nullable references — which is what makes a recursive structure
+possible — all compile. Generics, collections, lambdas, `when` and nullable
+*values* like `Int?` do not, yet. Anything it cannot compile is **named**, not
 mis-compiled:
 
 ```
@@ -312,8 +313,10 @@ error: the C backend cannot compile list literals yet
 
 A class becomes a struct headed by its reference count, with its fields in the
 order `keal layout` reports. The last reference to an object releases each of
-the references it held, then frees it. `leaks` reports nothing outstanding on
-the test programs.
+the references it held, then frees it. A `T?` over a reference is the same
+pointer, allowed to be null, so `?.`, `?:` and `!!` cost a branch and nothing
+else — exactly what the layout table promised. `leaks` reports nothing
+outstanding on the test programs.
 
 The test suite compiles a program with a real C compiler, runs it, and
 requires its output to match both interpreters byte for byte. That test is

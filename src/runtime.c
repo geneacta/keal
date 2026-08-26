@@ -239,6 +239,15 @@ KEAL_FN KealStr* keal_str_repr(KealStr* s) {
     return keal_buf_finish(&b);
 }
 
+/* Comparing two strings either of which may be absent. Two absent strings
+ * are equal; an absent one equals nothing else. */
+KEAL_FN bool keal_opt_str_eq(KealStr* a, KealStr* b) {
+    if (a == NULL || b == NULL) {
+        return a == b;
+    }
+    return keal_str_cmp(a, b) == 0;
+}
+
 /* ---- checked integer arithmetic --------------------------------------- */
 
 /* The interpreter and the VM both refuse to wrap, so native code must not
