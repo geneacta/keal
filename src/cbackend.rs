@@ -249,6 +249,11 @@ impl CBackend {
                 }
                 Some("KealClosure*".to_string())
             }
+            Type::Map(k, v) => {
+                self.key_kind(k, span)?;
+                self.elem_kind(v, span)?;
+                Some("KealMap*".to_string())
+            }
             Type::List(elem) => {
                 // The element type must itself be supported, or the list is
                 // refused where it is declared rather than where it breaks.
@@ -272,7 +277,9 @@ impl CBackend {
     /// True for a type whose values hold a reference that must be released.
     fn counted(ty: &Type) -> bool {
         match ty {
-            Type::Str | Type::Class(_, _) | Type::List(_) | Type::Fun(_) => true,
+            Type::Str | Type::Class(_, _) | Type::List(_) | Type::Map(_, _) | Type::Fun(_) => {
+                true
+            }
             Type::Nullable(inner) => Self::counted(inner),
             _ => false,
         }
@@ -285,6 +292,7 @@ impl CBackend {
             Type::Class(name, args) => Some(format!("{}_retain", struct_name_of(name, args))),
             Type::List(_) => Some("keal_list_retain".to_string()),
             Type::Fun(_) => Some("keal_fn_retain".to_string()),
+            Type::Map(_, _) => Some("keal_map_retain".to_string()),
             // Retain and release both accept null, so a nullable needs no
             // special case beyond reaching through it.
             Type::Nullable(inner) => Self::retain_fn(inner),
@@ -299,6 +307,7 @@ impl CBackend {
             Type::Class(name, args) => Some(format!("{}_release", struct_name_of(name, args))),
             Type::List(_) => Some("keal_list_release".to_string()),
             Type::Fun(_) => Some("keal_fn_release".to_string()),
+            Type::Map(_, _) => Some("keal_map_release".to_string()),
             Type::Nullable(inner) => Self::release_fn(inner),
             _ => None,
         }
@@ -336,11 +345,38 @@ impl CBackend {
                 self.elem_kind(inner, span)?;
                 Elem::Ptr("KealList".into(), "keal_list".into())
             }
+            Type::Map(k, v) => {
+                self.key_kind(k, span)?;
+                self.elem_kind(v, span)?;
+                Elem::Ptr("KealMap".into(), "keal_map".into())
+            }
             other => {
                 self.unsupported(span, &format!("lists of `{}`", other));
                 return None;
             }
         })
+    }
+
+    /// A key must have an equality the runtime can apply: word-sized kinds
+    /// compare by bits — Float included, as the interpreters key it — and
+    /// strings by content.
+    fn key_kind(&mut self, ty: &Type, span: Span) -> Option<Elem> {
+        match ty {
+            Type::Never | Type::Int | Type::Bool | Type::Float | Type::Str => {
+                self.elem_kind(ty, span)
+            }
+            other => {
+                self.unsupported(span, &format!("map keys of `{}`", other));
+                None
+            }
+        }
+    }
+
+    fn key_eq_fn(elem: &Elem) -> &'static str {
+        match elem {
+            Elem::Ptr(_, _) => "keal_key_eq_str",
+            _ => "keal_key_eq_word",
+        }
     }
 
     /// The thunk handed to `keal_list_new`, generated once per pointer kind.
@@ -609,19 +645,7 @@ impl CBackend {
             // An absent field renders as `null`, which needs a branch rather
             // than an expression.
             if let Type::Nullable(inner) = ty {
-                let present = match &**inner {
-                    Type::Str => format!("keal_str_repr(keal_str_retain({}))", field),
-                    Type::Class(cname, cargs) => {
-                        format!("{}_show({})", struct_name_of(cname, cargs), field)
-                    }
-                    other => {
-                        self.unsupported(
-                            c.span,
-                            &format!("rendering a field of type `{}?`", other),
-                        );
-                        return;
-                    }
-                };
+                let Some(present) = self.repr_call(inner, &field, c.span) else { return };
                 let _ = write!(
                     f,
                     "    if ({} == NULL) {{\n        keal_buf_lit(&b, \"null\");\n    }} else {{\n        keal_buf_str(&b, {});\n    }}\n",
@@ -629,21 +653,7 @@ impl CBackend {
                 );
                 continue;
             }
-            let rendered = match ty {
-                // Inside a value, a string is quoted, so `[a]` and `[\"a\"]`
-                // read differently — as they do on the interpreters.
-                Type::Str => format!("keal_str_repr(keal_str_retain({}))", field),
-                Type::Int => format!("keal_str_from_int({})", field),
-                Type::Float => format!("keal_str_from_float({})", field),
-                Type::Bool => format!("keal_str_from_bool({})", field),
-                Type::Class(cname, cargs) => {
-                    format!("{}_show({})", struct_name_of(cname, cargs), field)
-                }
-                _ => {
-                    self.unsupported(c.span, &format!("rendering a field of type `{}`", ty));
-                    return;
-                }
-            };
+            let Some(rendered) = self.repr_call(ty, &field, c.span) else { return };
             let _ = write!(f, "    keal_buf_str(&b, {});\n", rendered);
         }
         let _ = write!(f, "    keal_buf_lit(&b, \")\");\n    return keal_buf_finish(&b);\n}}\n");
@@ -910,6 +920,13 @@ impl CBackend {
                     args.iter().map(|a| self.resolved(a, span)).collect();
                 Some(Type::class(name, resolved?))
             }
+            TypeExprKind::Named { name, args } if name == "Map" && args.len() == 2 => {
+                let k = self.resolved(&args[0], span)?;
+                let v = self.resolved(&args[1], span)?;
+                self.key_kind(&k, span)?;
+                self.elem_kind(&v, span)?;
+                Some(Type::map(k, v))
+            }
             TypeExprKind::Named { name, args } if name == "List" && args.len() == 1 => {
                 let inner = self.resolved(&args[0], span)?;
                 // Whether the element is supported is checked here, so the
@@ -1150,6 +1167,42 @@ impl CBackend {
             self.list_loop(var, iter, &elem_ty, body, span);
             return;
         }
+        // A map yields its keys, in insertion order, over a snapshot.
+        if let Some(Type::Map(kt, _)) = self.ety(iter) {
+            let kt = (*kt).clone();
+            let Some(kk) = self.key_kind(&kt, span) else { return };
+            let Some(ct) = self.ctype(&kt, span) else { return };
+            self.open_scope();
+            let m = self.expr(iter);
+            let snap = self.temp();
+            self.line(format!("KealList* {} = keal_map_keys_snapshot({});", snap, m));
+            self.own(&snap, &Type::list(kt.clone()));
+            let i = self.temp();
+            self.line(format!(
+                "for (int64_t {i} = 0; {i} < {snap}->len; {i}++) {{",
+                i = i,
+                snap = snap
+            ));
+            self.indent += 1;
+            self.open_scope();
+            self.declare_local(var, &kt, false);
+            self.line(format!(
+                "{} {} = {};",
+                ct,
+                mangle(var),
+                kk.unword(&format!("{}->data[{}]", snap, i))
+            ));
+            self.loops.push(self.scopes.len());
+            for st in &body.stmts {
+                self.stmt(st);
+            }
+            self.loops.pop();
+            self.close_scope();
+            self.indent -= 1;
+            self.line("}");
+            self.close_scope();
+            return;
+        }
         // A range compiles to a plain C loop with no allocation.
         let ExprKind::Range { start, end } = &iter.kind else {
             self.unsupported(span, "iterating over anything but a range or a list");
@@ -1269,6 +1322,7 @@ impl CBackend {
             },
             ExprKind::Lambda { params, body } => self.lambda(e, params, body),
             ExprKind::ListLit(items) => self.list_literal(e, items),
+            ExprKind::MapLit(entries) => self.map_literal(e, entries),
             ExprKind::Index { obj, index } => self.index_get(e, obj, index),
             ExprKind::Field { obj, name, safe } => self.field(e, obj, name, *safe),
             ExprKind::MethodCall { obj, name, args, safe } => {
@@ -1480,6 +1534,55 @@ impl CBackend {
         Some(call)
     }
 
+    /// The map methods: membership, and the keys and values as lists.
+    fn map_method(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> Option<String> {
+        if !matches!(name, "contains" | "containsKey" | "keys" | "values") {
+            return None;
+        }
+        let (kt, vt, kk, vk) = self.map_parts(obj, e.span)?;
+        let m = self.expr(obj);
+        match name {
+            "contains" | "containsKey" => {
+                let key = self.expr(&args[0].value);
+                let t = self.temp();
+                self.line(format!(
+                    "const bool {} = keal_map_find({}, {}) >= 0;",
+                    t,
+                    m,
+                    kk.word(&key)
+                ));
+                Some(t)
+            }
+            "keys" | "values" => {
+                let (ty, kind, val_slot) = if name == "keys" {
+                    (kt, kk, false)
+                } else {
+                    (vt, vk, true)
+                };
+                let thunk = self.releaser_thunk(&kind);
+                let out = self.temp();
+                self.line(format!("KealList* {} = keal_list_new({});", out, thunk));
+                self.own(&out, &Type::list(ty.clone()));
+                let i = self.temp();
+                self.line(format!(
+                    "for (int64_t {i} = 0; {i} < {m}->len; {i}++) {{",
+                    i = i,
+                    m = m
+                ));
+                self.indent += 1;
+                let offset =
+                    if val_slot { format!("2 * {} + 1", i) } else { format!("2 * {}", i) };
+                let item = kind.unword(&format!("{}->data[{}]", m, offset));
+                let stored = Self::retained(&ty, &item);
+                self.line(format!("keal_list_push({}, {});", out, kind.word(&stored)));
+                self.indent -= 1;
+                self.line("}");
+                Some(out)
+            }
+            _ => None,
+        }
+    }
+
     /// `map`, `filter`, `fold` and `forEach` on a list, as inline loops.
     /// Returns `None` for any other method, which falls through to the
     /// generic refusal.
@@ -1619,6 +1722,91 @@ impl CBackend {
         Some(out)
     }
 
+    fn map_literal(&mut self, e: &Expr, entries: &[(Expr, Expr)]) -> String {
+        let Some(Type::Map(kt, vt)) = self.ety(e) else { return "0".to_string() };
+        let (kt, vt) = ((*kt).clone(), (*vt).clone());
+        let Some(kk) = self.key_kind(&kt, e.span) else { return "0".to_string() };
+        let Some(vk) = self.elem_kind(&vt, e.span) else { return "0".to_string() };
+        let rel_k = self.releaser_thunk(&kk);
+        let rel_v = self.releaser_thunk(&vk);
+        let t = self.temp();
+        self.line(format!(
+            "KealMap* {} = keal_map_new({}, {}, {});",
+            t,
+            Self::key_eq_fn(&kk),
+            rel_k,
+            rel_v
+        ));
+        self.own(&t, &Type::map(kt.clone(), vt.clone()));
+        for (k, v) in entries {
+            let kv = self.expr(k);
+            let vv = self.expr(v);
+            let sk = Self::retained(&kt, &kv);
+            let sv = Self::retained(&vt, &vv);
+            self.line(format!("keal_map_set({}, {}, {});", t, kk.word(&sk), vk.word(&sv)));
+        }
+        t
+    }
+
+    /// How a value of `ty` is rendered *inside* another value — quoted for
+    /// strings, recursive for containers. One definition, used by the class,
+    /// list and map show generators alike.
+    fn repr_call(&mut self, ty: &Type, expr: &str, span: Span) -> Option<String> {
+        Some(match ty {
+            Type::Str => format!("keal_str_repr(keal_str_retain({}))", expr),
+            Type::Int => format!("keal_str_from_int({})", expr),
+            Type::Float => format!("keal_str_from_float({})", expr),
+            Type::Bool => format!("keal_str_from_bool({})", expr),
+            Type::Class(cname, cargs) => {
+                format!("{}_show({})", struct_name_of(cname, cargs), expr)
+            }
+            Type::List(inner) => {
+                let f = self.list_show(inner, span)?;
+                format!("{}({})", f, expr)
+            }
+            Type::Map(k, v) => {
+                let f = self.map_show(k, v, span)?;
+                format!("{}({})", f, expr)
+            }
+            other => {
+                self.unsupported(span, &format!("rendering a value of type `{}`", other));
+                return None;
+            }
+        })
+    }
+
+    /// The function that renders a `Map<K, V>`, generated once per pair.
+    fn map_show(&mut self, kt: &Type, vt: &Type, span: Span) -> Option<String> {
+        let key = format!("map|{}|{}", kt, vt);
+        if let Some(f) = self.list_shows.get(&key) {
+            return Some(f.clone());
+        }
+        let kk = self.key_kind(kt, span)?;
+        let vk = self.elem_kind(vt, span)?;
+        let name = format!("show_map_{}", self.list_shows.len());
+        self.list_shows.insert(key, name.clone());
+
+        let key_r = self.repr_call(kt, &kk.unword("m->data[2 * i]"), span)?;
+        let val_r = self.repr_call(vt, &vk.unword("m->data[2 * i + 1]"), span)?;
+        let _ = write!(
+            self.helpers,
+            "static KealStr* {name}(KealMap* m) {{\n    KealBuf b;\n    keal_buf_init(&b);\n    keal_buf_lit(&b, \"{{\");\n    for (int64_t i = 0; i < m->len; i++) {{\n        if (i > 0) {{ keal_buf_lit(&b, \", \"); }}\n        keal_buf_str(&b, {key_r});\n        keal_buf_lit(&b, \": \");\n        keal_buf_str(&b, {val_r});\n    }}\n    keal_buf_lit(&b, \"}}\");\n    return keal_buf_finish(&b);\n}}\n",
+            name = name,
+            key_r = key_r,
+            val_r = val_r
+        );
+        Some(name)
+    }
+
+    /// The pieces a map operation needs, or `None` with the refusal issued.
+    fn map_parts(&mut self, obj: &Expr, span: Span) -> Option<(Type, Type, Elem, Elem)> {
+        let Some(Type::Map(kt, vt)) = self.ety(obj) else { return None };
+        let (kt, vt) = ((*kt).clone(), (*vt).clone());
+        let kk = self.key_kind(&kt, span)?;
+        let vk = self.elem_kind(&vt, span)?;
+        Some((kt, vt, kk, vk))
+    }
+
     fn list_literal(&mut self, e: &Expr, items: &[Expr]) -> String {
         let Some(Type::List(elem_ty)) = self.ety(e) else { return "0".to_string() };
         let Some(elem) = self.elem_kind(&elem_ty, e.span) else { return "0".to_string() };
@@ -1637,8 +1825,11 @@ impl CBackend {
     }
 
     fn index_get(&mut self, e: &Expr, obj: &Expr, index: &Expr) -> String {
+        if matches!(self.ety(obj), Some(Type::Map(_, _))) {
+            return self.map_get(e, obj, index, None);
+        }
         let Some(Type::List(elem_ty)) = self.ety(obj) else {
-            self.unsupported(e.span, "indexing anything but a list");
+            self.unsupported(e.span, "indexing anything but a list or a map");
             return "0".to_string();
         };
         let Some(elem) = self.elem_kind(&elem_ty, e.span) else { return "0".to_string() };
@@ -1669,23 +1860,7 @@ impl CBackend {
         self.list_shows.insert(key, name.clone());
 
         let item = elem.unword("l->data[i]");
-        let rendered = match elem_ty {
-            Type::Str => format!("keal_str_repr(keal_str_retain({}))", item),
-            Type::Int => format!("keal_str_from_int({})", item),
-            Type::Float => format!("keal_str_from_float({})", item),
-            Type::Bool => format!("keal_str_from_bool({})", item),
-            Type::Class(cname, cargs) => {
-                format!("{}_show({})", struct_name_of(cname, cargs), item)
-            }
-            Type::List(inner) => {
-                let f = self.list_show(inner, span)?;
-                format!("{}({})", f, item)
-            }
-            other => {
-                self.unsupported(span, &format!("rendering lists of `{}`", other));
-                return None;
-            }
-        };
+        let rendered = self.repr_call(elem_ty, &item, span)?;
         let _ = write!(
             self.helpers,
             "static KealStr* {name}(KealList* l) {{\n    KealBuf b;\n    keal_buf_init(&b);\n    keal_buf_lit(&b, \"[\");\n    for (int64_t i = 0; i < l->len; i++) {{\n        if (i > 0) {{ keal_buf_lit(&b, \", \"); }}\n        keal_buf_str(&b, {rendered});\n    }}\n    keal_buf_lit(&b, \"]\");\n    return keal_buf_finish(&b);\n}}\n",
@@ -1695,9 +1870,82 @@ impl CBackend {
         Some(name)
     }
 
+    /// `m[k]`, with `?: fallback` fused in when the caller supplies one.
+    ///
+    /// The fusion is what makes maps of value types usable natively: `m[k]`
+    /// alone would be an `Int?`, which has no representation yet, but
+    /// `m[k] ?: 0` never materialises the nullable at all.
+    fn map_get(&mut self, e: &Expr, obj: &Expr, index: &Expr, fallback: Option<&Expr>) -> String {
+        let Some((kt, vt, kk, vk)) = self.map_parts(obj, e.span) else {
+            return "0".to_string();
+        };
+        let m = self.expr(obj);
+        let key = self.expr(index);
+        let at = self.temp();
+        self.line(format!(
+            "const int64_t {} = keal_map_find({}, {});",
+            at,
+            m,
+            kk.word(&key)
+        ));
+        let _ = kt;
+
+        let hit = vk.unword(&format!("{}->data[2 * {} + 1]", m, at));
+        match fallback {
+            Some(fb) => {
+                let Some(ct) = self.ctype(&vt, e.span) else { return "0".to_string() };
+                let slot = self.temp();
+                self.line(format!("{} {};", ct, slot));
+                if Self::counted(&vt) {
+                    self.own(&slot, &vt);
+                }
+                self.line(format!("if ({} >= 0) {{", at));
+                self.indent += 1;
+                self.line(format!("{} = {};", slot, Self::retained(&vt, &hit)));
+                self.indent -= 1;
+                self.line("} else {");
+                self.indent += 1;
+                self.open_scope();
+                let fv = self.expr(fb);
+                self.line(format!("{} = {};", slot, Self::retained(&vt, &fv)));
+                self.close_scope();
+                self.indent -= 1;
+                self.line("}");
+                slot
+            }
+            None => {
+                // Without a fallback the result is `V?`, which only a
+                // reference can represent.
+                if !is_reference(&vt) {
+                    self.unsupported(
+                        e.span,
+                        &format!("`m[k]` where the values are `{}` and no `?:` follows", vt),
+                    );
+                    return "0".to_string();
+                }
+                let Some(ct) = self.ctype(&vt, e.span) else { return "0".to_string() };
+                let slot = self.temp();
+                self.line(format!("{} {} = NULL;", ct, slot));
+                self.own(&slot, &vt);
+                self.line(format!("if ({} >= 0) {{", at));
+                self.indent += 1;
+                self.line(format!("{} = {};", slot, Self::retained(&vt, &hit)));
+                self.indent -= 1;
+                self.line("}");
+                slot
+            }
+        }
+    }
+
     /// `a ?: b` reaches `b` only when `a` is absent, so the fallback is
     /// emitted inside the branch rather than before it.
     fn elvis(&mut self, e: &Expr, lhs: &Expr, rhs: &Expr) -> String {
+        // The map idiom `m[k] ?: fallback` compiles as one lookup.
+        if let ExprKind::Index { obj, index } = &lhs.kind {
+            if matches!(self.ety(obj), Some(Type::Map(_, _))) {
+                return self.map_get(e, obj, index, Some(rhs));
+            }
+        }
         let Some(ty) = self.ety(e) else { return "0".to_string() };
         let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
         let a = self.expr(lhs);
@@ -1727,7 +1975,7 @@ impl CBackend {
         // The built-in properties, which are fields of the runtime structs
         // rather than of anything the program declared.
         match (self.ety(obj), name) {
-            (Some(Type::List(_)), "size") => {
+            (Some(Type::List(_)), "size") | (Some(Type::Map(_, _)), "size") => {
                 let l = self.expr(obj);
                 return format!("{}->len", l);
             }
@@ -1791,6 +2039,12 @@ impl CBackend {
                 return "0".to_string();
             }
             return "0".to_string();
+        }
+        // The map methods the subset covers.
+        if let Some(Type::Map(_, _)) = &receiver_ty {
+            if let Some(v) = self.map_method(e, obj, name, args) {
+                return v;
+            }
         }
         // The higher-order list methods compile to plain loops, each element
         // fed through the closure the caller supplied.
@@ -2103,6 +2357,12 @@ impl CBackend {
             }
             Some(Type::List(elem_ty)) => {
                 let Some(f) = self.list_show(&elem_ty, e.span) else {
+                    return "keal_str_empty()".to_string();
+                };
+                format!("{}({})", f, v)
+            }
+            Some(Type::Map(kt, vt)) => {
+                let Some(f) = self.map_show(&kt, &vt, e.span) else {
                     return "keal_str_empty()".to_string();
                 };
                 format!("{}({})", f, v)
@@ -2484,6 +2744,25 @@ impl CBackend {
 
     fn assign(&mut self, target: &Expr, op: Option<BinOp>, value: &Expr, span: Span) {
         if let ExprKind::Index { obj, index } = &target.kind {
+            if matches!(self.ety(obj), Some(Type::Map(_, _))) {
+                if op.is_some() {
+                    self.unsupported(span, "compound assignment into a map entry");
+                    return;
+                }
+                let Some((kt, vt, kk, vk)) = self.map_parts(obj, span) else { return };
+                let m = self.expr(obj);
+                let k = self.expr(index);
+                let v = self.expr(value);
+                let sk = Self::retained(&kt, &k);
+                let sv = Self::retained(&vt, &v);
+                self.line(format!(
+                    "keal_map_set({}, {}, {});",
+                    m,
+                    kk.word(&sk),
+                    vk.word(&sv)
+                ));
+                return;
+            }
             if op.is_some() {
                 // A compound assignment reads and writes the same element;
                 // emitting the receiver twice would run its side effects

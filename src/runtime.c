@@ -281,6 +281,120 @@ KEAL_FN KealList* keal_list_snapshot(KealList* l) {
     return c;
 }
 
+/* ---- maps ------------------------------------------------------------- */
+
+/* Entries in insertion order, which is the language's iteration order, with
+ * keys and values interleaved. Lookup is a linear scan: correct first, and
+ * honest about it — a hash table can replace the scan without changing any
+ * caller.
+ *
+ * Keys compare by the comparator fixed at construction: one for word-sized
+ * keys (Int, Bool, and Float by bit pattern, as the interpreters key them),
+ * one for strings by content. */
+typedef struct KealMap {
+    int64_t rc;
+    int64_t len;
+    int64_t cap;
+    KealWord* data; /* [key, value, key, value, ...] */
+    bool (*key_eq)(KealWord, KealWord);
+    void (*release_key)(void*);
+    void (*release_val)(void*);
+} KealMap;
+
+KEAL_FN bool keal_key_eq_word(KealWord a, KealWord b) {
+    return a.i == b.i;
+}
+
+KEAL_FN bool keal_key_eq_str(KealWord a, KealWord b) {
+    return keal_str_cmp((KealStr*)a.p, (KealStr*)b.p) == 0;
+}
+
+KEAL_FN KealMap* keal_map_new(bool (*key_eq)(KealWord, KealWord),
+                              void (*release_key)(void*), void (*release_val)(void*)) {
+    KealMap* m = (KealMap*)keal_alloc(sizeof(KealMap));
+    m->rc = 1;
+    m->len = 0;
+    m->cap = 0;
+    m->data = NULL;
+    m->key_eq = key_eq;
+    m->release_key = release_key;
+    m->release_val = release_val;
+    return m;
+}
+
+KEAL_FN KealMap* keal_map_retain(KealMap* m) {
+    if (m != NULL) {
+        m->rc++;
+    }
+    return m;
+}
+
+KEAL_FN void keal_map_release(KealMap* m) {
+    if (m == NULL) {
+        return;
+    }
+    m->rc--;
+    if (m->rc > 0) {
+        return;
+    }
+    for (int64_t i = 0; i < m->len; i++) {
+        if (m->release_key != NULL) {
+            m->release_key(m->data[2 * i].p);
+        }
+        if (m->release_val != NULL) {
+            m->release_val(m->data[2 * i + 1].p);
+        }
+    }
+    free(m->data);
+    free(m);
+}
+
+/* The entry's index, or -1. */
+KEAL_FN int64_t keal_map_find(KealMap* m, KealWord key) {
+    for (int64_t i = 0; i < m->len; i++) {
+        if (m->key_eq(m->data[2 * i], key)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Takes ownership of both words; on a replaced entry the displaced key and
+ * value are released here, since the map is the only one who knows them. */
+KEAL_FN void keal_map_set(KealMap* m, KealWord key, KealWord value) {
+    int64_t at = keal_map_find(m, key);
+    if (at >= 0) {
+        if (m->release_key != NULL) {
+            m->release_key(m->data[2 * at].p);
+        }
+        if (m->release_val != NULL) {
+            m->release_val(m->data[2 * at + 1].p);
+        }
+        m->data[2 * at] = key;
+        m->data[2 * at + 1] = value;
+        return;
+    }
+    if (m->len == m->cap) {
+        m->cap = m->cap < 4 ? 4 : m->cap * 2;
+        KealWord* grown = (KealWord*)keal_alloc((size_t)m->cap * 2 * sizeof(KealWord));
+        memcpy(grown, m->data, (size_t)m->len * 2 * sizeof(KealWord));
+        free(m->data);
+        m->data = grown;
+    }
+    m->data[2 * m->len] = key;
+    m->data[2 * m->len + 1] = value;
+    m->len++;
+}
+
+/* A snapshot of the keys, for iteration; borrows, like the list snapshot. */
+KEAL_FN KealList* keal_map_keys_snapshot(KealMap* m) {
+    KealList* l = keal_list_new(NULL);
+    for (int64_t i = 0; i < m->len; i++) {
+        keal_list_push(l, m->data[2 * i]);
+    }
+    return l;
+}
+
 /* ---- closures --------------------------------------------------------- */
 
 /* A function value: the count, the code, and how to drop the environment.

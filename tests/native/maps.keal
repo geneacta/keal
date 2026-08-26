@@ -1,0 +1,57 @@
+// Maps compiled natively: literals, lookup, assignment, membership, keys
+// and values, iteration in insertion order, and rendering. `m[k] ?: d` is
+// fused into one lookup — which is what makes maps of value types usable,
+// since a bare `m[k]` would be an `Int?` and that has no representation yet.
+
+val ages = {"ada": 36, "grace": 45}
+println(ages)
+println(ages.size)
+println(ages["ada"] ?: 0)
+println(ages["nobody"] ?: -1)
+ages["alan"] = 41
+println(ages)
+ages["ada"] = 37
+println(ages["ada"] ?: 0)
+println(ages.size)
+println(ages.containsKey("grace"))
+println("grace" in ages)
+println("zuse" in ages)
+println(ages.keys())
+println(ages.values())
+
+var total = 0
+for (name in ages) {
+    total += ages[name] ?: 0
+}
+println(total)
+
+// Reference values: lookup without ?: yields V?, a real pointer.
+val colors = {1: "red", 2: "green"}
+println(colors)
+val c1 = colors[1]
+println(c1)
+println(colors[9])
+println(colors[2] ?: "unknown")
+
+// Keys of every supported kind.
+val flags = {true: "yes", false: "no"}
+println(flags[true] ?: "?")
+val weights = {1.5: "light", 99.9: "heavy"}
+println(weights[1.5] ?: "?")
+
+// Maps inside records and lists, and iteration order preserved.
+val stack = [{"a": 1}, {"b": 2}]
+println(stack)
+record Config(val values: Map<String, Int>)
+val cfg = Config({"x": 10})
+println(cfg)
+println(cfg.values["x"] ?: 0)
+
+fun tally(words: List<String>): Map<String, Int> {
+    val counts: Map<String, Int> = {}
+    for (w in words) {
+        counts[w] = (counts[w] ?: 0) + 1
+    }
+    return counts
+}
+println(tally(["a", "b", "a", "a"]))
