@@ -141,3 +141,42 @@ for (b in [true, false]) {
     val viaUnless = unless (b) { 1 } else { 2 }
     assert(viaIf == viaUnless, "unless (c) is if (not c)")
 }
+
+// Every shape of the if/unless/else family, since they compose freely.
+fun ifElse(n: Int): String { if (n > 0) { "pos" } else { "neg" } }
+fun unlessElse(n: Int): String { unless (n > 0) { "neg" } else { "pos" } }
+fun ifElseIfElse(n: Int): String {
+    if (n > 10) { "big" } else if (n > 0) { "small" } else { "neg" }
+}
+fun ifElseUnlessElse(n: Int): String {
+    if (n > 10) { "big" } else unless (n > 0) { "neg" } else { "small" }
+}
+fun unlessElseIfElse(n: Int): String {
+    unless (n > 0) { "neg" } else if (n > 10) { "big" } else { "small" }
+}
+fun unlessElseUnlessElse(n: Int): String {
+    unless (n > 10) { "small" } else unless (n > 100) { "big" } else { "huge" }
+}
+
+for (n in [-5, 5, 50]) {
+    val expected = if (n > 10) { "big" } else if (n > 0) { "small" } else { "neg" }
+    assert(ifElseIfElse(n) == expected, "if / else if / else")
+    assert(ifElseUnlessElse(n) == expected, "if / else unless / else")
+    assert(unlessElseIfElse(n) == expected, "unless / else if / else")
+    val two = if (n > 0) { "pos" } else { "neg" }
+    assert(ifElse(n) == two, "if / else")
+    assert(unlessElse(n) == two, "unless / else")
+}
+assert(unlessElseUnlessElse(5) == "small", "unless / else unless / else")
+assert(unlessElseUnlessElse(50) == "big", "unless / else unless / else")
+assert(unlessElseUnlessElse(500) == "huge", "unless / else unless / else")
+
+// And each on its own, with no else at all.
+var fired = 0
+proc bumpUnless(n: Int) { unless (n > 0) { fired += 1 } }
+proc bumpIf(n: Int) { if (n > 0) { fired += 1 } }
+bumpUnless(-1)
+bumpUnless(1)
+bumpIf(1)
+bumpIf(-1)
+assert(fired == 2, "a bare `unless` and a bare `if` each fired once")
