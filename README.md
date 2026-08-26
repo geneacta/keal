@@ -60,9 +60,9 @@ snapshot tests for the diagnostics.
   initializers, methods, and a `toString` hook that `println` respects. A
   `record` is the data case: immutable fields and `==` comparing them one by
   one, which is what makes a separate `struct` unnecessary.
-- **`fun` and `met`.** A `fun` must declare what it returns; a `met` returns
+- **`fun` and `proc`.** A `fun` must declare what it returns; a `proc` returns
   nothing. The split means `Unit` and `void` are never written by hand, and
-  using a `met`'s result is an error rather than a silent no-op.
+  using a `proc`'s result is an error rather than a silent no-op.
 - **Operator overloading through traits.** `+`, `-`, `*`, `/`, `%`, unary `-`,
   `==` and the four comparisons are wired to prelude traits (`Add`, `Ord`, …).
   The built-in types implement them too, so `fun total<T: Add>(...)` accepts
@@ -79,7 +79,9 @@ snapshot tests for the diagnostics.
   implicit `it`, closures that capture variables, nested functions, default
   and named arguments.
 - **Expression-oriented.** A block's value is its last expression, so `if`,
-  `when` and function bodies all produce values without ceremony.
+  `unless`, `when` and function bodies all produce values without ceremony.
+  `unless (c)` is `if (not c)` — the same construct, including `else`
+  branches and smart casts.
 - **`when`.** Values, ranges, type tests, and a subject-less form; type tests
   narrow the subject inside the arm.
 - **A standard library** of about ninety built-ins over strings, lists, maps
@@ -131,7 +133,7 @@ and user generics resolve a signature after each argument they check, so
 whatever an earlier argument settles is available to a later one.
 
 **No `void`.** A declaration is either a `fun`, which must say what it
-returns, or a `met`, which returns nothing — nothing in between. So there is
+returns, or a `proc`, which returns nothing — nothing in between. So there is
 no annotation meaning "no result", and no way to accidentally consume one.
 
 **Logical operators have no relative precedence.** `a or b and c` is a syntax

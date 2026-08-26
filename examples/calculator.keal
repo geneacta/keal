@@ -111,7 +111,7 @@ class Parser(val tokens: List<Token>) {
     }
 }
 
-met evaluate(source: String) {
+proc evaluate(source: String) {
     val tokens = tokenize(source)
     if (tokens == null) { return }
 

@@ -161,7 +161,7 @@ impl Parser {
 
     fn item(&mut self) -> Result<Item, Diag> {
         match self.peek() {
-            Tok::Fun | Tok::Met => Ok(Item::Fun(self.fun_decl()?)),
+            Tok::Fun | Tok::Proc => Ok(Item::Fun(self.fun_decl()?)),
             Tok::Class => Ok(Item::Class(self.class_decl(false)?)),
             // `trait` and `record` are contextual: they only introduce a
             // declaration when a name follows, so `record("a")` is still a
@@ -194,16 +194,16 @@ impl Parser {
         }
     }
 
-    /// Reads a `fun` or a `met`.
+    /// Reads a `fun` or a `proc`.
     ///
-    /// The two differ only in what they return: a `fun` must say, and a `met`
+    /// The two differ only in what they return: a `fun` must say, and a `proc`
     /// returns nothing. Keeping them apart at the declaration removes the
     /// need for a `Unit` or `void` annotation anywhere.
     fn fun_decl(&mut self) -> Result<FunDecl, Diag> {
         let span = self.span();
         let returns_value = self.at(&Tok::Fun);
         if !returns_value {
-            self.expect(Tok::Met, "to start a declaration")?;
+            self.expect(Tok::Proc, "to start a declaration")?;
         } else {
             self.advance();
         }
@@ -227,15 +227,15 @@ impl Parser {
     }
 
     /// The `: T` after a parameter list. Required on a `fun`, rejected on a
-    /// `met`, which is the whole point of the distinction.
+    /// `proc`, which is the whole point of the distinction.
     fn return_type(&mut self, returns_value: bool, name: &str) -> Result<Option<TypeExpr>, Diag> {
         if !returns_value {
             if self.at(&Tok::Colon) {
                 return Err(Diag::new(
                     self.span(),
-                    format!("`met {}` cannot declare a return type", name),
+                    format!("`proc {}` cannot declare a return type", name),
                 )
-                .with_note("a `met` returns nothing; use `fun` if it produces a value"));
+                .with_note("a `proc` returns nothing; use `fun` if it produces a value"));
             }
             return Ok(None);
         }
@@ -244,7 +244,7 @@ impl Parser {
                 self.span(),
                 format!("`fun {}` must declare what it returns", name),
             )
-            .with_note("write `: Type`, or declare it with `met` if it returns nothing"));
+            .with_note("write `: Type`, or declare it with `proc` if it returns nothing"));
         }
         Ok(Some(self.type_expr()?))
     }
@@ -317,7 +317,7 @@ impl Parser {
             if returns_value {
                 self.advance();
             } else {
-                self.expect(Tok::Met, "to start a trait member")?;
+                self.expect(Tok::Proc, "to start a trait member")?;
             }
             let (mname, _) = self.expect_ident("a method name")?;
             let type_params = self.type_param_list()?;
@@ -419,7 +419,7 @@ impl Parser {
                 break;
             }
             match self.peek() {
-                Tok::Fun | Tok::Met => methods.push(self.fun_decl()?),
+                Tok::Fun | Tok::Proc => methods.push(self.fun_decl()?),
                 Tok::Val | Tok::Var => {
                     let fspan = self.span();
                     let mutable = matches!(self.advance().tok, Tok::Var);
@@ -442,7 +442,7 @@ impl Parser {
                     return Err(Diag::new(
                         self.span(),
                         format!(
-                            "expected `fun`, `met`, `val` or `var` in a class body, found {}",
+                            "expected `fun`, `proc`, `val` or `var` in a class body, found {}",
                             other.describe()
                         ),
                     ))
@@ -521,7 +521,7 @@ impl Parser {
                 let body = self.block()?;
                 StmtKind::For { var, ty, iter, body }
             }
-            Tok::Fun | Tok::Met => StmtKind::Fun(self.fun_decl()?),
+            Tok::Fun | Tok::Proc => StmtKind::Fun(self.fun_decl()?),
             Tok::Class => StmtKind::Class(self.class_decl(false)?),
             _ => {
                 let target = self.expr()?;
@@ -840,7 +840,7 @@ impl Parser {
                 self.expect(Tok::RBracket, "to close a list literal")?;
                 ExprKind::ListLit(items)
             }
-            Tok::If => return self.if_expr(),
+            Tok::If | Tok::Unless => return self.if_expr(),
             Tok::When => return self.when_expr(),
             Tok::LBrace => return self.brace_expr(),
             other => {
@@ -871,12 +871,31 @@ impl Parser {
         Ok(ExprKind::Interp(out))
     }
 
+    /// Reads an `if` or an `unless`.
+    ///
+    /// `unless (c)` is `if (not c)`: the condition is wrapped here and
+    /// nothing downstream needs to know the difference, so `unless` gets
+    /// `else` branches, expression position and smart casts for free.
     fn if_expr(&mut self) -> Result<Expr, Diag> {
         let span = self.span();
-        self.expect(Tok::If, "to start an `if`")?;
-        self.expect(Tok::LParen, "after `if`")?;
+        let negated = self.at(&Tok::Unless);
+        let word = if negated { "unless" } else { "if" };
+        if negated {
+            self.advance();
+        } else {
+            self.expect(Tok::If, "to start an `if`")?;
+        }
+        self.expect(Tok::LParen, &format!("after `{}`", word))?;
         let cond = self.expr()?;
-        self.expect(Tok::RParen, "after the `if` condition")?;
+        self.expect(Tok::RParen, &format!("after the `{}` condition", word))?;
+        let cond = if negated {
+            Expr {
+                span: cond.span,
+                kind: ExprKind::Unary { op: UnOp::Not, rhs: Box::new(cond) },
+            }
+        } else {
+            cond
+        };
         let then = self.block()?;
 
         // A newline between `}` and `else` inserted a virtual `;`; skip it,
@@ -884,7 +903,7 @@ impl Parser {
         let save = self.pos;
         self.skip_semis();
         let els = if self.eat(&Tok::Else) {
-            if self.at(&Tok::If) {
+            if self.at(&Tok::If) || self.at(&Tok::Unless) {
                 Some(Box::new(Else::If(self.if_expr()?)))
             } else {
                 Some(Box::new(Else::Block(self.block()?)))

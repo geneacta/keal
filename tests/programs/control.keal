@@ -87,3 +87,57 @@ assert((false and bump()) == false, "`and` short-circuits on a false left operan
 assert(calls == 0, "the right operand of `and` was never evaluated")
 assert((true or bump()) == true, "`or` short-circuits on a true left operand")
 assert(calls == 0, "the right operand of `or` was never evaluated")
+
+// ---- unless ------------------------------------------------------------
+//
+// `unless (c)` is `if (not c)`. It takes an `else`, works as an expression,
+// and narrows types exactly as the `if` it stands for would.
+
+fun classify(n: Int): String {
+    unless (n > 0) { return "not positive" }
+    return "positive"
+}
+assert(classify(5) == "positive", "unless as a guard")
+assert(classify(-1) == "not positive", "the guard fired")
+
+fun parity(n: Int): String {
+    return unless (n % 2 == 0) { "odd" } else { "even" }
+}
+assert(parity(3) == "odd", "unless as an expression")
+assert(parity(4) == "even", "its else branch")
+
+// Chains mix freely: `if`, `else unless`, `else if`, `else`.
+fun size(n: Int): String {
+    if (n > 100) {
+        return "huge"
+    } else unless (n > 10) {
+        return "small"
+    } else {
+        return "medium"
+    }
+}
+assert(size(500) == "huge", "if branch")
+assert(size(5) == "small", "else unless branch")
+assert(size(50) == "medium", "final else")
+
+// Smart casts pass through untouched, in both directions.
+fun lengthOf(s: String?): Int {
+    unless (s != null) { return 0 }
+    return s.length
+}
+assert(lengthOf("abcd") == 4, "narrowed after an unless guard")
+assert(lengthOf(null) == 0, "the guard returned")
+
+fun firstChar(s: String?): String {
+    unless (s == null) { return s[0] }
+    return "?"
+}
+assert(firstChar("xyz") == "x", "narrowed inside an unless body")
+assert(firstChar(null) == "?", "fallback")
+
+// `unless` is exactly the negated `if`, and equal to it in every position.
+for (b in [true, false]) {
+    val viaIf = if (not b) { 1 } else { 2 }
+    val viaUnless = unless (b) { 1 } else { 2 }
+    assert(viaIf == viaUnless, "unless (c) is if (not c)")
+}

@@ -1,5 +1,5 @@
 // Records: immutable data with equality decided by their fields, and the
-// `fun`/`met` split that removes the need to write `Unit` anywhere.
+// `fun`/`proc` split that removes the need to write `Unit` anywhere.
 
 record Point(val x: Int, val y: Int)
 
@@ -60,24 +60,24 @@ assert(Version(1, 0) == Version(1, 0), "and Eq still comes for free")
 // The default rendering names the record and its fields.
 assert(Point(1, 2).toString() == "Point(x=1, y=2)", "default toString")
 
-// ---- fun and met -------------------------------------------------------
+// ---- fun and proc -------------------------------------------------------
 
-// A `fun` must say what it returns; a `met` returns nothing at all, so no
+// A `fun` must say what it returns; a `proc` returns nothing at all, so no
 // `Unit` annotation is ever written.
 fun double(n: Int): Int { n * 2 }
 
 var log = ""
-met record(s: String) { log += s }
+proc record(s: String) { log += s }
 
-met maybeRecord(s: String, keep: Bool) {
+proc maybeRecord(s: String, keep: Bool) {
     if (not keep) { return }      // a bare `return` leaves early
     record(s)
 }
 
 class Counter {
     var n: Int = 0
-    met bump() { this.n += 1 }
-    met add(k: Int) { this.n += k }
+    proc bump() { this.n += 1 }
+    proc add(k: Int) { this.n += k }
     fun value(): Int { this.n }
 }
 
@@ -87,12 +87,12 @@ record("a")
 record("b")
 maybeRecord("c", true)
 maybeRecord("d", false)
-assert(log == "abc", "mets run for their effect")
+assert(log == "abc", "procs run for their effect")
 
 val c = Counter()
 c.bump()
 c.add(10)
-assert(c.value() == 11, "mets as methods")
+assert(c.value() == 11, "procs as methods")
 
-// `record` is contextual: naming a met `record` does not shadow the keyword.
-assert(log.length == 3, "the met named `record` is an ordinary name")
+// `record` is contextual: naming a proc `record` does not shadow the keyword.
+assert(log.length == 3, "the proc named `record` is an ordinary name")

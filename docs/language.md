@@ -59,7 +59,7 @@ Comments are `// line`, and `/* block */`, which nests.
 | `Float` | `1.5`, `-0.25`, `6.02e23` | 64-bit IEEE 754 |
 | `Bool` | `true`, `false` | |
 | `String` | `"text"` | immutable, indexed by character |
-| `Unit` | — | what a `met` produces: nothing. Never written by hand |
+| `Unit` | — | what a `proc` produces: nothing. Never written by hand |
 | `List<T>` | `[1, 2, 3]` | mutable, ordered |
 | `Map<K, V>` | `{"a": 1}` | mutable, insertion-ordered |
 | `Range` | `0..10` | half-open: contains 0 through 9 |
@@ -219,6 +219,41 @@ fun double(n: Int): Int { n * 2 }   // no `return` needed
 Braces are mandatory on `if`, `while` and `for` bodies. An `if` used as a
 value must have an `else`.
 
+### `unless`
+
+`unless (c)` is `if (not c)`, and is the same construct in every other
+respect: it takes an `else`, it works as an expression, and it narrows types
+the same way.
+
+```keal
+proc log(s: String, quiet: Bool) {
+    unless (quiet) { println(s) }
+}
+
+val parity = unless (n % 2 == 0) { "odd" } else { "even" }
+```
+
+It reads best as a guard, where `if (not ...)` needs a moment's thought:
+
+```keal
+fun lengthOf(s: String?): Int {
+    unless (s != null) { return 0 }
+    return s.length              // narrowed, exactly as after an `if`
+}
+```
+
+Chains mix the two freely:
+
+```keal
+if (n > 100) {
+    "huge"
+} else unless (n > 10) {
+    "small"
+} else {
+    "medium"
+}
+```
+
 ### `when`
 
 With a subject, `when` compares against it; without one, it is a chain of
@@ -359,26 +394,26 @@ result:
 ```keal
 fun add(a: Int, b: Int): Int { a + b }      // produces a value, and says which
 
-met greet(name: String) {                    // produces nothing
+proc greet(name: String) {                    // produces nothing
     println("hello, ${name}")
 }
 ```
 
-A `fun` **must** declare what it returns. A `met` **cannot**: it returns
+A `fun` **must** declare what it returns. A `proc` **cannot**: it returns
 nothing, so there is no `Unit` or `void` to write anywhere in the language.
 The rule is enforced both ways — `fun f(n: Int) { ... }` and
-`met f(n: Int): Int { ... }` are each rejected at the declaration.
+`proc f(n: Int): Int { ... }` are each rejected at the declaration.
 
-A `met` may still `return` early, just with no value:
+A `proc` may still `return` early, just with no value:
 
 ```keal
-met maybeLog(s: String, keep: Bool) {
+proc maybeLog(s: String, keep: Bool) {
     if (not keep) { return }
     println(s)
 }
 ```
 
-The result of a `met` cannot be used, because there is none:
+The result of a `proc` cannot be used, because there is none:
 
 ```keal
 val x = greet("Ada")        // error: expression produces no value

@@ -944,7 +944,7 @@ impl Checker {
             self.error_note(
                 span,
                 format!("{} produces no value", what),
-                "a `met` returns nothing; use `fun` if it should produce a value",
+                "a `proc` returns nothing; use `fun` if it should produce a value",
             );
             return;
         }
@@ -1062,7 +1062,7 @@ impl Checker {
                             self.check_expr(e, None);
                             self.error_note(
                                 span,
-                                "a `met` cannot return a value",
+                                "a `proc` cannot return a value",
                                 "declare it with `fun` and a return type instead",
                             );
                             return Type::Never;

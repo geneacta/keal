@@ -1,6 +1,6 @@
 fun ratio(a: Int, b: Int): Int { a / b }
 
-met main() {
+proc main() {
     println(ratio(10, 2))
     println(ratio(1, 0))
 }

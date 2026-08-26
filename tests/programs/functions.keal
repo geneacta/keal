@@ -81,7 +81,7 @@ assert(table["inc"]!!(5) == 6, "a map of functions")
 
 // Unit-returning functions are statements, not values.
 var log = ""
-met record(s: String) { log += s }
+proc record(s: String) { log += s }
 record("a")
 record("b")
 assert(log == "ab", "side effects in order")

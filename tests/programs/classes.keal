@@ -27,7 +27,7 @@ class Counter {
 }
 
 class Account(val owner: String, var balance: Int = 0) {
-    met deposit(amount: Int) {
+    proc deposit(amount: Int) {
         if (amount <= 0) { panic("deposit must be positive") }
         this.balance += amount
     }
