@@ -203,7 +203,12 @@ fn show_layout(path: &str) -> ExitCode {
         );
     }
 
-    let shapes = checker.class_shapes();
+    // The prelude's own records are not what anyone ran this to see.
+    let shapes: Vec<_> = checker
+        .class_shapes()
+        .into_iter()
+        .filter(|c| sources.path(c.span.file) != "<prelude>")
+        .collect();
     if shapes.is_empty() {
         println!("\nthis program declares no classes or records");
         return ExitCode::SUCCESS;

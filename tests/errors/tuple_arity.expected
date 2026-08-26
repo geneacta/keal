@@ -1,0 +1,6 @@
+error: a tuple holds between 2 and 5 values, not 6
+  --> tests/errors/tuple_arity.keal:3:15
+  |
+3 | val tooMany = (1, 2, 3, 4, 5, 6)
+  |               ^
+  = note: for more, declare a record: named fields read better than positions

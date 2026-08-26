@@ -69,6 +69,10 @@ const P_ELVIS: u8 = 4;
 const P_RANGE: u8 = 5;
 const P_UNARY: u8 = 8;
 
+/// How many values a tuple may hold. Past this, positions stop being
+/// memorable and a record's names earn their keep.
+const MAX_TUPLE: usize = 5;
+
 impl Parser {
     // ---- token helpers -------------------------------------------------
 
@@ -262,6 +266,10 @@ impl Parser {
         self.expect(Tok::LParen, "to start a destructuring pattern")?;
         let mut binds = Vec::new();
         while !self.at(&Tok::RParen) {
+            if self.at(&Tok::LParen) {
+                return Err(Diag::new(self.span(), "a pattern cannot nest inside another")
+                    .with_note("bind the inner value first, then destructure it"));
+            }
             let (name, _) = self.expect_ident("a field name, or `_` to skip one")?;
             binds.push(if name == "_" { None } else { Some(name) });
             if !self.eat(&Tok::Comma) {
@@ -284,7 +292,7 @@ impl Parser {
         }
         self.advance();
         while !self.at(&Tok::Gt) {
-            let (name, span) = self.expect_ident("a type parameter name")?;
+            let (name, _) = self.expect_ident("a type parameter name")?;
             let mut bounds = Vec::new();
             if self.eat(&Tok::Colon) {
                 loop {
@@ -295,7 +303,7 @@ impl Parser {
                     }
                 }
             }
-            out.push(TypeParam { name, bounds, span });
+            out.push(TypeParam { name, bounds });
             if !self.eat(&Tok::Comma) {
                 break;
             }
@@ -506,6 +514,28 @@ impl Parser {
         let kind = match self.peek() {
             Tok::Val | Tok::Var => {
                 let mutable = matches!(self.advance().tok, Tok::Var);
+                // `val (a, b) = t` names a tuple's elements.
+                if self.at(&Tok::LParen) {
+                    let pspan = self.span();
+                    let binds = self.bind_list(pspan)?;
+                    if binds.len() < 2 || binds.len() > MAX_TUPLE {
+                        return Err(Diag::new(
+                            pspan,
+                            format!("a tuple pattern names between 2 and {} values", MAX_TUPLE),
+                        ));
+                    }
+                    let pattern = Destructuring {
+                        type_name: format!("Tuple{}", binds.len()),
+                        binds,
+                        span: pspan,
+                    };
+                    self.expect(Tok::Assign, "in a destructuring declaration")?;
+                    let init = self.expr()?;
+                    return Ok(Stmt {
+                        kind: StmtKind::Destructure { pattern, init, mutable },
+                        span,
+                    });
+                }
                 // `val Point(x, y) = p` destructures; `val p = ...` binds.
                 if matches!(self.peek(), Tok::Ident(_)) && matches!(self.peek_at(1), Tok::LParen) {
                     let pattern = self.destructuring()?;
@@ -527,7 +557,17 @@ impl Parser {
                 let value = if self.at(&Tok::Semi) || self.at(&Tok::RBrace) || self.at(&Tok::Eof) {
                     None
                 } else {
-                    Some(self.expr()?)
+                    let first = self.expr()?;
+                    // `return a, b` returns both, as a tuple.
+                    if self.at(&Tok::Comma) {
+                        let mut items = vec![first];
+                        while self.eat(&Tok::Comma) {
+                            items.push(self.expr()?);
+                        }
+                        Some(self.tuple(items, span)?)
+                    } else {
+                        Some(first)
+                    }
                 };
                 StmtKind::Return(value)
             }
@@ -832,9 +872,23 @@ impl Parser {
             }
             Tok::LParen => {
                 self.advance();
-                let inner = self.expr()?;
-                self.expect(Tok::RParen, "to close a parenthesised expression")?;
-                return Ok(inner);
+                let first = self.expr()?;
+                // A comma turns grouping into a tuple, which is how several
+                // values of different types travel together.
+                if !self.at(&Tok::Comma) {
+                    self.expect(Tok::RParen, "to close a parenthesised expression")?;
+                    return Ok(first);
+                }
+                let mut items = vec![first];
+                while self.eat(&Tok::Comma) {
+                    self.skip_semis();
+                    if self.at(&Tok::RParen) {
+                        break;
+                    }
+                    items.push(self.expr()?);
+                }
+                self.expect(Tok::RParen, "to close a tuple")?;
+                return self.tuple(items, span);
             }
             Tok::LBracket => {
                 self.advance();
@@ -865,6 +919,31 @@ impl Parser {
             }
         };
         Ok(Expr { ty: None, span, kind })
+    }
+
+    /// Builds a tuple, which is a record from the prelude under a name
+    /// nobody has to write.
+    fn tuple(&mut self, items: Vec<Expr>, span: Span) -> Result<Expr, Diag> {
+        if items.len() < 2 || items.len() > MAX_TUPLE {
+            return Err(Diag::new(
+                span,
+                format!("a tuple holds between 2 and {} values, not {}", MAX_TUPLE, items.len()),
+            )
+            .with_note("for more, declare a record: named fields read better than positions"));
+        }
+        let name = format!("Tuple{}", items.len());
+        Ok(Expr {
+            ty: None,
+            span,
+            kind: ExprKind::Call {
+                callee: Box::new(Expr {
+                    ty: None,
+                    span,
+                    kind: ExprKind::Ident(name),
+                }),
+                args: items.into_iter().map(|value| Arg { name: None, value }).collect(),
+            },
+        })
     }
 
     fn string_expr(&mut self, parts: Vec<StrPart>) -> Result<ExprKind, Diag> {
@@ -1124,9 +1203,26 @@ impl Parser {
                     }
                 }
                 self.expect(Tok::RParen, "to close a function type's parameters")?;
-                self.expect(Tok::Arrow, "in a function type")?;
-                let ret = Box::new(self.type_expr()?);
-                TypeExpr { span, kind: TypeExprKind::Fun { params, ret } }
+                // `(A, B) -> C` is a function; `(A, B)` on its own is a tuple.
+                if !self.at(&Tok::Arrow) {
+                    if params.len() < 2 || params.len() > MAX_TUPLE {
+                        return Err(Diag::new(
+                            span,
+                            format!(
+                                "a tuple type holds between 2 and {} types, not {}",
+                                MAX_TUPLE,
+                                params.len()
+                            ),
+                        )
+                        .with_note("a function type needs its `->` and a result"));
+                    }
+                    let name = format!("Tuple{}", params.len());
+                    TypeExpr { span, kind: TypeExprKind::Named { name, args: params } }
+                } else {
+                    self.advance();
+                    let ret = Box::new(self.type_expr()?);
+                    TypeExpr { span, kind: TypeExprKind::Fun { params, ret } }
+                }
             }
             other => {
                 return Err(Diag::new(

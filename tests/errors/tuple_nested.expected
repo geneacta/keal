@@ -1,0 +1,6 @@
+error: a pattern cannot nest inside another
+  --> tests/errors/tuple_nested.keal:2:6
+  |
+2 | val ((a, b), c) = ((1, 2), 3)
+  |      ^
+  = note: bind the inner value first, then destructure it

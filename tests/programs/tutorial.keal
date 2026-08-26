@@ -219,3 +219,12 @@ assert(f1 == f2, "records compare by value whatever their identity")
 val copy = shared.slice(0, shared.size)
 copy.add(4)
 assert(shared.size == 3 and copy.size == 4, "slice produced a new list")
+
+// Tuples, as the tutorial introduces them.
+fun divmod(a: Int, b: Int): (Int, Int) { return a / b, a % b }
+val (tq, tr) = divmod(17, 5)
+assert(tq == 3 and tr == 2, "two values from one call")
+val tpair = (1, "one")
+assert(tpair.first == 1 and tpair.second == "one", "reached by name")
+assert(tpair == (1, "one"), "compared by value")
+assert(tpair.toString() == "(1, \"one\")", "rendered as written")

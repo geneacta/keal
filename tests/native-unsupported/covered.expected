@@ -1,43 +1,43 @@
-error: the C backend cannot compile generic classes and records yet
-  --> tests/native-unsupported/covered.keal:6:8
-  |
-6 | record Boxed<T>(val value: T)
-  |        ^
-  = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile generic functions yet
   --> tests/native-unsupported/covered.keal:4:1
   |
 4 | fun identity<T>(value: T): T { value }
   | ^
   = note: run it on the bytecode VM instead, which supports the whole language
-error: the C backend cannot compile default arguments yet
-  --> tests/native-unsupported/covered.keal:8:17
+error: the C backend cannot compile generic classes and records yet
+  --> tests/native-unsupported/covered.keal:8:23
   |
-8 | fun withDefault(n: Int = 1): Int { n }
-  |                 ^
+8 | fun useBoxed(): Int { Boxed(1).value }
+  |                       ^
+  = note: run it on the bytecode VM instead, which supports the whole language
+error: the C backend cannot compile default arguments yet
+  --> tests/native-unsupported/covered.keal:10:17
+   |
+10 | fun withDefault(n: Int = 1): Int { n }
+   |                 ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile list literals yet
-  --> tests/native-unsupported/covered.keal:10:22
+  --> tests/native-unsupported/covered.keal:12:22
    |
-10 | fun useList(): Int { [1, 2, 3].size }
+12 | fun useList(): Int { [1, 2, 3].size }
    |                      ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile values of type `(Int) -> Int` yet
-  --> tests/native-unsupported/covered.keal:13:5
+  --> tests/native-unsupported/covered.keal:15:5
    |
-13 |     val f = { x: Int -> x * 2 }
+15 |     val f = { x: Int -> x * 2 }
    |     ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile `when` yet
-  --> tests/native-unsupported/covered.keal:18:12
+  --> tests/native-unsupported/covered.keal:20:12
    |
-18 |     return when (n) {
+20 |     return when (n) {
    |            ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile the type `Int?` yet
-  --> tests/native-unsupported/covered.keal:26:20
+  --> tests/native-unsupported/covered.keal:28:20
    |
-26 | fun useNullableInt(n: Int?): Int { n ?: 0 }
+28 | fun useNullableInt(n: Int?): Int { n ?: 0 }
    |                    ^
   = note: a nullable value needs a tag beside it, which is not built yet; a nullable reference is just a pointer and does compile
 7 constructs the C backend does not cover yet

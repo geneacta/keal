@@ -110,6 +110,15 @@ fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool) -> R<String>
                 });
             }
             let snapshot: Vec<(Rc<str>, Value)> = inst.fields.borrow().clone();
+            // A tuple is a record underneath, but it is written `(1, "a")`,
+            // so that is how it reads back.
+            if crate::types::tuple_arity(&inst.class.name) == Some(snapshot.len()) {
+                let mut parts = Vec::with_capacity(snapshot.len());
+                for (_, value) in &snapshot {
+                    parts.push(repr(rt, value, span)?);
+                }
+                return Ok(format!("({})", parts.join(", ")));
+            }
             let mut parts = Vec::with_capacity(snapshot.len());
             for (name, value) in &snapshot {
                 parts.push(format!("{}={}", name, repr(rt, value, span)?));

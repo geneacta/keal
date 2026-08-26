@@ -220,8 +220,11 @@ impl CBackend {
     /// A class becomes a struct headed by its reference count, its fields in
     /// declaration order — the layout `keal layout` reports.
     fn class_struct(&mut self, c: &ClassDecl) {
+        // A generic class has no single layout, so there is nothing to emit
+        // for the declaration. Refusing here would reject every program,
+        // since the prelude declares the tuple records; the refusal belongs
+        // where one is actually used.
         if !c.type_params.is_empty() {
-            self.unsupported(c.span, "generic classes and records");
             return;
         }
         let Some(fields) = self.shapes.get(&c.name).cloned() else { return };

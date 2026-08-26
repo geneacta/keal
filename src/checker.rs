@@ -90,6 +90,7 @@ struct MethodInfo {
 }
 
 struct ClassInfo {
+    span: Span,
     is_record: bool,
     /// The class's own type parameters, in declaration order. Member types
     /// are stored with these left as `Type::Param`, and substituted with the
@@ -118,6 +119,9 @@ enum ReturnCtx {
 /// has resolved its field types. This is what the layout pass consumes.
 pub struct ClassShape {
     pub name: String,
+    /// Where it was declared, so a report can tell a program's own classes
+    /// from the ones the prelude brings.
+    pub span: Span,
     pub is_record: bool,
     /// True when the class takes type parameters, so its layout is one shape
     /// per instantiation rather than a single answer.
@@ -192,6 +196,7 @@ impl Checker {
                 let info = self.classes.get(name)?;
                 Some(ClassShape {
                     name: name.clone(),
+                    span: info.span,
                     is_record: info.is_record,
                     generic: !info.type_params.is_empty(),
                     fields: info
@@ -268,6 +273,7 @@ impl Checker {
                 self.classes.insert(
                     c.name.clone(),
                     ClassInfo {
+                        span: c.span,
                         is_record: c.is_record,
                         type_params: c
                             .type_params
@@ -622,6 +628,7 @@ impl Checker {
             type_params.iter().map(|p| Type::Param(p.name.clone())).collect(),
         );
         let info = ClassInfo {
+            span: c.span,
             is_record: c.is_record,
             type_params: type_params.clone(),
             fields,
@@ -927,14 +934,11 @@ impl Checker {
     /// Kept apart from `push_type_params`, which runs once per pass over a
     /// declaration and would otherwise report each problem several times.
     fn validate_type_params(&mut self, params: &[TypeParam]) {
+        // A type parameter shadowing a class is ordinary — inside the
+        // declaration the parameter is what the name means. Reporting it was
+        // over-cautious, and the prelude proved it: `Tuple3<A, B, C>` would
+        // complain about any program that declares a class called `C`.
         for p in params {
-            if self.classes.contains_key(&p.name) {
-                self.error_note(
-                    p.span,
-                    format!("type parameter `{}` shadows a class of the same name", p.name),
-                    "pick a different name for the type parameter",
-                );
-            }
             for b in &p.bounds {
                 if self.trait_name_of(b).is_none() {
                     self.error_note(
@@ -1254,31 +1258,52 @@ impl Checker {
             );
             return filler;
         };
+        let _ = &filler;
         // Only the constructor parameters are positional: a field declared in
         // the body has no place in the order the pattern spells out.
         let ctor: Vec<Type> = info.ctor.params.iter().map(|p| p.ty.clone()).collect();
         let names: Vec<String> = info.ctor.params.iter().map(|p| p.name.clone()).collect();
 
+        // A tuple pattern is written `(a, b)`, so nobody should be told about
+        // the record it happens to be underneath.
+        let tuple = crate::types::tuple_arity(&pattern.type_name);
+
         if let Type::Class(name, _) = actual {
             if **name != *pattern.type_name && *actual != Type::Error {
-                self.error(
-                    pattern.span,
-                    format!(
+                let complaint = match tuple {
+                    Some(n) => format!(
+                        "a pattern of {} value(s) cannot match `{}`",
+                        n, actual
+                    ),
+                    None => format!(
                         "the pattern matches `{}`, but the value has type `{}`",
                         pattern.type_name, actual
                     ),
-                );
+                };
+                self.error(pattern.span, complaint);
                 return filler;
             }
         } else if *actual != Type::Error {
-            self.error(
-                pattern.span,
-                format!("`{}` cannot be destructured with a pattern", actual),
-            );
+            let complaint = match tuple {
+                Some(_) => format!("`{}` is not a tuple", actual),
+                None => format!("`{}` cannot be destructured with a pattern", actual),
+            };
+            self.error(pattern.span, complaint);
             return filler;
         }
 
         if ctor.len() != pattern.binds.len() {
+            if let Some(n) = tuple {
+                self.error(
+                    pattern.span,
+                    format!(
+                        "this tuple holds {} value(s), but the pattern names {}",
+                        ctor.len(),
+                        n
+                    ),
+                );
+                return filler;
+            }
             let listed: Vec<String> = names.iter().map(|n| format!("`{}`", n)).collect();
             self.error_note(
                 pattern.span,
@@ -2716,7 +2741,15 @@ impl Checker {
         let mut ret = ft.ret.substitute(subst);
         // A parameter that appears only in the return type can still be
         // pinned down by the context the call sits in.
-        if ret.has_params() {
+        //
+        // The test is whether a *declared* parameter is still unsolved, not
+        // whether the result mentions any parameter at all. Inside a generic
+        // function the solution legitimately mentions the caller's own
+        // parameters, and re-unifying against the expected type would then
+        // match the callee's `A` with the caller's `A` by name and widen both
+        // to `Any`.
+        let unsolved = type_params.iter().any(|p| !subst.contains_key(&p.name));
+        if unsolved {
             if let Some(want) = expected {
                 Type::unify(&ret, want, subst);
                 ret = ft.ret.substitute(subst);

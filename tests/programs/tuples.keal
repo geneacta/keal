@@ -1,0 +1,78 @@
+// Tuples: several values of different types travelling together, without
+// having to declare a record for them.
+
+fun divmod(a: Int, b: Int): (Int, Int) {
+    return a / b, a % b
+}
+
+fun stats(xs: List<Int>): (Int, Int, Float) {
+    var lo = xs[0]
+    var hi = xs[0]
+    var sum = 0
+    for (x in xs) {
+        if (x < lo) { lo = x }
+        if (x > hi) { hi = x }
+        sum += x
+    }
+    return lo, hi, sum.toFloat() / xs.size.toFloat()
+}
+
+fun labelled(n: Int): (String, Int, Bool) { return "n", n, n > 0 }
+
+// `return a, b` needs no parentheses; the comma is enough.
+val (q, r) = divmod(17, 5)
+assert(q == 3 and r == 2, "two results from one call")
+
+val (lo, hi, mean) = stats([3, 1, 4, 1, 5])
+assert(lo == 1 and hi == 5, "three results")
+assert(mean == 2.8, "of different types")
+
+val (name, value, positive) = labelled(7)
+assert(name == "n" and value == 7 and positive, "String, Int and Bool together")
+
+// A tuple is an ordinary value.
+val pair = (1, "one")
+assert(pair.first == 1, "reached by name")
+assert(pair.second == "one", "and the second")
+assert(pair == (1, "one"), "compared by value, like any record")
+assert(pair != (2, "two"), "and unequal when it differs")
+assert(pair.toString() == "(1, \"one\")", "rendered the way it is written")
+
+// They nest, though a pattern does not: bind the inner one first.
+val nested = ((1, 2), "outer")
+val (inner, tag) = nested
+val (a, b) = inner
+assert(a == 1 and b == 2 and tag == "outer", "nesting")
+assert(nested.toString() == "((1, 2), \"outer\")", "nested rendering")
+
+// And they travel through generics like anything else.
+val pairs: List<(Int, String)> = [(1, "a"), (2, "b")]
+assert(pairs.size == 2, "a list of tuples")
+assert(pairs.map({ p -> p.second }) == ["a", "b"], "mapped over")
+assert(pairs[0] == (1, "a"), "and compared")
+
+fun swap<A, B>(t: (A, B)): (B, A) {
+    val (x, y) = t
+    return y, x
+}
+assert(swap((1, "a")) == ("a", 1), "generic over a tuple")
+
+// `_` skips an element you do not want.
+val (_, onlySecond) = (99, "kept")
+assert(onlySecond == "kept", "skipped element")
+
+// Up to five; beyond that a record's names earn their keep.
+val five = (1, 2, 3, 4, 5)
+val (v1, v2, v3, v4, v5) = five
+assert(v1 + v2 + v3 + v4 + v5 == 15, "five elements")
+
+// The two things tuples do not replace, because these already worked:
+// `?:` takes the first value that is present, anywhere, not only in a return.
+fun firstPresent(x: String?, y: String?, z: String?): String {
+    return x ?: y ?: z ?: "none"
+}
+assert(firstPresent(null, null, "third") == "third", "elvis chains")
+assert(firstPresent(null, null, null) == "none", "and falls through")
+
+// And a homogeneous group of values is a list.
+assert([1, 2, 3].sum() == 6, "a list is still a list")

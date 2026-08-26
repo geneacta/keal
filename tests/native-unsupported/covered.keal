@@ -5,6 +5,8 @@ fun identity<T>(value: T): T { value }
 
 record Boxed<T>(val value: T)
 
+fun useBoxed(): Int { Boxed(1).value }
+
 fun withDefault(n: Int = 1): Int { n }
 
 fun useList(): Int { [1, 2, 3].size }

@@ -1,0 +1,2 @@
+// One pattern cannot sit inside another; bind the inner value first.
+val ((a, b), c) = ((1, 2), 3)

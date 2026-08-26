@@ -612,6 +612,54 @@ A generic class can be tested but not at particular type arguments — they do
 not survive to run time — so `is Pair(a, b)` is accepted, binds `a` and `b`
 as `Any`, and `is Pair<Int, Int>(a, b)` is rejected.
 
+### Tuples
+
+Several values of different types travel together as a tuple, without having
+to declare a record for them:
+
+```keal
+fun divmod(a: Int, b: Int): (Int, Int) {
+    return a / b, a % b        // no parentheses needed after `return`
+}
+
+val (q, r) = divmod(17, 5)     // q is 3, r is 2
+```
+
+`(A, B)` is the type, `(a, b)` the value, and `val (a, b) = t` names its
+elements. A tuple holds between two and five values; beyond that, declare a
+record, because past five a position stops being memorable and a name starts
+earning its keep.
+
+A tuple is an ordinary record underneath, so everything records do it does:
+
+```keal
+val pair = (1, "one")
+pair.first                     // 1
+pair.second                    // "one"
+pair == (1, "one")             // true — compared by value
+pair.toString()                // "(1, \"one\")"
+
+val pairs: List<(Int, String)> = [(1, "a"), (2, "b")]
+```
+
+They nest, though a *pattern* does not: bind the inner value, then destructure
+it.
+
+```keal
+val nested = ((1, 2), "outer")
+val (inner, tag) = nested
+val (a, b) = inner
+```
+
+Two things tuples deliberately do not replace. A group of values that share a
+type is a **list**, `[a, b, c]`. And to take the first of several values that
+is present, `?:` already does exactly that, anywhere rather than only in a
+`return`:
+
+```keal
+return a ?: b ?: c ?: "none"
+```
+
 ## 10. Generics
 
 Functions and classes may take type parameters. They are written after the

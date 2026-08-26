@@ -1,0 +1,21 @@
+error: a pattern of 3 value(s) cannot match `(Int, String)`
+  --> tests/errors/tuples.keal:4:5
+  |
+4 | val (d, e, f) = two()
+  |     ^
+error: `Int` is not a tuple
+  --> tests/errors/tuples.keal:7:5
+  |
+7 | val (g, h) = 42
+  |     ^
+error: `Int` has no method `toUpper`
+  --> tests/errors/tuples.keal:11:15
+   |
+11 | val wrong = n.toUpper()
+   |               ^
+error: initializer has type `String`, but `Int` was expected
+  --> tests/errors/tuples.keal:12:22
+   |
+12 | val alsoWrong: Int = s
+   |                      ^
+4 errors found

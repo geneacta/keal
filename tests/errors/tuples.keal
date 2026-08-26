@@ -1,0 +1,12 @@
+fun two(): (Int, String) { return 1, "a" }
+
+// A pattern must name as many values as the tuple holds.
+val (d, e, f) = two()
+
+// And the value must be a tuple in the first place.
+val (g, h) = 42
+
+// A tuple's elements keep their types.
+val (n, s) = two()
+val wrong = n.toUpper()
+val alsoWrong: Int = s

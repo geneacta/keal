@@ -43,6 +43,11 @@ pub enum Type {
     Error,
 }
 
+/// How many elements a tuple record holds, if this name is one.
+pub fn tuple_arity(name: &str) -> Option<usize> {
+    name.strip_prefix("Tuple").and_then(|rest| rest.parse().ok())
+}
+
 /// A solution for a set of type parameters, built during call-site inference.
 pub type Subst = HashMap<Rc<str>, Type>;
 
@@ -329,6 +334,20 @@ impl fmt::Display for Type {
             Type::SelfTy => write!(f, "Self"),
             Type::Param(name) => write!(f, "{}", name),
             Type::Class(name, args) => {
+                // A tuple is a record underneath, but nobody writes it that
+                // way, so nobody should have to read it that way either.
+                if let Some(n) = tuple_arity(name) {
+                    if args.len() == n {
+                        write!(f, "(")?;
+                        for (i, a) in args.iter().enumerate() {
+                            if i > 0 {
+                                write!(f, ", ")?;
+                            }
+                            write!(f, "{}", a)?;
+                        }
+                        return write!(f, ")");
+                    }
+                }
                 write!(f, "{}", name)?;
                 if args.is_empty() {
                     return Ok(());

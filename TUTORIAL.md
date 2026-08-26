@@ -403,6 +403,26 @@ when (shape) {
 }
 ```
 
+### Tuples
+
+To return several values of different types, group them:
+
+```keal
+fun divmod(a: Int, b: Int): (Int, Int) {
+    return a / b, a % b
+}
+
+val (q, r) = divmod(17, 5)     // q is 3, r is 2
+```
+
+`(A, B)` is the type and `(a, b)` the value. A tuple is a record underneath,
+so it compares by value, renders as `(1, "one")`, and its elements can be
+reached by name — `pair.first`, `pair.second`. Two to five values; beyond
+that, declare a record.
+
+For several values that *share* a type, use a list. For the first of several
+that is present, `?:` already does it.
+
 ---
 
 ## 8. Generics and traits

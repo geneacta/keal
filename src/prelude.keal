@@ -51,3 +51,26 @@ trait Eq {
 trait Ord {
     fun compareTo(other: Self): Int
 }
+
+// ---- tuples ------------------------------------------------------------
+//
+// `(a, b)` is one of these, and `(Int, String)` is its type. They are
+// ordinary records, so they compare by value, render field by field, and
+// destructure like anything else — `val (q, r) = divmod(7, 2)`.
+//
+// Beyond five, declare a record: past that many, positions stop being
+// memorable and names start earning their keep.
+
+record Tuple2<A, B>(val first: A, val second: B)
+
+record Tuple3<A, B, C>(val first: A, val second: B, val third: C)
+
+record Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+record Tuple5<A, B, C, D, E>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D,
+    val fifth: E
+)

@@ -134,8 +134,10 @@ engines, which must agree on every byte they print.
   tests that narrow the subject, guards (`is Circle(r) if (r > 10.0) ->`), and
   a subject-less form that replaces a chain of `if`. No fall-through, first
   match wins, and it is an expression.
-- **Destructuring.** `val Point(x, y) = p` names a value's constructor fields,
-  and `is Circle(r) ->` tests and binds in one move.
+- **Destructuring and tuples.** `val Point(x, y) = p` names a value's
+  constructor fields, and `is Circle(r) ->` tests and binds in one move.
+  `fun divmod(a: Int, b: Int): (Int, Int) { return a / b, a % b }` returns
+  several values of different types, taken apart with `val (q, r) = ...`.
 - **A standard library** of about ninety built-ins over strings, lists, maps
   and numbers, including `map`/`filter`/`fold` typed generically.
 - **Modules.** `import "./other.keal"`, resolved relative to the importing

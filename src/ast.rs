@@ -27,7 +27,6 @@ pub enum Item {
 pub struct TypeParam {
     pub name: String,
     pub bounds: Vec<TypeExpr>,
-    pub span: Span,
 }
 
 #[derive(Clone, Debug)]

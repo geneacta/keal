@@ -1,0 +1,3 @@
+// A tuple holds between two and five values; beyond that a record's names
+// earn their keep.
+val tooMany = (1, 2, 3, 4, 5, 6)
