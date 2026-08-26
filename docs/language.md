@@ -59,7 +59,7 @@ Comments are `// line`, and `/* block */`, which nests.
 | `Float` | `1.5`, `-0.25`, `6.02e23` | 64-bit IEEE 754 |
 | `Bool` | `true`, `false` | |
 | `String` | `"text"` | immutable, indexed by character |
-| `Unit` | — | the type of a statement that produces no value |
+| `Unit` | — | what a `met` produces: nothing. Never written by hand |
 | `List<T>` | `[1, 2, 3]` | mutable, ordered |
 | `Map<K, V>` | `{"a": 1}` | mutable, insertion-ordered |
 | `Range` | `0..10` | half-open: contains 0 through 9 |
@@ -353,15 +353,47 @@ fun describe(v: Any): String {
 
 ## 7. Functions
 
-```keal
-fun add(a: Int, b: Int): Int { a + b }
+Keal has two declaration words, and which one you use says whether there is a
+result:
 
+```keal
+fun add(a: Int, b: Int): Int { a + b }      // produces a value, and says which
+
+met greet(name: String) {                    // produces nothing
+    println("hello, ${name}")
+}
+```
+
+A `fun` **must** declare what it returns. A `met` **cannot**: it returns
+nothing, so there is no `Unit` or `void` to write anywhere in the language.
+The rule is enforced both ways — `fun f(n: Int) { ... }` and
+`met f(n: Int): Int { ... }` are each rejected at the declaration.
+
+A `met` may still `return` early, just with no value:
+
+```keal
+met maybeLog(s: String, keep: Bool) {
+    if (not keep) { return }
+    println(s)
+}
+```
+
+The result of a `met` cannot be used, because there is none:
+
+```keal
+val x = greet("Ada")        // error: expression produces no value
+println(greet("Ada"))       // error: argument `value` produces no value
+```
+
+Everything below is the same for both, so it says `fun` and means either.
+
+```keal
 fun greet(name: String, greeting: String = "hello"): String {
     return "${greeting}, ${name}!"
 }
 ```
 
-Parameter types are mandatory; the return type defaults to `Unit`. Defaults
+Parameter types are mandatory. Defaults
 may refer to earlier parameters. Arguments may be passed by name, in any
 order, and named arguments must come after positional ones:
 
@@ -424,7 +456,49 @@ Classes may only be declared at the top level.
 
 ---
 
-## 9. Generics
+## 9. Records
+
+A record is a class whose shape already decides its behaviour: every
+constructor parameter is a field, all of them immutable, and `==` compares
+them one by one.
+
+```keal
+record Point(val x: Int, val y: Int)
+record Person(name: String, age: Int)      // `val` is implied, and optional
+record Empty()
+
+Point(1, 2) == Point(1, 2)                 // true — a class would say false
+Point(1, 2).toString()                     // "Point(x=1, y=2)"
+```
+
+A record may declare methods, take type parameters and implement traits, like
+any other class:
+
+```keal
+record Version(val major: Int, val minor: Int) : Ord {
+    fun compareTo(other: Version): Int {
+        if (this.major != other.major) { return this.major - other.major }
+        return this.minor - other.minor
+    }
+}
+
+Version(2, 0) > Version(1, 9)              // Ord, written by you
+Version(1, 0) == Version(1, 0)             // Eq, written for you
+```
+
+What a record gives you is exactly one thing: an `Eq` implementation that
+compares field by field, and the `Eq` in its trait list. Write your own
+`equals` and yours is used instead.
+
+That comparison is safe here in a way it would not be for a class. A record's
+fields are immutable and set at construction, so no cycle can be built for the
+comparison to fall into — which is why a plain class keeps identity equality
+unless you opt in.
+
+Records cannot have `var` fields, in the constructor or in the body. If the
+data has to change, use a `class`.
+
+## 10. Generics
 
 Functions and classes may take type parameters. They are written after the
 name, as in `fun name<T>(...)` and `class Box<T>`:
@@ -469,7 +543,7 @@ consequences follow:
 * A generic function cannot be used as a value; it must be called.
 * `is T` is rejected: a type parameter has no run-time identity to test.
 
-## 10. Traits
+## 11. Traits
 
 A trait is a named set of method signatures. It is what type-parameter bounds
 are written in.
@@ -518,7 +592,7 @@ A default method's body is checked in each class that inherits it, not once in
 the abstract — the same rule C++ templates follow. A trait nobody implements
 is therefore never type-checked.
 
-## 11. Operator overloading
+## 12. Operator overloading
 
 Operators are wired to the traits the prelude declares. A class that
 implements one gains the operator; nothing else changes.
@@ -573,7 +647,7 @@ Only a class or a bounded type parameter goes through a method call. `1 + 2`
 is added directly; the built-in implementations exist so that generic code —
 which *is* rewritten — has something to land on.
 
-## 12. Modules
+## 13. Modules
 
 ```keal
 import "./geometry.keal"
@@ -585,7 +659,7 @@ most once, so diamond imports and cycles are both fine.
 
 ---
 
-## 13. Standard library
+## 14. Standard library
 
 ### Free functions
 
@@ -652,7 +726,7 @@ negative indices. `sorted` works on `Int`, `Float`, `String` and `Bool`.
 
 ---
 
-## 14. Errors
+## 15. Errors
 
 The checker reports every independent error it can find in one pass, sorted
 by source position:
@@ -672,9 +746,10 @@ and a call stack.
 
 ---
 
-## 15. What is not here yet
+## 16. What is not here yet
 
-Class inheritance · exceptions and `try`/`catch` · pattern destructuring ·
+Class inheritance · exceptions and `try`/`catch` · destructuring a record in
+a `when` or a binding ·
 indexing and call operators (`Index`, `Invoke`) · associated types on traits ·
 a module namespace (imports are flat) · and the native backend: pointers,
 `constexpr`, macros, C interop and LLVM code generation. The evaluator walks

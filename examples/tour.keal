@@ -44,7 +44,7 @@ fun firstEven(xs: List<Int>): Int? {
     return null
 }
 
-fun main() {
+met main() {
     val p = Point(3.0, 4.0)
     p.label = "P"
     println(p.show() + " has norm " + p.norm().toString())

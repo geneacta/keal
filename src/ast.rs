@@ -68,6 +68,9 @@ pub struct TraitMethod {
 #[derive(Clone, Debug)]
 pub struct ClassDecl {
     pub name: String,
+    /// A record is a class whose fields are all immutable and which gets a
+    /// field-by-field `equals` for free.
+    pub is_record: bool,
     pub type_params: Vec<TypeParam>,
     /// The traits written after `:` in `class Version(...) : Comparable`.
     pub traits: Vec<TypeExpr>,

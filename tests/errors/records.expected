@@ -1,0 +1,23 @@
+error: expression produces no value
+  --> tests/errors/records.keal:6:12
+  |
+6 | val used = shout("hi")
+  |            ^
+error: argument `other` produces no value
+  --> tests/errors/records.keal:7:23
+  |
+7 | val passed = ok().max(shout("x"))
+  |                       ^
+  = note: a `met` returns nothing; use `fun` if it should produce a value
+error: cannot interpolate an expression with no value
+  --> tests/errors/records.keal:8:24
+  |
+8 | val interpolated = "x${shout("y")}"
+  |                        ^
+error: cannot assign to field `Point.x`
+  --> tests/errors/records.keal:11:16
+   |
+11 | met mutate() { p.x = 5 }
+   |                ^
+  = note: a record's fields are immutable; build a new one instead
+4 errors found

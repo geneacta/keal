@@ -19,11 +19,6 @@ error: an `if` without `else` produces no value
 7 | val noValue: Int = if (true) { 1 }
   |                    ^
   = note: add an `else` branch so every path has a result
-error: initializer has type `Unit`, but `Int` was expected
-  --> tests/errors/types.keal:7:20
-  |
-7 | val noValue: Int = if (true) { 1 }
-  |                    ^
 error: cannot infer a type from `null` alone
   --> tests/errors/types.keal:8:16
   |
@@ -58,4 +53,4 @@ error: `+` cannot be applied to `Int` and `String`
 18 | val badOperand = 1 + "two"
    |                    ^
   = note: to build a string, use interpolation: "${a}${b}"
-11 errors found
+10 errors found

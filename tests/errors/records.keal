@@ -1,0 +1,16 @@
+record Point(val x: Int, val y: Int)
+
+met shout(s: String) { println(s) }
+fun ok(): Int { 1 }
+
+val used = shout("hi")
+val passed = ok().max(shout("x"))
+val interpolated = "x${shout("y")}"
+
+val p = Point(1, 2)
+met mutate() { p.x = 5 }
+
+record WithBody(val n: Int) {
+    val extra: Int = 1
+    fun value(): Int { this.n }
+}

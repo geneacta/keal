@@ -11,7 +11,7 @@ fun f(param: Int): Int {
     return param
 }
 
-fun g() {
+met g() {
     val shadowed = 1
     val shadowed = 2
 }

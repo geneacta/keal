@@ -130,6 +130,11 @@ impl Parser {
         }
     }
 
+    /// True when the token after the current one could name a declaration.
+    fn names_a_declaration(&self) -> bool {
+        matches!(self.peek_at(1), Tok::Ident(_))
+    }
+
     fn err_here(&self, msg: impl Into<String>) -> Diag {
         Diag::new(self.span(), msg)
     }
@@ -156,9 +161,18 @@ impl Parser {
 
     fn item(&mut self) -> Result<Item, Diag> {
         match self.peek() {
-            Tok::Fun => Ok(Item::Fun(self.fun_decl()?)),
-            Tok::Class => Ok(Item::Class(self.class_decl()?)),
-            Tok::Ident(name) if name == "trait" => Ok(Item::Trait(self.trait_decl()?)),
+            Tok::Fun | Tok::Met => Ok(Item::Fun(self.fun_decl()?)),
+            Tok::Class => Ok(Item::Class(self.class_decl(false)?)),
+            // `trait` and `record` are contextual: they only introduce a
+            // declaration when a name follows, so `record("a")` is still a
+            // call to a function named `record`.
+            Tok::Ident(name) if name == "trait" && self.names_a_declaration() => {
+                Ok(Item::Trait(self.trait_decl()?))
+            }
+            Tok::Ident(name) if name == "record" && self.names_a_declaration() => {
+                self.advance();
+                Ok(Item::Class(self.class_decl(true)?))
+            }
             Tok::Import => {
                 let span = self.span();
                 self.advance();
@@ -180,13 +194,27 @@ impl Parser {
         }
     }
 
+    /// Reads a `fun` or a `met`.
+    ///
+    /// The two differ only in what they return: a `fun` must say, and a `met`
+    /// returns nothing. Keeping them apart at the declaration removes the
+    /// need for a `Unit` or `void` annotation anywhere.
     fn fun_decl(&mut self) -> Result<FunDecl, Diag> {
         let span = self.span();
-        self.expect(Tok::Fun, "to start a function declaration")?;
-        let (name, _) = self.expect_ident("a function name")?;
+        let returns_value = self.at(&Tok::Fun);
+        if !returns_value {
+            self.expect(Tok::Met, "to start a declaration")?;
+        } else {
+            self.advance();
+        }
+        let (name, _) = self.expect_ident(if returns_value {
+            "a function name"
+        } else {
+            "a name"
+        })?;
         let type_params = self.type_param_list()?;
         let params = self.param_list()?;
-        let ret = if self.eat(&Tok::Colon) { Some(self.type_expr()?) } else { None };
+        let ret = self.return_type(returns_value, &name)?;
         let body = self.block()?;
         Ok(FunDecl {
             name,
@@ -196,6 +224,29 @@ impl Parser {
             body: Rc::new(body),
             span,
         })
+    }
+
+    /// The `: T` after a parameter list. Required on a `fun`, rejected on a
+    /// `met`, which is the whole point of the distinction.
+    fn return_type(&mut self, returns_value: bool, name: &str) -> Result<Option<TypeExpr>, Diag> {
+        if !returns_value {
+            if self.at(&Tok::Colon) {
+                return Err(Diag::new(
+                    self.span(),
+                    format!("`met {}` cannot declare a return type", name),
+                )
+                .with_note("a `met` returns nothing; use `fun` if it produces a value"));
+            }
+            return Ok(None);
+        }
+        if !self.eat(&Tok::Colon) {
+            return Err(Diag::new(
+                self.span(),
+                format!("`fun {}` must declare what it returns", name),
+            )
+            .with_note("write `: Type`, or declare it with `met` if it returns nothing"));
+        }
+        Ok(Some(self.type_expr()?))
     }
 
     /// An optional `<T, U: Bound, V>` after a `fun` or `class` name.
@@ -262,11 +313,16 @@ impl Parser {
                 break;
             }
             let mspan = self.span();
-            self.expect(Tok::Fun, "to start a trait method")?;
+            let returns_value = self.at(&Tok::Fun);
+            if returns_value {
+                self.advance();
+            } else {
+                self.expect(Tok::Met, "to start a trait member")?;
+            }
             let (mname, _) = self.expect_ident("a method name")?;
             let type_params = self.type_param_list()?;
             let params = self.param_list()?;
-            let ret = if self.eat(&Tok::Colon) { Some(self.type_expr()?) } else { None };
+            let ret = self.return_type(returns_value, &mname)?;
             let has_default = self.at(&Tok::LBrace);
             let body = if has_default { self.block()? } else { Block { stmts: Vec::new() } };
             methods.push(TraitMethod {
@@ -285,10 +341,21 @@ impl Parser {
         Ok(TraitDecl { name, methods, span })
     }
 
-    fn class_decl(&mut self) -> Result<ClassDecl, Diag> {
+    /// Reads a `class` or a `record`.
+    ///
+    /// A record is a class with the data-carrying defaults already chosen:
+    /// every constructor parameter is a field, all of them immutable, and
+    /// `equals` compares them one by one.
+    fn class_decl(&mut self, is_record: bool) -> Result<ClassDecl, Diag> {
         let span = self.span();
-        self.expect(Tok::Class, "to start a class declaration")?;
-        let (name, _) = self.expect_ident("a class name")?;
+        if !is_record {
+            self.expect(Tok::Class, "to start a class declaration")?;
+        }
+        let (name, _) = self.expect_ident(if is_record {
+            "a record name"
+        } else {
+            "a class name"
+        })?;
         let type_params = self.type_param_list()?;
 
         let mut ctor = Vec::new();
@@ -298,8 +365,22 @@ impl Parser {
                 let pspan = self.span();
                 let field = if self.eat(&Tok::Val) {
                     Some(false)
-                } else if self.eat(&Tok::Var) {
+                } else if self.at(&Tok::Var) {
+                    if is_record {
+                        return Err(Diag::new(
+                            self.span(),
+                            format!("a record's fields cannot be `var`"),
+                        )
+                        .with_note(
+                            "records are immutable; declare it as a `class` if it must change",
+                        ));
+                    }
+                    self.advance();
                     Some(true)
+                } else if is_record {
+                    // In a record every parameter is a field, so `val` is
+                    // implied and may be left out.
+                    Some(false)
                 } else {
                     None
                 };
@@ -329,7 +410,7 @@ impl Parser {
         let mut methods = Vec::new();
         // A class whose state is entirely in its constructor needs no body.
         if !self.at(&Tok::LBrace) {
-            return Ok(ClassDecl { name, type_params, traits, ctor, fields, methods, span });
+            return Ok(ClassDecl { name, is_record, type_params, traits, ctor, fields, methods, span });
         }
         self.expect(Tok::LBrace, "to open the class body")?;
         loop {
@@ -338,10 +419,14 @@ impl Parser {
                 break;
             }
             match self.peek() {
-                Tok::Fun => methods.push(self.fun_decl()?),
+                Tok::Fun | Tok::Met => methods.push(self.fun_decl()?),
                 Tok::Val | Tok::Var => {
                     let fspan = self.span();
                     let mutable = matches!(self.advance().tok, Tok::Var);
+                    if mutable && is_record {
+                        return Err(Diag::new(fspan, "a record's fields cannot be `var`")
+                            .with_note("records are immutable; use a `class` instead"));
+                    }
                     let (fname, _) = self.expect_ident("a field name")?;
                     let ty = if self.eat(&Tok::Colon) { Some(self.type_expr()?) } else { None };
                     let init = if self.eat(&Tok::Assign) { Some(self.expr()?) } else { None };
@@ -357,7 +442,7 @@ impl Parser {
                     return Err(Diag::new(
                         self.span(),
                         format!(
-                            "expected `fun`, `val` or `var` in a class body, found {}",
+                            "expected `fun`, `met`, `val` or `var` in a class body, found {}",
                             other.describe()
                         ),
                     ))
@@ -365,7 +450,7 @@ impl Parser {
             }
         }
         self.expect(Tok::RBrace, "to close the class body")?;
-        Ok(ClassDecl { name, type_params, traits, ctor, fields, methods, span })
+        Ok(ClassDecl { name, is_record, type_params, traits, ctor, fields, methods, span })
     }
 
     // ---- statements ----------------------------------------------------
@@ -436,8 +521,8 @@ impl Parser {
                 let body = self.block()?;
                 StmtKind::For { var, ty, iter, body }
             }
-            Tok::Fun => StmtKind::Fun(self.fun_decl()?),
-            Tok::Class => StmtKind::Class(self.class_decl()?),
+            Tok::Fun | Tok::Met => StmtKind::Fun(self.fun_decl()?),
+            Tok::Class => StmtKind::Class(self.class_decl(false)?),
             _ => {
                 let target = self.expr()?;
                 let op = match self.peek() {

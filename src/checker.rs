@@ -90,6 +90,7 @@ struct MethodInfo {
 }
 
 struct ClassInfo {
+    is_record: bool,
     /// The class's own type parameters, in declaration order. Member types
     /// are stored with these left as `Type::Param`, and substituted with the
     /// receiver's type arguments each time a member is accessed.
@@ -215,6 +216,7 @@ impl Checker {
                 self.collect_trait(t);
             }
         }
+        self.expand_records(program);
         self.expand_trait_defaults(program);
 
         // 1. Class names, so classes may reference one another in signatures.
@@ -228,6 +230,7 @@ impl Checker {
                 self.classes.insert(
                     c.name.clone(),
                     ClassInfo {
+                        is_record: c.is_record,
                         type_params: c
                             .type_params
                             .iter()
@@ -382,6 +385,35 @@ impl Checker {
         }
         self.this_ty.pop();
         self.traits.insert(t.name.clone(), TraitInfo { methods, required });
+    }
+
+    /// Gives every record the `Eq` implementation its shape determines.
+    ///
+    /// A record is data, so comparing it field by field is what anyone means
+    /// by `==`. That is safe here in a way it would not be for a class: a
+    /// record's fields are immutable and set at construction, so no cycle can
+    /// be built for the comparison to fall into.
+    fn expand_records(&mut self, program: &mut Program) {
+        for item in &mut program.items {
+            let Item::Class(c) = item else { continue };
+            if !c.is_record {
+                continue;
+            }
+            let synth =
+                (!c.methods.iter().any(|m| m.name == "equals")).then(|| synth_record_equals(c));
+            if let Some(m) = synth {
+                c.methods.push(m);
+            }
+            let has_eq = c.traits.iter().any(|t| {
+                matches!(&t.kind, TypeExprKind::Named { name, .. } if name == "Eq")
+            });
+            if !has_eq {
+                c.traits.push(TypeExpr {
+                    kind: TypeExprKind::Named { name: "Eq".into(), args: Vec::new() },
+                    span: c.span,
+                });
+            }
+        }
     }
 
     /// Copies each trait's default methods into the classes that implement it
@@ -553,6 +585,7 @@ impl Checker {
             type_params.iter().map(|p| Type::Param(p.name.clone())).collect(),
         );
         let info = ClassInfo {
+            is_record: c.is_record,
             type_params: type_params.clone(),
             fields,
             methods,
@@ -904,6 +937,17 @@ impl Checker {
     }
 
     fn expect_assignable(&mut self, actual: &Type, expected: &Type, span: Span, what: &str) {
+        // `Unit` is assignable to `Any` inside the type lattice, which is what
+        // lets a lambda body end in a statement. It must still not be handed
+        // around as if it were a value.
+        if *actual == Type::Unit && *expected != Type::Unit && *expected != Type::Error {
+            self.error_note(
+                span,
+                format!("{} produces no value", what),
+                "a `met` returns nothing; use `fun` if it should produce a value",
+            );
+            return;
+        }
         if actual.assignable_to(expected) {
             return;
         }
@@ -1014,6 +1058,15 @@ impl Checker {
                 };
                 match value {
                     Some(e) => {
+                        if expected == Type::Unit {
+                            self.check_expr(e, None);
+                            self.error_note(
+                                span,
+                                "a `met` cannot return a value",
+                                "declare it with `fun` and a return type instead",
+                            );
+                            return Type::Never;
+                        }
                         let t = self.check_coerced(e, &expected);
                         self.expect_assignable(&t, &expected, e.span, "returned value");
                     }
@@ -1390,6 +1443,9 @@ impl Checker {
                             "an `if` without `else` produces no value",
                             "add an `else` branch so every path has a result",
                         );
+                        // Reported here, so do not let the caller complain
+                        // again about being handed a `Unit`.
+                        return Type::Error;
                     } else if tt == Type::Never {
                         // The `then` branch always leaves, so from here on the
                         // condition is known to be false.
@@ -2004,12 +2060,14 @@ impl Checker {
                     if let Some(info) = self.classes.get(&cls) {
                         if let Some(f) = info.field(&name) {
                             let fty = f.ty.substitute(&subst);
+                            let is_record = info.is_record;
                             let problem = (!f.mutable).then(|| {
-                                (
-                                    format!("field `{}.{}`", cls, name),
+                                let why = if is_record {
+                                    "a record's fields are immutable; build a new one instead"
+                                } else {
                                     "it is declared with `val`; use `var` to make it mutable"
-                                        .to_string(),
-                                )
+                                };
+                                (format!("field `{}.{}`", cls, name), why.to_string())
                             });
                             return (fty, problem);
                         }
@@ -2499,6 +2557,72 @@ impl Checker {
             }
         }
         ret
+    }
+}
+
+/// Builds `fun equals(other: R): Bool { this.a == other.a and ... }` for a
+/// record, spelled exactly as a user would have written it.
+fn synth_record_equals(c: &ClassDecl) -> FunDecl {
+    let span = c.span;
+    let named = |name: &str, args: Vec<TypeExpr>| TypeExpr {
+        kind: TypeExprKind::Named { name: name.to_string(), args },
+        span,
+    };
+    let self_ty = named(
+        &c.name,
+        c.type_params.iter().map(|p| named(&p.name, Vec::new())).collect(),
+    );
+
+    let field_names: Vec<String> = c
+        .ctor
+        .iter()
+        .filter(|p| p.field.is_some())
+        .map(|p| p.name.clone())
+        .chain(c.fields.iter().map(|f| f.name.clone()))
+        .collect();
+
+    let ex = |kind: ExprKind| Expr { kind, span };
+    let compare = |name: &str| {
+        ex(ExprKind::Binary {
+            op: BinOp::Eq,
+            lhs: Box::new(ex(ExprKind::Field {
+                obj: Box::new(ex(ExprKind::This)),
+                name: name.to_string(),
+                safe: false,
+            })),
+            rhs: Box::new(ex(ExprKind::Field {
+                obj: Box::new(ex(ExprKind::Ident("other".to_string()))),
+                name: name.to_string(),
+                safe: false,
+            })),
+        })
+    };
+
+    // A record with no fields has only one value, so any two are equal.
+    let body_expr = field_names
+        .iter()
+        .map(|n| compare(n))
+        .reduce(|acc, next| {
+            ex(ExprKind::Logical {
+                op: LogicalOp::And,
+                lhs: Box::new(acc),
+                rhs: Box::new(next),
+            })
+        })
+        .unwrap_or_else(|| ex(ExprKind::Bool(true)));
+
+    FunDecl {
+        name: "equals".to_string(),
+        type_params: Vec::new(),
+        params: Rc::new(vec![Param {
+            name: "other".to_string(),
+            ty: Some(self_ty),
+            default: None,
+            span,
+        }]),
+        ret: Some(named("Bool", Vec::new())),
+        body: Rc::new(Block { stmts: vec![Stmt { kind: StmtKind::Expr(body_expr), span }] }),
+        span,
     }
 }
 

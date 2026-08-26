@@ -1,0 +1,98 @@
+// Records: immutable data with equality decided by their fields, and the
+// `fun`/`met` split that removes the need to write `Unit` anywhere.
+
+record Point(val x: Int, val y: Int)
+
+// In a record every parameter is a field, so `val` may be left out.
+record Person(name: String, age: Int)
+
+record Empty()
+
+record Line(val a: Point, val b: Point) {
+    fun length(): Float {
+        val dx = (this.b.x - this.a.x).toFloat()
+        val dy = (this.b.y - this.a.y).toFloat()
+        return sqrt(dx * dx + dy * dy)
+    }
+}
+
+record Boxed<T>(val value: T)
+
+// Equality comes from the fields, not from identity.
+assert(Point(1, 2) == Point(1, 2), "two separately built records are equal")
+assert(Point(1, 2) != Point(1, 3), "one differing field is enough")
+assert(Person("ada", 36) == Person("ada", 36), "fields left implicit still count")
+assert(Empty() == Empty(), "a record with no fields has one value")
+
+// It recurses through nested records.
+assert(Line(Point(0, 0), Point(3, 4)) == Line(Point(0, 0), Point(3, 4)), "nested equality")
+assert(Line(Point(0, 0), Point(3, 4)) != Line(Point(0, 0), Point(3, 5)), "nested difference")
+assert(Line(Point(0, 0), Point(3, 4)).length() == 5.0, "a record may declare methods")
+
+// Generic records work, and so does the equality they get.
+assert(Boxed(1) == Boxed(1), "generic record equality")
+assert(Boxed("a") != Boxed("b"), "at another type argument")
+
+// A class is different: without `Eq` it keeps identity semantics.
+class Plain(val n: Int)
+assert(Plain(1) != Plain(1), "a class is not a record")
+
+// Because a record implements `Eq`, it satisfies that bound.
+fun countEqual<T: Eq>(xs: List<T>, target: T): Int {
+    var n = 0
+    for (x in xs) {
+        if (x == target) { n += 1 }
+    }
+    return n
+}
+assert(countEqual([Point(1, 1), Point(2, 2), Point(1, 1)], Point(1, 1)) == 2, "Eq bound")
+
+// A record may implement further traits itself.
+record Version(val major: Int, val minor: Int) : Ord {
+    fun compareTo(other: Version): Int {
+        if (this.major != other.major) { return this.major - other.major }
+        return this.minor - other.minor
+    }
+}
+assert(Version(2, 0) > Version(1, 9), "Ord on a record")
+assert(Version(1, 0) == Version(1, 0), "and Eq still comes for free")
+
+// The default rendering names the record and its fields.
+assert(Point(1, 2).toString() == "Point(x=1, y=2)", "default toString")
+
+// ---- fun and met -------------------------------------------------------
+
+// A `fun` must say what it returns; a `met` returns nothing at all, so no
+// `Unit` annotation is ever written.
+fun double(n: Int): Int { n * 2 }
+
+var log = ""
+met record(s: String) { log += s }
+
+met maybeRecord(s: String, keep: Bool) {
+    if (not keep) { return }      // a bare `return` leaves early
+    record(s)
+}
+
+class Counter {
+    var n: Int = 0
+    met bump() { this.n += 1 }
+    met add(k: Int) { this.n += k }
+    fun value(): Int { this.n }
+}
+
+assert(double(21) == 42, "a fun produces a value")
+
+record("a")
+record("b")
+maybeRecord("c", true)
+maybeRecord("d", false)
+assert(log == "abc", "mets run for their effect")
+
+val c = Counter()
+c.bump()
+c.add(10)
+assert(c.value() == 11, "mets as methods")
+
+// `record` is contextual: naming a met `record` does not shadow the keyword.
+assert(log.length == 3, "the met named `record` is an ordinary name")

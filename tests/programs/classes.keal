@@ -27,7 +27,7 @@ class Counter {
 }
 
 class Account(val owner: String, var balance: Int = 0) {
-    fun deposit(amount: Int) {
+    met deposit(amount: Int) {
         if (amount <= 0) { panic("deposit must be positive") }
         this.balance += amount
     }

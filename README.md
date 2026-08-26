@@ -56,8 +56,13 @@ snapshot tests for the diagnostics.
 - **Null safety.** `T?` is a distinct type. `?.`, `?:` and `!!` get you across,
   and the checker smart-casts an immutable binding after `if (x != null)`,
   after an early-return guard, and across `&&`.
-- **Classes.** Primary constructors that declare fields, field initializers,
-  methods, and a `toString` hook that `println` respects.
+- **Classes and records.** Primary constructors that declare fields, field
+  initializers, methods, and a `toString` hook that `println` respects. A
+  `record` is the data case: immutable fields and `==` comparing them one by
+  one, which is what makes a separate `struct` unnecessary.
+- **`fun` and `met`.** A `fun` must declare what it returns; a `met` returns
+  nothing. The split means `Unit` and `void` are never written by hand, and
+  using a `met`'s result is an error rather than a silent no-op.
 - **Operator overloading through traits.** `+`, `-`, `*`, `/`, `%`, unary `-`,
   `==` and the four comparisons are wired to prelude traits (`Add`, `Ord`, …).
   The built-in types implement them too, so `fun total<T: Add>(...)` accepts
@@ -124,6 +129,10 @@ and no semicolons in normal code.
 the accumulator's type before it can type the lambda. Both the built-in table
 and user generics resolve a signature after each argument they check, so
 whatever an earlier argument settles is available to a later one.
+
+**No `void`.** A declaration is either a `fun`, which must say what it
+returns, or a `met`, which returns nothing — nothing in between. So there is
+no annotation meaning "no result", and no way to accidentally consume one.
 
 **Logical operators have no relative precedence.** `a or b and c` is a syntax
 error in Keal; the parentheses are required. Most languages rank `and` above
