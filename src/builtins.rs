@@ -235,6 +235,13 @@ pub fn global_sig(name: &str, args: &[Option<Type>]) -> Option<FunType> {
         "random" => sig(vec![], Type::Float),
         "randomInt" => sig(vec![p("min", Type::Int), p("max", Type::Int)], Type::Int),
         "time" => sig(vec![], Type::Float),
+        // The self-hosting trio: what a compiler needs from its host.
+        "args" => sig(vec![], Type::list(Type::Str)),
+        "readFile" => sig(vec![p("path", Type::Str)], Type::Str.nullable()),
+        "writeFile" => {
+            sig(vec![p("path", Type::Str), p("content", Type::Str)], Type::Bool)
+        }
+        "exit" => sig(vec![p("code", Type::Int)], Type::Never),
         // `abs`, `min` and `max` accept Int or Float and return that type.
         "abs" => {
             let t = numeric_of(&[known(args, 0)]);

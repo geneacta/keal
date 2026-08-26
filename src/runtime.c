@@ -511,6 +511,112 @@ KEAL_FN bool keal_opt_str_eq(KealStr* a, KealStr* b) {
     return keal_str_cmp(a, b) == 0;
 }
 
+/* ---- cells ------------------------------------------------------------ */
+
+/* A mutable variable some closure captures. The frame and every closure
+ * share the one cell, so an assignment through any of them is seen by all —
+ * the interpreters' semantics, kept rather than approximated. */
+typedef struct KealCell {
+    int64_t rc;
+    KealWord w;
+    void (*release_inner)(void*);
+} KealCell;
+
+KEAL_FN KealCell* keal_cell_new(void (*release_inner)(void*)) {
+    KealCell* c = (KealCell*)keal_alloc(sizeof(KealCell));
+    c->rc = 1;
+    c->w.i = 0;
+    c->release_inner = release_inner;
+    return c;
+}
+
+KEAL_FN KealCell* keal_cell_retain(KealCell* c) {
+    if (c != NULL) {
+        c->rc++;
+    }
+    return c;
+}
+
+KEAL_FN void keal_cell_release(KealCell* c) {
+    if (c == NULL) {
+        return;
+    }
+    c->rc--;
+    if (c->rc > 0) {
+        return;
+    }
+    if (c->release_inner != NULL) {
+        c->release_inner(c->w.p);
+    }
+    free(c);
+}
+
+/* ---- the host --------------------------------------------------------- */
+
+/* Filled by main before anything runs; what `args()` returns. */
+static int keal_argc = 0;
+static char** keal_argv = NULL;
+
+KEAL_FN void rel_keal_str_thunk(void* p) { keal_str_release((KealStr*)p); }
+
+KEAL_FN KealList* keal_args(void) {
+    KealList* l = keal_list_new(rel_keal_str_thunk);
+    for (int i = 0; i < keal_argc; i++) {
+        keal_list_push(l, (KealWord){ .p = keal_str_from_bytes(keal_argv[i],
+                                                              (int64_t)strlen(keal_argv[i])) });
+    }
+    return l;
+}
+
+/* NULL on any failure: the caller's `?:` decides what absence means. */
+KEAL_FN KealStr* keal_read_file(KealStr* path) {
+    char cpath[4096];
+    if (path->len >= (int64_t)sizeof cpath) {
+        return NULL;
+    }
+    memcpy(cpath, path->bytes, (size_t)path->len);
+    cpath[path->len] = '\0';
+    FILE* f = fopen(cpath, "rb");
+    if (f == NULL) {
+        return NULL;
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return NULL;
+    }
+    long size = ftell(f);
+    if (size < 0) {
+        fclose(f);
+        return NULL;
+    }
+    rewind(f);
+    char* bytes = (char*)keal_alloc((size_t)size + 1);
+    size_t got = fread(bytes, 1, (size_t)size, f);
+    fclose(f);
+    if (got != (size_t)size) {
+        free(bytes);
+        return NULL;
+    }
+    bytes[size] = '\0';
+    return keal_str_owning(bytes, (int64_t)size);
+}
+
+KEAL_FN bool keal_write_file(KealStr* path, KealStr* content) {
+    char cpath[4096];
+    if (path->len >= (int64_t)sizeof cpath) {
+        return false;
+    }
+    memcpy(cpath, path->bytes, (size_t)path->len);
+    cpath[path->len] = '\0';
+    FILE* f = fopen(cpath, "wb");
+    if (f == NULL) {
+        return false;
+    }
+    size_t wrote = fwrite(content->bytes, 1, (size_t)content->len, f);
+    int closed = fclose(f);
+    return wrote == (size_t)content->len && closed == 0;
+}
+
 /* ---- checked integer arithmetic --------------------------------------- */
 
 /* The interpreter and the VM both refuse to wrap, so native code must not

@@ -1,14 +1,6 @@
 // Everything here is beyond the C backend for now. Each one must be named
 // rather than silently mis-compiled, so the snapshot is the promise.
 
-// Capturing a `var` is refused: sharing it would need a heap cell, and
-// copying it would silently diverge from the interpreters.
-fun captureVar(): Int {
-    var counter = 0
-    val bump = { -> counter + 1 }
-    return bump()
-}
-
 // `when` compiles, except an `is` arm, which needs run-time type information.
 fun useIsArm(v: Any): String {
     return when (v) {

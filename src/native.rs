@@ -152,6 +152,27 @@ pub fn call_global(it: &mut dyn Runtime, name: &str, args: Vec<Value>, span: Spa
             let span_len = (hi - lo) as f64;
             Ok(Value::Int(lo + (next_random() * span_len) as i64))
         }
+        "args" => Ok(Value::list(
+            PROGRAM_ARGS.with(|a| a.borrow().iter().map(Value::str).collect()),
+        )),
+        "readFile" => {
+            let path = text(&args[0], span)?;
+            match std::fs::read_to_string(&*path) {
+                Ok(content) => Ok(Value::str(content)),
+                Err(_) => Ok(Value::Null),
+            }
+        }
+        "writeFile" => {
+            let path = text(&args[0], span)?;
+            let content = text(&args[1], span)?;
+            Ok(Value::Bool(std::fs::write(&*path, &*content).is_ok()))
+        }
+        "exit" => {
+            let code = int(&args[0], span)?;
+            // Skipping destructors is fine here: the process is over, and
+            // the operating system reclaims everything at once.
+            std::process::exit(code.clamp(0, 255) as i32);
+        }
         "time" => {
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
             Ok(Value::Float(now.as_secs_f64()))
@@ -661,6 +682,18 @@ fn range_method(it: &mut dyn Runtime, a: i64, b: i64, name: &str, args: &[Value]
         "toList" => Value::list((a..b).map(Value::Int).collect()),
         other => return err(span, format!("`Range` has no method `{}`", other)),
     })
+}
+
+// ---- the host ----------------------------------------------------------
+
+thread_local! {
+    /// What `args()` returns: everything after the program's own path.
+    static PROGRAM_ARGS: std::cell::RefCell<Vec<String>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+pub fn set_program_args(args: Vec<String>) {
+    PROGRAM_ARGS.with(|a| *a.borrow_mut() = args);
 }
 
 // ---- pseudo-random numbers ---------------------------------------------

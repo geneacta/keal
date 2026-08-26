@@ -1,0 +1,9 @@
+// The host trio, which is what a compiler needs from its host: arguments,
+// files, and (elsewhere, since it ends the process) an exit code.
+
+val path = "/tmp/keal-host-test.txt"
+println(writeFile(path, "line one\nline two"))
+val content = readFile(path) ?: "MISSING"
+println(content)
+println(readFile("/definitely/not/there") ?: "absent is null")
+println(args())

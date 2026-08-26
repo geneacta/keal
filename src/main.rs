@@ -85,7 +85,17 @@ fn real_main() -> ExitCode {
         [one] if one == "repl" => ("repl", None),
         [one] if one == "version" || one == "--version" || one == "-V" => ("version", None),
         [one] if one == "help" || one == "--help" || one == "-h" => ("help", None),
-        [one] => ("run", Some(one.clone())),
+        // A bare path runs it; the named subcommands keep their meaning.
+        [one, ..]
+            if !one.starts_with('-')
+                && !matches!(
+                    one.as_str(),
+                    "run" | "check" | "layout" | "emit-c" | "build" | "repl" | "version"
+                        | "help"
+                ) =>
+        {
+            ("run", Some(one.clone()))
+        }
         [cmd, file, ..]
             if matches!(cmd.as_str(), "run" | "check" | "layout" | "emit-c" | "build") =>
         {
@@ -120,7 +130,15 @@ fn real_main() -> ExitCode {
             let extras: Vec<String> = args.iter().skip(2).cloned().collect();
             nativebuild::build(&target.unwrap(), &extras)
         }
-        cmd => run_file(&target.unwrap(), cmd == "check", engine),
+        cmd => {
+            // Everything after the program's path belongs to the program,
+            // whether or not a subcommand preceded it.
+            let file = target.unwrap();
+            let at = args.iter().position(|a| *a == file).unwrap_or(0);
+            let extra: Vec<String> = args.iter().skip(at + 1).cloned().collect();
+            native::set_program_args(extra);
+            run_file(&file, cmd == "check", engine)
+        }
     }
 }
 

@@ -1,0 +1,56 @@
+// Capturing a `var`: the variable lives in a shared heap cell, and the
+// frame and every closure write through the same one — the interpreters'
+// semantics, kept rather than approximated. Plus generic methods,
+// instantiated per receiver-and-argument combination.
+
+fun counter(start: Int): () -> Int {
+    var n = start
+    return { -> n += 1; n }
+}
+
+val next = counter(10)
+println(next())
+println(next())
+val other = counter(100)
+println(other())
+println(next())
+
+// Two closures over one cell see each other's writes.
+fun pairOver(): ((Int) -> Int, () -> Int) {
+    var total = 0
+    val add = { k: Int -> total += k; total }
+    val read = { -> total }
+    return add, read
+}
+val (add, read) = pairOver()
+println(add(5))
+println(add(7))
+println(read())
+
+// A captured var of a counted type, replaced through the closure.
+fun greeter(): (String) -> String {
+    var last = "nobody"
+    return { name: String ->
+        val before = last
+        last = name
+        "after " + before + ", now " + name
+    }
+}
+val g = greeter()
+println(g("ada"))
+println(g("grace"))
+
+// The frame writes, the closure reads — one variable, both directions.
+var shared = 1
+val show = { -> shared }
+shared = 42
+println(show())
+
+record Box<T>(val value: T) {
+    fun get(): T { this.value }
+    fun then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
+}
+val b = Box(21)
+println(b.then({ n: Int -> n * 2 }).get())
+println(b.then({ n: Int -> "v=${n}" }).get())
+println(Box("hi").then({ s: String -> s.length }).get())

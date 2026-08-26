@@ -122,6 +122,13 @@ struct CBackend {
     /// Bodies of generated lambda functions, emitted after everything else.
     lambda_defs: String,
     next_lambda: usize,
+    /// The `var`s of the frame being emitted that some lambda captures.
+    /// Each lives in a shared heap cell rather than a C local, so the frame
+    /// and its closures see one variable — reads and writes go through it.
+    celled: HashMap<String, (Type, Elem)>,
+    /// Names some lambda in the current frame frees; a `var` among them is
+    /// celled at its declaration.
+    frame_cells: std::collections::HashSet<String>,
     /// While a default argument is being emitted at a call site, the
     /// callee's earlier parameters resolve to the argument temps already
     /// computed — this map says which.
@@ -171,6 +178,8 @@ impl CBackend {
             next_lambda: 0,
             capture_env: None,
             param_alias: None,
+            celled: HashMap::new(),
+            frame_cells: std::collections::HashSet::new(),
             tsubst: crate::types::Subst::new(),
             fun_decls: HashMap::new(),
             externs: HashMap::new(),
@@ -525,10 +534,14 @@ impl CBackend {
         let saved_temp = self.next_temp;
         let saved_this = self.this_name.take();
         let saved_env = self.capture_env.take();
+        let saved_celled = std::mem::take(&mut self.celled);
+        let saved_cells = std::mem::take(&mut self.frame_cells);
         let saved_top = std::mem::replace(&mut self.at_top_level, false);
         self.emit_struct(&sn, &fields, span);
         self.class_functions_named(&c, &fields, &sn);
         self.at_top_level = saved_top;
+        self.celled = saved_celled;
+        self.frame_cells = saved_cells;
         self.body = saved_body;
         self.scopes = saved_scopes;
         self.locals = saved_locals;
@@ -539,6 +552,70 @@ impl CBackend {
         self.capture_env = saved_env;
         self.tsubst = saved;
         Some(sn)
+    }
+
+    /// Emits one specialisation of a generic method, returning its C name.
+    /// The substitution is the receiver's class arguments plus the method's
+    /// own, which is what lets `Box<Int>.then<String>` mean one thing.
+    fn instantiate_method(
+        &mut self,
+        class: &str,
+        class_args: &[Type],
+        method: &str,
+        margs: &[Type],
+        span: Span,
+    ) -> Option<String> {
+        let margs: Vec<Type> = margs.iter().map(|t| t.substitute(&self.tsubst)).collect();
+        let class_args: Vec<Type> =
+            class_args.iter().map(|t| t.substitute(&self.tsubst)).collect();
+        let sn = struct_name_of(class, &class_args);
+        let parts: Vec<String> = margs.iter().map(mangle_type).collect();
+        let fn_name = format!("{}_{}__{}", sn, mangle_method(method), parts.join("__"));
+        if self.instantiated.contains(&fn_name) {
+            return Some(fn_name);
+        }
+        let Some(c) = self.class_decls.get(class).cloned() else { return None };
+        let Some(m) = c.methods.iter().find(|m| m.name == method).cloned() else {
+            self.unsupported(span, &format!("the generic method `{}`", method));
+            return None;
+        };
+        if m.type_params.len() != margs.len() {
+            return None;
+        }
+        self.instantiated.insert(fn_name.clone());
+
+        let saved = std::mem::take(&mut self.tsubst);
+        for (p, a) in c.type_params.iter().zip(&class_args) {
+            self.tsubst.insert(std::rc::Rc::from(p.name.as_str()), a.clone());
+        }
+        for (p, a) in m.type_params.iter().zip(&margs) {
+            self.tsubst.insert(std::rc::Rc::from(p.name.as_str()), a.clone());
+        }
+        let saved_body = std::mem::take(&mut self.body);
+        let saved_scopes = std::mem::take(&mut self.scopes);
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_loops = std::mem::take(&mut self.loops);
+        let saved_indent = self.indent;
+        let saved_temp = self.next_temp;
+        let saved_this = self.this_name.take();
+        let saved_env = self.capture_env.take();
+        let saved_celled = std::mem::take(&mut self.celled);
+        let saved_cells = std::mem::take(&mut self.frame_cells);
+        let saved_top = std::mem::replace(&mut self.at_top_level, false);
+        self.method_named(&c, &m, &sn, &fn_name);
+        self.at_top_level = saved_top;
+        self.celled = saved_celled;
+        self.frame_cells = saved_cells;
+        self.body = saved_body;
+        self.scopes = saved_scopes;
+        self.locals = saved_locals;
+        self.loops = saved_loops;
+        self.indent = saved_indent;
+        self.next_temp = saved_temp;
+        self.this_name = saved_this;
+        self.capture_env = saved_env;
+        self.tsubst = saved;
+        Some(fn_name)
     }
 
     /// Emits one specialisation of a generic function, returning its C name.
@@ -571,11 +648,15 @@ impl CBackend {
         let saved_temp = self.next_temp;
         let saved_this = self.this_name.take();
         let saved_env = self.capture_env.take();
+        let saved_celled = std::mem::take(&mut self.celled);
+        let saved_cells = std::mem::take(&mut self.frame_cells);
         // A body being instantiated is not the top level, however the
         // instantiation was reached; a binding inside it must be a local.
         let saved_top = std::mem::replace(&mut self.at_top_level, false);
         self.function_named(&f, &cname);
         self.at_top_level = saved_top;
+        self.celled = saved_celled;
+        self.frame_cells = saved_cells;
         self.this_name = saved_this;
         self.capture_env = saved_env;
         self.body = saved_body;
@@ -648,7 +729,7 @@ impl CBackend {
         // A tuple is written `(1, "one")`, so that is how it reads back;
         // anything else names itself and its fields.
         let tuple = crate::types::tuple_arity(&c.name) == Some(fields.len());
-        let _ = write!(f, "    KealBuf b;\n    keal_buf_init(&b);\n");
+        let _ = write!(f, "    (void)o;\n    KealBuf b;\n    keal_buf_init(&b);\n");
         let opening = if tuple { "(".to_string() } else { format!("{}(", c.name) };
         let _ = write!(f, "    keal_buf_lit(&b, {});\n", c_string(&opening));
         for (i, (fname, ty)) in fields.iter().enumerate() {
@@ -663,16 +744,39 @@ impl CBackend {
             // An absent field renders as `null`, which needs a branch rather
             // than an expression.
             if let Type::Nullable(inner) = ty {
-                let Some(present) = self.repr_call(inner, &field, c.span) else { return };
-                let _ = write!(
-                    f,
-                    "    if ({} == NULL) {{\n        keal_buf_lit(&b, \"null\");\n    }} else {{\n        keal_buf_str(&b, {});\n    }}\n",
-                    field, present
-                );
+                match self.try_repr(inner, &field, c.span) {
+                    Some(present) => {
+                        let _ = write!(
+                            f,
+                            "    if ({} == NULL) {{\n        keal_buf_lit(&b, \"null\");\n    }} else {{\n        keal_buf_str(&b, {});\n    }}\n",
+                            field, present
+                        );
+                    }
+                    None => {
+                        let _ = write!(
+                            f,
+                            "    keal_panic({}, 0);\n",
+                            c_string(&format!(
+                                "cannot render a value of type `{}` natively",
+                                ty
+                            ))
+                        );
+                    }
+                }
                 continue;
             }
-            let Some(rendered) = self.repr_call(ty, &field, c.span) else { return };
-            let _ = write!(f, "    keal_buf_str(&b, {});\n", rendered);
+            match self.try_repr(ty, &field, c.span) {
+                Some(rendered) => {
+                    let _ = write!(f, "    keal_buf_str(&b, {});\n", rendered);
+                }
+                None => {
+                    let _ = write!(
+                        f,
+                        "    keal_panic({}, 0);\n",
+                        c_string(&format!("cannot render a value of type `{}` natively", ty))
+                    );
+                }
+            }
         }
         let _ = write!(f, "    keal_buf_lit(&b, \")\");\n    return keal_buf_finish(&b);\n}}\n");
         self.defs.push_str(&f);
@@ -685,6 +789,15 @@ impl CBackend {
         self.scopes.push(Vec::new());
         self.locals.push(Vec::new());
         self.at_top_level = true;
+        let top_stmts: Vec<Stmt> = program
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Stmt(s) => Some(s.clone()),
+                _ => None,
+            })
+            .collect();
+        self.frame_cells = lambda_free_names(&top_stmts);
         for item in &program.items {
             if let Item::Stmt(s) = item {
                 self.stmt(s);
@@ -825,11 +938,15 @@ impl CBackend {
 
     /// A method is a function whose first parameter is the receiver.
     fn method(&mut self, c: &ClassDecl, m: &FunDecl, name: &str) {
-        // A generic method would need per-call instantiation of its own;
-        // skipped here, refused by name where one is called.
+        // A generic method is emitted per instantiation, on demand.
         if !m.type_params.is_empty() {
             return;
         }
+        let fn_name = format!("{}_{}", name, mangle_method(&m.name));
+        self.method_named(c, m, name, &fn_name);
+    }
+
+    fn method_named(&mut self, c: &ClassDecl, m: &FunDecl, name: &str, fn_name: &str) {
         let ret = match &m.ret {
             Some(t) => match self.resolved(t, m.span).and_then(|ty| self.ctype(&ty, m.span)) {
                 Some(c) => c,
@@ -844,8 +961,7 @@ impl CBackend {
             let Some(ct) = self.ctype(&ty, p.span) else { return };
             params.push(format!("{} {}", ct, mangle(&p.name)));
         }
-        let signature =
-            format!("{} {}_{}({})", ret, name, mangle_method(&m.name), params.join(", "));
+        let signature = format!("{} {}({})", ret, fn_name, params.join(", "));
         let _ = writeln!(self.decls, "{};", signature);
 
         self.body.clear();
@@ -873,8 +989,10 @@ impl CBackend {
     }
 
     /// A function body, where the last expression is the result when the
-    /// function does not say `return`.
+    /// function does not say `return`. The frame's celled set is computed
+    /// here: a `var` some lambda reaches for lives in a cell from birth.
     fn emit_body(&mut self, stmts: &[Stmt], ret: &str) {
+        self.frame_cells = lambda_free_names(stmts);
         let last = stmts.len().saturating_sub(1);
         for (i, st) in stmts.iter().enumerate() {
             let implicit = ret != "void" && i == last;
@@ -1013,6 +1131,12 @@ impl CBackend {
         mangle(name)
     }
 
+    fn own_cell(&mut self, name: &str) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.push(Owned { name: name.to_string(), release: "keal_cell_release".into() });
+        }
+    }
+
     fn own(&mut self, name: &str, ty: &Type) {
         let Some(release) = Self::release_fn(ty) else { return };
         if let Some(scope) = self.scopes.last_mut() {
@@ -1070,6 +1194,19 @@ impl CBackend {
                     return;
                 }
                 self.declare_local(name, &ty, *mutable);
+                // A `var` some lambda captures lives in a shared cell, so
+                // the frame and its closures see one variable.
+                if *mutable && self.frame_cells.contains(name) {
+                    let Some(kind) = self.elem_kind(&ty, s.span) else { return };
+                    let thunk = self.releaser_thunk(&kind);
+                    self.line(format!("KealCell* {} = keal_cell_new({});", var, thunk));
+                    self.own_cell(&var);
+                    let value = self.expr(init);
+                    let stored = Self::retained(&ty, &value);
+                    self.line(format!("{}->w = {};", var, kind.word(&stored)));
+                    self.celled.insert(name.clone(), (ty, kind));
+                    return;
+                }
                 let value = self.expr(init);
                 if Self::counted(&ty) {
                     self.line(format!("{} {} = {};", c, var, Self::retained(&ty, &value)));
@@ -1296,6 +1433,14 @@ impl CBackend {
                 self.own_temp(format!("keal_str_retain(_str{})", idx))
             }
             ExprKind::Ident(name) => {
+                if let Some((ty, kind)) = self.celled.get(name).cloned() {
+                    let access = kind.unword(&format!("{}->w", self.var_ref(name)));
+                    if Self::counted(&ty) {
+                        let call = Self::retained(&ty, &access);
+                        return self.own_temp_of(&ty, call);
+                    }
+                    return access;
+                }
                 let v = self.var_ref(name);
                 match self.ety(e) {
                     Some(ty) if Self::counted(&ty) => {
@@ -1370,9 +1515,15 @@ impl CBackend {
         let mut free = Vec::new();
         let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
         collect_free(&body.stmts, &mut bound, &mut free);
-        let mut captures: Vec<(String, Type)> = Vec::new();
+        let mut captures: Vec<(String, Type, bool)> = Vec::new();
         for name in free {
-            if captures.iter().any(|(n, _)| *n == name) {
+            if captures.iter().any(|(n, _, _)| *n == name) {
+                continue;
+            }
+            // A celled `var` is captured as its cell: the closure holds the
+            // same box the frame writes through, so both see one variable.
+            if let Some((ty, _)) = self.celled.get(&name).cloned() {
+                captures.push((name, ty, true));
                 continue;
             }
             let local = self
@@ -1383,15 +1534,17 @@ impl CBackend {
                 .find(|(n, _, _)| *n == name)
                 .cloned();
             match local {
-                Some((_, ty, mutable)) => {
-                    if mutable {
-                        self.unsupported(
-                            e.span,
-                            &format!("capturing the `var` `{}`", name),
-                        );
-                        return "0".to_string();
-                    }
-                    captures.push((name, ty));
+                Some((_, _, true)) => {
+                    // A `var` no lambda was seen to capture cannot be here;
+                    // reaching this means the celling pre-pass missed it.
+                    self.unsupported(
+                        e.span,
+                        &format!("capturing the `var` `{}`", name),
+                    );
+                    return "0".to_string();
+                }
+                Some((_, ty, false)) => {
+                    captures.push((name, ty, false));
                 }
                 // A capture of the enclosing lambda's own environment.
                 None if self
@@ -1401,7 +1554,7 @@ impl CBackend {
                     .unwrap_or(false) =>
                 {
                     let (_, ty) = self.capture_env.as_ref().unwrap()[&name].clone();
-                    captures.push((name, ty));
+                    captures.push((name, ty, false));
                 }
                 None => {
                     let global = self.global_funs.contains(&name)
@@ -1427,8 +1580,15 @@ impl CBackend {
 
         // The environment struct: the closure header, then the captures.
         let mut st = format!("typedef struct {n} {{\n    KealClosure head;\n", n = env_name);
-        for (name, ty) in &captures {
-            let Some(ct) = self.ctype(ty, e.span) else { return "0".to_string() };
+        for (name, ty, is_cell) in &captures {
+            let ct = if *is_cell {
+                "KealCell*".to_string()
+            } else {
+                match self.ctype(ty, e.span) {
+                    Some(c) => c,
+                    None => return "0".to_string(),
+                }
+            };
             let _ = write!(st, "    {} {};\n", ct, mangle(name));
         }
         let _ = write!(st, "}} {n};\n", n = env_name);
@@ -1438,8 +1598,13 @@ impl CBackend {
             "static void {n}_drop(KealClosure* c) {{\n    {n}* env = ({n}*)c;\n",
             n = env_name
         );
-        for (name, ty) in &captures {
-            if let Some(rel) = Self::release_fn(ty) {
+        for (name, ty, is_cell) in &captures {
+            let rel = if *is_cell {
+                Some("keal_cell_release".to_string())
+            } else {
+                Self::release_fn(ty)
+            };
+            if let Some(rel) = rel {
                 let _ = write!(drop, "    {}(env->{});\n", rel, mangle(name));
             }
         }
@@ -1476,9 +1641,17 @@ impl CBackend {
         self.capture_env = Some(
             captures
                 .iter()
-                .map(|(n, t)| (n.clone(), (mangle(n), t.clone())))
+                .map(|(n, t, _)| (n.clone(), (mangle(n), t.clone())))
                 .collect(),
         );
+        let saved_celled = std::mem::take(&mut self.celled);
+        let saved_cells = std::mem::take(&mut self.frame_cells);
+        for (n, t, is_cell) in &captures {
+            if *is_cell {
+                let Some(kind) = self.elem_kind(t, e.span) else { return "0".to_string() };
+                self.celled.insert(n.clone(), (t.clone(), kind));
+            }
+        }
         let saved_top = std::mem::replace(&mut self.at_top_level, false);
         self.line(format!("{n}* env = ({n}*)_c;\n    (void)env;", n = env_name));
         self.emit_body(&body.stmts, &ret_c);
@@ -1488,6 +1661,8 @@ impl CBackend {
         }
         let compiled = std::mem::take(&mut self.body).join("\n");
         self.at_top_level = saved_top;
+        self.celled = saved_celled;
+        self.frame_cells = saved_cells;
         self.body = saved_body;
         self.scopes = saved_scopes;
         self.locals = saved_locals;
@@ -1510,9 +1685,13 @@ impl CBackend {
         self.line(format!("{t}_env->head.rc = 1;", t = t));
         self.line(format!("{t}_env->head.fn = (KealCode){n}_call;", t = t, n = env_name));
         self.line(format!("{t}_env->head.drop = {n}_drop;", t = t, n = env_name));
-        for (name, ty) in &captures {
+        for (name, ty, is_cell) in &captures {
             let source = self.var_ref(name);
-            let v = Self::retained(ty, &source);
+            let v = if *is_cell {
+                format!("keal_cell_retain({})", source)
+            } else {
+                Self::retained(ty, &source)
+            };
             self.line(format!("{t}_env->{f} = {v};", t = t, f = mangle(name), v = v));
         }
         let fun_ty = Type::Fun(ft);
@@ -1764,6 +1943,19 @@ impl CBackend {
             self.line(format!("keal_map_set({}, {}, {});", t, kk.word(&sk), vk.word(&sv)));
         }
         t
+    }
+
+    /// Like `repr_call`, but failure is the caller's to handle: no error is
+    /// recorded. For a show function, an unrenderable field means the show
+    /// panics by name if it ever runs — a type may hold a function without
+    /// that outlawing the type, only its printing.
+    fn try_repr(&mut self, ty: &Type, expr: &str, span: Span) -> Option<String> {
+        let before = self.errors.len();
+        let r = self.repr_call(ty, expr, span);
+        if r.is_none() {
+            self.errors.truncate(before);
+        }
+        r
     }
 
     /// How a value of `ty` is rendered *inside* another value — quoted for
@@ -2079,10 +2271,7 @@ impl CBackend {
             );
             return "0".to_string();
         };
-        if e.inst.is_some() {
-            self.unsupported(e.span, &format!("the generic method `{}`", name));
-            return "0".to_string();
-        }
+
         if args.iter().any(|a| a.name.is_some()) {
             self.unsupported(e.span, "named arguments");
             return "0".to_string();
@@ -2111,12 +2300,17 @@ impl CBackend {
             return "0".to_string();
         };
         rendered.insert(0, receiver.clone());
-        let call = format!(
-            "{}_{}({})",
-            struct_name_of(&class, &class_args),
-            mangle_method(name),
-            rendered.join(", ")
-        );
+        let fn_name = match &e.inst {
+            Some(margs) => {
+                let margs = margs.clone();
+                match self.instantiate_method(&class, &class_args, name, &margs, e.span) {
+                    Some(n) => n,
+                    None => return "0".to_string(),
+                }
+            }
+            None => format!("{}_{}", struct_name_of(&class, &class_args), mangle_method(name)),
+        };
+        let call = format!("{}({})", fn_name, rendered.join(", "));
         if safe {
             return self.guarded(e, &receiver, call);
         }
@@ -2581,6 +2775,31 @@ impl CBackend {
             self.unsupported(e.span, "calling this expression");
             return "0".to_string();
         };
+        // The host built-ins.
+        if name == "args" && args.is_empty() {
+            return self.own_temp_of(&Type::list(Type::Str), "keal_args()".to_string());
+        }
+        if name == "readFile" && args.len() == 1 {
+            let p = self.expr(&args[0].value);
+            return self.own_temp_of(
+                &Type::Str.nullable(),
+                format!("keal_read_file({})", p),
+            );
+        }
+        if name == "writeFile" && args.len() == 2 {
+            let p = self.expr(&args[0].value);
+            let c = self.expr(&args[1].value);
+            let t = self.temp();
+            self.line(format!("const bool {} = keal_write_file({}, {});", t, p, c));
+            return t;
+        }
+        if name == "exit" && args.len() == 1 {
+            let c = self.expr(&args[0].value);
+            // Skipping the releases is fine: the operating system reclaims
+            // the whole process at once.
+            self.line(format!("exit((int)({}));", c));
+            return "0".to_string();
+        }
         // The two built-ins the subset needs.
         if name == "println" || name == "print" {
             let text = match args.first() {
@@ -2831,6 +3050,34 @@ impl CBackend {
             }
             return;
         }
+        if let ExprKind::Ident(name) = &target.kind {
+            if let Some((cty, kind)) = self.celled.get(name).cloned() {
+                // Compound assignment reads through the same cell first.
+                let v = match op {
+                    None => self.expr(value),
+                    Some(binop) => {
+                        let synthetic = Expr {
+                            kind: ExprKind::Binary {
+                                op: binop,
+                                lhs: Box::new(target.clone()),
+                                rhs: Box::new(value.clone()),
+                            },
+                            span,
+                            ty: Some(cty.clone()),
+                            inst: None,
+                        };
+                        self.expr(&synthetic)
+                    }
+                };
+                let cell = self.var_ref(name);
+                if let Some(rel) = Self::release_fn(&cty) {
+                    self.line(format!("{}({});", rel, kind.unword(&format!("{}->w", cell))));
+                }
+                let stored = Self::retained(&cty, &v);
+                self.line(format!("{}->w = {};", cell, kind.word(&stored)));
+                return;
+            }
+        }
         let var = match &target.kind {
             ExprKind::Ident(name) => {
                 if let Some(env) = &self.capture_env {
@@ -2930,8 +3177,12 @@ impl CBackend {
         out.push_str(&self.lambda_defs);
         out.push_str(&self.defs);
 
-        // `main` was emitted without the literal setup, so it is wrapped.
-        out = out.replace("int main(void) {\n", "int main(void) {\n    keal_init_literals();\n");
+        // `main` was emitted without the host setup, so it is wrapped, and
+        // the program's own arguments start after its path.
+        out = out.replace(
+            "int main(void) {\n",
+            "int main(int argc, char** argv) {\n    keal_argc = argc > 1 ? argc - 1 : 0;\n    keal_argv = argv + 1;\n    keal_init_literals();\n",
+        );
         out
     }
 }
@@ -2941,6 +3192,151 @@ impl CBackend {
 /// Prefixes every Keal name, so none can collide with C's own.
 fn mangle(name: &str) -> String {
     format!("k_{}", name)
+}
+
+/// Every name that any lambda inside `stmts` mentions without binding it —
+/// the set of variables that must live in cells if they are mutable. Only
+/// what lambdas reach for counts; the body's own reads do not.
+fn lambda_free_names(stmts: &[Stmt]) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    for s in stmts {
+        lambda_frees_in_stmt(s, &mut out);
+    }
+    out
+}
+
+fn lambda_frees_in_stmt(s: &Stmt, out: &mut std::collections::HashSet<String>) {
+    match &s.kind {
+        StmtKind::Let { init, .. } | StmtKind::Destructure { init, .. } => {
+            lambda_frees_in_expr(init, out)
+        }
+        StmtKind::Expr(e) => lambda_frees_in_expr(e, out),
+        StmtKind::Return(Some(e)) => lambda_frees_in_expr(e, out),
+        StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
+        StmtKind::While { cond, body } => {
+            lambda_frees_in_expr(cond, out);
+            for st in &body.stmts {
+                lambda_frees_in_stmt(st, out);
+            }
+        }
+        StmtKind::For { iter, body, .. } => {
+            lambda_frees_in_expr(iter, out);
+            for st in &body.stmts {
+                lambda_frees_in_stmt(st, out);
+            }
+        }
+        StmtKind::Fun(inner) => {
+            for st in &inner.body.stmts {
+                lambda_frees_in_stmt(st, out);
+            }
+        }
+        StmtKind::Class(_) => {}
+    }
+}
+
+fn lambda_frees_in_expr(e: &Expr, out: &mut std::collections::HashSet<String>) {
+    match &e.kind {
+        ExprKind::Lambda { params, body } => {
+            let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+            let mut free = Vec::new();
+            collect_free(&body.stmts, &mut bound, &mut free);
+            out.extend(free);
+        }
+        ExprKind::Interp(parts) => {
+            for part in parts {
+                if let InterpPart::Expr(inner) = part {
+                    lambda_frees_in_expr(inner, out);
+                }
+            }
+        }
+        ExprKind::Unary { rhs, .. } | ExprKind::NotNull(rhs) => lambda_frees_in_expr(rhs, out),
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::Logical { lhs, rhs, .. }
+        | ExprKind::Elvis { lhs, rhs } => {
+            lambda_frees_in_expr(lhs, out);
+            lambda_frees_in_expr(rhs, out);
+        }
+        ExprKind::Range { start, end } => {
+            lambda_frees_in_expr(start, out);
+            lambda_frees_in_expr(end, out);
+        }
+        ExprKind::Is { value, .. } => lambda_frees_in_expr(value, out),
+        ExprKind::ListLit(items) => {
+            for i in items {
+                lambda_frees_in_expr(i, out);
+            }
+        }
+        ExprKind::MapLit(entries) => {
+            for (k, v) in entries {
+                lambda_frees_in_expr(k, out);
+                lambda_frees_in_expr(v, out);
+            }
+        }
+        ExprKind::If { cond, then, els } => {
+            lambda_frees_in_expr(cond, out);
+            for st in &then.stmts {
+                lambda_frees_in_stmt(st, out);
+            }
+            match els.as_deref() {
+                Some(Else::Block(b)) => {
+                    for st in &b.stmts {
+                        lambda_frees_in_stmt(st, out);
+                    }
+                }
+                Some(Else::If(inner)) => lambda_frees_in_expr(inner, out),
+                None => {}
+            }
+        }
+        ExprKind::When { subject, arms } => {
+            if let Some(sub) = subject {
+                lambda_frees_in_expr(sub, out);
+            }
+            for arm in arms {
+                if let WhenPattern::Values(vs) = &arm.pattern {
+                    for v in vs {
+                        lambda_frees_in_expr(v, out);
+                    }
+                }
+                if let WhenPattern::In { range, .. } = &arm.pattern {
+                    lambda_frees_in_expr(range, out);
+                }
+                if let Some(g) = &arm.guard {
+                    lambda_frees_in_expr(g, out);
+                }
+                for st in &arm.body.stmts {
+                    lambda_frees_in_stmt(st, out);
+                }
+            }
+        }
+        ExprKind::Index { obj, index } => {
+            lambda_frees_in_expr(obj, out);
+            lambda_frees_in_expr(index, out);
+        }
+        ExprKind::Field { obj, .. } => lambda_frees_in_expr(obj, out),
+        ExprKind::MethodCall { obj, args, .. } => {
+            lambda_frees_in_expr(obj, out);
+            for a in args {
+                lambda_frees_in_expr(&a.value, out);
+            }
+        }
+        ExprKind::Call { callee, args } => {
+            lambda_frees_in_expr(callee, out);
+            for a in args {
+                lambda_frees_in_expr(&a.value, out);
+            }
+        }
+        ExprKind::Assign { target, value, .. } => {
+            lambda_frees_in_expr(target, out);
+            lambda_frees_in_expr(value, out);
+        }
+        ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Str(_)
+        | ExprKind::Null
+        | ExprKind::This
+        | ExprKind::Ident(_) => {}
+    }
 }
 
 /// Collects the names a lambda body mentions that it did not bind itself,

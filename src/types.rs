@@ -176,6 +176,17 @@ impl Type {
                     && a.params.iter().zip(&b.params).all(|(p, q)| q.ty.assignable_to(&p.ty))
                     && a.ret.assignable_to(&b.ret)
             }
+            // Same class, arguments compared structurally — the derived
+            // equality above would compare function parameters by *name*,
+            // and a tuple of lambdas would never match its own type.
+            (Type::Class(n1, a1), Type::Class(n2, a2)) => {
+                n1 == n2
+                    && a1.len() == a2.len()
+                    && a1
+                        .iter()
+                        .zip(a2.iter())
+                        .all(|(x, y)| x.assignable_to(y) && y.assignable_to(x))
+            }
             // A type parameter is opaque inside the body that declares it:
             // it is only interchangeable with itself, which the equality
             // check above already covers.
