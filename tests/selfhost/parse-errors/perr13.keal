@@ -1,0 +1,1 @@
+extern fun f(): Int = 42

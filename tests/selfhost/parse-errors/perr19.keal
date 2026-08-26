@@ -1,0 +1,4 @@
+when (x) {
+  is Int?(a, b) -> 1
+  else -> 2
+}

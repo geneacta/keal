@@ -324,6 +324,40 @@ fn selfhosted_lexer_agrees_with_the_oracle() {
     }
 }
 
+/// The self-hosted parser must print exactly the tree the Rust one prints —
+/// spans, error messages and exit codes included — for every file in the
+/// repository, valid or not. Second plank of self-hosting.
+#[test]
+fn selfhosted_parser_agrees_with_the_oracle() {
+    let mut files = keal_files("tests/programs");
+    files.extend(keal_files("examples"));
+    files.extend(keal_files("tests/native"));
+    files.extend(keal_files("tests/selfhost"));
+    files.extend(keal_files("tests/selfhost/errors"));
+    files.extend(keal_files("tests/selfhost/parse-errors"));
+    files.push(root().join("selfhost/lexer.keal"));
+    files.push(root().join("selfhost/lexing.keal"));
+    files.push(root().join("selfhost/parser.keal"));
+    files.push(root().join("src/prelude.keal"));
+
+    for file in files {
+        let path = relative(&file);
+        let oracle = keal(&["ast", &path]);
+        let mine = keal(&["--vm", "selfhost/parser.keal", &path]);
+        assert_eq!(
+            oracle.stdout, mine.stdout,
+            "the parsers disagree on {}",
+            path
+        );
+        assert_eq!(
+            oracle.status_success(),
+            mine.status_success(),
+            "the parsers disagree on whether {} parses",
+            path
+        );
+    }
+}
+
 #[test]
 fn cli_reports_missing_files() {
     let out = keal(&["run", "does/not/exist.keal"]);

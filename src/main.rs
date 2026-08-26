@@ -1,6 +1,7 @@
 //! The `keal` command-line driver: module loading, running, checking, REPL.
 
 mod ast;
+mod astdump;
 mod builtins;
 mod bytecode;
 mod cbackend;
@@ -35,6 +36,7 @@ usage:
     keal check <file.keal>    type-check without running
     keal layout <file.keal>   show how the program's values are laid out
     keal tokens <file.keal>   dump the token stream (the self-hosting oracle)
+    keal ast <file.keal>      dump the parse tree (likewise)
     keal emit-c <file.keal>   print the C a native build would compile
     keal build <file.keal> [more.c more.cpp ...]
                               compile to a native executable, together with
@@ -92,7 +94,7 @@ fn real_main() -> ExitCode {
                 && !matches!(
                     one.as_str(),
                     "run" | "check" | "layout" | "emit-c" | "build" | "repl" | "version"
-                        | "help" | "tokens"
+                        | "help" | "tokens" | "ast"
                 ) =>
         {
             ("run", Some(one.clone()))
@@ -100,7 +102,7 @@ fn real_main() -> ExitCode {
         [cmd, file, ..]
             if matches!(
                 cmd.as_str(),
-                "run" | "check" | "layout" | "emit-c" | "build" | "tokens"
+                "run" | "check" | "layout" | "emit-c" | "build" | "tokens" | "ast"
             ) =>
         {
             (
@@ -110,6 +112,7 @@ fn real_main() -> ExitCode {
                     "layout" => "layout",
                     "emit-c" => "emit-c",
                     "tokens" => "tokens",
+                    "ast" => "ast",
                     _ => "build",
                 },
                 Some(file.clone()),
@@ -130,6 +133,7 @@ fn real_main() -> ExitCode {
         "repl" => repl::run(),
         "layout" => show_layout(&target.unwrap()),
         "tokens" => dump_tokens(&target.unwrap()),
+        "ast" => dump_ast(&target.unwrap()),
         "emit-c" => nativebuild::emit_only(&target.unwrap()),
         "build" => {
             // Anything after the program is a C or C++ source built with it.
@@ -344,6 +348,27 @@ fn dump_tokens(path: &str) -> ExitCode {
     }
     print!("{}", out);
     ExitCode::SUCCESS
+}
+
+/// The parse tree, in the tree format the self-hosted parser reproduces.
+fn dump_ast(path: &str) -> ExitCode {
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("error: cannot read `{}`: {}", path, e);
+            return ExitCode::FAILURE;
+        }
+    };
+    match lexer::lex(&text, 0).and_then(parser::parse) {
+        Ok(program) => {
+            print!("{}", astdump::dump(&program));
+            ExitCode::SUCCESS
+        }
+        Err(d) => {
+            println!("error {}:{} {}", d.span.line, d.span.col, d.msg);
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {
