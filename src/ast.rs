@@ -135,6 +135,10 @@ pub struct Expr {
     /// integer addition, float addition or string concatenation, and this is
     /// where that answer is recorded rather than worked out a second time.
     pub ty: Option<crate::types::Type>,
+    /// For a call to something generic: the concrete type arguments the
+    /// checker solved, in declaration order. This is what monomorphisation
+    /// reads — the backend copies the callee once per distinct entry here.
+    pub inst: Option<Vec<crate::types::Type>>,
 }
 
 impl Expr {

@@ -1,0 +1,63 @@
+// Monomorphisation: one generic source, one C copy per concrete use. The
+// checker records the solved type arguments on each call, and the backend
+// emits the specialisation the first time it sees each set.
+
+fun firstOr<T>(xs: List<T>, fallback: T): T {
+    for (x in xs) { return x }
+    return fallback
+}
+
+fun mapAll<T, R>(xs: List<T>, f: (T) -> R): List<R> {
+    val out: List<R> = []
+    for (x in xs) { out.add(f(x)) }
+    return out
+}
+
+// A generic calling a generic: instantiations compose.
+fun describe<T>(xs: List<T>, fallback: T): String {
+    return "first=${firstOr(xs, fallback)}"
+}
+
+record Boxed<T>(val value: T, val tag: Int)
+record Pair<A, B>(val first: A, val second: B)
+
+println(firstOr([3, 1, 2], 0))
+println(firstOr(["a", "b"], "z"))
+println(firstOr([], "empty"))
+
+println(mapAll([1, 2, 3], { n: Int -> n * 10 }))
+println(mapAll(["a", "bb"], { s: String -> s.length }))
+
+println(describe([7, 8], 0))
+println(describe(["x"], "?"))
+
+// Generic records: fields, rendering, nesting, and the equality they get.
+val b = Boxed(42, 1)
+println(b)
+println(b.value + 1)
+println(Boxed("hello", 2))
+println(Pair(1, "one"))
+println(Boxed(Pair(1, 2), 3))
+println(Boxed(1, 2) == Boxed(1, 2))
+println(Boxed(1, 2) == Boxed(9, 2))
+println(Pair("a", 1) == Pair("a", 1))
+
+// Tuples are generic records underneath, and render as they are written.
+fun divmod(a: Int, b: Int): (Int, Int) { return a / b, a % b }
+val (q, r) = divmod(17, 5)
+println("${q} remainder ${r}")
+val t = (1, "one")
+println(t)
+println(t.first)
+println(t == (1, "one"))
+
+// Destructuring an ordinary record, natively.
+record Point(val x: Int, val y: Int)
+val Point(px, py) = Point(3, 4)
+println(px + py)
+
+// A list of instantiated records, iterated, mapped and rendered.
+val boxes = [Boxed(1, 0), Boxed(2, 0)]
+println(boxes)
+for (bx in boxes) { println(bx.value) }
+println(boxes.map({ x: Boxed<Int> -> x.value * 2 }))

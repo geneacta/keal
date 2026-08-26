@@ -621,7 +621,7 @@ impl Parser {
                         .with_note("only variables, fields and indexed elements can be assigned"));
                 }
                 let value = self.expr()?;
-                StmtKind::Expr(Expr { ty: None, span, kind: ExprKind::Assign {
+                StmtKind::Expr(Expr { ty: None, inst: None, span, kind: ExprKind::Assign {
                         target: Box::new(target),
                         op,
                         value: Box::new(value),
@@ -650,7 +650,7 @@ impl Parser {
                 }
                 self.advance();
                 let rhs = self.binary(P_LOGIC + 1)?;
-                lhs = Expr { ty: None, span, kind: ExprKind::Logical { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
+                lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Logical { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
                 };
                 // No connective binds tighter than another, so a second one is
                 // only allowed where repeating it cannot change the meaning.
@@ -687,21 +687,21 @@ impl Parser {
                     self.advance();
                     // Right-associative: `a ?: b ?: c` is `a ?: (b ?: c)`.
                     let rhs = self.binary(P_ELVIS)?;
-                    lhs = Expr { ty: None, span, kind: ExprKind::Elvis { lhs: Box::new(lhs), rhs: Box::new(rhs) },
+                    lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Elvis { lhs: Box::new(lhs), rhs: Box::new(rhs) },
                     };
                     continue;
                 }
                 Tok::DotDot if P_RANGE >= min_bp => {
                     self.advance();
                     let rhs = self.binary(P_RANGE + 1)?;
-                    lhs = Expr { ty: None, span, kind: ExprKind::Range { start: Box::new(lhs), end: Box::new(rhs) },
+                    lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Range { start: Box::new(lhs), end: Box::new(rhs) },
                     };
                     continue;
                 }
                 Tok::Is if P_CMP >= min_bp => {
                     self.advance();
                     let ty = self.type_expr()?;
-                    lhs = Expr { ty: None, span, kind: ExprKind::Is { value: Box::new(lhs), ty, negated: false },
+                    lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Is { value: Box::new(lhs), ty, negated: false },
                     };
                     continue;
                 }
@@ -710,14 +710,14 @@ impl Parser {
                     self.advance();
                     if self.eat(&Tok::Is) {
                         let ty = self.type_expr()?;
-                        lhs = Expr { ty: None, span, kind: ExprKind::Is { value: Box::new(lhs), ty, negated: true },
+                        lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Is { value: Box::new(lhs), ty, negated: true },
                         };
                     } else {
                         self.advance(); // `in`
                         let rhs = self.binary(P_CMP + 1)?;
-                        lhs = Expr { ty: None, span, kind: ExprKind::Unary {
+                        lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Unary {
                                 op: UnOp::Not,
-                                rhs: Box::new(Expr { ty: None, span, kind: ExprKind::MethodCall {
+                                rhs: Box::new(Expr { ty: None, inst: None, span, kind: ExprKind::MethodCall {
                                         obj: Box::new(rhs),
                                         name: "contains".into(),
                                         args: vec![Arg { name: None, value: lhs }],
@@ -733,7 +733,7 @@ impl Parser {
                     self.advance();
                     let rhs = self.binary(P_CMP + 1)?;
                     // `x in xs` desugars to `xs.contains(x)`.
-                    lhs = Expr { ty: None, span, kind: ExprKind::MethodCall {
+                    lhs = Expr { ty: None, inst: None, span, kind: ExprKind::MethodCall {
                             obj: Box::new(rhs),
                             name: "contains".into(),
                             args: vec![Arg { name: None, value: lhs }],
@@ -751,7 +751,7 @@ impl Parser {
             }
             self.advance();
             let rhs = self.binary(bp + 1)?;
-            lhs = Expr { ty: None, span, kind: ExprKind::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
+            lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
             };
         }
         Ok(lhs)
@@ -767,7 +767,7 @@ impl Parser {
         };
         self.advance();
         let rhs = self.binary(P_UNARY)?;
-        Ok(Expr { ty: None, span, kind: ExprKind::Unary { op, rhs: Box::new(rhs) } })
+        Ok(Expr { ty: None, inst: None, span, kind: ExprKind::Unary { op, rhs: Box::new(rhs) } })
     }
 
     fn postfix(&mut self) -> Result<Expr, Diag> {
@@ -784,25 +784,25 @@ impl Parser {
                     let (name, span) = self.expect_ident("a field or method name")?;
                     if self.at(&Tok::LParen) {
                         let args = self.arg_list()?;
-                        e = Expr { ty: None, span, kind: ExprKind::MethodCall { obj: Box::new(e), name, args, safe },
+                        e = Expr { ty: None, inst: None, span, kind: ExprKind::MethodCall { obj: Box::new(e), name, args, safe },
                         };
                     } else {
-                        e = Expr { ty: None, span, kind: ExprKind::Field { obj: Box::new(e), name, safe } };
+                        e = Expr { ty: None, inst: None, span, kind: ExprKind::Field { obj: Box::new(e), name, safe } };
                     }
                 }
                 Tok::LParen => {
                     let args = self.arg_list()?;
-                    e = Expr { ty: None, span, kind: ExprKind::Call { callee: Box::new(e), args } };
+                    e = Expr { ty: None, inst: None, span, kind: ExprKind::Call { callee: Box::new(e), args } };
                 }
                 Tok::BangBang => {
                     self.advance();
-                    e = Expr { ty: None, span, kind: ExprKind::NotNull(Box::new(e)) };
+                    e = Expr { ty: None, inst: None, span, kind: ExprKind::NotNull(Box::new(e)) };
                 }
                 Tok::LBracket => {
                     self.advance();
                     let index = self.expr()?;
                     self.expect(Tok::RBracket, "to close an index expression")?;
-                    e = Expr { ty: None, span, kind: ExprKind::Index { obj: Box::new(e), index: Box::new(index) },
+                    e = Expr { ty: None, inst: None, span, kind: ExprKind::Index { obj: Box::new(e), index: Box::new(index) },
                     };
                 }
                 _ => break,
@@ -918,7 +918,7 @@ impl Parser {
                 ))
             }
         };
-        Ok(Expr { ty: None, span, kind })
+        Ok(Expr { ty: None, inst: None, span, kind })
     }
 
     /// Builds a tuple, which is a record from the prelude under a name
@@ -934,10 +934,12 @@ impl Parser {
         let name = format!("Tuple{}", items.len());
         Ok(Expr {
             ty: None,
+            inst: None,
             span,
             kind: ExprKind::Call {
                 callee: Box::new(Expr {
                     ty: None,
+                    inst: None,
                     span,
                     kind: ExprKind::Ident(name),
                 }),
@@ -982,7 +984,7 @@ impl Parser {
         let cond = self.expr()?;
         self.expect(Tok::RParen, &format!("after the `{}` condition", word))?;
         let cond = if negated {
-            Expr { ty: None, span: cond.span, kind: ExprKind::Unary { op: UnOp::Not, rhs: Box::new(cond) },
+            Expr { ty: None, inst: None, span: cond.span, kind: ExprKind::Unary { op: UnOp::Not, rhs: Box::new(cond) },
             }
         } else {
             cond
@@ -1003,7 +1005,7 @@ impl Parser {
             self.pos = save;
             None
         };
-        Ok(Expr { ty: None, span, kind: ExprKind::If { cond: Box::new(cond), then, els } })
+        Ok(Expr { ty: None, inst: None, span, kind: ExprKind::If { cond: Box::new(cond), then, els } })
     }
 
     fn when_expr(&mut self) -> Result<Expr, Diag> {
@@ -1092,7 +1094,7 @@ impl Parser {
             arms.push(WhenArm { pattern, guard, body, span: arm_span });
         }
         self.expect(Tok::RBrace, "to close the `when` body")?;
-        Ok(Expr { ty: None, span, kind: ExprKind::When { subject, arms } })
+        Ok(Expr { ty: None, inst: None, span, kind: ExprKind::When { subject, arms } })
     }
 
     /// A `{...}` in expression position is one of three things, disambiguated
@@ -1123,7 +1125,7 @@ impl Parser {
     fn try_map_literal(&mut self, span: Span) -> Result<Option<Expr>, Diag> {
         self.skip_semis();
         if self.eat(&Tok::RBrace) {
-            return Ok(Some(Expr { ty: None, span, kind: ExprKind::MapLit(Vec::new()) }));
+            return Ok(Some(Expr { ty: None, inst: None, span, kind: ExprKind::MapLit(Vec::new()) }));
         }
         let Ok(first_key) = self.expr() else { return Ok(None) };
         if !self.at(&Tok::Colon) {
@@ -1142,13 +1144,13 @@ impl Parser {
         }
         self.skip_semis();
         self.expect(Tok::RBrace, "to close a map literal")?;
-        Ok(Some(Expr { ty: None, span, kind: ExprKind::MapLit(entries) }))
+        Ok(Some(Expr { ty: None, inst: None, span, kind: ExprKind::MapLit(entries) }))
     }
 
     fn lambda_body(&mut self, span: Span, params: Vec<Param>) -> Result<Expr, Diag> {
         let stmts = self.stmts_until_brace()?;
         self.expect(Tok::RBrace, "to close the lambda")?;
-        Ok(Expr { ty: None, span, kind: ExprKind::Lambda { params: Rc::new(params), body: Rc::new(Block { stmts }) },
+        Ok(Expr { ty: None, inst: None, span, kind: ExprKind::Lambda { params: Rc::new(params), body: Rc::new(Block { stmts }) },
         })
     }
 

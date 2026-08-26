@@ -119,6 +119,15 @@ struct CBackend {
     /// The capture environment of the lambda being emitted, if any:
     /// name -> (struct field, type).
     capture_env: Option<HashMap<String, (String, Type)>>,
+    /// The substitution of the generic body being emitted. Every type read
+    /// off the AST goes through it, which is the whole of monomorphisation:
+    /// the same body, compiled once per entry in the instantiation caches.
+    tsubst: crate::types::Subst,
+    /// Every function and class declaration, for the instantiator to copy.
+    fun_decls: HashMap<String, FunDecl>,
+    class_decls: HashMap<String, ClassDecl>,
+    /// Which specialisations exist already, keyed by mangled name.
+    instantiated: std::collections::HashSet<String>,
     errors: Vec<Diag>,
 }
 
@@ -146,8 +155,18 @@ impl CBackend {
             lambda_defs: String::new(),
             next_lambda: 0,
             capture_env: None,
+            tsubst: crate::types::Subst::new(),
+            fun_decls: HashMap::new(),
+            class_decls: HashMap::new(),
+            instantiated: std::collections::HashSet::new(),
             errors: Vec::new(),
         }
+    }
+
+    /// The checker's answer for `e`, with the current instantiation's
+    /// substitution applied. Nothing in this backend reads `e.ty()` raw.
+    fn ety(&self, e: &Expr) -> Option<Type> {
+        e.ty().map(|t| t.substitute(&self.tsubst))
     }
 
     fn unsupported(&mut self, span: Span, what: &str) {
@@ -197,8 +216,13 @@ impl CBackend {
             Type::Bool => Some("bool".to_string()),
             Type::Str => Some("KealStr*".to_string()),
             Type::Unit => Some("void".to_string()),
-            Type::Class(name, args) if args.is_empty() && self.shapes.contains_key(&**name) => {
-                Some(format!("{}*", struct_name(name)))
+            Type::Class(name, args) if self.shapes.contains_key(&**name) => {
+                if args.is_empty() {
+                    Some(format!("{}*", struct_name(name)))
+                } else {
+                    let sn = self.instantiate_class(name, args, span)?;
+                    Some(format!("{}*", sn))
+                }
             }
             Type::Fun(ft) => {
                 // Callable through a cast at each site; representable as one
@@ -244,7 +268,7 @@ impl CBackend {
     fn retain_fn(ty: &Type) -> Option<String> {
         match ty {
             Type::Str => Some("keal_str_retain".to_string()),
-            Type::Class(name, _) => Some(format!("{}_retain", struct_name(name))),
+            Type::Class(name, args) => Some(format!("{}_retain", struct_name_of(name, args))),
             Type::List(_) => Some("keal_list_retain".to_string()),
             Type::Fun(_) => Some("keal_fn_retain".to_string()),
             // Retain and release both accept null, so a nullable needs no
@@ -258,7 +282,7 @@ impl CBackend {
     fn release_fn(ty: &Type) -> Option<String> {
         match ty {
             Type::Str => Some("keal_str_release".to_string()),
-            Type::Class(name, _) => Some(format!("{}_release", struct_name(name))),
+            Type::Class(name, args) => Some(format!("{}_release", struct_name_of(name, args))),
             Type::List(_) => Some("keal_list_release".to_string()),
             Type::Fun(_) => Some("keal_fn_release".to_string()),
             Type::Nullable(inner) => Self::release_fn(inner),
@@ -278,12 +302,20 @@ impl CBackend {
     /// when it cannot be one yet.
     fn elem_kind(&mut self, ty: &Type, span: Span) -> Option<Elem> {
         Some(match ty {
+            // An empty literal types as `List<Nothing>`, and `Nothing` has no
+            // values, so no element will ever exist to be mis-read: any
+            // representative will do.
+            Type::Never => Elem::Int,
             Type::Int => Elem::Int,
             Type::Bool => Elem::Bool,
             Type::Float => Elem::Float,
             Type::Str => Elem::Ptr("KealStr".into(), "keal_str".into()),
-            Type::Class(name, args) if args.is_empty() => {
-                let sn = struct_name(name);
+            Type::Class(name, args) => {
+                let sn = if args.is_empty() {
+                    struct_name(name)
+                } else {
+                    self.instantiate_class(name, args, span)?
+                };
                 Elem::Ptr(sn.clone(), sn)
             }
             Type::List(inner) => {
@@ -331,8 +363,15 @@ impl CBackend {
             }
         }
         for item in &program.items {
-            if let Item::Fun(f) = item {
-                self.global_funs.insert(f.name.clone());
+            match item {
+                Item::Fun(f) => {
+                    self.global_funs.insert(f.name.clone());
+                    self.fun_decls.insert(f.name.clone(), f.clone());
+                }
+                Item::Class(c) => {
+                    self.class_decls.insert(c.name.clone(), c.clone());
+                }
+                _ => {}
             }
         }
         for item in &program.items {
@@ -349,26 +388,128 @@ impl CBackend {
     /// A class becomes a struct headed by its reference count, its fields in
     /// declaration order — the layout `keal layout` reports.
     fn class_struct(&mut self, c: &ClassDecl) {
-        // A generic class has no single layout, so there is nothing to emit
-        // for the declaration. Refusing here would reject every program,
-        // since the prelude declares the tuple records; the refusal belongs
-        // where one is actually used.
+        // A generic class has no single layout; its structs are emitted per
+        // instantiation, on demand.
         if !c.type_params.is_empty() {
             return;
         }
         let Some(fields) = self.shapes.get(&c.name).cloned() else { return };
         let name = struct_name(&c.name);
-        let _ = writeln!(self.types, "typedef struct {} {};", name, name);
+        self.emit_struct(&name, &fields, c.span);
+    }
 
+    fn emit_struct(&mut self, name: &str, fields: &[(String, Type)], span: Span) {
+        let _ = writeln!(self.types, "typedef struct {} {};", name, name);
         let mut body = String::new();
         let _ = writeln!(body, "struct {} {{", name);
         let _ = writeln!(body, "    int64_t rc;");
-        for (fname, ty) in &fields {
-            let Some(ct) = self.ctype(ty, c.span) else { return };
+        for (fname, ty) in fields {
+            let Some(ct) = self.ctype(ty, span) else { return };
             let _ = writeln!(body, "    {} {};", ct, mangle(fname));
         }
         let _ = writeln!(body, "}};");
         self.pending_structs.push(body);
+    }
+
+    /// Emits one specialisation of a generic class, and everything it
+    /// carries: struct, retain, release, show, constructor and methods, all
+    /// compiled under the substitution the type arguments dictate.
+    fn instantiate_class(&mut self, name: &str, args: &[Type], span: Span) -> Option<String> {
+        // Arguments may mention the parameters of whatever instantiation is
+        // already in progress; they are resolved before naming anything.
+        let args: Vec<Type> = args.iter().map(|t| t.substitute(&self.tsubst)).collect();
+        let sn = struct_name_of(name, &args);
+        if self.instantiated.contains(&sn) {
+            return Some(sn);
+        }
+        let Some(c) = self.class_decls.get(name).cloned() else {
+            self.unsupported(span, &format!("the generic class `{}`", name));
+            return None;
+        };
+        if c.type_params.len() != args.len() {
+            return None;
+        }
+        self.instantiated.insert(sn.clone());
+
+        let saved = std::mem::take(&mut self.tsubst);
+        for (p, a) in c.type_params.iter().zip(&args) {
+            self.tsubst.insert(std::rc::Rc::from(p.name.as_str()), a.clone());
+        }
+        let fields: Vec<(String, Type)> = self
+            .shapes
+            .get(name)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(n, t)| (n, t.substitute(&self.tsubst)))
+            .collect();
+
+        // Instantiation can fire mid-emission — a `Let` whose type mentions
+        // the class — so the emitter's whole frame state is fenced off, or
+        // the specialisation's methods would release the caller's temps.
+        let saved_body = std::mem::take(&mut self.body);
+        let saved_scopes = std::mem::take(&mut self.scopes);
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_loops = std::mem::take(&mut self.loops);
+        let saved_indent = self.indent;
+        let saved_temp = self.next_temp;
+        let saved_this = self.this_name.take();
+        let saved_env = self.capture_env.take();
+        self.emit_struct(&sn, &fields, span);
+        self.class_functions_named(&c, &fields, &sn);
+        self.body = saved_body;
+        self.scopes = saved_scopes;
+        self.locals = saved_locals;
+        self.loops = saved_loops;
+        self.indent = saved_indent;
+        self.next_temp = saved_temp;
+        self.this_name = saved_this;
+        self.capture_env = saved_env;
+        self.tsubst = saved;
+        Some(sn)
+    }
+
+    /// Emits one specialisation of a generic function, returning its C name.
+    fn instantiate_function(&mut self, name: &str, args: &[Type], span: Span) -> Option<String> {
+        let args: Vec<Type> = args.iter().map(|t| t.substitute(&self.tsubst)).collect();
+        let parts: Vec<String> = args.iter().map(mangle_type).collect();
+        let cname = format!("{}__{}", mangle(name), parts.join("__"));
+        if self.instantiated.contains(&cname) {
+            return Some(cname);
+        }
+        let Some(f) = self.fun_decls.get(name).cloned() else {
+            self.unsupported(span, &format!("the generic function `{}`", name));
+            return None;
+        };
+        if f.type_params.len() != args.len() {
+            return None;
+        }
+        self.instantiated.insert(cname.clone());
+
+        let saved = std::mem::take(&mut self.tsubst);
+        for (p, a) in f.type_params.iter().zip(&args) {
+            self.tsubst.insert(std::rc::Rc::from(p.name.as_str()), a.clone());
+        }
+        // The body being emitted right now must not be clobbered.
+        let saved_body = std::mem::take(&mut self.body);
+        let saved_scopes = std::mem::take(&mut self.scopes);
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_loops = std::mem::take(&mut self.loops);
+        let saved_indent = self.indent;
+        let saved_temp = self.next_temp;
+        let saved_this = self.this_name.take();
+        let saved_env = self.capture_env.take();
+        self.function_named(&f, &cname);
+        self.this_name = saved_this;
+        self.capture_env = saved_env;
+        self.body = saved_body;
+        self.scopes = saved_scopes;
+        self.locals = saved_locals;
+        self.loops = saved_loops;
+        self.indent = saved_indent;
+        self.next_temp = saved_temp;
+        self.tsubst = saved;
+        Some(cname)
     }
 
     /// Everything a class needs at run time: taking and giving back a
@@ -379,6 +520,11 @@ impl CBackend {
         }
         let Some(fields) = self.shapes.get(&c.name).cloned() else { return };
         let name = struct_name(&c.name);
+        self.class_functions_named(c, &fields, &name);
+    }
+
+    fn class_functions_named(&mut self, c: &ClassDecl, fields: &[(String, Type)], name: &str) {
+        let fields = fields.to_vec();
 
         // retain / release
         let _ = writeln!(self.decls, "{}* {}_retain({}* o);", name, name, name);
@@ -423,20 +569,29 @@ impl CBackend {
             return;
         }
 
+        // A tuple is written `(1, "one")`, so that is how it reads back;
+        // anything else names itself and its fields.
+        let tuple = crate::types::tuple_arity(&c.name) == Some(fields.len());
         let _ = write!(f, "    KealBuf b;\n    keal_buf_init(&b);\n");
-        let _ = write!(f, "    keal_buf_lit(&b, {});\n", c_string(&format!("{}(", c.name)));
+        let opening = if tuple { "(".to_string() } else { format!("{}(", c.name) };
+        let _ = write!(f, "    keal_buf_lit(&b, {});\n", c_string(&opening));
         for (i, (fname, ty)) in fields.iter().enumerate() {
             if i > 0 {
                 let _ = write!(f, "    keal_buf_lit(&b, \", \");\n");
             }
-            let _ = write!(f, "    keal_buf_lit(&b, {});\n", c_string(&format!("{}=", fname)));
+            if !tuple {
+                let _ =
+                    write!(f, "    keal_buf_lit(&b, {});\n", c_string(&format!("{}=", fname)));
+            }
             let field = format!("o->{}", mangle(fname));
             // An absent field renders as `null`, which needs a branch rather
             // than an expression.
             if let Type::Nullable(inner) = ty {
                 let present = match &**inner {
                     Type::Str => format!("keal_str_repr(keal_str_retain({}))", field),
-                    Type::Class(cname, _) => format!("{}_show({})", struct_name(cname), field),
+                    Type::Class(cname, cargs) => {
+                        format!("{}_show({})", struct_name_of(cname, cargs), field)
+                    }
                     other => {
                         self.unsupported(
                             c.span,
@@ -459,7 +614,9 @@ impl CBackend {
                 Type::Int => format!("keal_str_from_int({})", field),
                 Type::Float => format!("keal_str_from_float({})", field),
                 Type::Bool => format!("keal_str_from_bool({})", field),
-                Type::Class(cname, _) => format!("{}_show({})", struct_name(cname), field),
+                Type::Class(cname, cargs) => {
+                    format!("{}_show({})", struct_name_of(cname, cargs), field)
+                }
                 _ => {
                     self.unsupported(c.span, &format!("rendering a field of type `{}`", ty));
                     return;
@@ -489,10 +646,15 @@ impl CBackend {
     }
 
     fn function(&mut self, f: &FunDecl) {
+        // A generic function is emitted per instantiation, on demand.
         if !f.type_params.is_empty() {
-            self.unsupported(f.span, "generic functions");
             return;
         }
+        let cname = mangle(&f.name);
+        self.function_named(f, &cname);
+    }
+
+    fn function_named(&mut self, f: &FunDecl, cname: &str) {
         let ret = match &f.ret {
             Some(t) => match self.resolved(t, f.span) {
                 Some(ty) => match self.ctype(&ty, f.span) {
@@ -518,7 +680,7 @@ impl CBackend {
         let signature = format!(
             "{} {}({})",
             ret,
-            mangle(&f.name),
+            cname,
             if params.is_empty() { "void".to_string() } else { params.join(", ") }
         );
         let _ = writeln!(self.decls, "{};", signature);
@@ -619,8 +781,9 @@ impl CBackend {
 
     /// A method is a function whose first parameter is the receiver.
     fn method(&mut self, c: &ClassDecl, m: &FunDecl, name: &str) {
+        // A generic method would need per-call instantiation of its own;
+        // skipped here, refused by name where one is called.
         if !m.type_params.is_empty() {
-            self.unsupported(m.span, "generic methods");
             return;
         }
         let ret = match &m.ret {
@@ -696,6 +859,9 @@ impl CBackend {
                 "Bool" => Some(Type::Bool),
                 "String" => Some(Type::Str),
                 "Unit" => Some(Type::Unit),
+                other if self.tsubst.contains_key(other) => {
+                    Some(self.tsubst[other].clone())
+                }
                 other if self.shapes.contains_key(other) => {
                     Some(Type::class(other, Vec::new()))
                 }
@@ -726,6 +892,11 @@ impl CBackend {
                     .collect::<Option<Vec<_>>>()?;
                 let r = self.resolved(ret, span)?;
                 Some(Type::fun(ps, r))
+            }
+            TypeExprKind::Named { name, args } if self.shapes.contains_key(name) => {
+                let resolved: Option<Vec<Type>> =
+                    args.iter().map(|a| self.resolved(a, span)).collect();
+                Some(Type::class(name, resolved?))
             }
             TypeExprKind::Named { name, args } if name == "List" && args.len() == 1 => {
                 let inner = self.resolved(&args[0], span)?;
@@ -831,7 +1002,7 @@ impl CBackend {
     fn stmt(&mut self, s: &Stmt) {
         match &s.kind {
             StmtKind::Let { name, init, mutable, .. } => {
-                let Some(ty) = init.ty().cloned() else { return };
+                let Some(ty) = self.ety(init) else { return };
                 let Some(c) = self.ctype(&ty, s.span) else { return };
                 self.declare_local(name, &ty, *mutable);
                 let value = self.expr(init);
@@ -853,7 +1024,7 @@ impl CBackend {
             }
             StmtKind::Return(value) => match value {
                 Some(e) => {
-                    let Some(ty) = e.ty().cloned() else { return };
+                    let Some(ty) = self.ety(e) else { return };
                     let v = self.expr(e);
                     let Some(c) = self.ctype(&ty, e.span) else { return };
                     if Self::counted(&ty) {
@@ -904,14 +1075,49 @@ impl CBackend {
             }
             StmtKind::Fun(f) => self.unsupported(f.span, "nested functions"),
             StmtKind::Class(c) => self.unsupported(c.span, "classes and records"),
-            StmtKind::Destructure { pattern, .. } => {
-                self.unsupported(pattern.span, "destructuring")
+            StmtKind::Destructure { pattern, init, .. } => {
+                let Some(Type::Class(cname, cargs)) = self.ety(init) else {
+                    self.unsupported(pattern.span, "destructuring this value");
+                    return;
+                };
+                // The constructor fields, in order, at the value's arguments.
+                let subst: crate::types::Subst = self
+                    .class_decls
+                    .get(&*cname)
+                    .map(|c| {
+                        c.type_params
+                            .iter()
+                            .zip(cargs.iter())
+                            .map(|(p, a)| (std::rc::Rc::from(p.name.as_str()), a.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let fields: Vec<(String, Type)> = self
+                    .shapes
+                    .get(&*cname)
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|(n, t)| (n, t.substitute(&subst)))
+                    .collect();
+                let v = self.expr(init);
+                for (bind, (fname, fty)) in pattern.binds.iter().zip(&fields) {
+                    let Some(name) = bind else { continue };
+                    let Some(ct) = self.ctype(fty, pattern.span) else { return };
+                    self.declare_local(name, fty, false);
+                    let access = format!("{}->{}", v, mangle(fname));
+                    let value = Self::retained(fty, &access);
+                    self.line(format!("{} {} = {};", ct, mangle(name), value));
+                    if Self::counted(fty) {
+                        self.own(&mangle(name), fty);
+                    }
+                }
             }
         }
     }
 
     fn for_loop(&mut self, var: &str, iter: &Expr, body: &Block, span: Span) {
-        if let Some(Type::List(elem_ty)) = iter.ty().cloned() {
+        if let Some(Type::List(elem_ty)) = self.ety(iter) {
             self.list_loop(var, iter, &elem_ty, body, span);
             return;
         }
@@ -991,9 +1197,8 @@ impl CBackend {
             }
             ExprKind::Ident(name) => {
                 let v = self.var_ref(name);
-                match e.ty() {
-                    Some(t) if Self::counted(t) => {
-                        let ty = t.clone();
+                match self.ety(e) {
+                    Some(ty) if Self::counted(&ty) => {
                         let call = Self::retained(&ty, &v);
                         self.own_temp_of(&ty, call)
                     }
@@ -1055,7 +1260,7 @@ impl CBackend {
     /// apart. A `var` is refused by name: sharing it would need a heap cell,
     /// and copying it would silently diverge from the interpreters.
     fn lambda(&mut self, e: &Expr, params: &[Param], body: &Block) -> String {
-        let Some(Type::Fun(ft)) = e.ty().cloned() else {
+        let Some(Type::Fun(ft)) = self.ety(e) else {
             self.unsupported(e.span, "a lambda with no inferred type");
             return "0".to_string();
         };
@@ -1267,7 +1472,7 @@ impl CBackend {
 
         let out = match name {
             "map" => {
-                let Some(Type::List(out_ty)) = e.ty().cloned() else { return Some("0".into()) };
+                let Some(Type::List(out_ty)) = self.ety(e) else { return Some("0".into()) };
                 let out_elem = self.elem_kind(&out_ty, e.span)?;
                 let thunk = self.releaser_thunk(&out_elem);
                 let f = self.expr(&args[0].value);
@@ -1327,7 +1532,7 @@ impl CBackend {
                 out
             }
             "fold" => {
-                let Some(acc_ty) = e.ty().cloned() else { return Some("0".into()) };
+                let Some(acc_ty) = self.ety(e) else { return Some("0".into()) };
                 let acc_c = self.ctype(&acc_ty, e.span)?;
                 let init = self.expr(&args[0].value);
                 let f = self.expr(&args[1].value);
@@ -1383,7 +1588,7 @@ impl CBackend {
     }
 
     fn list_literal(&mut self, e: &Expr, items: &[Expr]) -> String {
-        let Some(Type::List(elem_ty)) = e.ty().cloned() else { return "0".to_string() };
+        let Some(Type::List(elem_ty)) = self.ety(e) else { return "0".to_string() };
         let Some(elem) = self.elem_kind(&elem_ty, e.span) else { return "0".to_string() };
         let thunk = self.releaser_thunk(&elem);
         let t = self.temp();
@@ -1400,7 +1605,7 @@ impl CBackend {
     }
 
     fn index_get(&mut self, e: &Expr, obj: &Expr, index: &Expr) -> String {
-        let Some(Type::List(elem_ty)) = obj.ty().cloned() else {
+        let Some(Type::List(elem_ty)) = self.ety(obj) else {
             self.unsupported(e.span, "indexing anything but a list");
             return "0".to_string();
         };
@@ -1437,7 +1642,9 @@ impl CBackend {
             Type::Int => format!("keal_str_from_int({})", item),
             Type::Float => format!("keal_str_from_float({})", item),
             Type::Bool => format!("keal_str_from_bool({})", item),
-            Type::Class(cname, _) => format!("{}_show({})", struct_name(cname), item),
+            Type::Class(cname, cargs) => {
+                format!("{}_show({})", struct_name_of(cname, cargs), item)
+            }
             Type::List(inner) => {
                 let f = self.list_show(inner, span)?;
                 format!("{}({})", f, item)
@@ -1459,7 +1666,7 @@ impl CBackend {
     /// `a ?: b` reaches `b` only when `a` is absent, so the fallback is
     /// emitted inside the branch rather than before it.
     fn elvis(&mut self, e: &Expr, lhs: &Expr, rhs: &Expr) -> String {
-        let Some(ty) = e.ty().cloned() else { return "0".to_string() };
+        let Some(ty) = self.ety(e) else { return "0".to_string() };
         let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
         let a = self.expr(lhs);
         let slot = self.temp();
@@ -1487,7 +1694,7 @@ impl CBackend {
     fn field(&mut self, e: &Expr, obj: &Expr, name: &str, safe: bool) -> String {
         // The built-in properties, which are fields of the runtime structs
         // rather than of anything the program declared.
-        match (obj.ty(), name) {
+        match (self.ety(obj), name) {
             (Some(Type::List(_)), "size") => {
                 let l = self.expr(obj);
                 return format!("{}->len", l);
@@ -1503,7 +1710,7 @@ impl CBackend {
         if safe {
             return self.guarded(e, &receiver, access);
         }
-        match e.ty().cloned() {
+        match self.ety(e) {
             Some(ty) if Self::counted(&ty) => {
                 let call = Self::retained(&ty, &access);
                 self.own_temp_of(&ty, call)
@@ -1515,7 +1722,7 @@ impl CBackend {
     /// The body of a `?.`: the access happens only when the receiver is
     /// there, and the whole thing is null when it is not.
     fn guarded(&mut self, e: &Expr, receiver: &str, access: String) -> String {
-        let Some(ty) = e.ty().cloned() else { return "0".to_string() };
+        let Some(ty) = self.ety(e) else { return "0".to_string() };
         let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
         let slot = self.temp();
         self.line(format!("{} {} = NULL;", c, slot));
@@ -1538,7 +1745,7 @@ impl CBackend {
         args: &[Arg],
         safe: bool,
     ) -> String {
-        let receiver_ty = obj.ty().cloned().map(|t| if safe { t.non_null() } else { t });
+        let receiver_ty = self.ety(obj).map(|t| if safe { t.non_null() } else { t });
         // The one built-in method the subset supports so far.
         if let (Some(Type::List(elem_ty)), "add", 1, false) =
             (&receiver_ty, name, args.len(), safe)
@@ -1561,13 +1768,17 @@ impl CBackend {
                 return v;
             }
         }
-        let Some(Type::Class(class, _)) = receiver_ty else {
+        let Some(Type::Class(class, class_args)) = receiver_ty else {
             self.unsupported(
                 e.span,
                 &format!("the method `{}` on a built-in type", name),
             );
             return "0".to_string();
         };
+        if e.inst.is_some() {
+            self.unsupported(e.span, &format!("the generic method `{}`", name));
+            return "0".to_string();
+        }
         if args.iter().any(|a| a.name.is_some()) {
             self.unsupported(e.span, "named arguments");
             return "0".to_string();
@@ -1579,7 +1790,7 @@ impl CBackend {
         }
         let call = format!(
             "{}_{}({})",
-            struct_name(&class),
+            struct_name_of(&class, &class_args),
             mangle_method(name),
             rendered.join(", ")
         );
@@ -1587,7 +1798,7 @@ impl CBackend {
             return self.guarded(e, &receiver, call);
         }
 
-        let Some(ty) = e.ty().cloned() else { return call };
+        let Some(ty) = self.ety(e) else { return call };
         if ty == Type::Unit {
             self.line(format!("{};", call));
             return "0".to_string();
@@ -1606,9 +1817,9 @@ impl CBackend {
     /// its body and jumps out — which is what a `do { } while (0)` with
     /// `break`s spells in plain C.
     fn when(&mut self, e: &Expr, subject: Option<&Expr>, arms: &[WhenArm]) -> String {
-        let produces = !matches!(e.ty(), None | Some(Type::Unit) | Some(Type::Never));
+        let produces = !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never));
         let slot = if produces {
-            let Some(ty) = e.ty().cloned() else { return "0".to_string() };
+            let Some(ty) = self.ety(e) else { return "0".to_string() };
             let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
             let t = self.temp();
             self.line(format!("{} {};", c, t));
@@ -1622,7 +1833,7 @@ impl CBackend {
 
         let subject_slot = match subject {
             Some(sub) => {
-                let Some(ty) = sub.ty().cloned() else { return "0".to_string() };
+                let Some(ty) = self.ety(sub) else { return "0".to_string() };
                 let Some(c) = self.ctype(&ty, sub.span) else { return "0".to_string() };
                 let v = self.expr(sub);
                 let t = self.temp();
@@ -1741,11 +1952,11 @@ impl CBackend {
         for (i, s) in stmts.iter().enumerate() {
             match (&s.kind, slot) {
                 (StmtKind::Expr(e), Some(t)) if i == last => {
-                    let counted = e.ty().map(Self::counted).unwrap_or(false);
+                    let counted = self.ety(e).map(|t| Self::counted(&t)).unwrap_or(false);
                     let v = self.expr(e);
-                    match e.ty() {
+                    match self.ety(e) {
                         Some(ty) if counted => {
-                            self.line(format!("{} = {};", t, Self::retained(ty, &v)))
+                            self.line(format!("{} = {};", t, Self::retained(&ty, &v)))
                         }
                         _ => self.line(format!("{} = {};", t, v)),
                     }
@@ -1764,7 +1975,7 @@ impl CBackend {
     }
 
     fn binary(&mut self, e: &Expr, op: BinOp, lhs: &Expr, rhs: &Expr) -> String {
-        let lty = lhs.ty().cloned();
+        let lty = self.ety(lhs);
         // String concatenation allocates, so it goes through the runtime.
         if op == BinOp::Add && lty.as_ref() == Some(&Type::Str) {
             let a = self.expr(lhs);
@@ -1798,7 +2009,7 @@ impl CBackend {
             return t;
         }
         let nullable_str = matches!(&lty, Some(Type::Nullable(i)) if **i == Type::Str)
-            || matches!(&rhs.ty(), Some(Type::Nullable(i)) if **i == Type::Str);
+            || matches!(&self.ety(rhs), Some(Type::Nullable(i)) if **i == Type::Str);
         let against_null =
             matches!(lhs.kind, ExprKind::Null) || matches!(rhs.kind, ExprKind::Null);
         if nullable_str && !against_null && matches!(op, BinOp::Eq | BinOp::Ne) {
@@ -1829,14 +2040,16 @@ impl CBackend {
     /// Emits a value rendered as an owned string, for concatenation and
     /// interpolation.
     fn to_string_value(&mut self, e: &Expr) -> String {
-        let ty = e.ty().cloned();
+        let ty = self.ety(e);
         let v = self.expr(e);
         let call = match ty {
             Some(Type::Str) => return v,
             Some(Type::Int) => format!("keal_str_from_int({})", v),
             Some(Type::Float) => format!("keal_str_from_float({})", v),
             Some(Type::Bool) => format!("keal_str_from_bool({})", v),
-            Some(Type::Class(name, _)) => format!("{}_show({})", struct_name(&name), v),
+            Some(Type::Class(name, args)) => {
+                format!("{}_show({})", struct_name_of(&name, &args), v)
+            }
             Some(Type::List(elem_ty)) => {
                 let Some(f) = self.list_show(&elem_ty, e.span) else {
                     return "keal_str_empty()".to_string();
@@ -1857,7 +2070,9 @@ impl CBackend {
                 self.indent += 1;
                 let rendered = match &*inner {
                     Type::Str => format!("keal_str_retain({})", v),
-                    Type::Class(name, _) => format!("{}_show({})", struct_name(name), v),
+                    Type::Class(name, cargs) => {
+                        format!("{}_show({})", struct_name_of(name, cargs), v)
+                    }
                     other => {
                         self.unsupported(
                             e.span,
@@ -1938,9 +2153,9 @@ impl CBackend {
     }
 
     fn if_expr(&mut self, e: &Expr, cond: &Expr, then: &Block, els: Option<&Else>) -> String {
-        let produces = !matches!(e.ty(), None | Some(Type::Unit) | Some(Type::Never));
+        let produces = !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never));
         let slot = if produces {
-            let Some(ty) = e.ty().cloned() else { return "0".to_string() };
+            let Some(ty) = self.ety(e) else { return "0".to_string() };
             let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
             let t = self.temp();
             self.line(format!("{} {};", c, t));
@@ -1969,12 +2184,12 @@ impl CBackend {
                 self.line("} else {");
                 self.indent += 1;
                 self.open_scope();
-                let counted = inner.ty().map(Self::counted).unwrap_or(false);
+                let counted = self.ety(inner).map(|t| Self::counted(&t)).unwrap_or(false);
                 let v = self.expr(inner);
                 if let Some(t) = &slot {
-                    match inner.ty() {
+                    match self.ety(inner) {
                         Some(ty) if counted => {
-                            self.line(format!("{} = {};", t, Self::retained(ty, &v)))
+                            self.line(format!("{} = {};", t, Self::retained(&ty, &v)))
                         }
                         _ => self.line(format!("{} = {};", t, v)),
                     }
@@ -1995,13 +2210,13 @@ impl CBackend {
         for (i, s) in stmts.iter().enumerate() {
             match (&s.kind, slot) {
                 (StmtKind::Expr(e), Some(t)) if i == last => {
-                    let counted = e.ty().map(Self::counted).unwrap_or(false);
+                    let counted = self.ety(e).map(|t| Self::counted(&t)).unwrap_or(false);
                     let v = self.expr(e);
                     // The slot belongs to the enclosing block, so it takes a
                     // reference of its own before this one is released.
-                    match e.ty() {
+                    match self.ety(e) {
                         Some(ty) if counted => {
-                            self.line(format!("{} = {};", t, Self::retained(ty, &v)))
+                            self.line(format!("{} = {};", t, Self::retained(&ty, &v)))
                         }
                         _ => self.line(format!("{} = {};", t, v)),
                     }
@@ -2021,7 +2236,7 @@ impl CBackend {
                 || self.shapes.contains_key(n)
                 || crate::builtins::global_sig(n, &[None, None]).is_some());
         if !named {
-            if let Some(Type::Fun(ft)) = callee.ty().cloned() {
+            if let Some(Type::Fun(ft)) = self.ety(callee) {
                 let c = self.expr(callee);
                 let mut rendered = Vec::new();
                 for a in args {
@@ -2052,16 +2267,26 @@ impl CBackend {
             return "0".to_string();
         }
         if self.shapes.contains_key(name) {
-            if self.generic_classes.iter().any(|g| g == name) {
-                self.unsupported(e.span, "generic classes and records");
-                return "0".to_string();
-            }
+            let generic = self.generic_classes.iter().any(|g| g == name);
+            let (sn, ty) = if generic {
+                let Some(inst) = e.inst.clone() else {
+                    self.unsupported(e.span, "a generic construction the checker left unsolved");
+                    return "0".to_string();
+                };
+                let targs: Vec<Type> =
+                    inst.iter().map(|t| t.substitute(&self.tsubst)).collect();
+                let Some(sn) = self.instantiate_class(name, &targs, e.span) else {
+                    return "0".to_string();
+                };
+                (sn, Type::class(name, targs))
+            } else {
+                (struct_name(name), Type::class(name, Vec::new()))
+            };
             let mut rendered = Vec::new();
             for a in args {
                 rendered.push(self.expr(&a.value));
             }
-            let call = format!("{}_new({})", struct_name(name), rendered.join(", "));
-            let ty = Type::class(name, Vec::new());
+            let call = format!("{}_new({})", sn, rendered.join(", "));
             return self.own_temp_of(&ty, call);
         }
         if crate::builtins::global_sig(name, &[None, None]).is_some() {
@@ -2069,18 +2294,29 @@ impl CBackend {
             return "0".to_string();
         }
 
+        let cname = match &e.inst {
+            Some(inst) => {
+                let targs: Vec<Type> =
+                    inst.iter().map(|t| t.substitute(&self.tsubst)).collect();
+                match self.instantiate_function(name, &targs, e.span) {
+                    Some(n) => n,
+                    None => return "0".to_string(),
+                }
+            }
+            None => mangle(name),
+        };
         let mut rendered = Vec::new();
         for a in args {
             rendered.push(self.expr(&a.value));
         }
-        let call = format!("{}({})", mangle(name), rendered.join(", "));
+        let call = format!("{}({})", cname, rendered.join(", "));
 
         self.finish_call(e, call)
     }
 
     /// Binds a call's result according to its type, or emits it for effect.
     fn finish_call(&mut self, e: &Expr, call: String) -> String {
-        let Some(ty) = e.ty().cloned() else { return call };
+        let Some(ty) = self.ety(e) else { return call };
         if ty == Type::Unit {
             self.line(format!("{};", call));
             // Arguments were borrowed, so anything owned for the call is
@@ -2107,7 +2343,7 @@ impl CBackend {
                 self.unsupported(span, "compound assignment into an element");
                 return;
             }
-            let Some(Type::List(elem_ty)) = obj.ty().cloned() else {
+            let Some(Type::List(elem_ty)) = self.ety(obj) else {
                 self.unsupported(span, "assigning into anything but a list");
                 return;
             };
@@ -2161,7 +2397,7 @@ impl CBackend {
                 return;
             }
         };
-        let ty = target.ty().cloned();
+        let ty = self.ety(target);
         match op {
             None => {
                 let v = self.expr(value);
@@ -2177,6 +2413,7 @@ impl CBackend {
             Some(binop) => {
                 // `a += b` is `a = a + b`, built from the same pieces.
                 let synthetic = Expr {
+                    inst: None,
                     kind: ExprKind::Binary {
                         op: binop,
                         lhs: Box::new(target.clone()),
@@ -2422,9 +2659,49 @@ fn is_reference(ty: &Type) -> bool {
     matches!(ty, Type::Str | Type::Class(_, _))
 }
 
-/// The C struct a class is emitted as.
+/// The C struct a class is emitted as. A generic class gets one struct per
+/// instantiation, told apart by the mangled type arguments.
 fn struct_name(class: &str) -> String {
     format!("K_{}", class)
+}
+
+fn struct_name_of(class: &str, args: &[Type]) -> String {
+    if args.is_empty() {
+        struct_name(class)
+    } else {
+        let parts: Vec<String> = args.iter().map(mangle_type).collect();
+        format!("K_{}__{}", class, parts.join("__"))
+    }
+}
+
+/// A type as a C identifier fragment, for specialisation names.
+fn mangle_type(ty: &Type) -> String {
+    match ty {
+        Type::Int => "Int".into(),
+        Type::Float => "Float".into(),
+        Type::Bool => "Bool".into(),
+        Type::Str => "String".into(),
+        Type::Unit => "Unit".into(),
+        Type::Range => "Range".into(),
+        Type::Class(name, args) if args.is_empty() => name.to_string(),
+        Type::Class(name, args) => {
+            let parts: Vec<String> = args.iter().map(mangle_type).collect();
+            format!("{}_{}", name, parts.join("_"))
+        }
+        Type::List(t) => format!("List_{}", mangle_type(t)),
+        Type::Map(k, v) => format!("Map_{}_{}", mangle_type(k), mangle_type(v)),
+        Type::Nullable(t) => format!("Opt_{}", mangle_type(t)),
+        Type::Fun(ft) => {
+            let mut parts: Vec<String> = ft.params.iter().map(|p| mangle_type(&p.ty)).collect();
+            parts.push(mangle_type(&ft.ret));
+            format!("Fn_{}", parts.join("_"))
+        }
+        // Reaching here with one of these is a bug upstream; the name only
+        // has to be distinct enough to fail loudly in the C compiler.
+        Type::Any | Type::Null | Type::Never | Type::Error | Type::Param(_) | Type::SelfTy => {
+            "Unrepresentable".into()
+        }
+    }
 }
 
 /// A method's part of the function name it becomes.

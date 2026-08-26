@@ -1,12 +1,6 @@
 // Everything here is beyond the C backend for now. Each one must be named
 // rather than silently mis-compiled, so the snapshot is the promise.
 
-fun identity<T>(value: T): T { value }
-
-record Boxed<T>(val value: T)
-
-fun useBoxed(): Int { Boxed(1).value }
-
 fun withDefault(n: Int = 1): Int { n }
 
 // Capturing a `var` is refused: sharing it would need a heap cell, and

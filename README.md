@@ -303,11 +303,16 @@ fails where it would have failed on either interpreter.
 **The backend covers most of the language.** Functions, control flow, `Int`,
 `Float`, `Bool`, `String`, classes and records with their methods, nullable
 references, `when`, `List<T>` with the same bounds panics as the interpreters,
-and lambdas — a lambda compiles to a C function plus a counted environment,
+lambdas — a lambda compiles to a C function plus a counted environment,
 captures are `val`s taken by value, and `map`/`filter`/`fold`/`forEach`
-become plain loops feeding each element through the closure. Generics, `Map`,
-capturing a `var`, and nullable *values* like `Int?` do not compile yet.
-Anything it cannot compile is **named**, not mis-compiled:
+become plain loops feeding each element through the closure — and **generics,
+by monomorphisation**: the checker records the solved type arguments on every
+call, and the backend emits one C copy of the function or class per distinct
+set, on demand. `firstOr<T>` used at `Int` and `String` becomes two plain C
+functions; `Boxed<T>` and the tuples become one struct per instantiation,
+each with its own retain, release, equality and rendering. `Map`, default
+arguments, capturing a `var`, and nullable *values* like `Int?` do not
+compile yet. Anything it cannot compile is **named**, not mis-compiled:
 
 ```
 error: the C backend cannot compile list literals yet

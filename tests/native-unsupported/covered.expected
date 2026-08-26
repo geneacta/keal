@@ -1,37 +1,25 @@
-error: the C backend cannot compile generic functions yet
-  --> tests/native-unsupported/covered.keal:4:1
-  |
-4 | fun identity<T>(value: T): T { value }
-  | ^
-  = note: run it on the bytecode VM instead, which supports the whole language
-error: the C backend cannot compile generic classes and records yet
-  --> tests/native-unsupported/covered.keal:8:23
-  |
-8 | fun useBoxed(): Int { Boxed(1).value }
-  |                       ^
-  = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile default arguments yet
-  --> tests/native-unsupported/covered.keal:10:17
-   |
-10 | fun withDefault(n: Int = 1): Int { n }
-   |                 ^
+  --> tests/native-unsupported/covered.keal:4:17
+  |
+4 | fun withDefault(n: Int = 1): Int { n }
+  |                 ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile capturing the `var` `counter` yet
-  --> tests/native-unsupported/covered.keal:16:16
+  --> tests/native-unsupported/covered.keal:10:16
    |
-16 |     val bump = { -> counter + 1 }
+10 |     val bump = { -> counter + 1 }
    |                ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile the type `Any` yet
-  --> tests/native-unsupported/covered.keal:21:14
+  --> tests/native-unsupported/covered.keal:15:14
    |
-21 | fun useIsArm(v: Any): String {
+15 | fun useIsArm(v: Any): String {
    |              ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile the type `Int?` yet
-  --> tests/native-unsupported/covered.keal:30:20
+  --> tests/native-unsupported/covered.keal:24:20
    |
-30 | fun useNullableInt(n: Int?): Int { n ?: 0 }
+24 | fun useNullableInt(n: Int?): Int { n ?: 0 }
    |                    ^
   = note: a nullable value needs a tag beside it, which is not built yet; a nullable reference is just a pointer and does compile
-6 constructs the C backend does not cover yet
+4 constructs the C backend does not cover yet

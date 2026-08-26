@@ -144,6 +144,9 @@ pub struct Checker {
     traits: HashMap<String, TraitInfo>,
     /// Which traits each class declares that it implements.
     impls: HashMap<String, Vec<Rc<str>>>,
+    /// The type arguments the most recent `check_args` solved, claimed by
+    /// `check_expr` for the node that caused the call.
+    last_inst: Option<Vec<Type>>,
     /// Facts established by an early-exit guard such as
     /// `if (x == null) { return }`. Set while checking the guard, then
     /// consumed by `check_stmts` and applied to the rest of the block.
@@ -166,6 +169,7 @@ impl Checker {
             type_params: Vec::new(),
             traits: HashMap::new(),
             impls: HashMap::new(),
+            last_inst: None,
             guard_narrowing: None,
             repl: false,
         }
@@ -1356,6 +1360,12 @@ impl Checker {
     fn check_expr(&mut self, e: &mut Expr, expected: Option<&Type>) -> Type {
         let t = self.check_expr_inner(e, expected);
         e.ty = Some(t.clone());
+        // Taken unconditionally, so it can never outlive the node it was
+        // solved for; kept only where a call can use it.
+        let inst = self.last_inst.take();
+        if matches!(e.kind, ExprKind::Call { .. } | ExprKind::MethodCall { .. }) {
+            e.inst = inst;
+        }
         t
     }
 
@@ -2215,9 +2225,18 @@ impl Checker {
             );
         }
         if type_params.is_empty() {
+            self.last_inst = None;
             return ft.ret.clone();
         }
-        self.finish_inference(ft, type_params, &mut subst, expected, span, what)
+        let ret = self.finish_inference(ft, type_params, &mut subst, expected, span, what);
+        // What monomorphisation will need: the solution, in declaration
+        // order. Deposited here for `check_expr` to attach to the call node,
+        // and always written so a nested call's answer cannot leak upward.
+        self.last_inst = type_params
+            .iter()
+            .map(|p| subst.get(&p.name).cloned())
+            .collect();
+        ret
     }
 
     /// Returns the target's type and, when it cannot be assigned, a
@@ -2392,7 +2411,7 @@ impl Checker {
         // This is where the right operand is checked, and where a mismatched
         // operand type is reported against the trait method's signature.
         let result = self.method_call(lt, method, &mut args, span, None);
-        let call = Expr { ty: None, span, kind: ExprKind::MethodCall {
+        let call = Expr { ty: None, inst: None, span, kind: ExprKind::MethodCall {
                 obj: lhs,
                 name: method.to_string(),
                 args,
@@ -2418,7 +2437,7 @@ impl Checker {
                 e.kind = ExprKind::Binary {
                     op,
                     lhs: Box::new(call),
-                    rhs: Box::new(Expr { ty: None, span, kind: ExprKind::Int(0) }),
+                    rhs: Box::new(Expr { ty: None, inst: None, span, kind: ExprKind::Int(0) }),
                 };
                 if result != Type::Int && result != Type::Error {
                     self.error(
@@ -2808,7 +2827,7 @@ fn synth_record_equals(c: &ClassDecl) -> FunDecl {
         .chain(c.fields.iter().map(|f| f.name.clone()))
         .collect();
 
-    let ex = |kind: ExprKind| Expr { ty: None, kind, span };
+    let ex = |kind: ExprKind| Expr { ty: None, inst: None, kind, span };
     let compare = |name: &str| {
         ex(ExprKind::Binary {
             op: BinOp::Eq,
