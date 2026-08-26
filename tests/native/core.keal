@@ -1,0 +1,71 @@
+// What the C backend covers, exercised end to end. The suite compiles this
+// with a real C compiler, runs it, and requires the output to match what the
+// bytecode VM and the tree-walking evaluator print — byte for byte.
+
+fun fib(n: Int): Int {
+    if (n < 2) { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fun classify(n: Int): String {
+    if (n < 0) { return "negative" }
+    unless (n > 0) { return "zero" }
+    return "positive"
+}
+
+fun describe(n: Int): String {
+    return if (n > 100) { "big" } else if (n > 10) { "medium" } else { "small" }
+}
+
+proc report(label: String, value: Int) {
+    println("${label} = ${value}")
+}
+
+fun average(a: Float, b: Float): Float { (a + b) / 2.0 }
+
+report("fib(20)", fib(20))
+println(classify(-3))
+println(classify(0))
+println(classify(7))
+println(describe(5) + " " + describe(50) + " " + describe(500))
+
+var total = 0
+for (i in 0..10) {
+    if (i % 3 == 0) { continue }
+    if (i > 8) { break }
+    total += i
+}
+println("total ${total}")
+
+var i = 0
+while (i < 3) {
+    println("line " + i)
+    i += 1
+}
+
+// All eight connectives, including the ones that short-circuit.
+val a = true
+val b = false
+println("${a and b} ${a or b} ${a xor b} ${a xnor b}")
+println("${a nand b} ${a nor b} ${a implies b} ${not a}")
+
+// Floats, and the rendering of a whole number.
+println(average(3.0, 4.0))
+println(average(1.0, 1.0))
+println("pi is about " + 3.14159)
+
+// Strings: concatenation, comparison, and interpolation of every kind.
+val greeting = "hello" + ", " + "world"
+println(greeting)
+println("abc" < "abd")
+println("abc" == "abc")
+var acc = ""
+for (n in 0..4) {
+    acc += "${n},"
+}
+println(acc)
+
+// Nested calls and mixed arithmetic.
+println(fib(10) * 2 - 1)
+println((7 / 2) + (7 % 2))
+println(-fib(5))

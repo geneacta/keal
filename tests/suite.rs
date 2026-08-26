@@ -183,6 +183,75 @@ fn layouts_match_snapshots() {
     }
 }
 
+/// The native backend must agree with the interpreters, not merely compile.
+///
+/// This emits C, hands it to a real C compiler, runs the binary, and compares
+/// its output with both other engines. It is skipped when no C compiler is
+/// installed rather than failing, since one is not needed to work on the rest
+/// of the language.
+#[test]
+fn native_agrees_with_the_interpreters() {
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+
+    for file in keal_files("tests/native") {
+        let path = relative(&file);
+        let emitted = keal(&["emit-c", &path]);
+        assert!(emitted.success, "{} did not emit C:\n{}", path, emitted.stderr);
+
+        let dir = std::env::temp_dir().join(format!(
+            "keal-native-{}",
+            file.file_stem().unwrap().to_string_lossy()
+        ));
+        std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+        let csrc = dir.join("out.c");
+        let bin = dir.join("out");
+        std::fs::write(&csrc, &emitted.stdout).expect("cannot write the generated C");
+
+        let built = Command::new(&cc)
+            .args(["-O2", "-std=c11", "-o"])
+            .arg(&bin)
+            .arg(&csrc)
+            .output()
+            .expect("cannot run the C compiler");
+        assert!(
+            built.status.success(),
+            "the C generated for {} did not compile:\n{}",
+            path,
+            String::from_utf8_lossy(&built.stderr)
+        );
+
+        let native = Command::new(&bin).output().expect("cannot run the built binary");
+        let native_out = String::from_utf8_lossy(&native.stdout).into_owned();
+
+        for engine in ENGINES {
+            let interpreted = keal(&[engine, &path]);
+            assert!(interpreted.success, "{} failed on {}", path, engine);
+            assert_eq!(
+                native_out, interpreted.stdout,
+                "native output differs from {} for {}",
+                engine, path
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// A construct the backend does not cover must be named, not mis-compiled.
+#[test]
+fn the_native_backend_says_what_it_cannot_compile() {
+    for file in keal_files("tests/native-unsupported") {
+        let path = relative(&file);
+        let out = keal(&["emit-c", &path]);
+        assert!(!out.success, "{} was expected to be refused", path);
+        check_snapshot(&file, &out.stderr);
+    }
+}
+
 #[test]
 fn cli_reports_missing_files() {
     let out = keal(&["run", "does/not/exist.keal"]);

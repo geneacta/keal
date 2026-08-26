@@ -446,8 +446,7 @@ impl Checker {
                 matches!(&t.kind, TypeExprKind::Named { name, .. } if name == "Eq")
             });
             if !has_eq {
-                c.traits.push(TypeExpr {
-                    kind: TypeExprKind::Named { name: "Eq".into(), args: Vec::new() },
+                c.traits.push(TypeExpr { kind: TypeExprKind::Named { name: "Eq".into(), args: Vec::new() },
                     span: c.span,
                 });
             }
@@ -1327,7 +1326,15 @@ impl Checker {
         t
     }
 
+    /// Types an expression and records the answer on the node, so that a
+    /// backend never has to work it out again.
     fn check_expr(&mut self, e: &mut Expr, expected: Option<&Type>) -> Type {
+        let t = self.check_expr_inner(e, expected);
+        e.ty = Some(t.clone());
+        t
+    }
+
+    fn check_expr_inner(&mut self, e: &mut Expr, expected: Option<&Type>) -> Type {
         let span = e.span;
         match &mut e.kind {
             ExprKind::Int(_) => Type::Int,
@@ -1408,6 +1415,8 @@ impl Checker {
             }
 
             ExprKind::Binary { .. } => self.check_binary(e, span),
+            // `check_binary` may rewrite the node into a method call; the
+            // type it returns describes whatever the node became.
 
             ExprKind::Logical { lhs, rhs, op } => {
                 let op = *op;
@@ -2192,6 +2201,18 @@ impl Checker {
         &mut self,
         target: &mut Expr,
     ) -> (Type, Option<(String, String)>) {
+        let result = self.assign_target_inner(target);
+        // A target is an expression too, and a backend needs its type — for a
+        // compound assignment it decides whether `+=` is checked arithmetic
+        // or string concatenation.
+        target.ty = Some(result.0.clone());
+        result
+    }
+
+    fn assign_target_inner(
+        &mut self,
+        target: &mut Expr,
+    ) -> (Type, Option<(String, String)>) {
         let span = target.span;
         match &mut target.kind {
             ExprKind::Ident(name) => match self.lookup(name) {
@@ -2346,9 +2367,7 @@ impl Checker {
         // This is where the right operand is checked, and where a mismatched
         // operand type is reported against the trait method's signature.
         let result = self.method_call(lt, method, &mut args, span, None);
-        let call = Expr {
-            span,
-            kind: ExprKind::MethodCall {
+        let call = Expr { ty: None, span, kind: ExprKind::MethodCall {
                 obj: lhs,
                 name: method.to_string(),
                 args,
@@ -2374,7 +2393,7 @@ impl Checker {
                 e.kind = ExprKind::Binary {
                     op,
                     lhs: Box::new(call),
-                    rhs: Box::new(Expr { span, kind: ExprKind::Int(0) }),
+                    rhs: Box::new(Expr { ty: None, span, kind: ExprKind::Int(0) }),
                 };
                 if result != Type::Int && result != Type::Error {
                     self.error(
@@ -2740,8 +2759,7 @@ impl Checker {
 /// record, spelled exactly as a user would have written it.
 fn synth_record_equals(c: &ClassDecl) -> FunDecl {
     let span = c.span;
-    let named = |name: &str, args: Vec<TypeExpr>| TypeExpr {
-        kind: TypeExprKind::Named { name: name.to_string(), args },
+    let named = |name: &str, args: Vec<TypeExpr>| TypeExpr { kind: TypeExprKind::Named { name: name.to_string(), args },
         span,
     };
     let self_ty = named(
@@ -2757,7 +2775,7 @@ fn synth_record_equals(c: &ClassDecl) -> FunDecl {
         .chain(c.fields.iter().map(|f| f.name.clone()))
         .collect();
 
-    let ex = |kind: ExprKind| Expr { kind, span };
+    let ex = |kind: ExprKind| Expr { ty: None, kind, span };
     let compare = |name: &str| {
         ex(ExprKind::Binary {
             op: BinOp::Eq,

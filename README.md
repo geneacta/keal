@@ -74,6 +74,8 @@ The rest of the commands:
 ```sh
 keal check src/main.keal        # type-check without running
 keal layout src/main.keal       # show how the program's values are laid out
+keal build src/main.keal        # compile to a native executable
+keal emit-c src/main.keal       # print the C that build would compile
 keal repl                       # interactive session
 keal --ast program.keal         # run on the tree-walker instead of the VM
 keal version
@@ -160,6 +162,9 @@ src/
   checker.rs   name resolution, type checking, null-safety analysis
   value.rs     runtime values, environments
   layout.rs    the memory model: what a value is, in bytes
+  cbackend.rs  the native backend: checked AST -> C
+  runtime.c    the C runtime: reference counting, strings, checked arithmetic
+  nativebuild.rs  driving a C compiler over the emitted C
   bytecode.rs  the instruction set
   compiler.rs  AST -> bytecode: name resolution and capture analysis
   vm.rs        the bytecode virtual machine
@@ -265,6 +270,48 @@ record Point
 
 The layouts of a sample program are snapshotted in the test suite, so changing
 a representation shows up as a diff rather than as a surprise.
+
+### Compiling to native code
+
+`keal build file.keal` produces a real executable. The route is through C —
+the backend emits one self-contained translation unit and hands it to `cc` —
+which buys machine code and the C interop the language wants at once, since
+the output *is* C. Cranelift or LLVM can replace that step later; the
+decisions that are hard to change live in `layout.rs`, not in the emitter.
+
+```
+$ keal build fib.keal
+fib
+$ ./fib
+9227465
+```
+
+On `fib(35)`, against the same program on the other two engines:
+
+| | |
+|---|---|
+| tree-walking evaluator | 6.14s |
+| bytecode VM | 2.51s |
+| **native, via C** | **0.03s** |
+
+That is 84× the VM and 205× the evaluator. The generated code carries the same
+guarantees: integer overflow is checked rather than wrapped, so a program
+fails where it would have failed on either interpreter.
+
+**The backend covers part of the language, not all of it.** Functions,
+control flow, `Int`, `Float`, `Bool` and `String` compile; classes, generics,
+collections, lambdas, `when` and nullables do not, yet. Anything it cannot
+compile is **named**, not mis-compiled:
+
+```
+error: the C backend cannot compile classes and records yet
+  --> shapes.keal:4:1
+  = note: run it on the bytecode VM instead, which supports the whole language
+```
+
+The test suite compiles a program with a real C compiler, runs it, and
+requires its output to match both interpreters byte for byte. That test is
+what found the first two bugs in this backend.
 
 ## Not there yet
 

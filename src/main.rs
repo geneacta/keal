@@ -3,6 +3,7 @@
 mod ast;
 mod builtins;
 mod bytecode;
+mod cbackend;
 mod checker;
 mod compiler;
 mod interp;
@@ -10,6 +11,7 @@ mod layout;
 mod lexer;
 mod loader;
 mod native;
+mod nativebuild;
 mod parser;
 mod repl;
 mod runtime;
@@ -32,6 +34,8 @@ usage:
     keal run <file.keal>      run a program
     keal check <file.keal>    type-check without running
     keal layout <file.keal>   show how the program's values are laid out
+    keal emit-c <file.keal>   print the C a native build would compile
+    keal build <file.keal>    compile to a native executable
     keal repl                 start an interactive session
     keal version              print the version
 ";
@@ -80,12 +84,16 @@ fn real_main() -> ExitCode {
         [one] if one == "version" || one == "--version" || one == "-V" => ("version", None),
         [one] if one == "help" || one == "--help" || one == "-h" => ("help", None),
         [one] => ("run", Some(one.clone())),
-        [cmd, file] if cmd == "run" || cmd == "check" || cmd == "layout" => {
+        [cmd, file]
+            if matches!(cmd.as_str(), "run" | "check" | "layout" | "emit-c" | "build") =>
+        {
             (
                 match cmd.as_str() {
                     "run" => "run",
                     "check" => "check",
-                    _ => "layout",
+                    "layout" => "layout",
+                    "emit-c" => "emit-c",
+                    _ => "build",
                 },
                 Some(file.clone()),
             )
@@ -104,6 +112,8 @@ fn real_main() -> ExitCode {
         }
         "repl" => repl::run(),
         "layout" => show_layout(&target.unwrap()),
+        "emit-c" => nativebuild::emit_only(&target.unwrap()),
+        "build" => nativebuild::build(&target.unwrap()),
         cmd => run_file(&target.unwrap(), cmd == "check", engine),
     }
 }

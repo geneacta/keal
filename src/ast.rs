@@ -132,6 +132,18 @@ pub enum StmtKind {
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
+    /// Filled in by the checker. A backend needs to know whether `a + b` is
+    /// integer addition, float addition or string concatenation, and this is
+    /// where that answer is recorded rather than worked out a second time.
+    pub ty: Option<crate::types::Type>,
+}
+
+impl Expr {
+    /// The type the checker recorded. `None` before checking, or on a node
+    /// inside an expression the checker abandoned after an error.
+    pub fn ty(&self) -> Option<&crate::types::Type> {
+        self.ty.as_ref()
+    }
 }
 
 #[derive(Clone, Debug)]

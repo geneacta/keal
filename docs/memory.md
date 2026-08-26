@@ -171,7 +171,22 @@ hoping. Declaring that is future work; recognising it is not.
 
 ---
 
-## 7. Settled, and not
+## 7. What the native backend does with all this
+
+`src/runtime.c` is this document made real, for the part of the language the C
+backend covers: the count at the head of every string, retain and release,
+and checked arithmetic so that native code fails where the interpreters fail.
+
+The rule the emitter follows is deliberately blunt: **every counted value is a
+named temporary that its block owns, and the block releases it on the way out
+by any route.** A binding, an assignment or a returned value takes a reference
+of its own. That costs retain/release traffic a smarter pass would elide, and
+it is correct without having to reason about any particular path — which
+matters more while the rest of the backend is being built. `leaks` reports
+nothing outstanding on the test programs, and the suite compares native output
+against both interpreters byte for byte.
+
+## 8. Settled, and not
 
 **Settled.** Reference counting. The count inside the object. Fields in
 declaration order. Spare bit patterns for nullables where they exist. `Any` as

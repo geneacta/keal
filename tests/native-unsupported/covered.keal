@@ -1,0 +1,26 @@
+// Everything here is beyond the C backend for now. Each one must be named
+// rather than silently mis-compiled, so the snapshot is the promise.
+
+record Point(val x: Int, val y: Int)
+
+fun identity<T>(value: T): T { value }
+
+fun withDefault(n: Int = 1): Int { n }
+
+fun useList(): Int { [1, 2, 3].size }
+
+fun useLambda(): Int {
+    val f = { x: Int -> x * 2 }
+    return f(21)
+}
+
+fun useWhen(n: Int): String {
+    return when (n) {
+        0 -> "zero"
+        else -> "other"
+    }
+}
+
+fun useNullable(s: String?): Int { s?.length ?: 0 }
+
+println(useWhen(0))
