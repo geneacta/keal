@@ -939,19 +939,25 @@ impl Compiler {
         };
 
         let mut ends = Vec::new();
-        let mut next_arm: Option<usize> = None;
+        let mut next_arm: Vec<usize> = Vec::new();
         for arm in arms {
-            if let Some(at) = next_arm.take() {
+            for at in next_arm.drain(..) {
                 self.fs().chunk.patch(at);
             }
-            let skip = self.arm_test(arm, subject_slot)?;
+            // The scope opens before the test, because an `is` pattern's
+            // bindings belong to this arm and must not outlive it.
             self.push_scope();
+            let mut skips = self.arm_test(arm, subject_slot)?;
+            if let Some(guard) = &arm.guard {
+                self.expr(guard)?;
+                skips.push(self.fs().chunk.emit_jump(Op::JumpIfFalse, guard.span));
+            }
             self.compile_stmts(&arm.body.stmts, true)?;
             self.pop_scope();
             ends.push(self.fs().chunk.emit_jump(Op::Jump, arm.span));
-            next_arm = skip;
+            next_arm = skips;
         }
-        if let Some(at) = next_arm {
+        for at in next_arm {
             self.fs().chunk.patch(at);
         }
         // Reached only when nothing matched, which the checker allows only
@@ -963,11 +969,11 @@ impl Compiler {
         Ok(())
     }
 
-    /// Emits an arm's test, returning the jump to patch to the next arm.
-    fn arm_test(&mut self, arm: &WhenArm, subject: Option<u16>) -> Result<Option<usize>, Diag> {
+    /// Emits an arm's test, returning the jumps to patch to the next arm.
+    fn arm_test(&mut self, arm: &WhenArm, subject: Option<u16>) -> Result<Vec<usize>, Diag> {
         let span = arm.span;
         match &arm.pattern {
-            WhenPattern::Else => Ok(None),
+            WhenPattern::Else => Ok(Vec::new()),
             WhenPattern::Values(values) => {
                 let mut hits = Vec::new();
                 for v in values {
@@ -986,7 +992,7 @@ impl Compiler {
                 for at in &hits {
                     self.fs().chunk.patch(*at);
                 }
-                Ok(Some(self.fs().chunk.emit_jump(Op::JumpIfFalse, span)))
+                Ok(vec![self.fs().chunk.emit_jump(Op::JumpIfFalse, span)])
             }
             WhenPattern::Is { ty, negated, binds } => {
                 let slot = subject.expect("`is` needs a subject");
@@ -1001,7 +1007,7 @@ impl Compiler {
                     self.emit(Op::LoadLocal(slot), span);
                     self.bind_pattern(d, span)?;
                 }
-                Ok(Some(jump))
+                Ok(vec![jump])
             }
             WhenPattern::In { range, negated } => {
                 let slot = subject.expect("`in` needs a subject");
@@ -1012,7 +1018,7 @@ impl Compiler {
                 if *negated {
                     self.emit(Op::Not, span);
                 }
-                Ok(Some(self.fs().chunk.emit_jump(Op::JumpIfFalse, span)))
+                Ok(vec![self.fs().chunk.emit_jump(Op::JumpIfFalse, span)])
             }
         }
     }
@@ -1335,6 +1341,9 @@ fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr) -> bool) {
                     }
                     WhenPattern::In { range, .. } => walk_expr(range, f),
                     _ => {}
+                }
+                if let Some(g) = &arm.guard {
+                    walk_expr(g, f);
                 }
                 walk_block(&arm.body, f);
             }

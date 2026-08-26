@@ -1,0 +1,188 @@
+// Every snippet in TUTORIAL.md, as assertions.
+//
+// The tutorial is the first thing anyone reads, so it is the worst place for
+// code that no longer runs. This file exists so that a change to the language
+// which invalidates the tour fails the build rather than the reader.
+
+val name = "Ada"
+var count = 0
+count += 1
+val n = 3
+val good = n.toFloat() / 2.0
+assert(good == 1.5, "conversion")
+val ratio: Float = 1 / 2
+assert(ratio == 0.5, "literal widening")
+val who = "Ada"
+assert("hello ${who}, ${1 + 2} things" == "hello Ada, 3 things", "interp")
+assert("héllo".length == 5, "chars")
+assert("héllo"[1] == "é", "index")
+assert("abc"[-1] == "c", "negative")
+
+fun add(a: Int, b: Int): Int { a + b }
+proc greet1(name: String) { }
+proc log(s: String, quiet: Bool) {
+    if (quiet) { return }
+}
+fun greet(name: String, greeting: String = "hello"): String {
+    return "${greeting}, ${name}!"
+}
+assert(greet("Ada") == "hello, Ada!", "default")
+assert(greet("Ada", greeting = "hi") == "hi, Ada!", "named")
+assert(greet(greeting = "hi", name = "Ada") == "hi, Ada!", "both named")
+
+val sign = if (n < 0) { "neg" } else { "pos" }
+val ready = true
+val computed = if (ready) {
+    val a = 2
+    val b = 3
+    a * b
+} else {
+    0
+}
+assert(computed == 6, "block value")
+
+fun lengthOf(s: String?): Int {
+    unless (s != null) { return 0 }
+    return s.length
+}
+assert(lengthOf("abcd") == 4, "unless guard")
+
+fun describe(n: Int): String {
+    return when (n) {
+        0 -> "zero"
+        1, 2, 3 -> "small"
+        in 4..10 -> "medium"
+        else -> "large"
+    }
+}
+assert(describe(7) == "medium", "when range")
+
+fun render(v: Any): String {
+    return when (v) {
+        is Int -> "int ${v + 1}"
+        is String -> v.toUpper()
+        is List -> "list of ${v.size}"
+        else -> typeOf(v)
+    }
+}
+assert(render(1) == "int 2", "narrow int")
+assert(render("a") == "A", "narrow string")
+
+record Circle(val radius: Float)
+record Square(val side: Float)
+fun shapeName(shape: Any): String {
+    return when (shape) {
+        is Circle(r) if (r > 10.0) -> "huge circle"
+        is Circle(r) -> "circle ${r}"
+        else -> "something else"
+    }
+}
+assert(shapeName(Circle(20.0)) == "huge circle", "guard")
+
+fun cross(s: String?): String {
+    if (s == null) { return "none" }
+    return "${s.length}"
+}
+assert(cross(null) == "none", "guard return")
+val s2: String? = "abc"
+assert(s2 != null and s2.length > 0, "and narrowing")
+assert(s2 != null implies s2.length > 0, "implies narrowing")
+
+val xs = [3, 1, 4, 1, 5]
+val ages = {"ada": 36, "grace": 45}
+assert(xs.size == 5, "size")
+assert(xs[-1] == 5, "neg index")
+assert(ages["ada"] == 36, "map get")
+assert((ages["nobody"] ?: 0) == 0, "map miss")
+assert(xs.map({ it * 2 }) == [6, 2, 8, 2, 10], "map")
+assert(xs.filter({ m -> m > 3 }) == [4, 5], "filter")
+assert(xs.fold(0, { acc, m -> acc + m }) == 14, "fold")
+assert(xs.sorted().join(" ") == "1 1 3 4 5", "sorted join")
+
+fun counter(): () -> Int {
+    var c = 0
+    return { -> c += 1; c }
+}
+val next = counter()
+assert(next() == 1 and next() == 2, "closure")
+
+record Point(val x: Int, val y: Int)
+record Person(name: String, age: Int)
+assert(Point(1, 2) == Point(1, 2), "record eq")
+assert(Point(1, 2).toString() == "Point(x=1, y=2)", "record toString")
+
+class Counter {
+    var cn: Int = 0
+    proc bump() { this.cn += 1 }
+    fun value(): Int { this.cn }
+}
+class Point3(val x: Float, val y: Float) {
+    val length: Float = sqrt(x * x + y * y)
+    fun toString(): String { "(${this.x}, ${this.y})" }
+}
+assert(Point3(3.0, 4.0).length == 5.0, "field init")
+
+val p = Point(1, 2)
+val Point(px, py) = p
+assert(px == 1 and py == 2, "destructure")
+val Point(_, onlyY) = p
+assert(onlyY == 2, "skip")
+
+fun area(shape: Any): Float {
+    return when (shape) {
+        is Circle(r) -> 3.14159 * r * r
+        is Square(sq) -> sq * sq
+        else -> 0.0
+    }
+}
+assert(area(Square(3.0)) == 9.0, "area")
+
+fun firstOr<T>(items: List<T>, fallback: T): T {
+    for (x in items) { return x }
+    return fallback
+}
+class Box<T>(val value: T) {
+    fun get(): T { this.value }
+    fun then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
+}
+fun mapAll<T, R>(items: List<T>, f: (T) -> R): List<R> {
+    val out: List<R> = []
+    for (x in items) { out.add(f(x)) }
+    return out
+}
+assert(mapAll([1, 2, 3], { it * 10 }) == [10, 20, 30], "generic")
+assert(Box(2).then({ it + 1 }).get() == 3, "generic method")
+assert(firstOr([9], 0) == 9, "generic fn")
+
+trait Show {
+    fun show(): String
+    fun shout(): String { this.show().toUpper() }
+}
+class Tag(val tname: String) : Show {
+    fun show(): String { "#${this.tname}" }
+}
+fun describeShow<T: Show>(value: T): String { value.show() }
+assert(describeShow(Tag("keal")) == "#keal", "trait bound")
+assert(Tag("x").shout() == "#X", "default method")
+
+class Vec2(val x: Float, val y: Float) : Add, Neg, Eq {
+    fun plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
+    fun negate(): Vec2 { Vec2(-this.x, -this.y) }
+    fun equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
+}
+assert(Vec2(1.0, 2.0) + Vec2(3.0, 4.0) == Vec2(4.0, 6.0), "operator")
+
+fun total<T: Add>(items: List<T>, zero: T): T {
+    var acc = zero
+    for (x in items) { acc = acc + x }
+    return acc
+}
+assert(total([1, 2, 3], 0) == 6, "generic add int")
+assert(total(["a", "b"], "") == "ab", "generic add string")
+
+val a = true
+val b = false
+val c = true
+assert(((a or b) and c) == true, "grouping")
+assert((a and b and c) == false, "chain")
+assert(1 < 2 and 3 > 2, "comparison binds tighter")

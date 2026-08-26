@@ -1,0 +1,18 @@
+error: `when` guard has type `Float`, but `Bool` was expected
+  --> tests/errors/guards.keal:5:21
+  |
+5 |         is C(r) if (r) -> "a guard must be a Bool"
+  |                     ^
+error: `String?` may be null, so `.length` is not allowed
+  --> tests/errors/guards.keal:14:19
+   |
+14 |         else -> s.length
+   |                   ^
+  = note: use `?.`, `!!`, or check for null first
+error: this `when` can produce a value but has no `else` branch
+  --> tests/errors/guards.keal:20:12
+   |
+20 |     return when (n) {
+   |            ^
+  = note: add `else -> ...` so every input is covered
+3 errors found

@@ -1012,6 +1012,21 @@ impl Parser {
                 }
                 WhenPattern::Values(values)
             };
+            // A guard narrows an arm further. `else` cannot take one: it is
+            // the arm that catches whatever the others did not.
+            let guard = if self.at(&Tok::If) {
+                if matches!(pattern, WhenPattern::Else) {
+                    return Err(Diag::new(self.span(), "`else` cannot have a guard")
+                        .with_note("write the condition as its own arm above the `else`"));
+                }
+                self.advance();
+                self.expect(Tok::LParen, "after `if` in a guard")?;
+                let cond = self.expr()?;
+                self.expect(Tok::RParen, "after a guard condition")?;
+                Some(cond)
+            } else {
+                None
+            };
             self.expect(Tok::Arrow, "after a `when` pattern")?;
             // Inside a `when` arm `{` means a block, not a lambda.
             let body = if self.at(&Tok::LBrace) {
@@ -1021,7 +1036,7 @@ impl Parser {
                 let s = e.span;
                 Block { stmts: vec![Stmt { kind: StmtKind::Expr(e), span: s }] }
             };
-            arms.push(WhenArm { pattern, body, span: arm_span });
+            arms.push(WhenArm { pattern, guard, body, span: arm_span });
         }
         self.expect(Tok::RBrace, "to close the `when` body")?;
         Ok(Expr { span, kind: ExprKind::When { subject, arms } })

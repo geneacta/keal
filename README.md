@@ -35,20 +35,56 @@ $ keal hello.keal
 (3.0, 4.0) has length 5.0
 ```
 
-## Build and run
+## Getting started
 
 ```sh
+git clone https://github.com/geneacta/keal.git
+cd keal
 cargo build --release
-
-./target/release/keal examples/tour.keal     # run a program
-./target/release/keal check src/main.keal    # type-check without running
-./target/release/keal repl                   # interactive session
-./target/release/keal --ast examples/tour.keal   # use the tree-walker instead
 ```
 
-`cargo test` runs the whole suite: self-checking programs, every example, and
-snapshot tests for the diagnostics — each on **both** execution engines, which
-must agree on every byte they print.
+That leaves a binary at `./target/release/keal`. To put it on your path:
+
+```sh
+cargo install --path .
+```
+
+Write a file and run it:
+
+```sh
+$ echo 'println("hello, world")' > hello.keal
+$ keal hello.keal
+hello, world
+```
+
+A script can name its own interpreter, so it can be executed directly:
+
+```keal
+#!/usr/bin/env keal
+println("hello from a script")
+```
+
+```sh
+chmod +x hello.keal
+./hello.keal
+```
+
+The rest of the commands:
+
+```sh
+keal check src/main.keal        # type-check without running
+keal repl                       # interactive session
+keal --ast program.keal         # run on the tree-walker instead of the VM
+keal version
+```
+
+**New to the language? Start with the [tutorial](TUTORIAL.md)** — a guided
+walk through everything, in about half an hour. Every snippet in it is
+checked by the test suite.
+
+`cargo test` runs the whole suite: self-checking programs, every example, the
+tutorial, and snapshot tests for the diagnostics — each on **both** execution
+engines, which must agree on every byte they print.
 
 ## What the language has
 
@@ -84,10 +120,12 @@ must agree on every byte they print.
   `unless`, `when` and function bodies all produce values without ceremony.
   `unless (c)` is `if (not c)` — the same construct, including `else`
   branches and smart casts.
-- **`when` and destructuring.** Values, ranges, type tests, and a subject-less
-  form; type tests narrow the subject inside the arm. `val Point(x, y) = p`
-  names a value's constructor fields, and `is Circle(r) ->` tests and binds in
-  one move.
+- **`when`**, which is the switch and the match in one: values, ranges, type
+  tests that narrow the subject, guards (`is Circle(r) if (r > 10.0) ->`), and
+  a subject-less form that replaces a chain of `if`. No fall-through, first
+  match wins, and it is an expression.
+- **Destructuring.** `val Point(x, y) = p` names a value's constructor fields,
+  and `is Circle(r) ->` tests and binds in one move.
 - **A standard library** of about ninety built-ins over strings, lists, maps
   and numbers, including `map`/`filter`/`fold` typed generically.
 - **Modules.** `import "./other.keal"`, resolved relative to the importing
@@ -96,9 +134,10 @@ must agree on every byte they print.
   fix — sorted by position, with as many independent errors per run as the
   checker can find.
 
-See [`docs/language.md`](docs/language.md) for the full reference and
-[`examples/`](examples/) for working programs, including
-[a complete arithmetic evaluator written in Keal](examples/calculator.keal).
+[`TUTORIAL.md`](TUTORIAL.md) is the guided tour, [`docs/language.md`](docs/language.md)
+the complete reference, and [`examples/`](examples/) holds working programs —
+including [an arithmetic evaluator written in Keal](examples/calculator.keal):
+tokenizer, precedence parser and evaluation in about 120 lines.
 
 ## How it is put together
 

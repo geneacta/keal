@@ -1,0 +1,5 @@
+val n = 1
+val bad = when (n) {
+    0 -> "zero"
+    else if (n > 1) -> "an else cannot be conditional"
+}

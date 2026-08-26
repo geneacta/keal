@@ -81,3 +81,59 @@ fun originDistance(p: Point): Int {
     return px.abs() + py.abs()
 }
 assert(originDistance(Point(-3, 4)) == 7, "inside a function")
+
+// ---- guards ------------------------------------------------------------
+//
+// An arm may carry an extra condition, judged after its bindings are in
+// scope. A guarded arm may not fire, so it never counts as the catch-all.
+
+fun size(shape: Any): String {
+    return when (shape) {
+        is Circle(r) if (r > 10.0) -> "huge circle"
+        is Circle(r) -> "circle ${r}"
+        is Square(s) if (s == 0.0) -> "degenerate"
+        is Square(s) -> "square ${s}"
+        else -> "unknown"
+    }
+}
+assert(size(Circle(20.0)) == "huge circle", "guard passed, first arm taken")
+assert(size(Circle(2.0)) == "circle 2.0", "guard failed, fell through")
+assert(size(Square(0.0)) == "degenerate", "guard on a second type")
+assert(size(Square(3.0)) == "square 3.0", "and its fallback")
+assert(size("x") == "unknown", "else")
+
+// Guards work on value and range patterns too.
+fun bucket(n: Int): String {
+    return when (n) {
+        0 -> "zero"
+        in 1..100 if (n % 2 == 0) -> "small even"
+        in 1..100 -> "small odd"
+        else -> "large"
+    }
+}
+assert(bucket(0) == "zero", "unguarded value arm")
+assert(bucket(4) == "small even", "guarded range arm")
+assert(bucket(7) == "small odd", "same range, guard failed")
+assert(bucket(500) == "large", "else")
+
+// A guard sees the arm's bindings, and the value they came from.
+fun deep(v: Any): Int {
+    return when (v) {
+        is Circle(r) if (r.toInt() > 5) -> r.toInt()
+        else -> 0
+    }
+}
+assert(deep(Circle(9.5)) == 9, "the guard used the binding")
+assert(deep(Circle(1.0)) == 0, "and rejected it")
+
+// Because a guarded arm may not fire, what it rules out is not established
+// for the arms below: `s` is still nullable in the second arm.
+fun label(s: String?): String {
+    return when {
+        s == null if (false) -> "never"
+        s == null -> "none"
+        else -> "${s.length}"
+    }
+}
+assert(label(null) == "none", "the guarded arm was skipped")
+assert(label("abc") == "3", "and the else still narrowed")

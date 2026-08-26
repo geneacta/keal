@@ -189,6 +189,9 @@ pub enum Else {
 #[derive(Clone, Debug)]
 pub struct WhenArm {
     pub pattern: WhenPattern,
+    /// `is Circle(r) if (r > 10) ->`: an extra condition the arm must also
+    /// satisfy, checked after its bindings are in scope.
+    pub guard: Option<Expr>,
     pub body: Block,
     pub span: Span,
 }

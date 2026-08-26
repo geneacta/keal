@@ -224,6 +224,9 @@ pub struct Lexer<'a> {
     col: u32,
     file: u32,
     out: Vec<Token>,
+    /// True for a whole file, where a leading `#!` line is the shebang and
+    /// not part of the program. False for an interpolation fragment.
+    allow_shebang: bool,
     /// Open brackets, innermost last. A newline inside `(` or `[` never
     /// becomes a `;`, so call arguments and list literals may span lines.
     /// A `{` re-enables insertion, so lambda bodies still work normally.
@@ -238,6 +241,7 @@ pub fn lex(src: &str, file: u32) -> Result<Vec<Token>, Diag> {
         col: 1,
         file,
         out: Vec::new(),
+        allow_shebang: true,
         brackets: Vec::new(),
     }
     .run()
@@ -252,6 +256,7 @@ pub fn lex_fragment(src: &str, span: Span) -> Result<Vec<Token>, Diag> {
         col: span.col,
         file: span.file,
         out: Vec::new(),
+        allow_shebang: false,
         brackets: Vec::new(),
     }
     .run()
@@ -307,6 +312,14 @@ impl<'a> Lexer<'a> {
     }
 
     fn run(mut self) -> Result<Vec<Token>, Diag> {
+        // `#!/usr/bin/env keal` on the first line makes a script executable.
+        // The line is skipped rather than removed, so every span still points
+        // where the file says it does.
+        if self.allow_shebang && self.src.starts_with(b"#!") {
+            while self.peek() != b'\n' && self.peek() != 0 {
+                self.bump();
+            }
+        }
         loop {
             // Whitespace and comments, tracking newlines for semicolon insertion.
             loop {

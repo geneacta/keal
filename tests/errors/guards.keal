@@ -1,0 +1,23 @@
+record C(val r: Float)
+
+fun f(v: Any): String {
+    return when (v) {
+        is C(r) if (r) -> "a guard must be a Bool"
+        else -> "y"
+    }
+}
+
+// A guarded arm may not fire, so what it rules out is not established below.
+fun g(s: String?): Int {
+    return when {
+        s == null if (true) -> 0
+        else -> s.length
+    }
+}
+
+// A guarded arm never counts as the `else`.
+fun h(n: Int): String {
+    return when (n) {
+        0 if (n > 1) -> "a"
+    }
+}

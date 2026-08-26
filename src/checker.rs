@@ -2466,7 +2466,7 @@ impl Checker {
             let mut below: Vec<(String, Type)> = Vec::new();
 
             match &mut arm.pattern {
-                WhenPattern::Else => has_else = true,
+                WhenPattern::Else => has_else = arm.guard.is_none(),
 
                 WhenPattern::Values(values) => match &subject_ty {
                     Some(st) => {
@@ -2549,10 +2549,18 @@ impl Checker {
             }
 
             self.apply(in_arm);
+            if let Some(guard) = &mut arm.guard {
+                let gt = self.check_expr(guard, Some(&Type::Bool));
+                self.expect_assignable(&gt, &Type::Bool, guard.span, "`when` guard");
+            }
             let t = self.check_block(&mut arm.body);
             self.pop_scope();
             result = Type::join(&result, &t);
-            ruled_out.extend(below);
+            // A guarded arm may not fire, so what it rules out is not
+            // established for the arms below it.
+            if arm.guard.is_none() {
+                ruled_out.extend(below);
+            }
         }
 
         if !has_else {

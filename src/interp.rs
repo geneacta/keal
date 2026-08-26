@@ -380,18 +380,24 @@ impl Interp {
                     hit != *negated
                 }
             };
-            if matched {
-                // `is Point(x, y)` binds the fields for the arm's body only.
-                if let WhenPattern::Is { binds: Some(d), .. } = &arm.pattern {
-                    let scope = Scope::child(env);
-                    let subject = subject_value.as_ref().expect("`is` needs a subject");
-                    for (name, value) in destructure(subject, d, arm.span)? {
-                        scope.define(&name, value);
-                    }
-                    return self.exec_stmts(&arm.body.stmts, &scope);
-                }
-                return self.exec_block(&arm.body, env);
+            if !matched {
+                continue;
             }
+            // `is Point(x, y)` binds the fields for this arm only, and the
+            // guard is judged with them already in scope.
+            let scope = Scope::child(env);
+            if let WhenPattern::Is { binds: Some(d), .. } = &arm.pattern {
+                let subject = subject_value.as_ref().expect("`is` needs a subject");
+                for (name, value) in destructure(subject, d, arm.span)? {
+                    scope.define(&name, value);
+                }
+            }
+            if let Some(guard) = &arm.guard {
+                if !self.eval(guard, &scope)?.truthy() {
+                    continue;
+                }
+            }
+            return self.exec_stmts(&arm.body.stmts, &scope);
         }
         // The checker only allows this when the `when` produces no value.
         let _ = span;

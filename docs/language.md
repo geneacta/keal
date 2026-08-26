@@ -49,6 +49,9 @@ and list literals may be spread over several lines freely.
 
 Comments are `// line`, and `/* block */`, which nests.
 
+A file may begin with `#!/usr/bin/env keal`, which is ignored, so a script can
+be made executable and run directly.
+
 ---
 
 ## 2. Values and types
@@ -275,8 +278,22 @@ when {
 }
 ```
 
-An arm's body is a single expression, or a `{ ... }` block. A `when` that
-produces a value needs an `else` arm.
+An arm's body is a single expression, or a `{ ... }` block.
+
+An arm may carry a **guard**: a further condition, judged after the arm's
+bindings are in scope.
+
+```keal
+when (shape) {
+    is Circle(r) if (r > 10.0) -> "huge circle"
+    is Circle(r) -> "circle ${r}"
+    else -> "something else"
+}
+```
+
+A `when` that produces a value needs an `else` arm. A guarded arm never
+counts as that `else`, because it might not fire — and for the same reason,
+what a guarded arm rules out is not assumed by the arms below it.
 
 ### String interpolation
 

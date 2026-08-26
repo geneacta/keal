@@ -1,0 +1,6 @@
+error: `else` cannot have a guard
+  --> tests/errors/guarded_else.keal:4:10
+  |
+4 |     else if (n > 1) -> "an else cannot be conditional"
+  |          ^
+  = note: write the condition as its own arm above the `else`
