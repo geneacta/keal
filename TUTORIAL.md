@@ -93,6 +93,23 @@ safe because a literal has no other meaning to lose:
 val ratio: Float = 1 / 2     // 0.5, not 0
 ```
 
+Assigning a number copies it; assigning a list or a map shares it:
+
+```keal
+var a = 1
+var b = a
+b += 1                       // a is still 1
+
+val xs = [1, 2]
+val ys = xs
+ys.add(3)                    // xs is [1, 2, 3] — the same list
+```
+
+That is the whole of the value/reference distinction. `String` and records
+are shared too, but they are immutable, so nothing can tell. Only `List`,
+`Map` and classes with a `var` field can change after they are built, which
+is where sharing becomes visible.
+
 Strings interpolate, and are indexed by character rather than byte:
 
 ```keal

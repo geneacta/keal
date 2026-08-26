@@ -186,3 +186,36 @@ val c = true
 assert(((a or b) and c) == true, "grouping")
 assert((a and b and c) == false, "chain")
 assert(1 < 2 and 3 > 2, "comparison binds tighter")
+
+// Values are copied on assignment; references are shared.
+var va = 1
+var vb = va
+vb += 1
+assert(va == 1, "a number was copied")
+
+val shared = [1, 2]
+val alias = shared
+alias.add(3)
+assert(shared == [1, 2, 3], "a list is shared, not copied")
+
+val m1 = {"a": 1}
+val m2 = m1
+m2["b"] = 2
+assert(m1.size == 2, "a map is shared too")
+
+class Mutable(var n: Int)
+val o1 = Mutable(1)
+val o2 = o1
+o2.n = 5
+assert(o1.n == 5, "an instance is shared")
+
+// A record is a reference as well, but immutable, so it cannot be told apart.
+record Frozen(val n: Int)
+val f1 = Frozen(1)
+val f2 = f1
+assert(f1 == f2, "records compare by value whatever their identity")
+
+// An independent copy is built explicitly.
+val copy = shared.slice(0, shared.size)
+copy.add(4)
+assert(shared.size == 3 and copy.size == 4, "slice produced a new list")

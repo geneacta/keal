@@ -78,6 +78,10 @@ keal --ast program.keal         # run on the tree-walker instead of the VM
 keal version
 ```
 
+**Editing Keal?** [`editors/vscode`](editors/vscode) has a VS Code extension:
+highlighting, snippets, and the compiler's own errors reported inline. The
+grammar is a plain TextMate file, so Sublime, Zed and others can read it too.
+
 **New to the language? Start with the [tutorial](TUTORIAL.md)** — a guided
 walk through everything, in about half an hour. Every snippet in it is
 checked by the test suite.
@@ -90,7 +94,10 @@ engines, which must agree on every byte they print.
 
 - **Static types with inference.** `Int`, `Float`, `Bool`, `String`, `Unit`,
   `List<T>`, `Map<K, V>`, `Range`, function types, `Any`, `Nothing`. You
-  annotate parameters and fields; everything else is inferred.
+  annotate parameters and fields; everything else is inferred. `Int`, `Float`
+  and `Bool` are values and copy on assignment; `String`, `List`, `Map` and
+  instances are shared references. There is nothing to box or unbox, and the
+  base library declares no classes at all — only eight operator traits.
 - **Null safety.** `T?` is a distinct type. `?.`, `?:` and `!!` get you across,
   and the checker smart-casts an immutable binding after `if (x != null)`,
   after an early-return guard, and across `&&`.

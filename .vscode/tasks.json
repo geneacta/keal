@@ -1,0 +1,27 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "keal: check file",
+      "type": "shell",
+      "command": "cargo run --quiet -- check ${relativeFile}",
+      "problemMatcher": "$keal",
+      "presentation": { "reveal": "silent", "clear": true },
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "keal: run file",
+      "type": "shell",
+      "command": "cargo run --quiet -- ${relativeFile}",
+      "problemMatcher": "$keal",
+      "presentation": { "reveal": "always", "clear": true }
+    },
+    {
+      "label": "keal: test",
+      "type": "shell",
+      "command": "cargo test",
+      "problemMatcher": "$rustc",
+      "group": { "kind": "test", "isDefault": true }
+    }
+  ]
+}

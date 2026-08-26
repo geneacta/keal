@@ -71,6 +71,34 @@ be made executable and run directly.
 | `Any` | anything non-null | narrow it with `is` before use |
 | `Nothing` | — | the type of an expression that never returns |
 
+### Values and references
+
+There is no `int` versus `Integer` in Keal, and nothing to box or unbox. But
+the types do divide in two, and the difference shows:
+
+| | Types | Assigning one |
+|---|---|---|
+| **Values** | `Int`, `Float`, `Bool`, `Unit` | copies it |
+| **References** | `String`, `List<T>`, `Map<K, V>`, class and record instances | shares it |
+
+```keal
+var a = 1
+var b = a
+b += 1
+// a is still 1
+
+val xs = [1, 2]
+val ys = xs
+ys.add(3)
+// xs is [1, 2, 3] — the same list
+```
+
+Strings are references, but immutable, so nothing can observe the sharing.
+Records are references too, and also immutable, so the same holds. The
+distinction only becomes visible for `List`, `Map`, and a class with a `var`
+field — the three things that can change after they are built. When you need
+an independent copy, build one: `xs.slice(0, xs.size)`.
+
 ### Numbers do not convert implicitly
 
 `Int` and `Float` are separate types, and Keal will not silently mix them:
@@ -840,7 +868,17 @@ runs the same program on the tree-walking evaluator instead, and the two are
 required to agree on every byte they print. If they ever do not, that is a
 bug — please report it with the program that shows it.
 
-## 17. What is not here yet
+## 17. Editor support
+
+[`editors/vscode`](../editors/vscode) holds a Visual Studio Code extension:
+highlighting, bracket and indent behaviour, snippets, and a problem matcher
+that reads `keal check` output so diagnostics land on the right line.
+
+There is no language server yet, so there is no completion or go-to-definition.
+The grammar is a standard TextMate file that Sublime Text, Zed and others read
+directly.
+
+## 18. What is not here yet
 
 Class inheritance · exceptions and `try`/`catch` · destructuring a record in
 a `when` or a binding ·

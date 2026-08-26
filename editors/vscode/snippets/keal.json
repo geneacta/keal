@@ -1,0 +1,64 @@
+{
+  "Function": {
+    "prefix": "fun",
+    "body": ["fun ${1:name}(${2:param}: ${3:Int}): ${4:Int} {", "\t$0", "}"],
+    "description": "A function, which must declare what it returns"
+  },
+  "Procedure": {
+    "prefix": "proc",
+    "body": ["proc ${1:name}(${2:param}: ${3:Int}) {", "\t$0", "}"],
+    "description": "A procedure, which returns nothing"
+  },
+  "Record": {
+    "prefix": "record",
+    "body": ["record ${1:Name}(val ${2:field}: ${3:Int})$0"],
+    "description": "A record: immutable fields, equality by value"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": ["class ${1:Name}(val ${2:field}: ${3:Int}) {", "\t$0", "}"],
+    "description": "A class: behaviour and mutable state"
+  },
+  "Trait": {
+    "prefix": "trait",
+    "body": ["trait ${1:Name} {", "\tfun ${2:method}(): ${3:String}", "}$0"],
+    "description": "A trait: method signatures, and what bounds are written in"
+  },
+  "when with a subject": {
+    "prefix": "when",
+    "body": ["when (${1:value}) {", "\t${2:pattern} -> $3", "\telse -> $0", "}"],
+    "description": "Match on a value"
+  },
+  "when without a subject": {
+    "prefix": "whencond",
+    "body": ["when {", "\t${1:condition} -> $2", "\telse -> $0", "}"],
+    "description": "A table of conditions, in place of a chain of if"
+  },
+  "if / else": {
+    "prefix": "if",
+    "body": ["if (${1:condition}) {", "\t$2", "} else {", "\t$0", "}"]
+  },
+  "unless": {
+    "prefix": "unless",
+    "body": ["unless (${1:condition}) {", "\t$0", "}"],
+    "description": "if (not condition)"
+  },
+  "for": {
+    "prefix": "for",
+    "body": ["for (${1:x} in ${2:xs}) {", "\t$0", "}"]
+  },
+  "while": {
+    "prefix": "while",
+    "body": ["while (${1:condition}) {", "\t$0", "}"]
+  },
+  "Destructuring binding": {
+    "prefix": "vald",
+    "body": ["val ${1:Type}(${2:a}, ${3:b}) = ${4:value}$0"],
+    "description": "Name a value's constructor fields"
+  },
+  "Shebang": {
+    "prefix": "shebang",
+    "body": ["#!/usr/bin/env keal", "$0"],
+    "description": "Make the script directly executable"
+  }
+}

@@ -1,0 +1,259 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Keal",
+  "scopeName": "source.keal",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#shebang" },
+    { "include": "#declarations" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#operators" },
+    { "include": "#calls" },
+    { "include": "#identifiers" }
+  ],
+  "repository": {
+    "shebang": {
+      "match": "\\A#!.*$",
+      "name": "comment.line.shebang.keal"
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.keal",
+          "begin": "//",
+          "end": "$"
+        },
+        {
+          "name": "comment.block.keal",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "patterns": [{ "include": "#comments" }]
+        }
+      ]
+    },
+
+    "declarations": {
+      "patterns": [
+        {
+          "comment": "A function or procedure, with its name and type parameters.",
+          "match": "\\b(fun|proc)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.function.keal" },
+            "2": { "name": "entity.name.function.keal" }
+          }
+        },
+        {
+          "comment": "A class, record or trait, and the name it introduces.",
+          "match": "\\b(class|record|trait)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.type.keal" },
+            "2": { "name": "entity.name.type.keal" }
+          }
+        },
+        {
+          "comment": "A binding, and the name it introduces.",
+          "match": "\\b(val|var)\\s+([a-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "keyword.declaration.variable.keal" },
+            "2": { "name": "variable.other.definition.keal" }
+          }
+        },
+        {
+          "comment": "A destructuring pattern: `val Point(x, y) = p`.",
+          "match": "\\b(val|var)\\s+([A-Z][A-Za-z0-9_]*)(?=\\s*\\()",
+          "captures": {
+            "1": { "name": "keyword.declaration.variable.keal" },
+            "2": { "name": "entity.name.type.keal" }
+          }
+        },
+        {
+          "match": "\\b(import)\\b",
+          "name": "keyword.control.import.keal"
+        }
+      ]
+    },
+
+    "strings": {
+      "name": "string.quoted.double.keal",
+      "begin": "\"",
+      "end": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.keal" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.keal" } },
+      "patterns": [
+        {
+          "comment": "\\u{1F600} and the single-character escapes.",
+          "name": "constant.character.escape.keal",
+          "match": "\\\\(u\\{[0-9A-Fa-f]+\\}|[nrt0\\\\\"$])"
+        },
+        {
+          "name": "invalid.illegal.unknown-escape.keal",
+          "match": "\\\\."
+        },
+        {
+          "comment": "${ ... }, whose contents are Keal in their own right.",
+          "name": "meta.embedded.line.keal",
+          "begin": "\\$\\{",
+          "end": "\\}",
+          "beginCaptures": { "0": { "name": "punctuation.section.embedded.begin.keal" } },
+          "endCaptures": { "0": { "name": "punctuation.section.embedded.end.keal" } },
+          "patterns": [{ "include": "$self" }]
+        },
+        {
+          "comment": "The short form, $name.",
+          "name": "meta.embedded.line.keal",
+          "match": "(\\$)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "punctuation.section.embedded.begin.keal" },
+            "2": { "name": "variable.other.keal" }
+          }
+        }
+      ]
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "comment": "Floats, including an exponent, with `_` as a separator.",
+          "name": "constant.numeric.float.keal",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.float.keal",
+          "match": "\\b[0-9][0-9_]*[eE][+-]?[0-9]+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.keal",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.conditional.keal",
+          "match": "\\b(if|unless|else|when)\\b"
+        },
+        {
+          "name": "keyword.control.loop.keal",
+          "match": "\\b(while|for|break|continue)\\b"
+        },
+        {
+          "name": "keyword.control.flow.keal",
+          "match": "\\b(return)\\b"
+        },
+        {
+          "comment": "The logical connectives, which are words in Keal.",
+          "name": "keyword.operator.logical.keal",
+          "match": "\\b(not|and|or|xor|xnor|nand|nor|implies)\\b"
+        },
+        {
+          "name": "keyword.operator.word.keal",
+          "match": "\\b(is|in)\\b"
+        },
+        {
+          "name": "keyword.declaration.keal",
+          "match": "\\b(val|var|fun|proc|class|record|trait)\\b"
+        }
+      ]
+    },
+
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.keal",
+          "match": "\\b(Int|Float|Bool|String|Unit|Any|Nothing|Range)\\b"
+        },
+        {
+          "name": "support.type.keal",
+          "match": "\\b(List|Map|Self)\\b"
+        },
+        {
+          "comment": "The prelude's operator traits.",
+          "name": "support.class.keal",
+          "match": "\\b(Add|Sub|Mul|Div|Rem|Neg|Eq|Ord)\\b"
+        },
+        {
+          "comment": "Any other capitalised name reads as a type.",
+          "name": "entity.name.type.keal",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.keal",
+          "match": "\\b(true|false|null)\\b"
+        },
+        {
+          "name": "variable.language.this.keal",
+          "match": "\\bthis\\b"
+        }
+      ]
+    },
+
+    "operators": {
+      "patterns": [
+        {
+          "comment": "Null-safety, which is worth seeing at a glance.",
+          "name": "keyword.operator.null.keal",
+          "match": "(\\?\\.|\\?:|!!|\\?)"
+        },
+        {
+          "name": "keyword.operator.assignment.keal",
+          "match": "(\\+=|-=|\\*=|/=|%=|=)"
+        },
+        {
+          "name": "keyword.operator.comparison.keal",
+          "match": "(==|!=|<=|>=|<|>)"
+        },
+        {
+          "name": "keyword.operator.logical.keal",
+          "match": "(&&|\\|\\||\\^|!)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.keal",
+          "match": "(\\+|-|\\*|/|%)"
+        },
+        {
+          "name": "keyword.operator.range.keal",
+          "match": "\\.\\."
+        },
+        {
+          "name": "keyword.operator.arrow.keal",
+          "match": "->"
+        }
+      ]
+    },
+
+    "calls": {
+      "patterns": [
+        {
+          "comment": "A name directly before `(` is being called.",
+          "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*(?=\\()",
+          "captures": { "1": { "name": "entity.name.function.call.keal" } }
+        }
+      ]
+    },
+
+    "identifiers": {
+      "patterns": [
+        {
+          "comment": "A named argument, `f(name = value)`.",
+          "match": "\\b([a-z_][A-Za-z0-9_]*)\\s*(?==[^=])",
+          "captures": { "1": { "name": "variable.parameter.keal" } }
+        },
+        {
+          "name": "variable.other.keal",
+          "match": "\\b[a-z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    }
+  }
+}
