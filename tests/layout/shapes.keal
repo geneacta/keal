@@ -1,0 +1,18 @@
+// The layouts this program produces are snapshotted, so a change to how a
+// value is represented shows up as a diff rather than as a surprise.
+
+record Point(val x: Float, val y: Float)
+
+// A byte between two words costs padding that reordering would recover.
+record Mixed(val flag: Bool, val count: Int, val label: String)
+
+// Nullability is free over a reference and costs a tag over a number.
+record Optional(val maybeInt: Int?, val maybeText: String?, val flag: Bool?)
+
+record Empty()
+
+record Boxed<T>(val value: T, val tag: Int)
+
+class Node(val name: String, var next: Node?) {
+    var visits: Int = 0
+}

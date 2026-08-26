@@ -878,7 +878,17 @@ There is no language server yet, so there is no completion or go-to-definition.
 The grammar is a standard TextMate file that Sublime Text, Zed and others read
 directly.
 
-## 18. What is not here yet
+## 18. How values are represented
+
+`Int`, `Float`, `Bool`, `Unit` and `Range` are values and copy on assignment.
+`String`, `List`, `Map`, functions and instances are references, shared and
+reference-counted.
+
+That is all a program needs to know. If you are interested in the bytes —
+sizes, field offsets, what `T?` costs, what crosses into C — run
+`keal layout file.keal`, and see [`docs/memory.md`](memory.md).
+
+## 19. What is not here yet
 
 Class inheritance · exceptions and `try`/`catch` · destructuring a record in
 a `when` or a binding ·

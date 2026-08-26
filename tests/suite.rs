@@ -171,6 +171,18 @@ fn runtime_errors_match_snapshots() {
     }
 }
 
+/// How values are laid out is a decision, not an accident, so it is pinned
+/// down: a change to any representation shows up as a diff here.
+#[test]
+fn layouts_match_snapshots() {
+    for file in keal_files("tests/layout") {
+        let path = relative(&file);
+        let out = keal(&["layout", &path]);
+        assert!(out.success, "{} failed to lay out:\n{}", path, out.stderr);
+        check_snapshot(&file, &out.stdout);
+    }
+}
+
 #[test]
 fn cli_reports_missing_files() {
     let out = keal(&["run", "does/not/exist.keal"]);

@@ -114,8 +114,21 @@ enum ReturnCtx {
     Lambda,
 }
 
+/// What a later pass needs to know about a class's shape, once the checker
+/// has resolved its field types. This is what the layout pass consumes.
+pub struct ClassShape {
+    pub name: String,
+    pub is_record: bool,
+    /// True when the class takes type parameters, so its layout is one shape
+    /// per instantiation rather than a single answer.
+    pub generic: bool,
+    pub fields: Vec<(String, Type)>,
+}
+
 pub struct Checker {
     classes: HashMap<String, ClassInfo>,
+    /// Declaration order, so anything reporting on classes is deterministic.
+    class_order: Vec<String>,
     scopes: Vec<HashMap<String, Binding>>,
     returns: Vec<ReturnCtx>,
     this_ty: Vec<Type>,
@@ -140,6 +153,7 @@ impl Checker {
     pub fn new() -> Checker {
         Checker {
             classes: HashMap::new(),
+            class_order: Vec::new(),
             scopes: vec![HashMap::new()],
             returns: Vec::new(),
             this_ty: Vec::new(),
@@ -167,6 +181,27 @@ impl Checker {
         // source order; the sort is stable, keeping ties in the order found.
         errors.sort_by_key(|d| (d.span.file, d.span.line, d.span.col));
         (errors, last)
+    }
+
+    /// Every class the program declares, in declaration order, with its
+    /// fields resolved.
+    pub fn class_shapes(&self) -> Vec<ClassShape> {
+        self.class_order
+            .iter()
+            .filter_map(|name| {
+                let info = self.classes.get(name)?;
+                Some(ClassShape {
+                    name: name.clone(),
+                    is_record: info.is_record,
+                    generic: !info.type_params.is_empty(),
+                    fields: info
+                        .fields
+                        .iter()
+                        .map(|(n, f)| (n.clone(), f.ty.clone()))
+                        .collect(),
+                })
+            })
+            .collect()
     }
 
     fn error(&mut self, span: Span, msg: impl Into<String>) {
@@ -226,6 +261,9 @@ impl Checker {
                     self.errors
                         .push(Diag::new(c.span, format!("class `{}` is declared twice", c.name)));
                     continue;
+                }
+                if !self.class_order.contains(&c.name) {
+                    self.class_order.push(c.name.clone());
                 }
                 self.classes.insert(
                     c.name.clone(),

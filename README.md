@@ -73,6 +73,7 @@ The rest of the commands:
 
 ```sh
 keal check src/main.keal        # type-check without running
+keal layout src/main.keal       # show how the program's values are laid out
 keal repl                       # interactive session
 keal --ast program.keal         # run on the tree-walker instead of the VM
 keal version
@@ -158,6 +159,7 @@ src/
   builtins.rs  type signatures for the standard library
   checker.rs   name resolution, type checking, null-safety analysis
   value.rs     runtime values, environments
+  layout.rs    the memory model: what a value is, in bytes
   bytecode.rs  the instruction set
   compiler.rs  AST -> bytecode: name resolution and capture analysis
   vm.rs        the bytecode virtual machine
@@ -235,6 +237,34 @@ every call site, and the checker refuses a call it cannot fully solve. That
 rules out a generic function as a value and `is T` on a type parameter — both
 would need a uniform boxed representation, which a monomorphising backend does
 not have. Choosing this now avoids designing the type checker twice.
+
+## Where it is going
+
+The target is native code. That makes one question unavoidable which an
+interpreter can dodge — what a value is in bytes, and who frees it — and it is
+answered in [`docs/memory.md`](docs/memory.md). The short version:
+
+* **Reference counting.** Every heap object carries its count. No collector,
+  no ownership annotations, no borrow checker.
+* **Fields keep declaration order**, padding and all, because a struct whose
+  shape the author cannot predict is one that cannot be handed to C.
+* **`T?` is free where a spare bit pattern exists.** `String?` is the size of
+  `String`; `Int?` is twice the size of `Int`, and says so.
+
+`keal layout file.keal` prints the whole table for any program, so none of it
+has to be taken on trust:
+
+```
+record Point
+  24 bytes, align 8, 0 of which is padding
+  offset  size  field                as
+       0     8  <reference count>    usize
+       8     8  x: Float             f64
+      16     8  y: Float             f64
+```
+
+The layouts of a sample program are snapshotted in the test suite, so changing
+a representation shows up as a diff rather than as a surprise.
 
 ## Not there yet
 

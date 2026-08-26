@@ -1,0 +1,58 @@
+built-in representations
+  type         as                      size  align  notes
+  Int          i64                        8      8  C-compatible
+  Float        f64                        8      8  C-compatible
+  Bool         i8                         1      1  C-compatible
+  Unit         zero-sized                 0      1  C-compatible
+  Range        {i64, i64}                16      8  C-compatible
+  String       *String                    8      8  counted
+  List<T>      *List                      8      8  counted
+  Map<K, V>    *Map                       8      8  counted
+  (A) -> B     *Function                  8      8  counted
+  Any          {tag, word}               16      8  counted
+  Int?         {i8, i64}                 16      8  C-compatible, null needs a tag of its own
+  Bool?        i8?                        1      1  C-compatible, null fits in a spare pattern
+  String?      *String?                   8      8  counted, null fits in a spare pattern
+
+record Point
+  24 bytes, align 8, 0 of which is padding
+  offset  size  field                as
+       0     8  <reference count>    usize
+       8     8  x: Float             f64
+      16     8  y: Float             f64
+
+record Mixed
+  32 bytes, align 8, 7 of which is padding
+  offset  size  field                as
+       0     8  <reference count>    usize
+       8     1  flag: Bool           i8
+      16     8  count: Int           i64
+      24     8  label: String        *String
+
+record Optional
+  40 bytes, align 8, 7 of which is padding
+  offset  size  field                as
+       0     8  <reference count>    usize
+       8    16  maybeInt: Int?       {i8, i64}
+      24     8  maybeText: String?   *String?
+      32     1  flag: Bool?          i8?
+
+record Empty
+  8 bytes, align 8, 0 of which is padding
+  offset  size  field                as
+       0     8  <reference count>    usize
+
+record Boxed  —  generic, so one layout per instantiation; shown with each parameter a pointer
+  24 bytes, align 8, 0 of which is padding
+  offset  size  field                as
+       0     8  <reference count>    usize
+       8     8  value: T             <per instantiation>
+      16     8  tag: Int             i64
+
+class Node
+  32 bytes, align 8, 0 of which is padding
+  offset  size  field                as
+       0     8  <reference count>    usize
+       8     8  name: String         *String
+      16     8  next: Node?          *Node?
+      24     8  visits: Int          i64

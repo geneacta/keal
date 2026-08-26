@@ -6,6 +6,7 @@ mod bytecode;
 mod checker;
 mod compiler;
 mod interp;
+mod layout;
 mod lexer;
 mod loader;
 mod native;
@@ -30,6 +31,7 @@ usage:
     keal <file.keal>          run a program
     keal run <file.keal>      run a program
     keal check <file.keal>    type-check without running
+    keal layout <file.keal>   show how the program's values are laid out
     keal repl                 start an interactive session
     keal version              print the version
 ";
@@ -78,8 +80,15 @@ fn real_main() -> ExitCode {
         [one] if one == "version" || one == "--version" || one == "-V" => ("version", None),
         [one] if one == "help" || one == "--help" || one == "-h" => ("help", None),
         [one] => ("run", Some(one.clone())),
-        [cmd, file] if cmd == "run" || cmd == "check" => {
-            (if cmd == "run" { "run" } else { "check" }, Some(file.clone()))
+        [cmd, file] if cmd == "run" || cmd == "check" || cmd == "layout" => {
+            (
+                match cmd.as_str() {
+                    "run" => "run",
+                    "check" => "check",
+                    _ => "layout",
+                },
+                Some(file.clone()),
+            )
         }
         _ => ("help", None),
     };
@@ -94,6 +103,7 @@ fn real_main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "repl" => repl::run(),
+        "layout" => show_layout(&target.unwrap()),
         cmd => run_file(&target.unwrap(), cmd == "check", engine),
     }
 }
@@ -127,6 +137,100 @@ fn format_trace(frames: &[(String, span::Span)], sources: &Sources) -> String {
         i += repeats;
     }
     out
+}
+
+/// Prints how the program's values are represented: the built-in types, then
+/// every class and record, field by field.
+///
+/// This is the memory model made inspectable. A native backend has to agree
+/// with this table byte for byte, so it is worth being able to read it.
+fn show_layout(path: &str) -> ExitCode {
+    use layout::{builtin_reprs, object_layout, Repr, WORD};
+
+    let mut sources = span::Sources::new();
+    let mut program = match loader::load(path, &mut sources) {
+        Ok(p) => p,
+        Err(d) => {
+            eprint!("{}", sources.render("error", &d));
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let mut checker = checker::Checker::new();
+    let (errors, _) = checker.check_program(&mut program);
+    if !errors.is_empty() {
+        for d in &errors {
+            eprint!("{}", sources.render("error", d));
+        }
+        return ExitCode::FAILURE;
+    }
+
+    println!("built-in representations");
+    println!("  {:<12} {:<22} {:>5}  {:>5}  {}", "type", "as", "size", "align", "notes");
+    for (name, repr) in builtin_reprs() {
+        let l = repr.layout().expect("a built-in always has a layout");
+        let mut notes = Vec::new();
+        if repr.is_counted() {
+            notes.push("counted");
+        }
+        if repr.is_c_compatible() {
+            notes.push("C-compatible");
+        }
+        if matches!(repr, Repr::Nullable(_)) {
+            notes.push(if repr.has_niche() {
+                "null fits in a spare pattern"
+            } else {
+                "null needs a tag of its own"
+            });
+        }
+        println!(
+            "  {:<12} {:<22} {:>5}  {:>5}  {}",
+            name,
+            repr.to_string(),
+            l.size,
+            l.align,
+            notes.join(", ")
+        );
+    }
+
+    let shapes = checker.class_shapes();
+    if shapes.is_empty() {
+        println!("\nthis program declares no classes or records");
+        return ExitCode::SUCCESS;
+    }
+
+    for shape in &shapes {
+        let laid = object_layout(&shape.name, &shape.fields, shape.generic);
+        let kind = if shape.is_record { "record" } else { "class" };
+        println!();
+        if laid.generic {
+            println!(
+                "{} {}  —  generic, so one layout per instantiation; \
+                 shown with each parameter a pointer",
+                kind, laid.name
+            );
+        } else {
+            println!("{} {}", kind, laid.name);
+        }
+        println!(
+            "  {} bytes, align {}, {} of which is padding",
+            laid.size,
+            laid.align,
+            laid.padding()
+        );
+        println!("  {:>6}  {:>4}  {:<20} {}", "offset", "size", "field", "as");
+        println!("  {:>6}  {:>4}  {:<20} {}", 0, WORD, "<reference count>", "usize");
+        for f in &laid.fields {
+            println!(
+                "  {:>6}  {:>4}  {:<20} {}",
+                f.offset,
+                f.size,
+                format!("{}: {}", f.name, f.ty),
+                f.repr
+            );
+        }
+    }
+    ExitCode::SUCCESS
 }
 
 fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {
