@@ -281,6 +281,37 @@ KEAL_FN KealList* keal_list_snapshot(KealList* l) {
     return c;
 }
 
+/* ---- closures --------------------------------------------------------- */
+
+/* A function value: the count, the code, and how to drop the environment.
+ * Each lambda's captures follow this header in a struct of its own; the call
+ * site casts `fn` to the signature the static type promises. */
+typedef void (*KealCode)(void);
+
+typedef struct KealClosure {
+    int64_t rc;
+    KealCode fn;
+    void (*drop)(struct KealClosure* self);
+} KealClosure;
+
+KEAL_FN KealClosure* keal_fn_retain(KealClosure* c) {
+    if (c != NULL) {
+        c->rc++;
+    }
+    return c;
+}
+
+KEAL_FN void keal_fn_release(KealClosure* c) {
+    if (c == NULL) {
+        return;
+    }
+    c->rc--;
+    if (c->rc > 0) {
+        return;
+    }
+    c->drop(c);
+}
+
 /* ---- building strings ------------------------------------------------- */
 
 /* A growable buffer, used by the rendering functions the compiler generates

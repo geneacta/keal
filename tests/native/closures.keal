@@ -1,0 +1,55 @@
+// Lambdas and closures compiled natively: a lambda becomes a top-level C
+// function plus a counted environment struct. Captures are `val`s taken by
+// value — indistinguishable from sharing, since a `val` never changes — and
+// the higher-order list methods compile to plain loops feeding each element
+// through the closure.
+
+fun apply(x: Int, f: (Int) -> Int): Int { return f(x) }
+
+val double = { x: Int -> x * 2 }
+println(double(21))
+println(apply(5, double))
+println(apply(5, { n: Int -> n + 100 }))
+
+// A capture: the lambda reads a val of the enclosing frame.
+val base = 10
+val addBase = { n: Int -> n + base }
+println(addBase(7))
+
+// A capture of a string, which is counted.
+val greeting = "hello"
+val greet = { name: String -> greeting + ", " + name }
+println(greet("world"))
+
+// Nested lambdas, capturing through two frames.
+fun makeAdder(k: Int): (Int) -> (Int) -> Int {
+    return { a: Int -> { b: Int -> a + b + k } }
+}
+println(makeAdder(100)(20)(3))
+
+// A lambda held in a record field... no, in a local, called twice.
+val twice = { f: (Int) -> Int, x: Int -> f(f(x)) }
+println(twice(double, 5))
+println(twice({ n: Int -> n + 1 }, 0))
+val xs = [3, 1, 4, 1, 5]
+println(xs.map({ n: Int -> n * 10 }))
+println(xs.filter({ n: Int -> n > 2 }))
+println(xs.fold(0, { acc: Int, n: Int -> acc + n }))
+xs.forEach({ n: Int -> println("saw ${n}") })
+
+val names = ["ada", "grace"]
+println(names.map({ s: String -> s + "!" }))
+println(names.fold("", { acc: String, s: String -> acc + s + ";" }))
+println(names.filter({ s: String -> s.length > 3 }))
+
+// A capture inside the callback.
+val floor = 2
+println(xs.filter({ n: Int -> n > floor }))
+
+// Chained, and over a mapped result.
+println(xs.map({ n: Int -> n + 1 }).filter({ n: Int -> n % 2 == 0 }))
+
+record Point(val x: Int, val y: Int)
+val points = [Point(1, 2), Point(3, 4)]
+println(points.map({ p: Point -> p.x + p.y }))
+println(points.filter({ p: Point -> p.x > 1 }))

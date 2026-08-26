@@ -9,12 +9,12 @@ fun useBoxed(): Int { Boxed(1).value }
 
 fun withDefault(n: Int = 1): Int { n }
 
-// Lists compile; their higher-order methods need lambdas, which do not.
-fun useMap(): Int { [1, 2, 3].map({ it * 2 }).size }
-
-fun useLambda(): Int {
-    val f = { x: Int -> x * 2 }
-    return f(21)
+// Capturing a `var` is refused: sharing it would need a heap cell, and
+// copying it would silently diverge from the interpreters.
+fun captureVar(): Int {
+    var counter = 0
+    val bump = { -> counter + 1 }
+    return bump()
 }
 
 // `when` compiles, except an `is` arm, which needs run-time type information.

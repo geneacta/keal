@@ -106,6 +106,19 @@ struct CBackend {
     generic_classes: Vec<String>,
     /// What `this` is called in the function being emitted.
     this_name: Option<String>,
+    /// The locals of the frame being emitted, innermost scope last, each
+    /// with its type and whether it is a `var`. This exists for lambdas: a
+    /// free name in a body is a capture when it is a local here, and how it
+    /// was declared decides whether capturing it is sound.
+    locals: Vec<Vec<(String, Type, bool)>>,
+    /// Names of the program's own functions, which are called, not captured.
+    global_funs: std::collections::HashSet<String>,
+    /// Bodies of generated lambda functions, emitted after everything else.
+    lambda_defs: String,
+    next_lambda: usize,
+    /// The capture environment of the lambda being emitted, if any:
+    /// name -> (struct field, type).
+    capture_env: Option<HashMap<String, (String, Type)>>,
     errors: Vec<Diag>,
 }
 
@@ -128,6 +141,11 @@ impl CBackend {
             shapes: HashMap::new(),
             generic_classes: Vec::new(),
             this_name: None,
+            locals: Vec::new(),
+            global_funs: std::collections::HashSet::new(),
+            lambda_defs: String::new(),
+            next_lambda: 0,
+            capture_env: None,
             errors: Vec::new(),
         }
     }
@@ -182,6 +200,17 @@ impl CBackend {
             Type::Class(name, args) if args.is_empty() && self.shapes.contains_key(&**name) => {
                 Some(format!("{}*", struct_name(name)))
             }
+            Type::Fun(ft) => {
+                // Callable through a cast at each site; representable as one
+                // pointer as long as its signature is.
+                for p in &ft.params {
+                    self.ctype(&p.ty, span)?;
+                }
+                if ft.ret != Type::Unit {
+                    self.ctype(&ft.ret, span)?;
+                }
+                Some("KealClosure*".to_string())
+            }
             Type::List(elem) => {
                 // The element type must itself be supported, or the list is
                 // refused where it is declared rather than where it breaks.
@@ -205,7 +234,7 @@ impl CBackend {
     /// True for a type whose values hold a reference that must be released.
     fn counted(ty: &Type) -> bool {
         match ty {
-            Type::Str | Type::Class(_, _) | Type::List(_) => true,
+            Type::Str | Type::Class(_, _) | Type::List(_) | Type::Fun(_) => true,
             Type::Nullable(inner) => Self::counted(inner),
             _ => false,
         }
@@ -217,6 +246,7 @@ impl CBackend {
             Type::Str => Some("keal_str_retain".to_string()),
             Type::Class(name, _) => Some(format!("{}_retain", struct_name(name))),
             Type::List(_) => Some("keal_list_retain".to_string()),
+            Type::Fun(_) => Some("keal_fn_retain".to_string()),
             // Retain and release both accept null, so a nullable needs no
             // special case beyond reaching through it.
             Type::Nullable(inner) => Self::retain_fn(inner),
@@ -230,6 +260,7 @@ impl CBackend {
             Type::Str => Some("keal_str_release".to_string()),
             Type::Class(name, _) => Some(format!("{}_release", struct_name(name))),
             Type::List(_) => Some("keal_list_release".to_string()),
+            Type::Fun(_) => Some("keal_fn_release".to_string()),
             Type::Nullable(inner) => Self::release_fn(inner),
             _ => None,
         }
@@ -297,6 +328,11 @@ impl CBackend {
         for item in &program.items {
             if let Item::Class(c) = item {
                 self.class_functions(c);
+            }
+        }
+        for item in &program.items {
+            if let Item::Fun(f) = item {
+                self.global_funs.insert(f.name.clone());
             }
         }
         for item in &program.items {
@@ -440,6 +476,7 @@ impl CBackend {
         self.body.clear();
         self.indent = 1;
         self.scopes.push(Vec::new());
+        self.locals.push(Vec::new());
         for item in &program.items {
             if let Item::Stmt(s) = item {
                 self.stmt(s);
@@ -490,6 +527,14 @@ impl CBackend {
         self.indent = 1;
         self.next_temp = 0;
         self.scopes.push(Vec::new());
+        self.locals.push(Vec::new());
+        for p in f.params.iter() {
+            if let Some(te) = &p.ty {
+                if let Some(ty) = self.resolved(te, p.span) {
+                    self.declare_local(&p.name, &ty, false);
+                }
+            }
+        }
         // Parameters are borrowed from the caller, so the body does not
         // release them; only what it creates itself.
         //
@@ -533,6 +578,13 @@ impl CBackend {
         self.indent = 1;
         self.next_temp = 0;
         self.scopes.push(Vec::new());
+        self.locals.push(Vec::new());
+        for p in &c.ctor {
+            if let Some((_, ty)) = fields.iter().find(|(n, _)| *n == p.name) {
+                let ty = ty.clone();
+                self.declare_local(&p.name, &ty, false);
+            }
+        }
         self.line(format!("{n}* self = ({n}*)keal_alloc(sizeof({n}));", n = name));
         self.line("self->rc = 1;");
         for p in &c.ctor {
@@ -597,6 +649,14 @@ impl CBackend {
         self.indent = 1;
         self.next_temp = 0;
         self.scopes.push(Vec::new());
+        self.locals.push(Vec::new());
+        for p in m.params.iter() {
+            if let Some(te) = &p.ty {
+                if let Some(ty) = self.resolved(te, p.span) {
+                    self.declare_local(&p.name, &ty, false);
+                }
+            }
+        }
         self.this_name = Some("self".to_string());
         self.emit_body(&m.body.stmts, &ret);
         self.this_name = None;
@@ -659,9 +719,13 @@ impl CBackend {
                     None
                 }
             }
-            TypeExprKind::Fun { .. } => {
-                self.unsupported(span, "function types");
-                None
+            TypeExprKind::Fun { params, ret } => {
+                let ps = params
+                    .iter()
+                    .map(|p| self.resolved(p, span))
+                    .collect::<Option<Vec<_>>>()?;
+                let r = self.resolved(ret, span)?;
+                Some(Type::fun(ps, r))
             }
             TypeExprKind::Named { name, args } if name == "List" && args.len() == 1 => {
                 let inner = self.resolved(&args[0], span)?;
@@ -681,10 +745,12 @@ impl CBackend {
 
     fn open_scope(&mut self) {
         self.scopes.push(Vec::new());
+        self.locals.push(Vec::new());
     }
 
     /// Emits the releases this block owes, and drops it.
     fn close_scope(&mut self) {
+        self.locals.pop();
         let scope = self.scopes.pop().unwrap_or_default();
         for owned in scope.iter().rev() {
             self.line(format!("{}({});", owned.release, owned.name));
@@ -703,6 +769,24 @@ impl CBackend {
         for c in calls {
             self.line(c);
         }
+    }
+
+    /// Records a name of the frame being emitted.
+    fn declare_local(&mut self, name: &str, ty: &Type, mutable: bool) {
+        if let Some(scope) = self.locals.last_mut() {
+            scope.push((name.to_string(), ty.clone(), mutable));
+        }
+    }
+
+    /// Resolves a name: a capture reads through the environment, anything
+    /// else is the C variable it was declared as.
+    fn var_ref(&self, name: &str) -> String {
+        if let Some(env) = &self.capture_env {
+            if let Some((field, _)) = env.get(name) {
+                return format!("env->{}", field);
+            }
+        }
+        mangle(name)
     }
 
     fn own(&mut self, name: &str, ty: &Type) {
@@ -746,9 +830,10 @@ impl CBackend {
 
     fn stmt(&mut self, s: &Stmt) {
         match &s.kind {
-            StmtKind::Let { name, init, .. } => {
+            StmtKind::Let { name, init, mutable, .. } => {
                 let Some(ty) = init.ty().cloned() else { return };
                 let Some(c) = self.ctype(&ty, s.span) else { return };
+                self.declare_local(name, &ty, *mutable);
                 let value = self.expr(init);
                 let var = mangle(name);
                 if Self::counted(&ty) {
@@ -838,6 +923,7 @@ impl CBackend {
         let from = self.expr(start);
         let to = self.expr(end);
         let limit = self.temp();
+        self.declare_local(var, &Type::Int, false);
         let v = mangle(var);
         self.line(format!("const int64_t {} = {};", limit, to));
         self.line(format!("for (int64_t {} = {}; {} < {}; {}++) {{", v, from, v, limit, v));
@@ -870,6 +956,7 @@ impl CBackend {
         ));
         self.indent += 1;
         self.open_scope();
+        self.declare_local(var, elem_ty, false);
         let v = mangle(var);
         self.line(format!("{} {} = {};", ct, v, elem.unword(&format!("{}->data[{}]", snap, i))));
         // The loop variable borrows from the snapshot, whose lifetime spans
@@ -903,7 +990,7 @@ impl CBackend {
                 self.own_temp(format!("keal_str_retain(_str{})", idx))
             }
             ExprKind::Ident(name) => {
-                let v = mangle(name);
+                let v = self.var_ref(name);
                 match e.ty() {
                     Some(t) if Self::counted(t) => {
                         let ty = t.clone();
@@ -946,6 +1033,7 @@ impl CBackend {
                     "0".to_string()
                 }
             },
+            ExprKind::Lambda { params, body } => self.lambda(e, params, body),
             ExprKind::ListLit(items) => self.list_literal(e, items),
             ExprKind::Index { obj, index } => self.index_get(e, obj, index),
             ExprKind::Field { obj, name, safe } => self.field(e, obj, name, *safe),
@@ -958,6 +1046,340 @@ impl CBackend {
                 "0".to_string()
             }
         }
+    }
+
+    /// A lambda becomes a top-level C function and an environment struct.
+    ///
+    /// Captures are `val`s, taken by value at creation — sound because a
+    /// `val` never changes, so by-value and by-reference cannot be told
+    /// apart. A `var` is refused by name: sharing it would need a heap cell,
+    /// and copying it would silently diverge from the interpreters.
+    fn lambda(&mut self, e: &Expr, params: &[Param], body: &Block) -> String {
+        let Some(Type::Fun(ft)) = e.ty().cloned() else {
+            self.unsupported(e.span, "a lambda with no inferred type");
+            return "0".to_string();
+        };
+
+        // Free names of the body, classified against the enclosing frame.
+        let mut free = Vec::new();
+        let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+        collect_free(&body.stmts, &mut bound, &mut free);
+        let mut captures: Vec<(String, Type)> = Vec::new();
+        for name in free {
+            if captures.iter().any(|(n, _)| *n == name) {
+                continue;
+            }
+            let local = self
+                .locals
+                .iter()
+                .rev()
+                .flat_map(|s| s.iter().rev())
+                .find(|(n, _, _)| *n == name)
+                .cloned();
+            match local {
+                Some((_, ty, mutable)) => {
+                    if mutable {
+                        self.unsupported(
+                            e.span,
+                            &format!("capturing the `var` `{}`", name),
+                        );
+                        return "0".to_string();
+                    }
+                    captures.push((name, ty));
+                }
+                // A capture of the enclosing lambda's own environment.
+                None if self
+                    .capture_env
+                    .as_ref()
+                    .map(|env| env.contains_key(&name))
+                    .unwrap_or(false) =>
+                {
+                    let (_, ty) = self.capture_env.as_ref().unwrap()[&name].clone();
+                    captures.push((name, ty));
+                }
+                None => {
+                    let global = self.global_funs.contains(&name)
+                        || self.shapes.contains_key(&name)
+                        || crate::builtins::global_sig(&name, &[None, None]).is_some();
+                    if !global {
+                        // Guessing here is how a capture silently becomes a
+                        // dangling C identifier; refusing names the gap.
+                        self.unsupported(
+                            e.span,
+                            &format!("capturing `{}`, which this backend cannot see", name),
+                        );
+                        return "0".to_string();
+                    }
+                }
+            }
+        }
+
+        let id = self.next_lambda;
+        self.next_lambda += 1;
+        let env_name = format!("K_Lam{}", id);
+
+        // The environment struct: the closure header, then the captures.
+        let mut st = format!("typedef struct {n} {{\n    KealClosure head;\n", n = env_name);
+        for (name, ty) in &captures {
+            let Some(ct) = self.ctype(ty, e.span) else { return "0".to_string() };
+            let _ = write!(st, "    {} {};\n", ct, mangle(name));
+        }
+        let _ = write!(st, "}} {n};\n", n = env_name);
+
+        // The drop: release counted captures, free the struct.
+        let mut drop = format!(
+            "static void {n}_drop(KealClosure* c) {{\n    {n}* env = ({n}*)c;\n",
+            n = env_name
+        );
+        for (name, ty) in &captures {
+            if let Some(rel) = Self::release_fn(ty) {
+                let _ = write!(drop, "    {}(env->{});\n", rel, mangle(name));
+            }
+        }
+        drop.push_str("    (void)env;\n    free(c);\n}\n");
+
+        // The body, compiled as its own function with `env` in scope.
+        let ret_c = if ft.ret == Type::Unit {
+            "void".to_string()
+        } else {
+            match self.ctype(&ft.ret, e.span) {
+                Some(c) => c,
+                None => return "0".to_string(),
+            }
+        };
+        let mut sig = format!("static {} {}_call(KealClosure* _c", ret_c, env_name);
+        for (p, pt) in params.iter().zip(&ft.params) {
+            let Some(ct) = self.ctype(&pt.ty, e.span) else { return "0".to_string() };
+            let _ = write!(sig, ", {} {}", ct, mangle(&p.name));
+        }
+        sig.push(')');
+
+        let saved_body = std::mem::take(&mut self.body);
+        let saved_scopes = std::mem::take(&mut self.scopes);
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_env = self.capture_env.take();
+        let saved_indent = self.indent;
+        let saved_loops = std::mem::take(&mut self.loops);
+        self.indent = 1;
+        self.scopes.push(Vec::new());
+        self.locals.push(Vec::new());
+        for (p, pt) in params.iter().zip(&ft.params) {
+            self.declare_local(&p.name, &pt.ty, false);
+        }
+        self.capture_env = Some(
+            captures
+                .iter()
+                .map(|(n, t)| (n.clone(), (mangle(n), t.clone())))
+                .collect(),
+        );
+        self.line(format!("{n}* env = ({n}*)_c;\n    (void)env;", n = env_name));
+        self.emit_body(&body.stmts, &ret_c);
+        self.close_scope();
+        if ret_c == "void" {
+            self.line("return;");
+        }
+        let compiled = std::mem::take(&mut self.body).join("\n");
+        self.body = saved_body;
+        self.scopes = saved_scopes;
+        self.locals = saved_locals;
+        self.capture_env = saved_env;
+        self.indent = saved_indent;
+        self.loops = saved_loops;
+
+        let _ = write!(
+            self.lambda_defs,
+            "\n{st}{drop}{sig} {{\n{body}\n}}\n",
+            st = st,
+            drop = drop,
+            sig = sig,
+            body = compiled
+        );
+
+        // Creation: allocate, fill the header, copy the captures in.
+        let t = self.temp();
+        self.line(format!("{n}* {t}_env = ({n}*)keal_alloc(sizeof({n}));", n = env_name, t = t));
+        self.line(format!("{t}_env->head.rc = 1;", t = t));
+        self.line(format!("{t}_env->head.fn = (KealCode){n}_call;", t = t, n = env_name));
+        self.line(format!("{t}_env->head.drop = {n}_drop;", t = t, n = env_name));
+        for (name, ty) in &captures {
+            let source = self.var_ref(name);
+            let v = Self::retained(ty, &source);
+            self.line(format!("{t}_env->{f} = {v};", t = t, f = mangle(name), v = v));
+        }
+        let fun_ty = Type::Fun(ft);
+        self.line(format!("KealClosure* {t} = (KealClosure*)&{t}_env->head;", t = t));
+        self.own(&t, &fun_ty);
+        t
+    }
+
+    /// Calls a closure value with already-rendered arguments, through the
+    /// cast its static type dictates.
+    fn call_closure(
+        &mut self,
+        ft: &crate::types::FunType,
+        closure: &str,
+        args: &[String],
+        span: Span,
+    ) -> Option<String> {
+        let ret_c = if ft.ret == Type::Unit {
+            "void".to_string()
+        } else {
+            self.ctype(&ft.ret, span)?
+        };
+        let mut sig_params = vec!["KealClosure*".to_string()];
+        for p in &ft.params {
+            sig_params.push(self.ctype(&p.ty, span)?);
+        }
+        let mut call = format!(
+            "(({ret} (*)({params}))(void*){c}->fn)({c}",
+            ret = ret_c,
+            params = sig_params.join(", "),
+            c = closure
+        );
+        for a in args {
+            let _ = write!(call, ", {}", a);
+        }
+        call.push(')');
+        Some(call)
+    }
+
+    /// `map`, `filter`, `fold` and `forEach` on a list, as inline loops.
+    /// Returns `None` for any other method, which falls through to the
+    /// generic refusal.
+    fn list_higher_order(
+        &mut self,
+        e: &Expr,
+        obj: &Expr,
+        name: &str,
+        args: &[Arg],
+        elem_ty: &Type,
+    ) -> Option<String> {
+        use crate::types::FunType;
+        if !matches!(name, "map" | "filter" | "fold" | "forEach") {
+            return None;
+        }
+        let elem = self.elem_kind(elem_ty, e.span)?;
+
+        let l = self.expr(obj);
+        let snap = self.temp();
+        self.line(format!("KealList* {} = keal_list_snapshot({});", snap, l));
+        self.own(&snap, &Type::list(elem_ty.clone()));
+
+        let out = match name {
+            "map" => {
+                let Some(Type::List(out_ty)) = e.ty().cloned() else { return Some("0".into()) };
+                let out_elem = self.elem_kind(&out_ty, e.span)?;
+                let thunk = self.releaser_thunk(&out_elem);
+                let f = self.expr(&args[0].value);
+                let out = self.temp();
+                self.line(format!("KealList* {} = keal_list_new({});", out, thunk));
+                self.own(&out, &Type::list((*out_ty).clone()));
+
+                let ft = FunType {
+                    params: vec![crate::types::ParamType::positional(elem_ty.clone())],
+                    ret: (*out_ty).clone(),
+                };
+                let i = self.temp();
+                self.line(format!("for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{", i = i, s = snap));
+                self.indent += 1;
+                self.open_scope();
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                let call = self.call_closure(&ft, &f, &[item], e.span)?;
+                let v = if Self::counted(&out_ty) {
+                    self.own_temp_of(&out_ty, call)
+                } else {
+                    let t = self.temp();
+                    let ct = self.ctype(&out_ty, e.span)?;
+                    self.line(format!("const {} {} = {};", ct, t, call));
+                    t
+                };
+                let stored = Self::retained(&out_ty, &v);
+                self.line(format!("keal_list_push({}, {});", out, out_elem.word(&stored)));
+                self.close_scope();
+                self.indent -= 1;
+                self.line("}");
+                out
+            }
+            "filter" => {
+                let thunk = self.releaser_thunk(&elem);
+                let f = self.expr(&args[0].value);
+                let out = self.temp();
+                self.line(format!("KealList* {} = keal_list_new({});", out, thunk));
+                self.own(&out, &Type::list(elem_ty.clone()));
+
+                let ft = FunType {
+                    params: vec![crate::types::ParamType::positional(elem_ty.clone())],
+                    ret: Type::Bool,
+                };
+                let i = self.temp();
+                self.line(format!("for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{", i = i, s = snap));
+                self.indent += 1;
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                let call = self.call_closure(&ft, &f, &[item.clone()], e.span)?;
+                self.line(format!("if ({}) {{", call));
+                self.indent += 1;
+                let stored = Self::retained(elem_ty, &item);
+                self.line(format!("keal_list_push({}, {});", out, elem.word(&stored)));
+                self.indent -= 1;
+                self.line("}");
+                self.indent -= 1;
+                self.line("}");
+                out
+            }
+            "fold" => {
+                let Some(acc_ty) = e.ty().cloned() else { return Some("0".into()) };
+                let acc_c = self.ctype(&acc_ty, e.span)?;
+                let init = self.expr(&args[0].value);
+                let f = self.expr(&args[1].value);
+                let acc = self.temp();
+                self.line(format!("{} {} = {};", acc_c, acc, Self::retained(&acc_ty, &init)));
+                if Self::counted(&acc_ty) {
+                    self.own(&acc, &acc_ty);
+                }
+
+                let ft = FunType {
+                    params: vec![
+                        crate::types::ParamType::positional(acc_ty.clone()),
+                        crate::types::ParamType::positional(elem_ty.clone()),
+                    ],
+                    ret: acc_ty.clone(),
+                };
+                let i = self.temp();
+                self.line(format!("for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{", i = i, s = snap));
+                self.indent += 1;
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                let call = self.call_closure(&ft, &f, &[acc.clone(), item], e.span)?;
+                // The new accumulator is owned by the call; the old one is
+                // released before the name moves on to it.
+                let next = self.temp();
+                self.line(format!("{} {} = {};", acc_c, next, call));
+                if let Some(rel) = Self::release_fn(&acc_ty) {
+                    self.line(format!("{}({});", rel, acc));
+                }
+                self.line(format!("{} = {};", acc, next));
+                self.indent -= 1;
+                self.line("}");
+                acc
+            }
+            _ => {
+                // forEach
+                let f = self.expr(&args[0].value);
+                let ft = FunType {
+                    params: vec![crate::types::ParamType::positional(elem_ty.clone())],
+                    ret: Type::Unit,
+                };
+                let i = self.temp();
+                self.line(format!("for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{", i = i, s = snap));
+                self.indent += 1;
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                let call = self.call_closure(&ft, &f, &[item], e.span)?;
+                self.line(format!("{};", call));
+                self.indent -= 1;
+                self.line("}");
+                "0".to_string()
+            }
+        };
+        Some(out)
     }
 
     fn list_literal(&mut self, e: &Expr, items: &[Expr]) -> String {
@@ -1130,6 +1552,14 @@ impl CBackend {
                 return "0".to_string();
             }
             return "0".to_string();
+        }
+        // The higher-order list methods compile to plain loops, each element
+        // fed through the closure the caller supplied.
+        if let Some(Type::List(elem_ty)) = &receiver_ty {
+            let elem_ty = (**elem_ty).clone();
+            if let Some(v) = self.list_higher_order(e, obj, name, args, &elem_ty) {
+                return v;
+            }
         }
         let Some(Type::Class(class, _)) = receiver_ty else {
             self.unsupported(
@@ -1583,8 +2013,28 @@ impl CBackend {
     }
 
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Arg]) -> String {
+        // Anything of function type is callable through its closure — a
+        // local, a parameter, or the result of another call. A name that is
+        // a program function, class or built-in dispatches directly instead.
+        let named = matches!(&callee.kind, ExprKind::Ident(n)
+            if self.global_funs.contains(n)
+                || self.shapes.contains_key(n)
+                || crate::builtins::global_sig(n, &[None, None]).is_some());
+        if !named {
+            if let Some(Type::Fun(ft)) = callee.ty().cloned() {
+                let c = self.expr(callee);
+                let mut rendered = Vec::new();
+                for a in args {
+                    rendered.push(self.expr(&a.value));
+                }
+                let Some(call) = self.call_closure(&ft, &c, &rendered, e.span) else {
+                    return "0".to_string();
+                };
+                return self.finish_call(e, call);
+            }
+        }
         let ExprKind::Ident(name) = &callee.kind else {
-            self.unsupported(e.span, "calling anything but a named function");
+            self.unsupported(e.span, "calling this expression");
             return "0".to_string();
         };
         if args.iter().any(|a| a.name.is_some()) {
@@ -1625,6 +2075,11 @@ impl CBackend {
         }
         let call = format!("{}({})", mangle(name), rendered.join(", "));
 
+        self.finish_call(e, call)
+    }
+
+    /// Binds a call's result according to its type, or emits it for effect.
+    fn finish_call(&mut self, e: &Expr, call: String) -> String {
         let Some(ty) = e.ty().cloned() else { return call };
         if ty == Type::Unit {
             self.line(format!("{};", call));
@@ -1688,7 +2143,15 @@ impl CBackend {
             return;
         }
         let var = match &target.kind {
-            ExprKind::Ident(name) => mangle(name),
+            ExprKind::Ident(name) => {
+                if let Some(env) = &self.capture_env {
+                    if env.contains_key(name.as_str()) {
+                        self.unsupported(span, "assigning to a captured variable");
+                        return;
+                    }
+                }
+                mangle(name)
+            }
             ExprKind::Field { obj, name, safe: false } => {
                 let receiver = self.expr(obj);
                 format!("{}->{}", receiver, mangle(name))
@@ -1772,6 +2235,7 @@ impl CBackend {
         out.push_str(&self.decls);
         out.push('\n');
         out.push_str(&self.helpers);
+        out.push_str(&self.lambda_defs);
         out.push_str(&self.defs);
 
         // `main` was emitted without the literal setup, so it is wrapped.
@@ -1785,6 +2249,155 @@ impl CBackend {
 /// Prefixes every Keal name, so none can collide with C's own.
 fn mangle(name: &str) -> String {
     format!("k_{}", name)
+}
+
+/// Collects the names a lambda body mentions that it did not bind itself,
+/// in first-mention order. `bound` accumulates what is bound as the walk
+/// descends; scoping is approximated by never removing a binding, which can
+/// only shrink the free set — a name bound anywhere in the body is assumed
+/// bound everywhere in it. That misses a capture only when the same name is
+/// both a local and a capture, in which case the local wins and the program
+/// still means something; it never invents one.
+fn collect_free(stmts: &[Stmt], bound: &mut Vec<String>, free: &mut Vec<String>) {
+    for s in stmts {
+        match &s.kind {
+            StmtKind::Let { name, init, .. } => {
+                collect_free_expr(init, bound, free);
+                bound.push(name.clone());
+            }
+            StmtKind::Destructure { pattern, init, .. } => {
+                collect_free_expr(init, bound, free);
+                bound.extend(pattern.binds.iter().flatten().cloned());
+            }
+            StmtKind::Expr(e) => collect_free_expr(e, bound, free),
+            StmtKind::Return(Some(e)) => collect_free_expr(e, bound, free),
+            StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::While { cond, body } => {
+                collect_free_expr(cond, bound, free);
+                collect_free(&body.stmts, bound, free);
+            }
+            StmtKind::For { var, iter, body, .. } => {
+                collect_free_expr(iter, bound, free);
+                bound.push(var.clone());
+                collect_free(&body.stmts, bound, free);
+            }
+            StmtKind::Fun(f) => {
+                bound.push(f.name.clone());
+                let mut inner: Vec<String> = f.params.iter().map(|p| p.name.clone()).collect();
+                inner.extend(bound.iter().cloned());
+                collect_free(&f.body.stmts, &mut inner, free);
+            }
+            StmtKind::Class(_) => {}
+        }
+    }
+}
+
+fn collect_free_expr(e: &Expr, bound: &mut Vec<String>, free: &mut Vec<String>) {
+    match &e.kind {
+        ExprKind::Ident(name) => {
+            if !bound.contains(name) && !free.contains(name) {
+                free.push(name.clone());
+            }
+        }
+        ExprKind::Lambda { params, body } => {
+            let mut inner: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+            inner.extend(bound.iter().cloned());
+            collect_free(&body.stmts, &mut inner, free);
+        }
+        ExprKind::Interp(parts) => {
+            for part in parts {
+                if let InterpPart::Expr(inner) = part {
+                    collect_free_expr(inner, bound, free);
+                }
+            }
+        }
+        ExprKind::Unary { rhs, .. } | ExprKind::NotNull(rhs) => {
+            collect_free_expr(rhs, bound, free)
+        }
+        ExprKind::Binary { lhs, rhs, .. }
+        | ExprKind::Logical { lhs, rhs, .. }
+        | ExprKind::Elvis { lhs, rhs } => {
+            collect_free_expr(lhs, bound, free);
+            collect_free_expr(rhs, bound, free);
+        }
+        ExprKind::Range { start, end } => {
+            collect_free_expr(start, bound, free);
+            collect_free_expr(end, bound, free);
+        }
+        ExprKind::Is { value, .. } => collect_free_expr(value, bound, free),
+        ExprKind::ListLit(items) => {
+            for i in items {
+                collect_free_expr(i, bound, free);
+            }
+        }
+        ExprKind::MapLit(entries) => {
+            for (k, v) in entries {
+                collect_free_expr(k, bound, free);
+                collect_free_expr(v, bound, free);
+            }
+        }
+        ExprKind::If { cond, then, els } => {
+            collect_free_expr(cond, bound, free);
+            collect_free(&then.stmts, bound, free);
+            match els.as_deref() {
+                Some(Else::Block(b)) => collect_free(&b.stmts, bound, free),
+                Some(Else::If(inner)) => collect_free_expr(inner, bound, free),
+                None => {}
+            }
+        }
+        ExprKind::When { subject, arms } => {
+            if let Some(sub) = subject {
+                collect_free_expr(sub, bound, free);
+            }
+            for arm in arms {
+                match &arm.pattern {
+                    WhenPattern::Values(vs) => {
+                        for v in vs {
+                            collect_free_expr(v, bound, free);
+                        }
+                    }
+                    WhenPattern::In { range, .. } => collect_free_expr(range, bound, free),
+                    WhenPattern::Is { binds, .. } => {
+                        if let Some(d) = binds {
+                            bound.extend(d.binds.iter().flatten().cloned());
+                        }
+                    }
+                    WhenPattern::Else => {}
+                }
+                if let Some(g) = &arm.guard {
+                    collect_free_expr(g, bound, free);
+                }
+                collect_free(&arm.body.stmts, bound, free);
+            }
+        }
+        ExprKind::Index { obj, index } => {
+            collect_free_expr(obj, bound, free);
+            collect_free_expr(index, bound, free);
+        }
+        ExprKind::Field { obj, .. } => collect_free_expr(obj, bound, free),
+        ExprKind::MethodCall { obj, args, .. } => {
+            collect_free_expr(obj, bound, free);
+            for a in args {
+                collect_free_expr(&a.value, bound, free);
+            }
+        }
+        ExprKind::Call { callee, args } => {
+            collect_free_expr(callee, bound, free);
+            for a in args {
+                collect_free_expr(&a.value, bound, free);
+            }
+        }
+        ExprKind::Assign { target, value, .. } => {
+            collect_free_expr(target, bound, free);
+            collect_free_expr(value, bound, free);
+        }
+        ExprKind::Int(_)
+        | ExprKind::Float(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Str(_)
+        | ExprKind::Null
+        | ExprKind::This => {}
+    }
 }
 
 /// Names a construct the backend cannot compile, so the message says what to
