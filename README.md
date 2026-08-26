@@ -331,6 +331,22 @@ The test suite compiles a program with a real C compiler, runs it, and
 requires its output to match both interpreters byte for byte. That test is
 what found the first two bugs in this backend.
 
+## Decided, waiting their turn
+
+* **Lazy sequences**, the equivalent of Java's `Stream` / Kotlin's `Sequence`:
+  pull-based, fusing, with infinite sources. The eager `map`/`filter`/`fold`
+  on `List` already cover the API; what a sequence adds is not running work
+  the pipeline will discard. Deliberately deferred until the native backend
+  covers the rest of the language — it can then be written in pure Keal, in
+  the prelude, since generic records and closures are all it needs.
+* **Concurrency, when it comes, will be actors**: one heap per thread,
+  messages between them, no shared mutable state. Chosen now rather than
+  built now, because it is the one model that invalidates nothing — the
+  reference counts stay non-atomic (no object crosses threads), immutable
+  records are natural message types, and data races become inexpressible
+  rather than checked. Shared-memory threads would have cost atomic counts
+  on every retain and release, and bought the races along with them.
+
 ## Not there yet
 
 Class inheritance, exceptions, indexing and call operators, namespaced imports — and the native half of the plan: an explicit

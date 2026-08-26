@@ -121,9 +121,12 @@ Value types are never retained or released; there is nothing to count. That is
 most of what `is_counted` in `src/layout.rs` decides, and it is why the
 arithmetic in a tight loop compiles to arithmetic and nothing else.
 
-The counts are **not atomic**, because Keal has no threads. Should it ever
-grow them, values shared across threads will need atomic counts, and that is a
-real cost — a decision to make deliberately rather than to back into.
+The counts are **not atomic**, because Keal has no threads. The direction is
+now chosen: if concurrency comes, it will be **actor-style** — one heap per
+thread, messages between them — precisely so that no object ever crosses
+threads and the counts can stay plain. Shared-memory threads would have made
+every retain and release an atomic operation, a real cost paid everywhere to
+enable races nothing in the language could check.
 
 ### Cycles leak, for now
 
