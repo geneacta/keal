@@ -811,10 +811,7 @@ impl CBackend {
             ExprKind::MethodCall { obj, name, args, safe } => {
                 self.method_call(e, obj, name, args, *safe)
             }
-            ExprKind::When { .. } => {
-                self.unsupported(e.span, "`when`");
-                "0".to_string()
-            }
+            ExprKind::When { subject, arms } => self.when(e, subject.as_deref(), arms),
             other => {
                 self.unsupported(e.span, describe_expr(other));
                 "0".to_string()
@@ -927,6 +924,160 @@ impl CBackend {
         let t = self.temp();
         self.line(format!("const {} {} = {};", c, t, call));
         t
+    }
+
+    /// A `when` compiles to a chain of tests. The subject is evaluated once
+    /// into a temp; each arm's test reads it, and the first that passes runs
+    /// its body and jumps out — which is what a `do { } while (0)` with
+    /// `break`s spells in plain C.
+    fn when(&mut self, e: &Expr, subject: Option<&Expr>, arms: &[WhenArm]) -> String {
+        let produces = !matches!(e.ty(), None | Some(Type::Unit) | Some(Type::Never));
+        let slot = if produces {
+            let Some(ty) = e.ty().cloned() else { return "0".to_string() };
+            let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
+            let t = self.temp();
+            self.line(format!("{} {};", c, t));
+            if Self::counted(&ty) {
+                self.own(&t, &ty);
+            }
+            Some(t)
+        } else {
+            None
+        };
+
+        let subject_slot = match subject {
+            Some(sub) => {
+                let Some(ty) = sub.ty().cloned() else { return "0".to_string() };
+                let Some(c) = self.ctype(&ty, sub.span) else { return "0".to_string() };
+                let v = self.expr(sub);
+                let t = self.temp();
+                // Not `const` when counted: the runtime's own signatures take
+                // plain pointers, since a release mutates the count.
+                let qualifier = if Self::counted(&ty) { "" } else { "const " };
+                self.line(format!("{}{} {} = {};", qualifier, c, t, v));
+                Some((t, ty))
+            }
+            None => None,
+        };
+
+        self.line("do {");
+        self.indent += 1;
+        for arm in arms {
+            // The test gets a scope of its own, closed before the branch, so
+            // anything it allocated — a string candidate, say — is released
+            // whether or not the arm is taken. Only the boolean crosses over.
+            let cond = {
+                self.open_scope();
+                let taken = self.arm_test(arm, subject_slot.as_ref());
+                let bound = taken.map(|c| {
+                    let t = self.temp();
+                    self.line(format!("const bool {} = {};", t, c));
+                    t
+                });
+                self.close_scope();
+                bound
+            };
+            if let Some(c) = &cond {
+                self.line(format!("if ({}) {{", c));
+                self.indent += 1;
+            }
+            // The body's scope closes before the `break`, so its releases sit
+            // inside the braces and run on the way out.
+            self.open_scope();
+            self.branch_body(&arm.body.stmts, slot.as_deref());
+            self.close_scope();
+            self.line("break;");
+            if cond.is_some() {
+                self.indent -= 1;
+                self.line("}");
+            } else {
+                // An unguarded `else` takes everything; nothing follows it.
+                break;
+            }
+        }
+        self.indent -= 1;
+        self.line("} while (0);");
+        slot.unwrap_or_else(|| "0".to_string())
+    }
+
+    /// Emits an arm's test against the subject, returning the condition to
+    /// branch on, or `None` for an unguarded `else`.
+    fn arm_test(&mut self, arm: &WhenArm, subject: Option<&(String, Type)>) -> Option<String> {
+        let mut conds: Vec<String> = Vec::new();
+        match &arm.pattern {
+            WhenPattern::Else => {}
+            WhenPattern::Values(values) => {
+                let mut hits = Vec::new();
+                for v in values {
+                    match subject {
+                        Some((slot, ty)) => {
+                            let rhs = self.expr(v);
+                            hits.push(self.equality(ty, slot, &rhs, v));
+                        }
+                        None => hits.push(self.expr(v)),
+                    }
+                }
+                conds.push(format!("({})", hits.join(" || ")));
+            }
+            WhenPattern::Is { ty, .. } => {
+                self.unsupported(
+                    ty.span,
+                    "`is` in a `when` arm, which needs run-time type information",
+                );
+                conds.push("false".to_string());
+            }
+            WhenPattern::In { range, negated } => {
+                let Some((slot, _)) = subject else { return Some("false".to_string()) };
+                let ExprKind::Range { start, end } = &range.kind else {
+                    self.unsupported(range.span, "`in` over anything but a range");
+                    return Some("false".to_string());
+                };
+                let lo = self.expr(start);
+                let hi = self.expr(end);
+                let test = format!("({slot} >= {lo} && {slot} < {hi})", slot = slot);
+                conds.push(if *negated { format!("(!{})", test) } else { test });
+            }
+        }
+        if let Some(guard) = &arm.guard {
+            conds.push(self.expr(guard));
+        }
+        if conds.is_empty() {
+            None
+        } else {
+            Some(conds.join(" && "))
+        }
+    }
+
+    /// `subject == candidate`, spelled correctly for the subject's type.
+    fn equality(&mut self, ty: &Type, slot: &str, rhs: &str, at: &Expr) -> String {
+        match ty {
+            Type::Str => format!("(keal_str_cmp({}, {}) == 0)", slot, rhs),
+            Type::Int | Type::Float | Type::Bool => format!("({} == {})", slot, rhs),
+            other => {
+                self.unsupported(at.span, &format!("matching on a value of type `{}`", other));
+                "false".to_string()
+            }
+        }
+    }
+
+    /// An arm's body: its last expression fills the slot when there is one.
+    fn branch_body(&mut self, stmts: &[Stmt], slot: Option<&str>) {
+        let last = stmts.len().saturating_sub(1);
+        for (i, s) in stmts.iter().enumerate() {
+            match (&s.kind, slot) {
+                (StmtKind::Expr(e), Some(t)) if i == last => {
+                    let counted = e.ty().map(Self::counted).unwrap_or(false);
+                    let v = self.expr(e);
+                    match e.ty() {
+                        Some(ty) if counted => {
+                            self.line(format!("{} = {};", t, Self::retained(ty, &v)))
+                        }
+                        _ => self.line(format!("{} = {};", t, v)),
+                    }
+                }
+                _ => self.stmt(s),
+            }
+        }
     }
 
     fn intern(&mut self, s: &str) -> usize {

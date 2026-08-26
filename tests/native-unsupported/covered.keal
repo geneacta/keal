@@ -16,9 +16,10 @@ fun useLambda(): Int {
     return f(21)
 }
 
-fun useWhen(n: Int): String {
-    return when (n) {
-        0 -> "zero"
+// `when` compiles, except an `is` arm, which needs run-time type information.
+fun useIsArm(v: Any): String {
+    return when (v) {
+        is Int -> "int"
         else -> "other"
     }
 }
@@ -29,4 +30,4 @@ fun useNullableInt(n: Int?): Int { n ?: 0 }
 
 fun useMethodOnBuiltin(s: String): Int { s.length }
 
-println(useWhen(0))
+println(useIsArm(1))

@@ -28,16 +28,16 @@ error: the C backend cannot compile values of type `(Int) -> Int` yet
 15 |     val f = { x: Int -> x * 2 }
    |     ^
   = note: run it on the bytecode VM instead, which supports the whole language
-error: the C backend cannot compile `when` yet
-  --> tests/native-unsupported/covered.keal:20:12
+error: the C backend cannot compile the type `Any` yet
+  --> tests/native-unsupported/covered.keal:20:14
    |
-20 |     return when (n) {
-   |            ^
+20 | fun useIsArm(v: Any): String {
+   |              ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile the type `Int?` yet
-  --> tests/native-unsupported/covered.keal:28:20
+  --> tests/native-unsupported/covered.keal:29:20
    |
-28 | fun useNullableInt(n: Int?): Int { n ?: 0 }
+29 | fun useNullableInt(n: Int?): Int { n ?: 0 }
    |                    ^
   = note: a nullable value needs a tag beside it, which is not built yet; a nullable reference is just a pointer and does compile
 7 constructs the C backend does not cover yet

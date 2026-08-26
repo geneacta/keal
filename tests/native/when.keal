@@ -1,0 +1,72 @@
+// `when` compiled natively: value arms, several values in one arm, ranges,
+// guards, the subject-less form, and `when` as an expression. The `is` arm
+// needs run-time type information and stays refused.
+
+fun bucket(n: Int): String {
+    return when (n) {
+        0 -> "zero"
+        1, 2, 3 -> "small"
+        in 4..10 if (n % 2 == 0) -> "medium even"
+        in 4..10 -> "medium odd"
+        !in 0..1000 -> "out of range"
+        else -> "large"
+    }
+}
+
+// A string subject compares by content.
+fun nameOf(s: String): Int {
+    return when (s) {
+        "one" -> 1
+        "two", "deux" -> 2
+        else -> 0
+    }
+}
+
+fun sign(n: Int): String {
+    return when {
+        n < 0 -> "neg"
+        n == 0 -> "zero"
+        else -> "pos"
+    }
+}
+
+// A `when` run for its effect, with no value at all.
+proc describe(n: Int) {
+    when {
+        n > 100 -> println("${n} is big")
+        else -> println("${n} is ordinary")
+    }
+}
+
+println(bucket(0))
+println(bucket(2))
+println(bucket(6))
+println(bucket(7))
+println(bucket(50))
+println(bucket(-5))
+
+println(nameOf("one"))
+println(nameOf("deux"))
+println(nameOf("ten"))
+
+println(sign(-5) + " " + sign(0) + " " + sign(9))
+
+describe(500)
+describe(5)
+
+// As an expression, in a binding.
+val label = when (3) {
+    in 0..5 -> "low"
+    else -> "high"
+}
+println(label)
+
+// Arms whose bodies build strings, so the arm's own releases matter.
+fun sentence(n: Int): String {
+    return when (n) {
+        1 -> "one " + "thing"
+        else -> "${n} things"
+    }
+}
+println(sentence(1))
+println(sentence(4))
