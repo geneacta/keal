@@ -300,12 +300,13 @@ That is 84× the VM and 205× the evaluator. The generated code carries the same
 guarantees: integer overflow is checked rather than wrapped, so a program
 fails where it would have failed on either interpreter.
 
-**The backend covers part of the language, not all of it.** Functions,
-control flow, `Int`, `Float`, `Bool`, `String`, classes and records with their
-methods, and nullable references — which is what makes a recursive structure
-possible — all compile. Generics, collections, lambdas, `when` and nullable
-*values* like `Int?` do not, yet. Anything it cannot compile is **named**, not
-mis-compiled:
+**The backend covers most of the language.** Functions, control flow, `Int`,
+`Float`, `Bool`, `String`, classes and records with their methods, nullable
+references, `when`, and `List<T>` — literals, indexing, element assignment,
+`.add`, `.size`, iteration and rendering, with the same bounds panics as the
+interpreters. Generics, `Map`, lambdas and the higher-order list methods, and
+nullable *values* like `Int?` do not compile yet. Anything it cannot compile
+is **named**, not mis-compiled:
 
 ```
 error: the C backend cannot compile list literals yet

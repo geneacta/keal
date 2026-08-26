@@ -154,6 +154,17 @@ KEAL_FN KealStr* keal_str_from_bool(bool b) {
     return keal_str_static(b ? "true" : "false", b ? 4 : 5);
 }
 
+/* `.length` counts characters, not bytes, as the interpreters do. */
+KEAL_FN int64_t keal_str_length(KealStr* s) {
+    int64_t n = 0;
+    for (int64_t i = 0; i < s->len; i++) {
+        if (((unsigned char)s->bytes[i] & 0xC0) != 0x80) {
+            n++;
+        }
+    }
+    return n;
+}
+
 KEAL_FN void keal_print(KealStr* s, bool newline) {
     fwrite(s->bytes, 1, (size_t)s->len, stdout);
     if (newline) {
@@ -161,6 +172,113 @@ KEAL_FN void keal_print(KealStr* s, bool newline) {
     } else {
         fflush(stdout);
     }
+}
+
+/* ---- lists ------------------------------------------------------------ */
+
+/* An element is one word: an integer, a double, or a pointer. The static
+ * type at every use site says which, so the runtime never needs to ask. */
+typedef union KealWord {
+    int64_t i;
+    double d;
+    void* p;
+} KealWord;
+
+/* The one place an element's type is not statically known is inside the
+ * list's own release, where the elements must be let go without any caller
+ * present. The releaser is fixed at construction; NULL marks elements with
+ * nothing to release. */
+typedef struct KealList {
+    int64_t rc;
+    int64_t len;
+    int64_t cap;
+    KealWord* data;
+    void (*release_elem)(void*);
+} KealList;
+
+KEAL_FN KealList* keal_list_new(void (*release_elem)(void*)) {
+    KealList* l = (KealList*)keal_alloc(sizeof(KealList));
+    l->rc = 1;
+    l->len = 0;
+    l->cap = 0;
+    l->data = NULL;
+    l->release_elem = release_elem;
+    return l;
+}
+
+KEAL_FN KealList* keal_list_retain(KealList* l) {
+    if (l != NULL) {
+        l->rc++;
+    }
+    return l;
+}
+
+KEAL_FN void keal_list_release(KealList* l) {
+    if (l == NULL) {
+        return;
+    }
+    l->rc--;
+    if (l->rc > 0) {
+        return;
+    }
+    if (l->release_elem != NULL) {
+        for (int64_t i = 0; i < l->len; i++) {
+            l->release_elem(l->data[i].p);
+        }
+    }
+    free(l->data);
+    free(l);
+}
+
+KEAL_FN void keal_list_push(KealList* l, KealWord w) {
+    if (l->len == l->cap) {
+        l->cap = l->cap < 4 ? 4 : l->cap * 2;
+        KealWord* grown = (KealWord*)keal_alloc((size_t)l->cap * sizeof(KealWord));
+        memcpy(grown, l->data, (size_t)l->len * sizeof(KealWord));
+        free(l->data);
+        l->data = grown;
+    }
+    l->data[l->len++] = w;
+}
+
+/* Negative indices count from the end, as everywhere in the language. */
+KEAL_FN int64_t keal_list_index(KealList* l, int64_t i, int64_t line) {
+    int64_t at = i < 0 ? i + l->len : i;
+    if (at < 0 || at >= l->len) {
+        char msg[96];
+        snprintf(msg, sizeof msg,
+                 "index %" PRId64 " is out of bounds for a list of %" PRId64 " element(s)", i,
+                 l->len);
+        keal_panic(msg, line);
+    }
+    return at;
+}
+
+KEAL_FN KealWord keal_list_get(KealList* l, int64_t i, int64_t line) {
+    return l->data[keal_list_index(l, i, line)];
+}
+
+/* The old element is handed back to the caller, which knows its type and
+ * releases it — the runtime only stores. */
+KEAL_FN KealWord keal_list_set(KealList* l, int64_t i, KealWord w, int64_t line) {
+    int64_t at = keal_list_index(l, i, line);
+    KealWord old = l->data[at];
+    l->data[at] = w;
+    return old;
+}
+
+/* A shallow copy for `for`, so the loop walks what the list held when it
+ * started, whatever the body does to it — the interpreters' rule. Elements
+ * are not retained: the copy is consumed by the loop before anything could
+ * release the original's references out from under it, because the original
+ * itself is still alive across the loop. */
+KEAL_FN KealList* keal_list_snapshot(KealList* l) {
+    KealList* c = keal_list_new(NULL);
+    c->len = l->len;
+    c->cap = l->len;
+    c->data = (KealWord*)keal_alloc((size_t)(l->len < 1 ? 1 : l->len) * sizeof(KealWord));
+    memcpy(c->data, l->data, (size_t)l->len * sizeof(KealWord));
+    return c;
 }
 
 /* ---- building strings ------------------------------------------------- */

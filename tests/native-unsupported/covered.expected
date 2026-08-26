@@ -16,28 +16,28 @@ error: the C backend cannot compile default arguments yet
 10 | fun withDefault(n: Int = 1): Int { n }
    |                 ^
   = note: run it on the bytecode VM instead, which supports the whole language
-error: the C backend cannot compile list literals yet
-  --> tests/native-unsupported/covered.keal:12:22
+error: the C backend cannot compile the method `map` on a built-in type yet
+  --> tests/native-unsupported/covered.keal:13:31
    |
-12 | fun useList(): Int { [1, 2, 3].size }
-   |                      ^
+13 | fun useMap(): Int { [1, 2, 3].map({ it * 2 }).size }
+   |                               ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile values of type `(Int) -> Int` yet
-  --> tests/native-unsupported/covered.keal:15:5
+  --> tests/native-unsupported/covered.keal:16:5
    |
-15 |     val f = { x: Int -> x * 2 }
+16 |     val f = { x: Int -> x * 2 }
    |     ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile the type `Any` yet
-  --> tests/native-unsupported/covered.keal:20:14
+  --> tests/native-unsupported/covered.keal:21:14
    |
-20 | fun useIsArm(v: Any): String {
+21 | fun useIsArm(v: Any): String {
    |              ^
   = note: run it on the bytecode VM instead, which supports the whole language
 error: the C backend cannot compile the type `Int?` yet
-  --> tests/native-unsupported/covered.keal:29:20
+  --> tests/native-unsupported/covered.keal:30:20
    |
-29 | fun useNullableInt(n: Int?): Int { n ?: 0 }
+30 | fun useNullableInt(n: Int?): Int { n ?: 0 }
    |                    ^
   = note: a nullable value needs a tag beside it, which is not built yet; a nullable reference is just a pointer and does compile
 7 constructs the C backend does not cover yet

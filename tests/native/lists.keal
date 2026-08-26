@@ -1,0 +1,56 @@
+// Lists compiled natively: literals, indexing in both directions, element
+// assignment with the displaced reference released, `.add`, `.size`,
+// iteration over a snapshot, nesting, and rendering. Bounds failures panic
+// with the interpreters' message.
+
+record Point(val x: Int, val y: Int)
+
+val xs = [3, 1, 4, 1, 5]
+println(xs)
+println(xs.size)
+println(xs[0])
+println(xs[-1])
+xs[1] = 99
+println(xs)
+
+val names = ["ada", "grace"]
+println(names)
+names.add("alan")
+println(names)
+println(names[2])
+println(names[2].length)
+println("héllo".length)
+
+var total = 0
+for (x in xs) { total += x }
+println(total)
+
+var joined = ""
+for (n in names) { joined += n + ";" }
+println(joined)
+
+val points = [Point(1, 2), Point(3, 4)]
+println(points)
+for (p in points) { println(p.x + p.y) }
+
+val grid = [[1, 2], [3, 4]]
+println(grid)
+println(grid[1][0])
+println(grid[0].size)
+
+val floats = [1.5, 2.5]
+println(floats)
+val flags = [true, false]
+println(flags)
+
+fun sum(items: List<Int>): Int {
+    var acc = 0
+    for (v in items) { acc += v }
+    return acc
+}
+println(sum(xs))
+println(sum([10, 20, 30]))
+
+fun firstNames(): List<String> { return ["x", "y"] }
+println(firstNames())
+println("list is ${xs}")

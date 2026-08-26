@@ -40,6 +40,38 @@ pub fn emit(program: &Program, shapes: &[ClassShape]) -> Result<String, Vec<Diag
     }
 }
 
+/// How a list element is stored in a `KealWord`.
+#[derive(Clone, PartialEq)]
+enum Elem {
+    Int,
+    Bool,
+    Float,
+    /// The C type pointed at, and the prefix of its retain/release/show.
+    Ptr(String, String),
+}
+
+impl Elem {
+    /// Wraps a C rvalue into a word.
+    fn word(&self, v: &str) -> String {
+        match self {
+            Elem::Int => format!("(KealWord){{ .i = {} }}", v),
+            Elem::Bool => format!("(KealWord){{ .i = (int64_t)({}) }}", v),
+            Elem::Float => format!("(KealWord){{ .d = {} }}", v),
+            Elem::Ptr(ctype, _) => format!("(KealWord){{ .p = ({}*){} }}", ctype, v),
+        }
+    }
+
+    /// Reads a word back as the element's C value.
+    fn unword(&self, w: &str) -> String {
+        match self {
+            Elem::Int => format!("{}.i", w),
+            Elem::Bool => format!("(bool){}.i", w),
+            Elem::Float => format!("{}.d", w),
+            Elem::Ptr(ctype, _) => format!("(({}*){}.p)", ctype, w),
+        }
+    }
+}
+
 /// A local the current block owns a reference to, and must release when the
 /// block ends by any route. The release is recorded with it because each kind
 /// of object has its own: the header is one word, so nothing in it says how
@@ -63,6 +95,11 @@ struct CBackend {
     string_literals: Vec<String>,
     /// Struct declarations, which must precede everything that mentions them.
     types: String,
+    /// Generated helper functions: releaser thunks and list renderers.
+    helpers: String,
+    thunks: std::collections::HashSet<String>,
+    /// Cache of generated list-show helpers, keyed by element type.
+    list_shows: HashMap<String, String>,
     pending_structs: Vec<String>,
     /// Each class's fields, with the types the checker resolved.
     shapes: HashMap<String, Vec<(String, Type)>>,
@@ -84,6 +121,9 @@ impl CBackend {
             loops: Vec::new(),
             string_literals: Vec::new(),
             types: String::new(),
+            helpers: String::new(),
+            thunks: std::collections::HashSet::new(),
+            list_shows: HashMap::new(),
             pending_structs: Vec::new(),
             shapes: HashMap::new(),
             generic_classes: Vec::new(),
@@ -142,6 +182,15 @@ impl CBackend {
             Type::Class(name, args) if args.is_empty() && self.shapes.contains_key(&**name) => {
                 Some(format!("{}*", struct_name(name)))
             }
+            Type::List(elem) => {
+                // The element type must itself be supported, or the list is
+                // refused where it is declared rather than where it breaks.
+                if self.elem_kind(elem, span).is_some() {
+                    Some("KealList*".to_string())
+                } else {
+                    None
+                }
+            }
             // `T?` over a reference is the same pointer, allowed to be null.
             // Over a value it would need a tag beside it, which is not built.
             Type::Nullable(inner) if is_reference(inner) => self.ctype(inner, span),
@@ -156,7 +205,7 @@ impl CBackend {
     /// True for a type whose values hold a reference that must be released.
     fn counted(ty: &Type) -> bool {
         match ty {
-            Type::Str | Type::Class(_, _) => true,
+            Type::Str | Type::Class(_, _) | Type::List(_) => true,
             Type::Nullable(inner) => Self::counted(inner),
             _ => false,
         }
@@ -167,6 +216,7 @@ impl CBackend {
         match ty {
             Type::Str => Some("keal_str_retain".to_string()),
             Type::Class(name, _) => Some(format!("{}_retain", struct_name(name))),
+            Type::List(_) => Some("keal_list_retain".to_string()),
             // Retain and release both accept null, so a nullable needs no
             // special case beyond reaching through it.
             Type::Nullable(inner) => Self::retain_fn(inner),
@@ -179,6 +229,7 @@ impl CBackend {
         match ty {
             Type::Str => Some("keal_str_release".to_string()),
             Type::Class(name, _) => Some(format!("{}_release", struct_name(name))),
+            Type::List(_) => Some("keal_list_release".to_string()),
             Type::Nullable(inner) => Self::release_fn(inner),
             _ => None,
         }
@@ -189,6 +240,48 @@ impl CBackend {
         match Self::retain_fn(ty) {
             Some(f) => format!("{}({})", f, expr),
             None => expr.to_string(),
+        }
+    }
+
+    /// How a list element of this type is stored in a `KealWord`, or `None`
+    /// when it cannot be one yet.
+    fn elem_kind(&mut self, ty: &Type, span: Span) -> Option<Elem> {
+        Some(match ty {
+            Type::Int => Elem::Int,
+            Type::Bool => Elem::Bool,
+            Type::Float => Elem::Float,
+            Type::Str => Elem::Ptr("KealStr".into(), "keal_str".into()),
+            Type::Class(name, args) if args.is_empty() => {
+                let sn = struct_name(name);
+                Elem::Ptr(sn.clone(), sn)
+            }
+            Type::List(inner) => {
+                self.elem_kind(inner, span)?;
+                Elem::Ptr("KealList".into(), "keal_list".into())
+            }
+            other => {
+                self.unsupported(span, &format!("lists of `{}`", other));
+                return None;
+            }
+        })
+    }
+
+    /// The thunk handed to `keal_list_new`, generated once per pointer kind.
+    fn releaser_thunk(&mut self, elem: &Elem) -> String {
+        match elem {
+            Elem::Int | Elem::Bool | Elem::Float => "NULL".to_string(),
+            Elem::Ptr(ctype, prefix) => {
+                let name = format!("rel_{}", prefix);
+                if !self.thunks.contains(&name) {
+                    self.thunks.insert(name.clone());
+                    let _ = write!(
+                        self.helpers,
+                        "static void {}(void* p) {{ {}_release(({}*)p); }}\n",
+                        name, prefix, ctype
+                    );
+                }
+                name
+            }
         }
     }
 
@@ -570,6 +663,13 @@ impl CBackend {
                 self.unsupported(span, "function types");
                 None
             }
+            TypeExprKind::Named { name, args } if name == "List" && args.len() == 1 => {
+                let inner = self.resolved(&args[0], span)?;
+                // Whether the element is supported is checked here, so the
+                // refusal points at the declaration.
+                self.elem_kind(&inner, span)?;
+                Some(Type::list(inner))
+            }
             TypeExprKind::Named { name, .. } => {
                 self.unsupported(span, &format!("the type `{}` with type arguments", name));
                 None
@@ -725,11 +825,14 @@ impl CBackend {
         }
     }
 
-    /// Only a range is iterable in this subset, which is the case that
-    /// compiles to a plain C loop with no allocation.
     fn for_loop(&mut self, var: &str, iter: &Expr, body: &Block, span: Span) {
+        if let Some(Type::List(elem_ty)) = iter.ty().cloned() {
+            self.list_loop(var, iter, &elem_ty, body, span);
+            return;
+        }
+        // A range compiles to a plain C loop with no allocation.
         let ExprKind::Range { start, end } = &iter.kind else {
-            self.unsupported(span, "iterating over anything but a range");
+            self.unsupported(span, "iterating over anything but a range or a list");
             return;
         };
         let from = self.expr(start);
@@ -744,6 +847,42 @@ impl CBackend {
         self.loops.pop();
         self.indent -= 1;
         self.line("}");
+    }
+
+    /// A `for` over a list walks a snapshot, so the loop sees what the list
+    /// held when it started, whatever the body does to it — the same rule
+    /// the interpreters follow.
+    fn list_loop(&mut self, var: &str, iter: &Expr, elem_ty: &Type, body: &Block, span: Span) {
+        let Some(elem) = self.elem_kind(elem_ty, span) else { return };
+        let Some(ct) = self.ctype(elem_ty, span) else { return };
+
+        self.open_scope();
+        let l = self.expr(iter);
+        let snap = self.temp();
+        self.line(format!("KealList* {} = keal_list_snapshot({});", snap, l));
+        self.own(&snap, &Type::list(elem_ty.clone()));
+
+        let i = self.temp();
+        self.line(format!(
+            "for (int64_t {i} = 0; {i} < {snap}->len; {i}++) {{",
+            i = i,
+            snap = snap
+        ));
+        self.indent += 1;
+        self.open_scope();
+        let v = mangle(var);
+        self.line(format!("{} {} = {};", ct, v, elem.unword(&format!("{}->data[{}]", snap, i))));
+        // The loop variable borrows from the snapshot, whose lifetime spans
+        // the loop, so it is not retained per turn.
+        self.loops.push(self.scopes.len());
+        for st in &body.stmts {
+            self.stmt(st);
+        }
+        self.loops.pop();
+        self.close_scope();
+        self.indent -= 1;
+        self.line("}");
+        self.close_scope();
     }
 
     // ---- expressions ---------------------------------------------------
@@ -807,6 +946,8 @@ impl CBackend {
                     "0".to_string()
                 }
             },
+            ExprKind::ListLit(items) => self.list_literal(e, items),
+            ExprKind::Index { obj, index } => self.index_get(e, obj, index),
             ExprKind::Field { obj, name, safe } => self.field(e, obj, name, *safe),
             ExprKind::MethodCall { obj, name, args, safe } => {
                 self.method_call(e, obj, name, args, *safe)
@@ -817,6 +958,80 @@ impl CBackend {
                 "0".to_string()
             }
         }
+    }
+
+    fn list_literal(&mut self, e: &Expr, items: &[Expr]) -> String {
+        let Some(Type::List(elem_ty)) = e.ty().cloned() else { return "0".to_string() };
+        let Some(elem) = self.elem_kind(&elem_ty, e.span) else { return "0".to_string() };
+        let thunk = self.releaser_thunk(&elem);
+        let t = self.temp();
+        self.line(format!("KealList* {} = keal_list_new({});", t, thunk));
+        self.own(&t, &Type::list((*elem_ty).clone()));
+        for item in items {
+            let v = self.expr(item);
+            // The list takes its own reference; the temp the element came
+            // from is still released by this block.
+            let stored = Self::retained(&elem_ty, &v);
+            self.line(format!("keal_list_push({}, {});", t, elem.word(&stored)));
+        }
+        t
+    }
+
+    fn index_get(&mut self, e: &Expr, obj: &Expr, index: &Expr) -> String {
+        let Some(Type::List(elem_ty)) = obj.ty().cloned() else {
+            self.unsupported(e.span, "indexing anything but a list");
+            return "0".to_string();
+        };
+        let Some(elem) = self.elem_kind(&elem_ty, e.span) else { return "0".to_string() };
+        let l = self.expr(obj);
+        let i = self.expr(index);
+        let w = self.temp();
+        self.line(format!(
+            "const KealWord {} = keal_list_get({}, {}, {});",
+            w, l, i, e.span.line
+        ));
+        let value = elem.unword(&w);
+        if Self::counted(&elem_ty) {
+            let call = Self::retained(&elem_ty, &value);
+            return self.own_temp_of(&elem_ty, call);
+        }
+        value
+    }
+
+    /// The function that renders a `List<elem>`, generated once per element
+    /// type. Inside a list, a string is quoted, as the interpreters print it.
+    fn list_show(&mut self, elem_ty: &Type, span: Span) -> Option<String> {
+        let key = format!("{}", elem_ty);
+        if let Some(f) = self.list_shows.get(&key) {
+            return Some(f.clone());
+        }
+        let elem = self.elem_kind(elem_ty, span)?;
+        let name = format!("show_list_{}", self.list_shows.len());
+        self.list_shows.insert(key, name.clone());
+
+        let item = elem.unword("l->data[i]");
+        let rendered = match elem_ty {
+            Type::Str => format!("keal_str_repr(keal_str_retain({}))", item),
+            Type::Int => format!("keal_str_from_int({})", item),
+            Type::Float => format!("keal_str_from_float({})", item),
+            Type::Bool => format!("keal_str_from_bool({})", item),
+            Type::Class(cname, _) => format!("{}_show({})", struct_name(cname), item),
+            Type::List(inner) => {
+                let f = self.list_show(inner, span)?;
+                format!("{}({})", f, item)
+            }
+            other => {
+                self.unsupported(span, &format!("rendering lists of `{}`", other));
+                return None;
+            }
+        };
+        let _ = write!(
+            self.helpers,
+            "static KealStr* {name}(KealList* l) {{\n    KealBuf b;\n    keal_buf_init(&b);\n    keal_buf_lit(&b, \"[\");\n    for (int64_t i = 0; i < l->len; i++) {{\n        if (i > 0) {{ keal_buf_lit(&b, \", \"); }}\n        keal_buf_str(&b, {rendered});\n    }}\n    keal_buf_lit(&b, \"]\");\n    return keal_buf_finish(&b);\n}}\n",
+            name = name,
+            rendered = rendered
+        );
+        Some(name)
     }
 
     /// `a ?: b` reaches `b` only when `a` is absent, so the fallback is
@@ -848,6 +1063,19 @@ impl CBackend {
     /// Reading a field yields an owned reference when the field is counted,
     /// so that the reader's lifetime does not depend on the object's.
     fn field(&mut self, e: &Expr, obj: &Expr, name: &str, safe: bool) -> String {
+        // The built-in properties, which are fields of the runtime structs
+        // rather than of anything the program declared.
+        match (obj.ty(), name) {
+            (Some(Type::List(_)), "size") => {
+                let l = self.expr(obj);
+                return format!("{}->len", l);
+            }
+            (Some(Type::Str), "length") => {
+                let s = self.expr(obj);
+                return format!("keal_str_length({})", s);
+            }
+            _ => {}
+        }
         let receiver = self.expr(obj);
         let access = format!("{}->{}", receiver, mangle(name));
         if safe {
@@ -889,8 +1117,25 @@ impl CBackend {
         safe: bool,
     ) -> String {
         let receiver_ty = obj.ty().cloned().map(|t| if safe { t.non_null() } else { t });
+        // The one built-in method the subset supports so far.
+        if let (Some(Type::List(elem_ty)), "add", 1, false) =
+            (&receiver_ty, name, args.len(), safe)
+        {
+            let elem_ty = elem_ty.clone();
+            if let Some(elem) = self.elem_kind(&elem_ty, e.span) {
+                let l = self.expr(obj);
+                let v = self.expr(&args[0].value);
+                let stored = Self::retained(&elem_ty, &v);
+                self.line(format!("keal_list_push({}, {});", l, elem.word(&stored)));
+                return "0".to_string();
+            }
+            return "0".to_string();
+        }
         let Some(Type::Class(class, _)) = receiver_ty else {
-            self.unsupported(e.span, "calling a method on a built-in type");
+            self.unsupported(
+                e.span,
+                &format!("the method `{}` on a built-in type", name),
+            );
             return "0".to_string();
         };
         if args.iter().any(|a| a.name.is_some()) {
@@ -1162,6 +1407,12 @@ impl CBackend {
             Some(Type::Float) => format!("keal_str_from_float({})", v),
             Some(Type::Bool) => format!("keal_str_from_bool({})", v),
             Some(Type::Class(name, _)) => format!("{}_show({})", struct_name(&name), v),
+            Some(Type::List(elem_ty)) => {
+                let Some(f) = self.list_show(&elem_ty, e.span) else {
+                    return "keal_str_empty()".to_string();
+                };
+                format!("{}({})", f, v)
+            }
             Some(Type::Null) => "keal_str_static(\"null\", 4)".to_string(),
             Some(Type::Nullable(inner)) => {
                 // Absent renders as `null`; present renders as itself.
@@ -1393,6 +1644,49 @@ impl CBackend {
     }
 
     fn assign(&mut self, target: &Expr, op: Option<BinOp>, value: &Expr, span: Span) {
+        if let ExprKind::Index { obj, index } = &target.kind {
+            if op.is_some() {
+                // A compound assignment reads and writes the same element;
+                // emitting the receiver twice would run its side effects
+                // twice, so this is refused rather than quietly reordered.
+                self.unsupported(span, "compound assignment into an element");
+                return;
+            }
+            let Some(Type::List(elem_ty)) = obj.ty().cloned() else {
+                self.unsupported(span, "assigning into anything but a list");
+                return;
+            };
+            let Some(elem) = self.elem_kind(&elem_ty, span) else { return };
+            let l = self.expr(obj);
+            let i = self.expr(index);
+            let v = self.expr(value);
+            let stored = Self::retained(&elem_ty, &v);
+            match Self::release_fn(&elem_ty) {
+                Some(release) => {
+                    let old = self.temp();
+                    self.line(format!(
+                        "const KealWord {} = keal_list_set({}, {}, {}, {});",
+                        old,
+                        l,
+                        i,
+                        elem.word(&stored),
+                        span.line
+                    ));
+                    self.line(format!("{}({});", release, elem.unword(&old)));
+                }
+                None => {
+                    // Nothing to release, so the displaced word is discarded.
+                    self.line(format!(
+                        "(void)keal_list_set({}, {}, {}, {});",
+                        l,
+                        i,
+                        elem.word(&stored),
+                        span.line
+                    ));
+                }
+            }
+            return;
+        }
         let var = match &target.kind {
             ExprKind::Ident(name) => mangle(name),
             ExprKind::Field { obj, name, safe: false } => {
@@ -1476,6 +1770,8 @@ impl CBackend {
         }
         out.push('\n');
         out.push_str(&self.decls);
+        out.push('\n');
+        out.push_str(&self.helpers);
         out.push_str(&self.defs);
 
         // `main` was emitted without the literal setup, so it is wrapped.
