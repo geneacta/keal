@@ -34,6 +34,7 @@ usage:
     keal run <file.keal>      run a program
     keal check <file.keal>    type-check without running
     keal layout <file.keal>   show how the program's values are laid out
+    keal tokens <file.keal>   dump the token stream (the self-hosting oracle)
     keal emit-c <file.keal>   print the C a native build would compile
     keal build <file.keal> [more.c more.cpp ...]
                               compile to a native executable, together with
@@ -91,13 +92,16 @@ fn real_main() -> ExitCode {
                 && !matches!(
                     one.as_str(),
                     "run" | "check" | "layout" | "emit-c" | "build" | "repl" | "version"
-                        | "help"
+                        | "help" | "tokens"
                 ) =>
         {
             ("run", Some(one.clone()))
         }
         [cmd, file, ..]
-            if matches!(cmd.as_str(), "run" | "check" | "layout" | "emit-c" | "build") =>
+            if matches!(
+                cmd.as_str(),
+                "run" | "check" | "layout" | "emit-c" | "build" | "tokens"
+            ) =>
         {
             (
                 match cmd.as_str() {
@@ -105,6 +109,7 @@ fn real_main() -> ExitCode {
                     "check" => "check",
                     "layout" => "layout",
                     "emit-c" => "emit-c",
+                    "tokens" => "tokens",
                     _ => "build",
                 },
                 Some(file.clone()),
@@ -124,6 +129,7 @@ fn real_main() -> ExitCode {
         }
         "repl" => repl::run(),
         "layout" => show_layout(&target.unwrap()),
+        "tokens" => dump_tokens(&target.unwrap()),
         "emit-c" => nativebuild::emit_only(&target.unwrap()),
         "build" => {
             // Anything after the program is a C or C++ source built with it.
@@ -269,6 +275,74 @@ fn show_layout(path: &str) -> ExitCode {
             );
         }
     }
+    ExitCode::SUCCESS
+}
+
+/// One token per line, in a format simple enough that a lexer written in
+/// Keal can print the same thing. This is the oracle self-hosting is checked
+/// against: the two lexers must agree on every file in the repository.
+fn dump_tokens(path: &str) -> ExitCode {
+    use lexer::{StrPart, Tok};
+
+    let text = match std::fs::read_to_string(path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("error: cannot read `{}`: {}", path, e);
+            return ExitCode::FAILURE;
+        }
+    };
+    let toks = match lexer::lex(&text, 0) {
+        Ok(t) => t,
+        Err(d) => {
+            println!("error {}:{} {}", d.span.line, d.span.col, d.msg);
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let esc = |s: &str| -> String {
+        let mut out = String::new();
+        for c in s.chars() {
+            match c {
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\t' => out.push_str("\\t"),
+                '\r' => out.push_str("\\r"),
+                '\0' => out.push_str("\\0"),
+                other => out.push(other),
+            }
+        }
+        out
+    };
+
+    let mut out = String::new();
+    for t in &toks {
+        let head = format!("{}:{}", t.span.line, t.span.col);
+        match &t.tok {
+            Tok::Int(n) => out.push_str(&format!("{} int {}\n", head, n)),
+            Tok::Float(f) => {
+                out.push_str(&format!("{} float {}\n", head, runtime::format_float(*f)))
+            }
+            Tok::Ident(name) => out.push_str(&format!("{} ident {}\n", head, name)),
+            Tok::Str(parts) => {
+                out.push_str(&format!("{} str", head));
+                for p in parts {
+                    match p {
+                        StrPart::Lit(s) => out.push_str(&format!(" lit({})", esc(s))),
+                        StrPart::Interp(src, sp) => out.push_str(&format!(
+                            " interp({}:{} {})",
+                            sp.line,
+                            sp.col,
+                            esc(src)
+                        )),
+                    }
+                }
+                out.push('\n');
+            }
+            Tok::Eof => out.push_str(&format!("{} eof\n", head)),
+            other => out.push_str(&format!("{} {}\n", head, other.symbol())),
+        }
+    }
+    print!("{}", out);
     ExitCode::SUCCESS
 }
 

@@ -109,6 +109,9 @@ fn string_sig(name: &str, _args: &[Option<Type>]) -> Option<FunType> {
         "get" => sig(vec![p("index", Type::Int)], s),
         "toInt" => sig(vec![], Type::Int.nullable()),
         "toFloat" => sig(vec![], Type::Float.nullable()),
+        // The first character's code point, -1 when empty. `Int.toChar` is
+        // its inverse; together they are what a lexer needs.
+        "code" => sig(vec![], Type::Int),
         _ => None,
     }
 }

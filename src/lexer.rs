@@ -144,7 +144,7 @@ impl Tok {
         }
     }
 
-    fn symbol(&self) -> &'static str {
+    pub fn symbol(&self) -> &'static str {
         match self {
             Tok::Val => "val",
             Tok::Var => "var",

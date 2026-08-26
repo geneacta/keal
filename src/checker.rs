@@ -344,6 +344,11 @@ impl Checker {
         for item in &mut program.items {
             if let Item::Stmt(s) = item {
                 last = Some(self.check_stmt(s));
+                // An early-exit guard narrows what follows at the top level
+                // exactly as it does inside a block.
+                if let Some(facts) = self.guard_narrowing.take() {
+                    self.apply(facts);
+                }
             }
         }
 

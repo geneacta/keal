@@ -349,6 +349,10 @@ fn string_method(s: &Rc<str>, name: &str, args: &[Value], span: Span) -> R<Value
             }
             Value::str(cs[idx as usize].to_string())
         }
+        "code" => match s.chars().next() {
+            Some(c) => Value::Int(c as i64),
+            None => Value::Int(-1),
+        },
         "toInt" => match s.trim().parse::<i64>() {
             Ok(n) => Value::Int(n),
             Err(_) => Value::Null,

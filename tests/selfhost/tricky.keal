@@ -1,0 +1,38 @@
+// Every corner the lexer has: this file is lexed by both lexers and the
+// dumps must match byte for byte. It is never parsed, so it need not be a
+// valid program — only a valid token stream.
+
+val n = 1_000_000
+val f = 3.14
+val e1 = 6.02e23
+val e2 = 1e-9
+val e3 = 2E+8
+val notExp = 5
+val r = 1..10
+val neg = -42
+
+val s1 = "plain"
+val s2 = "escapes: \n \t \r \0 \\ \" \$ end"
+val s3 = "unicode: \u{48} \u{e9} \u{1F600}"
+val s4 = "interp ${a + b} and $name and ${m["k"]} done"
+val s5 = "lone dollar: $ 5"
+val s6 = ""
+val raw = """raw "quotes" and \n and ${nothing}
+across lines"""
+val multibyte = "héllo wörld"
+
+/* block /* nested */ comment */ val afterComment = 1
+
+val ops = a + b - c * d / e % g
+val cmp = a == b != c < d <= e > g >= h
+val logic = not a and b or c xor d xnor e nand g nor h implies i
+val symbols = x && y || z ^ w
+val nullish = a ?: b?.c!!.d
+val assigns = 1
+val arrow = { x: Int -> x }
+val range = 0..9
+
+proc p() { return }
+fun q(): Int { return 7 }
+unless (false) { }
+when (n) { in 1..2 -> 0 else -> 1 }

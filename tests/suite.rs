@@ -28,6 +28,12 @@ struct Output {
     success: bool,
 }
 
+impl Output {
+    fn status_success(&self) -> bool {
+        self.success
+    }
+}
+
 /// Runs the binary from the crate root so that the paths in diagnostics are
 /// the relative ones written in the snapshots.
 fn keal(args: &[&str]) -> Output {
@@ -283,6 +289,38 @@ fn extern_programs_build_and_run() {
         let ran = Command::new(&exe).output().expect("cannot run the built binary");
         check_snapshot(&file, &String::from_utf8_lossy(&ran.stdout));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The self-hosted lexer must print exactly what the Rust one prints, for
+/// every file in the repository and for every way lexing can fail. This is
+/// the first plank of self-hosting: when the whole compiler is Keal, this
+/// test is how each piece earns its way in.
+#[test]
+fn selfhosted_lexer_agrees_with_the_oracle() {
+    let mut files = keal_files("tests/programs");
+    files.extend(keal_files("examples"));
+    files.extend(keal_files("tests/native"));
+    files.extend(keal_files("tests/selfhost"));
+    files.extend(keal_files("tests/selfhost/errors"));
+    files.push(root().join("selfhost/lexer.keal"));
+    files.push(root().join("src/prelude.keal"));
+
+    for file in files {
+        let path = relative(&file);
+        let oracle = keal(&["tokens", &path]);
+        let mine = keal(&["--vm", "selfhost/lexer.keal", &path]);
+        assert_eq!(
+            oracle.stdout, mine.stdout,
+            "the lexers disagree on {}",
+            path
+        );
+        assert_eq!(
+            oracle.status_success(),
+            mine.status_success(),
+            "the lexers disagree on whether {} lexes",
+            path
+        );
     }
 }
 

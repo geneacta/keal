@@ -362,12 +362,13 @@ what found the first two bugs in this backend.
 
 ## Decided, waiting their turn
 
-* **Self-hosting is the destination**: a Keal compiler written in Keal. It is
-  the honest test of a language — nothing exposes missing pieces like writing
-  your own compiler in it — and most of the road there is now paved: records
-  and `when` for the AST, generics for the containers, native compilation for
-  the speed. What it still needs is file I/O, command-line arguments, and an
-  exit-code story; those come first, as ordinary features.
+* **Self-hosting is the destination**, and the first plank is laid:
+  [`selfhost/lexer.keal`](selfhost/lexer.keal) is the Keal lexer written in
+  Keal, and the suite holds it to *byte-for-byte agreement* with the Rust one
+  — every file in the repository, every way lexing can fail, error messages
+  and exit codes included, itself included. `keal tokens file` prints the
+  oracle either can be compared against. The parser is next, by the same
+  method: an oracle dump, a Keal twin, agreement enforced by the suite.
 
 * **Lazy sequences**, the equivalent of Java's `Stream` / Kotlin's `Sequence`:
   pull-based, fusing, with infinite sources. The eager `map`/`filter`/`fold`
