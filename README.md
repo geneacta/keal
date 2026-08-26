@@ -300,6 +300,30 @@ That is 84× the VM and 205× the evaluator. The generated code carries the same
 guarantees: integer overflow is checked rather than wrapped, so a program
 fails where it would have failed on either interpreter.
 
+**Calling C and C++ from Keal** is part of the language, not an FFI bolted
+on. A `native` block passes text into the generated C verbatim — a header, or
+an implementation written inline — and `extern fun` binds a symbol with a
+signature the checker holds callers to. Only ownership-free types cross
+(`Int`, `Float`, `Bool`), which is the boundary `docs/memory.md` drew before
+any of this existed. C++ lives in its own files behind `extern "C"`, and
+`keal build program.keal impl.cpp` compiles and links the lot, switching the
+linker to `c++` when it has to:
+
+```keal
+native """
+#include <math.h>
+static int64_t triple(int64_t n) { return n * 3; }
+extern int64_t fib_cpp(int64_t n);
+"""
+
+extern fun sin(x: Float): Float
+extern fun triple(n: Int): Int
+extern fun fib_cpp(n: Int): Int
+```
+
+The interpreters refuse an extern call by name — `compile with keal build to
+call into C` — rather than pretending.
+
 **The backend covers most of the language.** Functions, control flow, `Int`,
 `Float`, `Bool`, `String`, classes and records with their methods, nullable
 references, `when`, `List<T>` with the same bounds panics as the interpreters,
@@ -333,6 +357,13 @@ requires its output to match both interpreters byte for byte. That test is
 what found the first two bugs in this backend.
 
 ## Decided, waiting their turn
+
+* **Self-hosting is the destination**: a Keal compiler written in Keal. It is
+  the honest test of a language — nothing exposes missing pieces like writing
+  your own compiler in it — and most of the road there is now paved: records
+  and `when` for the AST, generics for the containers, native compilation for
+  the speed. What it still needs is file I/O, command-line arguments, and an
+  exit-code story; those come first, as ordinary features.
 
 * **Lazy sequences**, the equivalent of Java's `Stream` / Kotlin's `Sequence`:
   pull-based, fusing, with infinite sources. The eager `map`/`filter`/`fold`

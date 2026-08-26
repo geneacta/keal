@@ -35,7 +35,9 @@ usage:
     keal check <file.keal>    type-check without running
     keal layout <file.keal>   show how the program's values are laid out
     keal emit-c <file.keal>   print the C a native build would compile
-    keal build <file.keal>    compile to a native executable
+    keal build <file.keal> [more.c more.cpp ...]
+                              compile to a native executable, together with
+                              any C or C++ sources the externs need
     keal repl                 start an interactive session
     keal version              print the version
 ";
@@ -84,7 +86,7 @@ fn real_main() -> ExitCode {
         [one] if one == "version" || one == "--version" || one == "-V" => ("version", None),
         [one] if one == "help" || one == "--help" || one == "-h" => ("help", None),
         [one] => ("run", Some(one.clone())),
-        [cmd, file]
+        [cmd, file, ..]
             if matches!(cmd.as_str(), "run" | "check" | "layout" | "emit-c" | "build") =>
         {
             (
@@ -113,7 +115,11 @@ fn real_main() -> ExitCode {
         "repl" => repl::run(),
         "layout" => show_layout(&target.unwrap()),
         "emit-c" => nativebuild::emit_only(&target.unwrap()),
-        "build" => nativebuild::build(&target.unwrap()),
+        "build" => {
+            // Anything after the program is a C or C++ source built with it.
+            let extras: Vec<String> = args.iter().skip(2).cloned().collect();
+            nativebuild::build(&target.unwrap(), &extras)
+        }
         cmd => run_file(&target.unwrap(), cmd == "check", engine),
     }
 }

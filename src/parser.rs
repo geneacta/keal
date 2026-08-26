@@ -177,6 +177,20 @@ impl Parser {
                 self.advance();
                 Ok(Item::Class(self.class_decl(true)?))
             }
+            // `native "..."`: contextual, like `record` and `trait`.
+            Tok::Ident(name) if name == "native" && matches!(self.peek_at(1), Tok::Str(_)) => {
+                let span = self.span();
+                self.advance();
+                let Tok::Str(parts) = self.advance().tok else { unreachable!() };
+                match parts.as_slice() {
+                    [StrPart::Lit(code)] => Ok(Item::Native { code: code.clone(), span }),
+                    _ => Err(Diag::new(span, "a `native` block cannot interpolate")
+                        .with_note("it is passed to the C compiler verbatim")),
+                }
+            }
+            Tok::Ident(name) if name == "extern" && matches!(self.peek_at(1), Tok::Fun) => {
+                self.extern_decl()
+            }
             Tok::Import => {
                 let span = self.span();
                 self.advance();
@@ -196,6 +210,36 @@ impl Parser {
             }
             _ => Ok(Item::Stmt(self.stmt()?)),
         }
+    }
+
+    /// `extern fun name(params): Ret [= "symbol"]` — a body would be C's
+    /// business, so there is none.
+    fn extern_decl(&mut self) -> Result<Item, Diag> {
+        let span = self.span();
+        self.advance(); // extern
+        self.expect(Tok::Fun, "after `extern`")?;
+        let (name, _) = self.expect_ident("a function name")?;
+        let params = self.param_list()?;
+        let ret = self.return_type(true, &name)?;
+        let symbol = if self.eat(&Tok::Assign) {
+            match self.advance().tok {
+                Tok::Str(parts) => match parts.as_slice() {
+                    [StrPart::Lit(sym)] => sym.clone(),
+                    _ => {
+                        return Err(Diag::new(span, "a symbol name cannot interpolate"))
+                    }
+                },
+                other => {
+                    return Err(Diag::new(
+                        self.span(),
+                        format!("expected a C symbol string, found {}", other.describe()),
+                    ))
+                }
+            }
+        } else {
+            name.clone()
+        };
+        Ok(Item::Extern(ExternDecl { name, symbol, params, ret, span }))
     }
 
     /// Reads a `fun` or a `proc`.

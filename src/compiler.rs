@@ -121,6 +121,9 @@ impl Compiler {
                 Item::Fun(f) => {
                     self.declare_global(&f.name);
                 }
+                Item::Extern(x) => {
+                    self.declare_global(&x.name);
+                }
                 Item::Stmt(s) => match &s.kind {
                     StmtKind::Let { name, .. } => {
                         self.declare_global(name);
@@ -151,6 +154,13 @@ impl Compiler {
                 let g = self.globals[&f.name];
                 self.emit(Op::MakeClosure(idx), f.span);
                 self.emit(Op::StoreGlobal(g), f.span);
+            }
+            if let Item::Extern(x) = item {
+                // A native value whose call reports what an extern needs.
+                let n = self.fs().chunk.name(&format!("extern:{}", x.name));
+                let g = self.globals[&x.name];
+                self.emit(Op::MakeNative(n), x.span);
+                self.emit(Op::StoreGlobal(g), x.span);
             }
         }
 
@@ -1130,6 +1140,8 @@ fn top_level_stmts(program: &crate::ast::Program) -> Vec<Stmt> {
 fn item_span(item: &Item) -> Span {
     match item {
         Item::Fun(f) => f.span,
+        Item::Native { span, .. } => *span,
+        Item::Extern(x) => x.span,
         Item::Class(c) => c.span,
         Item::Trait(t) => t.span,
         Item::Import { span, .. } => *span,

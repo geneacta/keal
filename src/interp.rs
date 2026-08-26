@@ -52,6 +52,19 @@ impl Interp {
     fn run_inner(&mut self, program: &Program) -> R<Value> {
         for item in &program.items {
             match item {
+                Item::Extern(x) => {
+                    // Present so a call fails with its name rather than with
+                    // "not defined"; only native code can actually run it.
+                    let span = x.span;
+                    let name = x.name.clone();
+                    self.globals.define(
+                        &x.name,
+                        Value::Native(Rc::new(NativeFn {
+                            name: Rc::from(format!("extern:{}", name)),
+                        })),
+                    );
+                    let _ = span;
+                }
                 Item::Class(c) => {
                     self.classes.insert(c.name.clone(), Rc::new(c.clone()));
                 }

@@ -323,6 +323,12 @@ A `when` that produces a value needs an `else` arm. A guarded arm never
 counts as that `else`, because it might not fire — and for the same reason,
 what a guarded arm rules out is not assumed by the arms below it.
 
+### Raw strings
+
+`"""..."""` is a raw string: it may span lines, nothing escapes, nothing
+interpolates. It is for text meant to be passed through whole — the C inside
+a `native` block, a fragment of another language, a block of test input.
+
 ### String interpolation
 
 ```keal
@@ -916,7 +922,52 @@ runs the same program on the tree-walking evaluator instead, and the two are
 required to agree on every byte they print. If they ever do not, that is a
 bug — please report it with the program that shows it.
 
-## 17. Editor support
+## 17. Calling C and C++
+
+A `native` block passes text verbatim into the C that `keal build` generates:
+headers, inline helper functions, declarations. `extern fun` then binds a
+symbol with a signature the checker enforces at every call:
+
+```keal
+native """
+#include <math.h>
+static int64_t triple(int64_t n) { return n * 3; }
+"""
+
+extern fun sin(x: Float): Float
+extern fun triple(n: Int): Int
+extern fun pow(base: Float, exponent: Float): Float = "pow"
+```
+
+The `= "symbol"` names the C symbol when it differs from the Keal name.
+
+Three rules, each there for a reason:
+
+* **Only `Int`, `Float` and `Bool` cross.** They carry no ownership, so
+  neither side has to guess who frees what — the boundary `docs/memory.md`
+  section 6 drew. Strings and objects will need an explicit ownership story
+  before they cross; refusing now beats leaking later.
+* **Every symbol must be declared** — by an included header or by the
+  `native` block itself. Keal does not guess prototypes, because a guessed
+  prototype that disagrees with a header is exactly the kind of quiet
+  miscompilation this backend refuses on principle.
+* **Extern functions run natively only.** The interpreters refuse a call by
+  name and point at `keal build`.
+
+C++ goes in its own files, behind `extern "C"`:
+
+```cpp
+// helpers.cpp — C++ freely inside, C linkage at the boundary
+extern "C" int64_t fib_cpp(int64_t n) { /* std::vector, whatever */ }
+```
+
+```sh
+keal build program.keal helpers.cpp     # links with c++ automatically
+```
+
+The generated core stays C11 either way; only the link changes.
+
+## 18. Editor support
 
 [`editors/vscode`](../editors/vscode) holds a Visual Studio Code extension:
 highlighting, bracket and indent behaviour, snippets, and a problem matcher
@@ -926,7 +977,7 @@ There is no language server yet, so there is no completion or go-to-definition.
 The grammar is a standard TextMate file that Sublime Text, Zed and others read
 directly.
 
-## 18. How values are represented
+## 19. How values are represented
 
 `Int`, `Float`, `Bool`, `Unit` and `Range` are values and copy on assignment.
 `String`, `List`, `Map`, functions and instances are references, shared and
@@ -936,7 +987,7 @@ That is all a program needs to know. If you are interested in the bytes —
 sizes, field offsets, what `T?` costs, what crosses into C — run
 `keal layout file.keal`, and see [`docs/memory.md`](memory.md).
 
-## 19. What is not here yet
+## 20. What is not here yet
 
 Class inheritance · exceptions and `try`/`catch` · destructuring a record in
 a `when` or a binding ·

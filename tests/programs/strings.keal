@@ -46,3 +46,10 @@ assert(not ("b" < "a"), "string comparison")
 var joined = ""
 for (c in "abc") { joined += c.toUpper() }
 assert(joined == "ABC", "for over a string")
+
+// Raw strings: multi-line, no escapes, no interpolation.
+val raw = """line one
+line two \n stays literal ${not interpolated}"""
+assert(raw.contains("line one"), "raw strings span lines")
+assert(raw.contains("\\n stays"), "backslash-n is two characters")
+assert(raw.contains("\${not"), "dollar-brace is literal")

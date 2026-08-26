@@ -15,6 +15,12 @@ pub enum Item {
     Fun(FunDecl),
     Class(ClassDecl),
     Trait(TraitDecl),
+    /// `native "..."` — text passed verbatim into the generated C, for
+    /// headers and helper definitions the externs below need.
+    Native { code: String, span: Span },
+    /// `extern fun name(params): Ret [= "symbol"]` — a C function made
+    /// callable, with the signature the checker will hold callers to.
+    Extern(ExternDecl),
     /// `import "./other.keal"` — resolved and inlined by the module loader.
     Import { path: String, span: Span },
     /// A top-level statement, executed in order when the program runs.
@@ -27,6 +33,16 @@ pub enum Item {
 pub struct TypeParam {
     pub name: String,
     pub bounds: Vec<TypeExpr>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ExternDecl {
+    pub name: String,
+    /// The C symbol; the Keal name when not spelled out.
+    pub symbol: String,
+    pub params: Vec<Param>,
+    pub ret: Option<TypeExpr>,
+    pub span: Span,
 }
 
 #[derive(Clone, Debug)]

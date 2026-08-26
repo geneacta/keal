@@ -327,6 +327,7 @@ impl Checker {
             match item {
                 Item::Class(c) => self.collect_class(c),
                 Item::Fun(f) => self.collect_fun(f),
+                Item::Extern(x) => self.collect_extern(x),
                 _ => {}
             }
         }
@@ -355,6 +356,41 @@ impl Checker {
             }
         }
         last
+    }
+
+    /// An extern is a global function with the signature it declares, and
+    /// only value types may cross: a counted reference has an owner, and C
+    /// is not it — the rule docs/memory.md section 6 already states.
+    fn collect_extern(&mut self, x: &ExternDecl) {
+        let mut params = Vec::new();
+        for p in &x.params {
+            let ty = p.ty.as_ref().map(|t| self.resolve(t)).unwrap_or(Type::Error);
+            if !matches!(ty, Type::Int | Type::Float | Type::Bool | Type::Error) {
+                self.error_note(
+                    p.span,
+                    format!("`{}` cannot cross into C", ty),
+                    "extern parameters are limited to Int, Float and Bool, \
+                     which carry no ownership",
+                );
+            }
+            if p.default.is_some() {
+                self.error(p.span, "an extern parameter cannot have a default");
+            }
+            params.push(ParamType { name: p.name.clone(), ty, has_default: false });
+        }
+        let ret = x.ret.as_ref().map(|t| self.resolve(t)).unwrap_or(Type::Unit);
+        if !matches!(ret, Type::Int | Type::Float | Type::Bool | Type::Unit | Type::Error) {
+            self.error_note(
+                x.span,
+                format!("`{}` cannot cross back from C", ret),
+                "extern results are limited to Int, Float, Bool and none",
+            );
+        }
+        let ty = Type::Fun(Rc::new(FunType { params, ret }));
+        if self.scopes[0].contains_key(&x.name) && !self.repl {
+            self.error(x.span, format!("`{}` is declared twice", x.name));
+        }
+        self.scopes[0].insert(x.name.clone(), Binding { ty, kind: BindKind::Fun, type_params: Vec::new() });
     }
 
     fn collect_fun(&mut self, f: &FunDecl) {

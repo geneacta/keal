@@ -252,6 +252,40 @@ fn the_native_backend_says_what_it_cannot_compile() {
     }
 }
 
+/// Interop programs build with the real C and C++ compilers and print what
+/// the snapshot says. Skipped without a C compiler, like the native tests.
+#[test]
+fn extern_programs_build_and_run() {
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    for file in keal_files("tests/native-extern") {
+        let path = relative(&file);
+        let companion = file.with_extension("cpp");
+        let dir = std::env::temp_dir().join("keal-extern-test");
+        std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+
+        let mut cmd = Command::new(BIN);
+        cmd.current_dir(&dir).arg("build").arg(root().join(&path));
+        if companion.exists() {
+            cmd.arg(&companion);
+        }
+        let built = cmd.output().expect("cannot run keal build");
+        assert!(
+            built.status.success(),
+            "{} did not build:\n{}",
+            path,
+            String::from_utf8_lossy(&built.stderr)
+        );
+        let exe = dir.join(file.file_stem().unwrap());
+        let ran = Command::new(&exe).output().expect("cannot run the built binary");
+        check_snapshot(&file, &String::from_utf8_lossy(&ran.stdout));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 #[test]
 fn cli_reports_missing_files() {
     let out = keal(&["run", "does/not/exist.keal"]);

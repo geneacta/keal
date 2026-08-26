@@ -135,6 +135,8 @@ struct CBackend {
     tsubst: crate::types::Subst,
     /// Every function and class declaration, for the instantiator to copy.
     fun_decls: HashMap<String, FunDecl>,
+    /// Extern functions: Keal name -> C symbol, called directly.
+    externs: HashMap<String, String>,
     class_decls: HashMap<String, ClassDecl>,
     /// Which specialisations exist already, keyed by mangled name.
     instantiated: std::collections::HashSet<String>,
@@ -171,6 +173,7 @@ impl CBackend {
             param_alias: None,
             tsubst: crate::types::Subst::new(),
             fun_decls: HashMap::new(),
+            externs: HashMap::new(),
             class_decls: HashMap::new(),
             instantiated: std::collections::HashSet::new(),
             errors: Vec::new(),
@@ -412,6 +415,16 @@ impl CBackend {
                 Item::Class(c) => {
                     self.class_decls.insert(c.name.clone(), c.clone());
                 }
+                // A `native` block goes into the output verbatim, before the
+                // program's own declarations, so the externs' symbols exist.
+                Item::Native { code, .. } => {
+                    self.helpers.push_str(code);
+                    self.helpers.push('\n');
+                }
+                Item::Extern(x) => {
+                    self.global_funs.insert(x.name.clone());
+                    self.externs.insert(x.name.clone(), x.symbol.clone());
+                }
                 _ => {}
             }
         }
@@ -431,7 +444,12 @@ impl CBackend {
                 Item::Fun(f) => self.function(f),
                 // The prelude is only trait declarations; a program that uses
                 // one is caught where it uses it.
-                Item::Trait(_) | Item::Class(_) | Item::Import { .. } | Item::Stmt(_) => {}
+                Item::Trait(_)
+                | Item::Class(_)
+                | Item::Import { .. }
+                | Item::Stmt(_)
+                | Item::Native { .. }
+                | Item::Extern(_) => {}
             }
         }
         self.main(program);
@@ -2627,6 +2645,14 @@ impl CBackend {
             return "0".to_string();
         }
 
+        if let Some(symbol) = self.externs.get(name).cloned() {
+            let mut rendered = Vec::new();
+            for a in args {
+                rendered.push(self.expr(&a.value));
+            }
+            let call = format!("{}({})", symbol, rendered.join(", "));
+            return self.finish_call(e, call);
+        }
         let (cname, callee_subst) = match &e.inst {
             Some(inst) => {
                 let targs: Vec<Type> =

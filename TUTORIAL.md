@@ -49,7 +49,9 @@ chmod +x hello.keal
 ```
 
 Two other commands are worth knowing now. `keal check file.keal` type-checks
-without running, which is what you want in an editor or a hook. And `keal`
+without running, which is what you want in an editor or a hook — and when the
+program is ready, `keal build file.keal` compiles it to a native executable
+(section 11½). And `keal`
 with no arguments opens a REPL:
 
 ```
@@ -558,6 +560,48 @@ error: `String?` may be null, so `.length` is not allowed
 At run time, the failures the type system cannot rule out — division by zero,
 an index out of range, `!!` on null, runaway recursion — abort with a message
 and a call stack.
+
+---
+
+## 11½. Compiling to native code, and calling C
+
+Everything above runs on the bytecode VM. The same program compiles to a real
+executable:
+
+```sh
+$ keal build hello.keal
+hello
+$ ./hello
+```
+
+On numeric work that is roughly 80× the VM. The generated code keeps the
+language's guarantees — integer overflow still fails, bounds are still
+checked, and the test suite requires native output to match the interpreters
+byte for byte.
+
+Native code can also call C, and C++ behind `extern "C"`:
+
+```keal
+native """
+#include <math.h>
+"""
+
+extern fun sin(x: Float): Float
+
+println(sin(0.0))
+```
+
+`native` passes text into the generated C verbatim; `extern fun` binds a
+symbol with a checked signature. Only `Int`, `Float` and `Bool` cross the
+boundary — they carry no ownership, so neither side has to guess who frees
+what. With C++ in a separate file:
+
+```sh
+$ keal build program.keal helpers.cpp
+```
+
+The triple-quoted string used above is a **raw string**: newlines welcome, no
+escapes, no interpolation — for text meant to pass through whole.
 
 ---
 

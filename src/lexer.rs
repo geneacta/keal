@@ -381,6 +381,14 @@ impl<'a> Lexer<'a> {
                 continue;
             }
             if c == b'"' {
+                // `"""` opens a raw string: newlines welcome, no escapes,
+                // no interpolation — text meant to be passed through whole,
+                // like the C in a `native` block.
+                if self.peek2() == b'"' && *self.src.get(self.pos + 2).unwrap_or(&0) == b'"' {
+                    let text = self.raw_string(span)?;
+                    self.push(Tok::Str(vec![StrPart::Lit(text)]), span);
+                    continue;
+                }
                 let parts = self.string(span)?;
                 self.push(Tok::Str(parts), span);
                 continue;
@@ -570,6 +578,29 @@ impl<'a> Lexer<'a> {
             _ => Tok::Ident(text),
         };
         self.push(tok, span);
+    }
+
+    fn raw_string(&mut self, span: Span) -> Result<String, Diag> {
+        self.bump();
+        self.bump();
+        self.bump();
+        let start = self.pos;
+        loop {
+            if self.peek() == 0 {
+                return Err(self.err(span, "unterminated raw string"));
+            }
+            if self.peek() == b'"'
+                && self.peek2() == b'"'
+                && *self.src.get(self.pos + 2).unwrap_or(&0) == b'"'
+            {
+                let text = String::from_utf8_lossy(&self.src[start..self.pos]).into_owned();
+                self.bump();
+                self.bump();
+                self.bump();
+                return Ok(text);
+            }
+            self.bump();
+        }
     }
 
     fn string(&mut self, span: Span) -> Result<Vec<StrPart>, Diag> {

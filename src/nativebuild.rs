@@ -52,7 +52,11 @@ pub fn emit_only(path: &str) -> ExitCode {
     }
 }
 
-pub fn build(path: &str) -> ExitCode {
+/// Builds an executable. `extras` are C or C++ sources compiled alongside —
+/// where the implementations behind `extern fun` live when a `native` block
+/// is not enough. Any C++ among them makes `c++` the linker, so its runtime
+/// is present; the generated core stays C either way.
+pub fn build(path: &str, extras: &[String]) -> ExitCode {
     let c = match compile(path) {
         Ok(c) => c,
         Err(code) => return code,
@@ -67,27 +71,62 @@ pub fn build(path: &str) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
-    let status = Command::new(&cc)
-        .args(["-O2", "-std=c11", "-o", &out, &csrc])
-        .status();
+    let is_cpp = |p: &str| {
+        Path::new(p)
+            .extension()
+            .map(|e| matches!(e.to_str(), Some("cpp" | "cc" | "cxx" | "C")))
+            .unwrap_or(false)
+    };
+    let any_cpp = extras.iter().any(|p| is_cpp(p));
 
-    match status {
-        Ok(s) if s.success() => {
-            let _ = std::fs::remove_file(&csrc);
-            println!("{}", out);
-            ExitCode::SUCCESS
-        }
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    let cxx = std::env::var("CXX").unwrap_or_else(|_| "c++".to_string());
+
+    // The generated file is C11 whatever else is on the line; a C++ driver
+    // would reject its compound literals, so it is compiled to an object
+    // first and only the link is shared.
+    let obj = format!("{}.o", out);
+    let compiled = Command::new(&cc)
+        .args(["-O2", "-std=c11", "-c", "-o", &obj, &csrc])
+        .status();
+    match compiled {
+        Ok(s) if s.success() => {}
         Ok(_) => {
             eprintln!(
                 "error: `{}` failed on the generated C, which is left at `{}`",
                 cc, csrc
             );
-            ExitCode::FAILURE
+            return ExitCode::FAILURE;
         }
         Err(e) => {
             eprintln!("error: cannot run `{}`: {}", cc, e);
             eprintln!("  = note: set CC to a C compiler, or install one");
+            return ExitCode::FAILURE;
+        }
+    }
+
+    let linker = if any_cpp { &cxx } else { &cc };
+    let mut cmd = Command::new(linker);
+    cmd.args(["-O2", "-o", &out, &obj]);
+    for extra in extras {
+        cmd.arg(extra);
+    }
+    match cmd.status() {
+        Ok(s) if s.success() => {
+            let _ = std::fs::remove_file(&csrc);
+            let _ = std::fs::remove_file(&obj);
+            println!("{}", out);
+            ExitCode::SUCCESS
+        }
+        Ok(_) => {
+            eprintln!(
+                "error: `{}` failed linking; the generated C is left at `{}`",
+                linker, csrc
+            );
+            ExitCode::FAILURE
+        }
+        Err(e) => {
+            eprintln!("error: cannot run `{}`: {}", linker, e);
             ExitCode::FAILURE
         }
     }

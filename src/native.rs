@@ -87,6 +87,14 @@ pub fn contains(it: &mut dyn Runtime, container: &Value, value: &Value, span: Sp
 // ---- globals -----------------------------------------------------------
 
 pub fn call_global(it: &mut dyn Runtime, name: &str, args: Vec<Value>, span: Span) -> R<Value> {
+    if let Some(sym) = name.strip_prefix("extern:") {
+        let _ = &args;
+        return err_note(
+            span,
+            format!("`{}` is an extern function, which only native code can run", sym),
+            "compile with `keal build` to call into C",
+        );
+    }
     match name {
         "println" | "print" => {
             let text = match args.first() {

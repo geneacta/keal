@@ -1,0 +1,6 @@
+runtime error: `sin` is an extern function, which only native code can run
+  --> tests/runtime/extern_on_interpreter.keal:7:9
+  |
+7 | println(sin(0.0))
+  |         ^
+  = note: compile with `keal build` to call into C
