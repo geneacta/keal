@@ -469,6 +469,10 @@ impl Compiler {
                 }
                 return Ok(());
             }
+            StmtKind::Destructure { pattern, init, .. } => {
+                self.expr(init)?;
+                self.bind_pattern(pattern, span)?;
+            }
             StmtKind::Let { name, init, .. } => {
                 self.expr(init)?;
                 let global = self.fs().top_level && self.fs().scopes.len() == 1;
@@ -531,6 +535,61 @@ impl Compiler {
             self.emit(Op::Unit, span);
         }
         Ok(())
+    }
+
+    /// Binds a destructuring pattern against the value on top of the stack,
+    /// which is consumed.
+    ///
+    /// Fields are read by name rather than by index: the class knows its own
+    /// order, and reusing `GetField` keeps this out of the VM entirely.
+    fn bind_pattern(&mut self, pattern: &Destructuring, span: Span) -> Result<(), Diag> {
+        let field_names: Vec<String> = match self.class_index.get(&pattern.type_name) {
+            Some(&i) => self.classes[i as usize]
+                .decl
+                .ctor
+                .iter()
+                .map(|p| p.name.clone())
+                .collect(),
+            None => {
+                return Err(Diag::new(
+                    span,
+                    format!("`{}` is not a class or record", pattern.type_name),
+                ))
+            }
+        };
+
+        let last = pattern.binds.iter().rposition(|b| b.is_some());
+        for (i, bind) in pattern.binds.iter().enumerate() {
+            let Some(name) = bind else { continue };
+            let Some(field) = field_names.get(i) else { continue };
+            // Keep the subject for the next field, except on the last read.
+            if Some(i) != last {
+                self.emit(Op::Dup, span);
+            }
+            let n = self.fs().chunk.name(field);
+            self.emit(Op::GetField(n), span);
+            self.declare_and_store(name, span);
+        }
+        if last.is_none() {
+            self.emit(Op::Pop, span);
+        }
+        Ok(())
+    }
+
+    /// Introduces a name and stores the top of the stack into it, choosing a
+    /// global, a slot or a cell as the position requires.
+    fn declare_and_store(&mut self, name: &str, span: Span) {
+        let global = self.fs().top_level && self.fs().scopes.len() == 1;
+        if global {
+            let g = self.declare_global(name);
+            self.emit(Op::StoreGlobal(g), span);
+            return;
+        }
+        match self.declare_local(name) {
+            Place::Local(i) => self.emit(Op::StoreLocal(i), span),
+            Place::Cell(i) => self.emit(Op::InitCell(i), span),
+            _ => unreachable!(),
+        };
     }
 
     fn while_loop(&mut self, cond: &Expr, body: &Block, span: Span) -> Result<(), Diag> {
@@ -929,12 +988,20 @@ impl Compiler {
                 }
                 Ok(Some(self.fs().chunk.emit_jump(Op::JumpIfFalse, span)))
             }
-            WhenPattern::Is { ty, negated } => {
+            WhenPattern::Is { ty, negated, binds } => {
                 let slot = subject.expect("`is` needs a subject");
                 self.emit(Op::LoadLocal(slot), span);
                 let n = self.fs().chunk.name(&type_test_name(ty));
                 self.emit(Op::IsType(n, *negated), span);
-                Ok(Some(self.fs().chunk.emit_jump(Op::JumpIfFalse, span)))
+                let jump = self.fs().chunk.emit_jump(Op::JumpIfFalse, span);
+                // The bindings come after the test, so they only run when the
+                // arm is taken. They belong to the arm's scope, which the
+                // caller has already pushed.
+                if let Some(d) = binds {
+                    self.emit(Op::LoadLocal(slot), span);
+                    self.bind_pattern(d, span)?;
+                }
+                Ok(Some(jump))
             }
             WhenPattern::In { range, negated } => {
                 let slot = subject.expect("`in` needs a subject");
@@ -1124,6 +1191,7 @@ fn names_used_by_nested(stmts: &[Stmt]) -> HashSet<String> {
 fn collect_idents_in_nested_stmt(s: &Stmt, out: &mut HashSet<String>) {
     match &s.kind {
         StmtKind::Let { init, .. } => collect_idents_in_nested_expr(init, out),
+        StmtKind::Destructure { init, .. } => collect_idents_in_nested_expr(init, out),
         StmtKind::Expr(e) => collect_idents_in_nested_expr(e, out),
         StmtKind::Return(Some(e)) => collect_idents_in_nested_expr(e, out),
         StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
@@ -1160,6 +1228,10 @@ fn collect_all_idents_stmts(stmts: &[Stmt], out: &mut HashSet<String>) {
         match &s.kind {
             StmtKind::Let { name, init, .. } => {
                 out.insert(name.clone());
+                collect_all_idents_expr(init, out);
+            }
+            StmtKind::Destructure { pattern, init, .. } => {
+                out.extend(pattern.binds.iter().flatten().cloned());
                 collect_all_idents_expr(init, out);
             }
             StmtKind::Expr(e) => collect_all_idents_expr(e, out),
@@ -1294,7 +1366,9 @@ fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr) -> bool) {
 fn walk_block(b: &Block, f: &mut dyn FnMut(&Expr) -> bool) {
     for s in &b.stmts {
         match &s.kind {
-            StmtKind::Let { init, .. } => walk_expr(init, f),
+            StmtKind::Let { init, .. } | StmtKind::Destructure { init, .. } => {
+                walk_expr(init, f)
+            }
             StmtKind::Expr(e) => walk_expr(e, f),
             StmtKind::Return(Some(e)) => walk_expr(e, f),
             StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}

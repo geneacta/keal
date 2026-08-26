@@ -115,6 +115,8 @@ pub struct Stmt {
 pub enum StmtKind {
     /// `val`/`var` binding. `mutable` distinguishes them.
     Let { name: String, ty: Option<TypeExpr>, init: Expr, mutable: bool },
+    /// `val Point(x, y) = p` — binds the constructor fields by position.
+    Destructure { pattern: Destructuring, init: Expr, mutable: bool },
     Expr(Expr),
     Return(Option<Expr>),
     While { cond: Expr, body: Block },
@@ -191,12 +193,22 @@ pub struct WhenArm {
     pub span: Span,
 }
 
+/// `Name(a, _, c)`: the type to match and a name for each constructor field,
+/// where `None` stands for a `_` that binds nothing.
+#[derive(Clone, Debug)]
+pub struct Destructuring {
+    pub type_name: String,
+    pub binds: Vec<Option<String>>,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug)]
 pub enum WhenPattern {
     /// One or more values compared with `==` against the subject, or, for a
     /// subject-less `when`, boolean conditions.
     Values(Vec<Expr>),
-    Is { ty: TypeExpr, negated: bool },
+    /// `is T`, or `is T(a, b)` which also binds the fields in the arm.
+    Is { ty: TypeExpr, negated: bool, binds: Option<Destructuring> },
     In { range: Expr, negated: bool },
     Else,
 }

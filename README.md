@@ -84,8 +84,10 @@ must agree on every byte they print.
   `unless`, `when` and function bodies all produce values without ceremony.
   `unless (c)` is `if (not c)` — the same construct, including `else`
   branches and smart casts.
-- **`when`.** Values, ranges, type tests, and a subject-less form; type tests
-  narrow the subject inside the arm.
+- **`when` and destructuring.** Values, ranges, type tests, and a subject-less
+  form; type tests narrow the subject inside the arm. `val Point(x, y) = p`
+  names a value's constructor fields, and `is Circle(r) ->` tests and binds in
+  one move.
 - **A standard library** of about ninety built-ins over strings, lists, maps
   and numbers, including `map`/`filter`/`fold` typed generically.
 - **Modules.** `import "./other.keal"`, resolved relative to the importing
@@ -190,7 +192,6 @@ not have. Choosing this now avoids designing the type checker twice.
 
 ## Not there yet
 
-Class inheritance, exceptions, destructuring patterns, indexing and call
-operators, namespaced imports — and the native half of the plan: an explicit
+Class inheritance, exceptions, indexing and call operators, namespaced imports — and the native half of the plan: an explicit
 memory model (reference counting, decided), pointers and references,
 `constexpr`, macros, C interop, and native code generation.

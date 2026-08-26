@@ -95,6 +95,13 @@ impl Interp {
                 env.define(name, v);
                 Ok(Value::Unit)
             }
+            StmtKind::Destructure { pattern, init, .. } => {
+                let v = self.eval(init, env)?;
+                for (name, value) in destructure(&v, pattern, s.span)? {
+                    env.define(&name, value);
+                }
+                Ok(Value::Unit)
+            }
             StmtKind::Expr(e) => self.eval(e, env),
             StmtKind::Return(value) => {
                 let v = match value {
@@ -360,7 +367,7 @@ impl Interp {
                     }
                     hit
                 }
-                WhenPattern::Is { ty, negated } => match &subject_value {
+                WhenPattern::Is { ty, negated, .. } => match &subject_value {
                     Some(s) => self.type_matches(s, ty) != *negated,
                     None => false,
                 },
@@ -374,6 +381,15 @@ impl Interp {
                 }
             };
             if matched {
+                // `is Point(x, y)` binds the fields for the arm's body only.
+                if let WhenPattern::Is { binds: Some(d), .. } = &arm.pattern {
+                    let scope = Scope::child(env);
+                    let subject = subject_value.as_ref().expect("`is` needs a subject");
+                    for (name, value) in destructure(subject, d, arm.span)? {
+                        scope.define(&name, value);
+                    }
+                    return self.exec_stmts(&arm.body.stmts, &scope);
+                }
                 return self.exec_block(&arm.body, env);
             }
         }
@@ -812,6 +828,39 @@ impl Runtime for Interp {
             _ => false,
         }
     }
+}
+
+/// Reads the constructor fields a pattern names, in order.
+///
+/// The checker has already established the arity and the type, so anything
+/// wrong here is a bug rather than a user error — but a value can still reach
+/// this through `Any`, so it is checked rather than assumed.
+fn destructure(
+    v: &Value,
+    pattern: &Destructuring,
+    span: Span,
+) -> R<Vec<(String, Value)>> {
+    let Value::Instance(inst) = v else {
+        return err(
+            span,
+            format!("`{}` cannot be destructured", v.type_name()),
+        );
+    };
+    let fields = inst.fields.borrow();
+    let mut out = Vec::new();
+    for (i, bind) in pattern.binds.iter().enumerate() {
+        let Some(name) = bind else { continue };
+        match fields.get(i) {
+            Some((_, value)) => out.push((name.clone(), value.clone())),
+            None => {
+                return err(
+                    span,
+                    format!("`{}` has no field at position {}", inst.class.name, i),
+                )
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn make_closure(f: &FunDecl, env: Env, this: Option<Value>) -> Value {

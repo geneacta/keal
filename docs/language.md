@@ -533,6 +533,40 @@ unless you opt in.
 Records cannot have `var` fields, in the constructor or in the body. If the
 data has to change, use a `class`.
 
+### Destructuring
+
+A binding may name a value's constructor fields instead of the value:
+
+```keal
+record Point(val x: Int, val y: Int)
+
+val Point(x, y) = Point(3, 4)     // x is 3, y is 4
+val Point(_, only) = p            // `_` skips a field
+var Point(mx, my) = p             // `var` makes them assignable
+```
+
+The pattern lists the **constructor** fields, in order, and must name all of
+them. A field declared in the class body is not positional and takes no part.
+Classes with a primary constructor destructure as readily as records.
+
+In a `when` arm, `is T(...)` tests the type and binds in one move:
+
+```keal
+fun area(shape: Any): Float {
+    return when (shape) {
+        is Circle(r) -> 3.14159 * r * r
+        is Square(s) -> s * s
+        else -> 0.0
+    }
+}
+```
+
+The bindings belong to that arm, so a later arm may reuse the names.
+
+A generic class can be tested but not at particular type arguments — they do
+not survive to run time — so `is Pair(a, b)` is accepted, binds `a` and `b`
+as `Any`, and `is Pair<Int, Int>(a, b)` is rejected.
+
 ## 10. Generics
 
 Functions and classes may take type parameters. They are written after the

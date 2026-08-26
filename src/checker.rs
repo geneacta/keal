@@ -805,6 +805,22 @@ impl Checker {
     /// element type is not observable and narrowing to it would be unsound.
     fn resolve_is_type(&mut self, te: &TypeExpr) -> Type {
         if let TypeExprKind::Named { name, args } = &te.kind {
+            // A generic class is testable, but only as itself: the arguments
+            // are gone by run time, so its fields come back as `Any`.
+            if let Some(info) = self.classes.get(name) {
+                let arity = info.type_params.len();
+                if arity > 0 {
+                    if !args.is_empty() {
+                        self.error_note(
+                            te.span,
+                            format!("`is` cannot check the type arguments of `{}`", name),
+                            format!("write `is {}` to test the class alone", name),
+                        );
+                        return Type::Error;
+                    }
+                    return Type::class(name, vec![Type::Any; arity]);
+                }
+            }
             if args.is_empty() && self.type_param_in_scope(name) {
                 self.error_note(
                     te.span,
@@ -837,6 +853,12 @@ impl Checker {
     fn resolve_is_quiet(&self, te: &TypeExpr) -> Result<Type, Diag> {
         if let TypeExprKind::Named { name, args } = &te.kind {
             if args.is_empty() {
+                if let Some(info) = self.classes.get(name) {
+                    let arity = info.type_params.len();
+                    if arity > 0 {
+                        return Ok(Type::class(name, vec![Type::Any; arity]));
+                    }
+                }
                 match name.as_str() {
                     "List" => return Ok(Type::list(Type::Any)),
                     "Map" => return Ok(Type::map(Type::Any, Type::Any)),
@@ -1039,6 +1061,29 @@ impl Checker {
                 self.declare(&name, actual, kind);
                 Type::Unit
             }
+            StmtKind::Destructure { pattern, init, mutable } => {
+                let kind = if *mutable { BindKind::Var } else { BindKind::Val };
+                let expected = self.destructured_type(pattern);
+                // The pattern's own diagnostic covers a mismatch, and says
+                // more about it, so the expected type is only a hint here.
+                let actual = match &expected {
+                    Some(t) => self.check_coerced(init, t),
+                    None => self.check_expr(init, None),
+                };
+                let fields = self.destructure_fields(pattern, &actual);
+                for (bind, ty) in pattern.binds.iter().zip(fields) {
+                    if let Some(name) = bind {
+                        if self.scopes.last().unwrap().contains_key(name) {
+                            self.error(
+                                pattern.span,
+                                format!("`{}` is already declared in this scope", name),
+                            );
+                        }
+                        self.declare(&name.clone(), ty, kind);
+                    }
+                }
+                Type::Unit
+            }
             StmtKind::Expr(e) => self.check_expr(e, None),
             StmtKind::Return(value) => {
                 let expected = match self.returns.last() {
@@ -1146,6 +1191,81 @@ impl Checker {
                 Type::Unit
             }
         }
+    }
+
+    /// The type a pattern names, when it is a class with no type arguments.
+    /// A generic one is left to inference from the initializer.
+    fn destructured_type(&mut self, pattern: &Destructuring) -> Option<Type> {
+        let info = self.classes.get(&pattern.type_name)?;
+        if info.type_params.is_empty() {
+            Some(Type::class(&pattern.type_name, Vec::new()))
+        } else {
+            None
+        }
+    }
+
+    /// Types the fields a pattern binds, reporting a mismatch in name or
+    /// arity. Returns one type per name in the pattern, so the caller can
+    /// bind them positionally whatever went wrong.
+    fn destructure_fields(&mut self, pattern: &Destructuring, actual: &Type) -> Vec<Type> {
+        let filler = vec![Type::Error; pattern.binds.len()];
+
+        let Some(info) = self.classes.get(&pattern.type_name) else {
+            self.error(
+                pattern.span,
+                format!("`{}` is not a class or record", pattern.type_name),
+            );
+            return filler;
+        };
+        // Only the constructor parameters are positional: a field declared in
+        // the body has no place in the order the pattern spells out.
+        let ctor: Vec<Type> = info.ctor.params.iter().map(|p| p.ty.clone()).collect();
+        let names: Vec<String> = info.ctor.params.iter().map(|p| p.name.clone()).collect();
+
+        if let Type::Class(name, _) = actual {
+            if **name != *pattern.type_name && *actual != Type::Error {
+                self.error(
+                    pattern.span,
+                    format!(
+                        "the pattern matches `{}`, but the value has type `{}`",
+                        pattern.type_name, actual
+                    ),
+                );
+                return filler;
+            }
+        } else if *actual != Type::Error {
+            self.error(
+                pattern.span,
+                format!("`{}` cannot be destructured with a pattern", actual),
+            );
+            return filler;
+        }
+
+        if ctor.len() != pattern.binds.len() {
+            let listed: Vec<String> = names.iter().map(|n| format!("`{}`", n)).collect();
+            self.error_note(
+                pattern.span,
+                format!(
+                    "`{}` has {} constructor field(s), but the pattern names {}",
+                    pattern.type_name,
+                    ctor.len(),
+                    pattern.binds.len()
+                ),
+                if listed.is_empty() {
+                    "it has no constructor fields to destructure".to_string()
+                } else {
+                    format!("they are {}, in that order; use `_` to skip one", listed.join(", "))
+                },
+            );
+            return filler;
+        }
+
+        // A generic record binds its fields at the value's type arguments.
+        let subst = match actual {
+            Type::Class(name, args) => self.class_subst(name, args),
+            _ => Subst::new(),
+        };
+        ctor.iter().map(|t| t.substitute(&subst)).collect()
     }
 
     fn collect_local_fun(&mut self, f: &FunDecl) {
@@ -2394,7 +2514,7 @@ impl Checker {
                     }
                 },
 
-                WhenPattern::Is { ty, negated } => {
+                WhenPattern::Is { ty, negated, binds } => {
                     let target = self.resolve_is_type(ty);
                     if subject_ty.is_none() {
                         self.error(arm.span, "`is` needs a `when` subject");
@@ -2404,7 +2524,17 @@ impl Checker {
                             let immutable =
                                 self.lookup(name).map(|b| !b.mutable()).unwrap_or(false);
                             if immutable {
-                                in_arm.push((name.clone(), target));
+                                in_arm.push((name.clone(), target.clone()));
+                            }
+                        }
+                    }
+                    if let Some(d) = binds {
+                        // The test has already established the type, so the
+                        // fields are read at the pattern's own class.
+                        let tys = self.destructure_fields(d, &target);
+                        for (bind, ty) in d.binds.iter().zip(tys) {
+                            if let Some(n) = bind {
+                                in_arm.push((n.clone(), ty));
                             }
                         }
                     }

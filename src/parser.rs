@@ -249,6 +249,33 @@ impl Parser {
         Ok(Some(self.type_expr()?))
     }
 
+    /// `Name(a, _, c)`, the shape both a destructuring binding and an
+    /// `is` pattern use.
+    fn destructuring(&mut self) -> Result<Destructuring, Diag> {
+        let (type_name, span) = self.expect_ident("a class or record name")?;
+        let binds = self.bind_list(span)?;
+        Ok(Destructuring { type_name, binds, span })
+    }
+
+    /// The `(a, _, c)` half of a pattern.
+    fn bind_list(&mut self, span: Span) -> Result<Vec<Option<String>>, Diag> {
+        self.expect(Tok::LParen, "to start a destructuring pattern")?;
+        let mut binds = Vec::new();
+        while !self.at(&Tok::RParen) {
+            let (name, _) = self.expect_ident("a field name, or `_` to skip one")?;
+            binds.push(if name == "_" { None } else { Some(name) });
+            if !self.eat(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(Tok::RParen, "to close the destructuring pattern")?;
+        if binds.is_empty() {
+            return Err(Diag::new(span, "a destructuring pattern needs at least one name")
+                .with_note("to test the type alone, write `is Name` without parentheses"));
+        }
+        Ok(binds)
+    }
+
     /// An optional `<T, U: Bound, V>` after a `fun` or `class` name.
     fn type_param_list(&mut self) -> Result<Vec<TypeParam>, Diag> {
         let mut out = Vec::new();
@@ -479,6 +506,16 @@ impl Parser {
         let kind = match self.peek() {
             Tok::Val | Tok::Var => {
                 let mutable = matches!(self.advance().tok, Tok::Var);
+                // `val Point(x, y) = p` destructures; `val p = ...` binds.
+                if matches!(self.peek(), Tok::Ident(_)) && matches!(self.peek_at(1), Tok::LParen) {
+                    let pattern = self.destructuring()?;
+                    self.expect(Tok::Assign, "in a destructuring declaration")?;
+                    let init = self.expr()?;
+                    return Ok(Stmt {
+                        kind: StmtKind::Destructure { pattern, init, mutable },
+                        span,
+                    });
+                }
                 let (name, _) = self.expect_ident("a variable name")?;
                 let ty = if self.eat(&Tok::Colon) { Some(self.type_expr()?) } else { None };
                 self.expect(Tok::Assign, "in a variable declaration")?;
@@ -638,6 +675,7 @@ impl Parser {
                     };
                     continue;
                 }
+
                 Tok::Bang if matches!(self.peek_at(1), Tok::Is | Tok::In) && P_CMP >= min_bp => {
                     self.advance();
                     if self.eat(&Tok::Is) {
@@ -936,11 +974,31 @@ impl Parser {
             let pattern = if self.eat(&Tok::Else) {
                 WhenPattern::Else
             } else if self.eat(&Tok::Is) {
-                WhenPattern::Is { ty: self.type_expr()?, negated: false }
+                let ty = self.type_expr()?;
+                // `is Point(x, y)` tests the type and names the fields. Any
+                // type arguments written here are kept so that the checker
+                // can reject them with the rest of the file's errors, rather
+                // than the parser stopping at the first one.
+                if self.at(&Tok::LParen) {
+                    let name = match &ty.kind {
+                        TypeExprKind::Named { name, .. } => name.clone(),
+                        _ => {
+                            return Err(Diag::new(
+                                ty.span,
+                                "only a class or record can be destructured",
+                            ))
+                        }
+                    };
+                    let binds = self.bind_list(ty.span)?;
+                    let d = Destructuring { type_name: name, binds, span: ty.span };
+                    WhenPattern::Is { ty, negated: false, binds: Some(d) }
+                } else {
+                    WhenPattern::Is { ty, negated: false, binds: None }
+                }
             } else if self.at(&Tok::Bang) && matches!(self.peek_at(1), Tok::Is | Tok::In) {
                 self.advance();
                 if self.eat(&Tok::Is) {
-                    WhenPattern::Is { ty: self.type_expr()?, negated: true }
+                    WhenPattern::Is { ty: self.type_expr()?, negated: true, binds: None }
                 } else {
                     self.advance();
                     WhenPattern::In { range: self.expr()?, negated: true }

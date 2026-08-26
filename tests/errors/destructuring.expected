@@ -1,0 +1,51 @@
+error: `Point` has 2 constructor field(s), but the pattern names 1
+  --> tests/errors/destructuring.keal:9:5
+  |
+9 | val Point(a) = Point(1, 2)
+  |     ^
+  = note: they are `x`, `y`, in that order; use `_` to skip one
+error: `Point` has 2 constructor field(s), but the pattern names 3
+  --> tests/errors/destructuring.keal:10:5
+   |
+10 | val Point(b, c, d) = Point(1, 2)
+   |     ^
+  = note: they are `x`, `y`, in that order; use `_` to skip one
+error: `String` cannot be destructured with a pattern
+  --> tests/errors/destructuring.keal:11:5
+   |
+11 | val Point(q, r) = "not a point"
+   |     ^
+error: `Widget` is not a class or record
+  --> tests/errors/destructuring.keal:12:5
+   |
+12 | val Widget(w) = Point(1, 2)
+   |     ^
+error: `Empty` has 0 constructor field(s), but the pattern names 1
+  --> tests/errors/destructuring.keal:13:5
+   |
+13 | val Empty(nothing) = Empty()
+   |     ^
+  = note: it has no constructor fields to destructure
+error: `WithBody` has 1 constructor field(s), but the pattern names 2
+  --> tests/errors/destructuring.keal:14:5
+   |
+14 | val WithBody(n1, n2) = WithBody(1)
+   |     ^
+  = note: they are `n`, in that order; use `_` to skip one
+error: `dup` is already declared in this scope
+  --> tests/errors/destructuring.keal:15:5
+   |
+15 | val Point(dup, dup) = Point(1, 2)
+   |     ^
+error: `is` cannot check the type arguments of `Pair`
+  --> tests/errors/destructuring.keal:19:12
+   |
+19 |         is Pair<Int, Int>(p, q2) -> "pair"
+   |            ^
+  = note: write `is Pair` to test the class alone
+error: `Int` has no method `toUpper`
+  --> tests/errors/destructuring.keal:25:19
+   |
+25 | val wrongUse = px.toUpper()
+   |                   ^
+9 errors found

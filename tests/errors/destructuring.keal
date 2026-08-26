@@ -1,0 +1,25 @@
+record Point(val x: Int, val y: Int)
+record Empty()
+record Pair<A, B>(val first: A, val second: B)
+
+class WithBody(val n: Int) {
+    val extra: Int = 1
+}
+
+val Point(a) = Point(1, 2)
+val Point(b, c, d) = Point(1, 2)
+val Point(q, r) = "not a point"
+val Widget(w) = Point(1, 2)
+val Empty(nothing) = Empty()
+val WithBody(n1, n2) = WithBody(1)
+val Point(dup, dup) = Point(1, 2)
+
+fun kind(v: Any): String {
+    return when (v) {
+        is Pair<Int, Int>(p, q2) -> "pair"
+        else -> "other"
+    }
+}
+
+val Point(px, py) = Point(1, 2)
+val wrongUse = px.toUpper()
