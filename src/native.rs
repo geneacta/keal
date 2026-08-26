@@ -10,7 +10,7 @@ use std::io::Write;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::interp::{err, err_note, Interp, R};
+use crate::runtime::{self, err, err_note, Runtime, R};
 use crate::span::Span;
 use crate::value::{values_equal, MapKey, Value};
 
@@ -62,7 +62,7 @@ pub fn get_property(v: &Value, name: &str) -> Option<Value> {
 }
 
 /// Shared implementation of `in`, `contains` and `when`'s `in` patterns.
-pub fn contains(it: &mut Interp, container: &Value, value: &Value, span: Span) -> R<bool> {
+pub fn contains(it: &mut dyn Runtime, container: &Value, value: &Value, span: Span) -> R<bool> {
     Ok(match container {
         Value::List(items) => items.borrow().iter().any(|x| values_equal(x, value)),
         Value::Range(a, b) => match value {
@@ -86,11 +86,11 @@ pub fn contains(it: &mut Interp, container: &Value, value: &Value, span: Span) -
 
 // ---- globals -----------------------------------------------------------
 
-pub fn call_global(it: &mut Interp, name: &str, args: Vec<Value>, span: Span) -> R<Value> {
+pub fn call_global(it: &mut dyn Runtime, name: &str, args: Vec<Value>, span: Span) -> R<Value> {
     match name {
         "println" | "print" => {
             let text = match args.first() {
-                Some(v) => it.display(v, span)?,
+                Some(v) => runtime::display(it, v, span)?,
                 None => String::new(),
             };
             let mut out = std::io::stdout();
@@ -175,14 +175,14 @@ pub fn call_global(it: &mut Interp, name: &str, args: Vec<Value>, span: Span) ->
 // ---- methods -----------------------------------------------------------
 
 pub fn call_method(
-    it: &mut Interp,
+    it: &mut dyn Runtime,
     recv: Value,
     name: &str,
     args: Vec<Value>,
     span: Span,
 ) -> R<Value> {
     if name == "toString" && args.is_empty() {
-        return Ok(Value::str(it.display(&recv, span)?));
+        return Ok(Value::str(runtime::display(it, &recv, span)?));
     }
     if let Some(v) = operator_method(&recv, name, &args, span) {
         return v;
@@ -377,7 +377,7 @@ fn float_method(f: f64, name: &str, args: &[Value], span: Span) -> R<Value> {
 }
 
 fn list_method(
-    it: &mut Interp,
+    it: &mut dyn Runtime,
     recv: &Value,
     name: &str,
     args: Vec<Value>,
@@ -413,7 +413,7 @@ fn list_method(
             items.insert(i as usize, args[1].clone());
             Value::Unit
         }
-        "get" => return it.index_get(recv, &args[0], span),
+        "get" => return runtime::index_get(recv, &args[0], span),
         "set" => {
             let i = int(&args[0], span)?;
             let mut items = cell.borrow_mut();
@@ -582,7 +582,7 @@ fn list_method(
             let items = snapshot();
             let mut parts = Vec::with_capacity(items.len());
             for item in &items {
-                parts.push(it.display(item, span)?);
+                parts.push(runtime::display(it, item, span)?);
             }
             Value::str(parts.join(&sep))
         }
@@ -646,7 +646,7 @@ fn map_method(recv: &Value, name: &str, args: &[Value], span: Span) -> R<Value> 
     })
 }
 
-fn range_method(it: &mut Interp, a: i64, b: i64, name: &str, args: &[Value], span: Span) -> R<Value> {
+fn range_method(it: &mut dyn Runtime, a: i64, b: i64, name: &str, args: &[Value], span: Span) -> R<Value> {
     Ok(match name {
         "contains" => Value::Bool(contains(it, &Value::Range(a, b), &args[0], span)?),
         "isEmpty" => Value::Bool(b <= a),

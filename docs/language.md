@@ -781,7 +781,15 @@ and a call stack.
 
 ---
 
-## 16. What is not here yet
+## 16. How a program runs
+
+Keal compiles to bytecode and runs it on a virtual machine. That is an
+implementation detail with one visible consequence: `keal --ast file.keal`
+runs the same program on the tree-walking evaluator instead, and the two are
+required to agree on every byte they print. If they ever do not, that is a
+bug — please report it with the program that shows it.
+
+## 17. What is not here yet
 
 Class inheritance · exceptions and `try`/`catch` · destructuring a record in
 a `when` or a binding ·

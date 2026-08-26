@@ -1,7 +1,7 @@
 # Keal
 
-A small statically typed language with an AST-walking interpreter, written in
-Rust with no dependencies.
+A small statically typed language with a bytecode VM, written in Rust with no
+dependencies.
 
 Keal takes its shape from Kotlin — declared types with inference, null safety
 in the type system, classes with primary constructors, `when`, lambdas — over
@@ -43,10 +43,12 @@ cargo build --release
 ./target/release/keal examples/tour.keal     # run a program
 ./target/release/keal check src/main.keal    # type-check without running
 ./target/release/keal repl                   # interactive session
+./target/release/keal --ast examples/tour.keal   # use the tree-walker instead
 ```
 
 `cargo test` runs the whole suite: self-checking programs, every example, and
-snapshot tests for the diagnostics.
+snapshot tests for the diagnostics — each on **both** execution engines, which
+must agree on every byte they print.
 
 ## What the language has
 
@@ -108,7 +110,11 @@ src/
   builtins.rs  type signatures for the standard library
   checker.rs   name resolution, type checking, null-safety analysis
   value.rs     runtime values, environments
-  interp.rs    the evaluator
+  bytecode.rs  the instruction set
+  compiler.rs  AST -> bytecode: name resolution and capture analysis
+  vm.rs        the bytecode virtual machine
+  interp.rs    the tree-walking evaluator, kept as the reference
+  runtime.rs   what both engines share: errors, rendering, indexing
   native.rs    runtime implementations of the standard library
   prelude.keal the operator traits, written in Keal and compiled in
   loader.rs    module resolution
@@ -116,9 +122,40 @@ src/
   span.rs      source locations and diagnostic rendering
 ```
 
-The pipeline is source → tokens → AST → checked AST → evaluation. The checker
-is the only pass that mutates the tree, and it makes exactly one kind of
-change: rewriting an integer literal used in a `Float` context.
+The pipeline is source → tokens → AST → checked AST → bytecode → execution.
+
+**Two engines, one of which is the specification.** The bytecode VM is what
+runs by default. The tree-walking evaluator is still there, reachable with
+`--ast`, and the test suite runs every program through both and compares what
+they print — down to the call stack of a runtime error. The evaluator is
+simple enough to read as a specification, so a disagreement is a bug in the VM
+until shown otherwise. It is also what a compile-time evaluator for `constexpr`
+will be built from.
+
+The VM is a stack machine, and the speedup comes from two analyses moved into
+the compiler rather than from the dispatch loop:
+
+* **Names are resolved at compile time.** A local becomes a frame slot, a
+  global an index. The evaluator hashed a string and walked a scope chain for
+  every variable it read.
+* **Only captured variables are boxed.** Before compiling a body, the compiler
+  collects the names any nested function mentions; those live in cells, and
+  every other local is a plain slot. The set is deliberately an
+  over-approximation — boxing a variable no closure reaches costs an
+  allocation, not correctness.
+
+On the programs in `bench/`, that is 2–3× faster than walking the tree:
+
+| | tree-walker | bytecode VM |
+|---|---|---|
+| `fib(30)` | 0.58s | 0.23s |
+| 10M-iteration loop | 1.27s | 0.46s |
+| 1M records built and read | 0.82s | 0.25s |
+| map/filter/fold over 1M | 0.37s | 0.18s |
+
+Getting substantially past that means a register-based instruction set,
+unchecked dispatch, or a smaller value representation — each a project of its
+own rather than a tuning pass.
 
 Two design notes worth knowing:
 
@@ -153,8 +190,7 @@ not have. Choosing this now avoids designing the type checker twice.
 
 ## Not there yet
 
-Class inheritance, exceptions, destructuring patterns, operator overloading for
-user types, namespaced imports — and the native half of the plan: pointers and
-references, `constexpr`, macros, C interop, and LLVM code generation. The
-evaluator walks the AST, which is the development mode rather than the
-destination.
+Class inheritance, exceptions, destructuring patterns, indexing and call
+operators, namespaced imports — and the native half of the plan: an explicit
+memory model (reference counting, decided), pointers and references,
+`constexpr`, macros, C interop, and native code generation.

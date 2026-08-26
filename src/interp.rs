@@ -10,36 +10,11 @@ use std::rc::Rc;
 
 use crate::ast::*;
 use crate::native;
-use crate::span::{Diag, Span};
+use crate::runtime::{
+    self, err, err_note, index_get, index_set, Flow, R, RtError, Runtime,
+};
+use crate::span::Span;
 use crate::value::*;
-
-/// Non-local control flow. `Err` carries a real error; the rest are jumps.
-pub enum Flow {
-    Return(Value),
-    Break,
-    Continue,
-    Err(RtError),
-}
-
-pub struct RtError {
-    pub diag: Diag,
-    /// Call stack at the point of failure, innermost first.
-    pub frames: Vec<(String, Span)>,
-}
-
-pub type R<T> = Result<T, Flow>;
-
-/// Builds a runtime error at `span`.
-pub fn err<T>(span: Span, msg: impl Into<String>) -> R<T> {
-    Err(Flow::Err(RtError { diag: Diag::new(span, msg), frames: Vec::new() }))
-}
-
-pub fn err_note<T>(span: Span, msg: impl Into<String>, note: impl Into<String>) -> R<T> {
-    Err(Flow::Err(RtError {
-        diag: Diag::new(span, msg).with_note(note),
-        frames: Vec::new(),
-    }))
-}
 
 /// How many nested Keal calls are allowed before we report runaway recursion.
 /// `main` reserves enough native stack for this many frames.
@@ -194,7 +169,7 @@ impl Interp {
                         InterpPart::Lit(s) => out.push_str(s),
                         InterpPart::Expr(inner) => {
                             let v = self.eval(inner, env)?;
-                            out.push_str(&self.display(&v, inner.span)?);
+                            out.push_str(&runtime::display(self, &v, inner.span)?);
                         }
                     }
                 }
@@ -206,6 +181,10 @@ impl Interp {
             },
             ExprKind::Ident(name) => match env.get(name) {
                 Some(v) => Ok(v),
+                // The checker lets a built-in be named as a value; make one.
+                None if crate::builtins::global_sig(name, &[None, None]).is_some() => {
+                    Ok(Value::Native(Rc::new(NativeFn { name: Rc::from(name.as_str()) })))
+                }
                 None => err(span, format!("`{}` is not defined", name)),
             },
 
@@ -325,7 +304,7 @@ impl Interp {
             ExprKind::Index { obj, index } => {
                 let target = self.eval(obj, env)?;
                 let key = self.eval(index, env)?;
-                self.index_get(&target, &key, span)
+                index_get(&target, &key, span)
             }
 
             ExprKind::Field { obj, name, safe } => {
@@ -471,7 +450,7 @@ impl Interp {
                 })
             }
             (Value::Str(x), _) if op == Add => {
-                let rhs = self.display(&b, span)?;
+                let rhs = runtime::display(self, &b, span)?;
                 Ok(Value::str(format!("{}{}", x, rhs)))
             }
             (Value::Str(x), Value::Str(y)) => Ok(match op {
@@ -562,6 +541,14 @@ impl Interp {
     }
 
     fn call_value(&mut self, f: &Value, args: &[Arg], env: &Env, span: Span) -> R<Value> {
+        if let Value::Native(n) = f {
+            let mut values = Vec::with_capacity(args.len());
+            for a in args {
+                values.push(self.eval(&a.value, env)?);
+            }
+            let name = n.name.clone();
+            return native::call_global(self, &name, values, span);
+        }
         let Value::Fun(c) = f else {
             return err(span, format!("`{}` is not callable", f.type_name()));
         };
@@ -573,6 +560,10 @@ impl Interp {
     /// Calls a function value with already-evaluated arguments. Used by the
     /// built-in higher-order methods such as `map` and `filter`.
     pub fn call_function(&mut self, f: &Value, args: Vec<Value>, span: Span) -> R<Value> {
+        if let Value::Native(n) = f {
+            let name = n.name.clone();
+            return native::call_global(self, &name, args, span);
+        }
         let Value::Fun(c) = f else {
             return err(span, format!("`{}` is not callable", f.type_name()));
         };
@@ -777,139 +768,49 @@ impl Interp {
                 let new = match op {
                     None => rhs,
                     Some(o) => {
-                        let old = self.index_get(&container, &key, span)?;
+                        let old = index_get(&container, &key, span)?;
                         self.binary(o, old, rhs, span)?
                     }
                 };
-                self.index_set(&container, key, new, span)
+                index_set(&container, key, new, span)
             }
             _ => err(span, "this expression cannot be assigned to"),
         }
     }
 
-    pub fn index_get(&mut self, container: &Value, key: &Value, span: Span) -> R<Value> {
-        match (container, key) {
-            (Value::List(items), Value::Int(i)) => {
-                let items = items.borrow();
-                match resolve_index(*i, items.len()) {
-                    Some(i) => Ok(items[i].clone()),
-                    None => err(
-                        span,
-                        format!("index {} is out of bounds for a list of {} element(s)", i, items.len()),
-                    ),
-                }
+}
+
+impl Runtime for Interp {
+    fn call_function(&mut self, f: &Value, args: Vec<Value>, span: Span) -> R<Value> {
+        Interp::call_function(self, f, args, span)
+    }
+
+    fn call_method(&mut self, recv: &Value, name: &str, args: Vec<Value>, span: Span) -> R<Value> {
+        if let Value::Instance(inst) = recv {
+            if let Some(m) = inst.class.methods.iter().find(|m| m.name == name).cloned() {
+                let genv = self.globals.clone();
+                let provided = args.into_iter().map(Some).collect();
+                return self.invoke(
+                    &m.params,
+                    &m.body,
+                    &genv,
+                    Some(recv.clone()),
+                    provided,
+                    &m.name,
+                    span,
+                );
             }
-            (Value::Str(s), Value::Int(i)) => {
-                let chars: Vec<char> = s.chars().collect();
-                match resolve_index(*i, chars.len()) {
-                    Some(i) => Ok(Value::str(chars[i].to_string())),
-                    None => err(
-                        span,
-                        format!("index {} is out of bounds for a string of {} character(s)", i, chars.len()),
-                    ),
-                }
-            }
-            (Value::Map(m), k) => match MapKey::of(k) {
-                Some(mk) => Ok(m.borrow().get(&mk).cloned().unwrap_or(Value::Null)),
-                None => err(span, format!("`{}` cannot be used as a map key", k.type_name())),
-            },
-            (c, k) => err(
-                span,
-                format!("cannot index `{}` with `{}`", c.type_name(), k.type_name()),
-            ),
         }
+        native::call_method(self, recv.clone(), name, args, span)
     }
 
-    fn index_set(&mut self, container: &Value, key: Value, value: Value, span: Span) -> R<()> {
-        match (container, &key) {
-            (Value::List(items), Value::Int(i)) => {
-                let mut items = items.borrow_mut();
-                let len = items.len();
-                match resolve_index(*i, len) {
-                    Some(i) => {
-                        items[i] = value;
-                        Ok(())
-                    }
-                    None => err(
-                        span,
-                        format!("index {} is out of bounds for a list of {} element(s)", i, len),
-                    ),
-                }
+    fn has_nullary_method(&self, recv: &Value, name: &str) -> bool {
+        match recv {
+            Value::Instance(i) => {
+                i.class.methods.iter().any(|m| m.name == name && m.params.is_empty())
             }
-            (Value::Map(m), k) => match MapKey::of(k) {
-                Some(mk) => {
-                    m.borrow_mut().insert(mk, key.clone(), value);
-                    Ok(())
-                }
-                None => err(span, format!("`{}` cannot be used as a map key", k.type_name())),
-            },
-            (c, _) => err(span, format!("cannot assign into `{}`", c.type_name())),
+            _ => false,
         }
-    }
-
-    // ---- printing ------------------------------------------------------
-
-    /// User-facing rendering: what `println` and `${...}` produce.
-    pub fn display(&mut self, v: &Value, span: Span) -> R<String> {
-        self.render(v, span, false)
-    }
-
-    /// Rendering inside a collection, where strings are quoted so that
-    /// `["a", "b"]` is distinguishable from `[a, b]`.
-    fn repr(&mut self, v: &Value, span: Span) -> R<String> {
-        self.render(v, span, true)
-    }
-
-    fn render(&mut self, v: &Value, span: Span, quote: bool) -> R<String> {
-        Ok(match v {
-            Value::Unit => "Unit".into(),
-            Value::Null => "null".into(),
-            Value::Int(n) => n.to_string(),
-            Value::Float(f) => format_float(*f),
-            Value::Bool(b) => b.to_string(),
-            Value::Str(s) => {
-                if quote {
-                    format!("\"{}\"", escape(s))
-                } else {
-                    s.to_string()
-                }
-            }
-            Value::Range(a, b) => format!("{}..{}", a, b),
-            Value::Fun(c) => format!("<fun {}>", c.name),
-            Value::List(items) => {
-                let snapshot = items.borrow().clone();
-                let mut parts = Vec::with_capacity(snapshot.len());
-                for item in &snapshot {
-                    parts.push(self.repr(item, span)?);
-                }
-                format!("[{}]", parts.join(", "))
-            }
-            Value::Map(m) => {
-                let snapshot: Vec<(Value, Value)> =
-                    m.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                let mut parts = Vec::with_capacity(snapshot.len());
-                for (k, v) in &snapshot {
-                    parts.push(format!("{}: {}", self.repr(k, span)?, self.repr(v, span)?));
-                }
-                format!("{{{}}}", parts.join(", "))
-            }
-            Value::Instance(inst) => {
-                if inst.class.methods.iter().any(|m| m.name == "toString" && m.params.is_empty()) {
-                    let genv = self.globals.clone();
-                    let out = self.invoke_method(v.clone(), "toString", &[], &genv, span)?;
-                    return Ok(match out {
-                        Value::Str(s) => s.to_string(),
-                        other => self.render(&other, span, quote)?,
-                    });
-                }
-                let snapshot: Vec<(Rc<str>, Value)> = inst.fields.borrow().clone();
-                let mut parts = Vec::with_capacity(snapshot.len());
-                for (name, value) in &snapshot {
-                    parts.push(format!("{}={}", name, self.repr(value, span)?));
-                }
-                format!("{}({})", inst.class.name, parts.join(", "))
-            }
-        })
     }
 }
 
@@ -937,17 +838,6 @@ fn ctor_params(class: &ClassDecl) -> Vec<Param> {
         .collect()
 }
 
-/// Negative indices count from the end, as in Python.
-fn resolve_index(i: i64, len: usize) -> Option<usize> {
-    let len = len as i64;
-    let i = if i < 0 { i + len } else { i };
-    if i < 0 || i >= len {
-        None
-    } else {
-        Some(i as usize)
-    }
-}
-
 fn checked(v: Option<i64>, span: Span, op: &str) -> R<i64> {
     match v {
         Some(v) => Ok(v),
@@ -955,25 +845,3 @@ fn checked(v: Option<i64>, span: Span, op: &str) -> R<i64> {
     }
 }
 
-pub fn format_float(f: f64) -> String {
-    if f.is_finite() && f.fract() == 0.0 && f.abs() < 1e15 {
-        format!("{:.1}", f)
-    } else {
-        format!("{}", f)
-    }
-}
-
-fn escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            '\r' => out.push_str("\\r"),
-            other => out.push(other),
-        }
-    }
-    out
-}

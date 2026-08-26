@@ -1,5 +1,10 @@
 //! End-to-end tests driving the `keal` binary.
 //!
+//! Every program runs on **both** engines — the bytecode VM and the
+//! tree-walking evaluator — and the two must agree. The evaluator is the
+//! reference implementation: it is simple enough to read as a specification,
+//! so any disagreement is a bug in the VM until shown otherwise.
+//!
 //! * `tests/programs/**` are self-checking Keal programs: they use `assert`
 //!   and must exit 0 while printing nothing.
 //! * `tests/errors/*.keal` must fail `keal check`; their diagnostics are
@@ -80,29 +85,63 @@ fn check_snapshot(source: &Path, actual: &str) {
     );
 }
 
+/// The two engines, named as the command line spells them.
+const ENGINES: [&str; 2] = ["--vm", "--ast"];
+
 #[test]
 fn programs_pass_their_own_assertions() {
     for file in keal_files("tests/programs") {
         let path = relative(&file);
-        let out = keal(&[&path]);
-        assert!(out.success, "{} failed:\n{}", path, out.stderr);
-        assert!(out.stdout.is_empty(), "{} printed unexpected output:\n{}", path, out.stdout);
+        for engine in ENGINES {
+            let out = keal(&[engine, &path]);
+            assert!(out.success, "{} failed on {}:\n{}", path, engine, out.stderr);
+            assert!(
+                out.stdout.is_empty(),
+                "{} printed unexpected output on {}:\n{}",
+                path,
+                engine,
+                out.stdout
+            );
+        }
     }
 }
 
 #[test]
 fn modules_are_loaded_once() {
-    let out = keal(&["tests/programs/modules/main.keal"]);
-    assert!(out.success, "module test failed:\n{}", out.stderr);
-    assert!(out.stdout.is_empty(), "module test printed:\n{}", out.stdout);
+    for engine in ENGINES {
+        let out = keal(&[engine, "tests/programs/modules/main.keal"]);
+        assert!(out.success, "module test failed on {}:\n{}", engine, out.stderr);
+        assert!(out.stdout.is_empty(), "module test printed:\n{}", out.stdout);
+    }
 }
 
 #[test]
 fn examples_run_successfully() {
     for file in keal_files("examples") {
         let path = relative(&file);
-        let out = keal(&[&path]);
-        assert!(out.success, "example {} failed:\n{}", path, out.stderr);
+        for engine in ENGINES {
+            let out = keal(&[engine, &path]);
+            assert!(out.success, "example {} failed on {}:\n{}", path, engine, out.stderr);
+        }
+    }
+}
+
+/// The heart of the arrangement: whatever a program prints, and whatever it
+/// fails with, must not depend on which engine ran it.
+#[test]
+fn both_engines_agree() {
+    let mut files = keal_files("examples");
+    files.extend(keal_files("tests/programs"));
+    files.extend(keal_files("tests/runtime"));
+    files.push(root().join("tests/programs/modules/main.keal"));
+
+    for file in files {
+        let path = relative(&file);
+        let vm = keal(&["--vm", &path]);
+        let ast = keal(&["--ast", &path]);
+        assert_eq!(vm.stdout, ast.stdout, "engines printed differently for {}", path);
+        assert_eq!(vm.stderr, ast.stderr, "engines failed differently for {}", path);
+        assert_eq!(vm.success, ast.success, "engines disagreed on success for {}", path);
     }
 }
 

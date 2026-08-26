@@ -8,7 +8,9 @@ use std::io::{BufRead, Write};
 use std::process::ExitCode;
 
 use crate::checker::Checker;
-use crate::interp::Interp;
+use crate::compiler::Compiler;
+use crate::runtime;
+use crate::vm::Vm;
 use crate::lexer::{self, Tok};
 use crate::parser;
 use crate::span::Sources;
@@ -21,14 +23,21 @@ pub fn run() -> ExitCode {
     let mut sources = Sources::new();
     let mut checker = Checker::new();
     checker.set_repl(true);
-    let mut vm = Interp::new();
+    // The compiler and the VM both keep their state between entries, so a
+    // later line sees the globals, classes and functions of an earlier one.
+    let mut compiler = Compiler::new();
+    let mut vm = Vm::new();
 
     // The REPL loads the prelude the same way a program does.
     match crate::loader::prelude(&mut sources) {
         Ok(items) => {
             let mut p = crate::ast::Program { items };
             checker.check_program(&mut p);
-            let _ = vm.run(&p);
+            // The prelude is only trait declarations, so nothing can fail
+            // here that the loader did not already catch.
+            if let Ok(unit) = compiler.compile(&p) {
+                let _ = vm.run(&unit);
+            }
         }
         Err(d) => {
             eprint!("{}", sources.render("error", &d));
@@ -93,7 +102,14 @@ pub fn run() -> ExitCode {
             continue;
         }
 
-        match vm.run_repl(&program) {
+        let unit = match compiler.compile(&program) {
+            Ok(u) => u,
+            Err(d) => {
+                eprint!("{}", sources.render("error", &d));
+                continue;
+            }
+        };
+        match vm.run(&unit) {
             Ok(value) => {
                 let prints = !matches!(last, None | Some(Type::Unit) | Some(Type::Never));
                 if prints && !matches!(value, Value::Unit) {
@@ -102,7 +118,7 @@ pub fn run() -> ExitCode {
                         .last()
                         .map(|_| crate::span::Span::new(file, 1, 1))
                         .unwrap_or_default();
-                    match vm.display(&value, span) {
+                    match runtime::display(&mut vm, &value, span) {
                         Ok(text) => println!("{}", text),
                         Err(_) => println!("<unprintable value>"),
                     }

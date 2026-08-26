@@ -2,16 +2,20 @@
 
 mod ast;
 mod builtins;
+mod bytecode;
 mod checker;
+mod compiler;
 mod interp;
 mod lexer;
 mod loader;
 mod native;
 mod parser;
 mod repl;
+mod runtime;
 mod span;
 mod types;
 mod value;
+mod vm;
 
 use std::process::ExitCode;
 
@@ -45,8 +49,29 @@ fn main() -> ExitCode {
         .unwrap_or(ExitCode::FAILURE)
 }
 
+/// Which engine runs the program. The tree-walker is kept as the reference
+/// implementation: the test suite runs every program through both and the
+/// two must agree.
+#[derive(Clone, Copy, PartialEq)]
+enum Engine {
+    Bytecode,
+    Ast,
+}
+
 fn real_main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let mut engine = Engine::Bytecode;
+    args.retain(|a| match a.as_str() {
+        "--ast" => {
+            engine = Engine::Ast;
+            false
+        }
+        "--vm" => {
+            engine = Engine::Bytecode;
+            false
+        }
+        _ => true,
+    });
     let (command, target) = match args.as_slice() {
         [] => ("repl", None),
         [one] if one == "repl" => ("repl", None),
@@ -69,7 +94,7 @@ fn real_main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "repl" => repl::run(),
-        cmd => run_file(&target.unwrap(), cmd == "check"),
+        cmd => run_file(&target.unwrap(), cmd == "check", engine),
     }
 }
 
@@ -104,7 +129,7 @@ fn format_trace(frames: &[(String, span::Span)], sources: &Sources) -> String {
     out
 }
 
-fn run_file(path: &str, check_only: bool) -> ExitCode {
+fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {
     let mut sources = Sources::new();
 
     let mut program = match loader::load(path, &mut sources) {
@@ -132,8 +157,21 @@ fn run_file(path: &str, check_only: bool) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let mut vm = interp::Interp::new();
-    match vm.run(&program) {
+    let outcome = match engine {
+        Engine::Ast => interp::Interp::new().run(&program),
+        Engine::Bytecode => {
+            let unit = match compiler::Compiler::new().compile(&program) {
+                Ok(u) => u,
+                Err(d) => {
+                    eprint!("{}", sources.render("error", &d));
+                    return ExitCode::FAILURE;
+                }
+            };
+            vm::Vm::new().run(&unit).map(|_| ())
+        }
+    };
+
+    match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprint!("{}", sources.render("runtime error", &e.diag));

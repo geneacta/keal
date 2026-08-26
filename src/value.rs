@@ -19,7 +19,25 @@ pub enum Value {
     /// An inclusive-exclusive integer range, `start..end`.
     Range(i64, i64),
     Fun(Rc<Closure>),
+    /// A compiled closure, as the bytecode VM makes them.
+    VmFun(Rc<VmClosure>),
+    /// A built-in referred to by name, as in `val f = println`.
+    Native(Rc<NativeFn>),
     Instance(Rc<Instance>),
+}
+
+/// A closure the bytecode VM created: a compiled body, the cells it captured,
+/// and the receiver when it came from a method.
+pub struct VmClosure {
+    pub func: Rc<crate::bytecode::Function>,
+    pub captured: Rc<Vec<crate::bytecode::CellRef>>,
+    pub this: Option<Value>,
+}
+
+/// A standard-library function captured as a value. Calling it dispatches
+/// back through `native::call_global`.
+pub struct NativeFn {
+    pub name: Rc<str>,
 }
 
 impl Value {
@@ -43,7 +61,7 @@ impl Value {
             Value::List(_) => "List".into(),
             Value::Map(_) => "Map".into(),
             Value::Range(_, _) => "Range".into(),
-            Value::Fun(_) => "Function".into(),
+            Value::Fun(_) | Value::VmFun(_) | Value::Native(_) => "Function".into(),
             Value::Instance(i) => i.class.name.clone(),
         }
     }
@@ -188,6 +206,8 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         }
         (Value::Instance(x), Value::Instance(y)) => Rc::ptr_eq(x, y),
         (Value::Fun(x), Value::Fun(y)) => Rc::ptr_eq(x, y),
+        (Value::Native(x), Value::Native(y)) => Rc::ptr_eq(x, y),
+        (Value::VmFun(x), Value::VmFun(y)) => Rc::ptr_eq(x, y),
         _ => false,
     }
 }

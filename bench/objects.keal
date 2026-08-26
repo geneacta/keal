@@ -1,0 +1,11 @@
+// Field access, method calls and allocation.
+record Point(val x: Int, val y: Int)
+
+fun manhattan(p: Point): Int { p.x.abs() + p.y.abs() }
+
+var sum = 0
+for (i in 0..1000000) {
+    val p = Point(i % 100 - 50, i % 37 - 18)
+    sum += manhattan(p)
+}
+println(sum)
