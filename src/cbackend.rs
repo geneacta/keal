@@ -113,9 +113,19 @@ struct CBackend {
     locals: Vec<Vec<(String, Type, bool)>>,
     /// Names of the program's own functions, which are called, not captured.
     global_funs: std::collections::HashSet<String>,
+    /// Top-level bindings, which become C globals so that functions and
+    /// lambdas see them — as the interpreters' single global scope does.
+    global_vars: std::collections::HashSet<String>,
+    global_decls: String,
+    /// True while the outermost statements are being emitted into `main`.
+    at_top_level: bool,
     /// Bodies of generated lambda functions, emitted after everything else.
     lambda_defs: String,
     next_lambda: usize,
+    /// While a default argument is being emitted at a call site, the
+    /// callee's earlier parameters resolve to the argument temps already
+    /// computed — this map says which.
+    param_alias: Option<HashMap<String, String>>,
     /// The capture environment of the lambda being emitted, if any:
     /// name -> (struct field, type).
     capture_env: Option<HashMap<String, (String, Type)>>,
@@ -152,9 +162,13 @@ impl CBackend {
             this_name: None,
             locals: Vec::new(),
             global_funs: std::collections::HashSet::new(),
+            global_vars: std::collections::HashSet::new(),
+            global_decls: String::new(),
+            at_top_level: false,
             lambda_defs: String::new(),
             next_lambda: 0,
             capture_env: None,
+            param_alias: None,
             tsubst: crate::types::Subst::new(),
             fun_decls: HashMap::new(),
             class_decls: HashMap::new(),
@@ -351,17 +365,8 @@ impl CBackend {
     // ---- program -------------------------------------------------------
 
     fn program(&mut self, program: &Program) {
-        // Structs first: a function signature may mention one.
-        for item in &program.items {
-            if let Item::Class(c) = item {
-                self.class_struct(c);
-            }
-        }
-        for item in &program.items {
-            if let Item::Class(c) = item {
-                self.class_functions(c);
-            }
-        }
+        // The declaration tables come first: everything emitted below — a
+        // class's own methods included — looks callees up in them.
         for item in &program.items {
             match item {
                 Item::Fun(f) => {
@@ -372,6 +377,17 @@ impl CBackend {
                     self.class_decls.insert(c.name.clone(), c.clone());
                 }
                 _ => {}
+            }
+        }
+        // Structs next: a function signature may mention one.
+        for item in &program.items {
+            if let Item::Class(c) = item {
+                self.class_struct(c);
+            }
+        }
+        for item in &program.items {
+            if let Item::Class(c) = item {
+                self.class_functions(c);
             }
         }
         for item in &program.items {
@@ -455,8 +471,10 @@ impl CBackend {
         let saved_temp = self.next_temp;
         let saved_this = self.this_name.take();
         let saved_env = self.capture_env.take();
+        let saved_top = std::mem::replace(&mut self.at_top_level, false);
         self.emit_struct(&sn, &fields, span);
         self.class_functions_named(&c, &fields, &sn);
+        self.at_top_level = saved_top;
         self.body = saved_body;
         self.scopes = saved_scopes;
         self.locals = saved_locals;
@@ -499,7 +517,11 @@ impl CBackend {
         let saved_temp = self.next_temp;
         let saved_this = self.this_name.take();
         let saved_env = self.capture_env.take();
+        // A body being instantiated is not the top level, however the
+        // instantiation was reached; a binding inside it must be a local.
+        let saved_top = std::mem::replace(&mut self.at_top_level, false);
         self.function_named(&f, &cname);
+        self.at_top_level = saved_top;
         self.this_name = saved_this;
         self.capture_env = saved_env;
         self.body = saved_body;
@@ -634,11 +656,13 @@ impl CBackend {
         self.indent = 1;
         self.scopes.push(Vec::new());
         self.locals.push(Vec::new());
+        self.at_top_level = true;
         for item in &program.items {
             if let Item::Stmt(s) = item {
                 self.stmt(s);
             }
         }
+        self.at_top_level = false;
         self.close_scope();
         self.line("return 0;");
         let body = std::mem::take(&mut self.body).join("\n");
@@ -668,10 +692,6 @@ impl CBackend {
 
         let mut params = Vec::new();
         for p in f.params.iter() {
-            if p.default.is_some() {
-                self.unsupported(p.span, "default arguments");
-                return;
-            }
             let Some(te) = &p.ty else { return };
             let Some(ty) = self.resolved(te, p.span) else { return };
             let Some(c) = self.ctype(&ty, p.span) else { return };
@@ -718,10 +738,6 @@ impl CBackend {
     fn constructor(&mut self, c: &ClassDecl, fields: &[(String, Type)], name: &str) {
         let mut params = Vec::new();
         for p in &c.ctor {
-            if p.default.is_some() {
-                self.unsupported(p.span, "default arguments on a constructor");
-                return;
-            }
             let Some((_, ty)) = fields.iter().find(|(n, _)| *n == p.name).cloned() else {
                 self.unsupported(p.span, "a constructor parameter that is not a field");
                 return;
@@ -795,10 +811,6 @@ impl CBackend {
         };
         let mut params = vec![format!("{}* self", name)];
         for p in m.params.iter() {
-            if p.default.is_some() {
-                self.unsupported(p.span, "default arguments");
-                return;
-            }
             let Some(te) = &p.ty else { return };
             let Some(ty) = self.resolved(te, p.span) else { return };
             let Some(ct) = self.ctype(&ty, p.span) else { return };
@@ -949,9 +961,15 @@ impl CBackend {
         }
     }
 
-    /// Resolves a name: a capture reads through the environment, anything
-    /// else is the C variable it was declared as.
+    /// Resolves a name: an alias set up for a default argument wins, then a
+    /// capture reads through the environment, and anything else is the C
+    /// variable it was declared as.
     fn var_ref(&self, name: &str) -> String {
+        if let Some(aliases) = &self.param_alias {
+            if let Some(v) = aliases.get(name) {
+                return v.clone();
+            }
+        }
         if let Some(env) = &self.capture_env {
             if let Some((field, _)) = env.get(name) {
                 return format!("env->{}", field);
@@ -1004,9 +1022,20 @@ impl CBackend {
             StmtKind::Let { name, init, mutable, .. } => {
                 let Some(ty) = self.ety(init) else { return };
                 let Some(c) = self.ctype(&ty, s.span) else { return };
+                let var = mangle(name);
+                // A binding at the program's top level is a C global, so
+                // functions and lambdas read it the way they read the
+                // interpreters' global scope. It lives for the program, so
+                // nothing releases it.
+                if self.at_top_level && self.scopes.len() == 1 {
+                    self.global_vars.insert(name.clone());
+                    let _ = writeln!(self.global_decls, "static {} {};", c, var);
+                    let value = self.expr(init);
+                    self.line(format!("{} = {};", var, Self::retained(&ty, &value)));
+                    return;
+                }
                 self.declare_local(name, &ty, *mutable);
                 let value = self.expr(init);
-                let var = mangle(name);
                 if Self::counted(&ty) {
                     self.line(format!("{} {} = {};", c, var, Self::retained(&ty, &value)));
                     self.own(&var, &ty);
@@ -1304,6 +1333,7 @@ impl CBackend {
                 }
                 None => {
                     let global = self.global_funs.contains(&name)
+                        || self.global_vars.contains(&name)
                         || self.shapes.contains_key(&name)
                         || crate::builtins::global_sig(&name, &[None, None]).is_some();
                     if !global {
@@ -1377,6 +1407,7 @@ impl CBackend {
                 .map(|(n, t)| (n.clone(), (mangle(n), t.clone())))
                 .collect(),
         );
+        let saved_top = std::mem::replace(&mut self.at_top_level, false);
         self.line(format!("{n}* env = ({n}*)_c;\n    (void)env;", n = env_name));
         self.emit_body(&body.stmts, &ret_c);
         self.close_scope();
@@ -1384,6 +1415,7 @@ impl CBackend {
             self.line("return;");
         }
         let compiled = std::mem::take(&mut self.body).join("\n");
+        self.at_top_level = saved_top;
         self.body = saved_body;
         self.scopes = saved_scopes;
         self.locals = saved_locals;
@@ -1784,10 +1816,29 @@ impl CBackend {
             return "0".to_string();
         }
         let receiver = self.expr(obj);
-        let mut rendered = vec![receiver.clone()];
-        for a in args {
-            rendered.push(self.expr(&a.value));
-        }
+        let decl_params: Vec<Param> = self
+            .class_decls
+            .get(&*class)
+            .and_then(|c| c.methods.iter().find(|m| m.name == name))
+            .map(|m| m.params.as_ref().clone())
+            .unwrap_or_default();
+        let callee_subst: Vec<(String, Type)> = self
+            .class_decls
+            .get(&*class)
+            .map(|c| {
+                c.type_params
+                    .iter()
+                    .zip(class_args.iter())
+                    .map(|(p, a)| (p.name.clone(), a.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let Some(mut rendered) =
+            self.render_args_with_defaults(&decl_params, &callee_subst, args, e.span)
+        else {
+            return "0".to_string();
+        };
+        rendered.insert(0, receiver.clone());
         let call = format!(
             "{}_{}({})",
             struct_name_of(&class, &class_args),
@@ -2252,11 +2303,6 @@ impl CBackend {
             self.unsupported(e.span, "calling this expression");
             return "0".to_string();
         };
-        if args.iter().any(|a| a.name.is_some()) {
-            self.unsupported(e.span, "named arguments");
-            return "0".to_string();
-        }
-
         // The two built-ins the subset needs.
         if name == "println" || name == "print" {
             let text = match args.first() {
@@ -2282,10 +2328,37 @@ impl CBackend {
             } else {
                 (struct_name(name), Type::class(name, Vec::new()))
             };
-            let mut rendered = Vec::new();
-            for a in args {
-                rendered.push(self.expr(&a.value));
-            }
+            let decl = self.class_decls.get(name).cloned();
+            let (ctor_params, callee_subst): (Vec<Param>, Vec<(String, Type)>) = match &decl {
+                Some(c) => {
+                    let ps = c
+                        .ctor
+                        .iter()
+                        .map(|cp| Param {
+                            name: cp.name.clone(),
+                            ty: Some(cp.ty.clone()),
+                            default: cp.default.clone(),
+                            span: cp.span,
+                        })
+                        .collect();
+                    let subst = match &ty {
+                        Type::Class(_, targs) => c
+                            .type_params
+                            .iter()
+                            .zip(targs.iter())
+                            .map(|(p, a)| (p.name.clone(), a.clone()))
+                            .collect(),
+                        _ => Vec::new(),
+                    };
+                    (ps, subst)
+                }
+                None => (Vec::new(), Vec::new()),
+            };
+            let Some(rendered) =
+                self.render_args_with_defaults(&ctor_params, &callee_subst, args, e.span)
+            else {
+                return "0".to_string();
+            };
             let call = format!("{}_new({})", sn, rendered.join(", "));
             return self.own_temp_of(&ty, call);
         }
@@ -2294,24 +2367,99 @@ impl CBackend {
             return "0".to_string();
         }
 
-        let cname = match &e.inst {
+        let (cname, callee_subst) = match &e.inst {
             Some(inst) => {
                 let targs: Vec<Type> =
                     inst.iter().map(|t| t.substitute(&self.tsubst)).collect();
-                match self.instantiate_function(name, &targs, e.span) {
-                    Some(n) => n,
-                    None => return "0".to_string(),
-                }
+                let Some(n) = self.instantiate_function(name, &targs, e.span) else {
+                    return "0".to_string();
+                };
+                let subst = self
+                    .fun_decls
+                    .get(name)
+                    .map(|f| {
+                        f.type_params
+                            .iter()
+                            .zip(targs.iter())
+                            .map(|(p, a)| (p.name.clone(), a.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                (n, subst)
             }
-            None => mangle(name),
+            None => (mangle(name), Vec::new()),
         };
-        let mut rendered = Vec::new();
-        for a in args {
-            rendered.push(self.expr(&a.value));
-        }
+        let decl_params: Vec<Param> = self
+            .fun_decls
+            .get(name)
+            .map(|f| f.params.as_ref().clone())
+            .unwrap_or_default();
+        let Some(rendered) =
+            self.render_args_with_defaults(&decl_params, &callee_subst, args, e.span)
+        else {
+            return "0".to_string();
+        };
         let call = format!("{}({})", cname, rendered.join(", "));
 
         self.finish_call(e, call)
+    }
+
+    /// Renders a call's arguments against the declaration's parameters:
+    /// positional first, then named into their slots, then each missing slot
+    /// filled by emitting its default at the call site.
+    ///
+    /// A default may mention an earlier parameter, so while one is emitted
+    /// those names alias the argument temps already computed. When the
+    /// callee is generic, its own type parameters are brought into the
+    /// substitution first, since its defaults are written in terms of them.
+    fn render_args_with_defaults(
+        &mut self,
+        params: &[Param],
+        callee_subst: &[(String, Type)],
+        args: &[Arg],
+        span: Span,
+    ) -> Option<Vec<String>> {
+        let mut slots: Vec<Option<String>> = vec![None; params.len()];
+        let mut next = 0usize;
+        // Written arguments run first, in written order — their side effects
+        // happen exactly as the interpreters run them.
+        for a in args {
+            let idx = match &a.name {
+                Some(n) => params.iter().position(|p| p.name == *n)?,
+                None => {
+                    let i = next;
+                    next += 1;
+                    i
+                }
+            };
+            slots[idx] = Some(self.expr(&a.value));
+        }
+
+        let saved_subst = self.tsubst.clone();
+        for (name, ty) in callee_subst {
+            self.tsubst.insert(std::rc::Rc::from(name.as_str()), ty.clone());
+        }
+        for (i, p) in params.iter().enumerate() {
+            if slots[i].is_some() {
+                continue;
+            }
+            let Some(default) = &p.default else {
+                self.tsubst = saved_subst;
+                self.unsupported(span, "a call the checker left short");
+                return None;
+            };
+            let aliases: HashMap<String, String> = params[..i]
+                .iter()
+                .enumerate()
+                .filter_map(|(j, q)| slots[j].clone().map(|v| (q.name.clone(), v)))
+                .collect();
+            let saved_alias = self.param_alias.replace(aliases);
+            let v = self.expr(default);
+            self.param_alias = saved_alias;
+            slots[i] = Some(v);
+        }
+        self.tsubst = saved_subst;
+        slots.into_iter().collect()
     }
 
     /// Binds a call's result according to its type, or emits it for effect.
@@ -2468,6 +2616,8 @@ impl CBackend {
         for st in &self.pending_structs {
             out.push_str(st);
         }
+        out.push('\n');
+        out.push_str(&self.global_decls);
         out.push('\n');
         out.push_str(&self.decls);
         out.push('\n');

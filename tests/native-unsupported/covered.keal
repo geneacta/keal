@@ -1,8 +1,6 @@
 // Everything here is beyond the C backend for now. Each one must be named
 // rather than silently mis-compiled, so the snapshot is the promise.
 
-fun withDefault(n: Int = 1): Int { n }
-
 // Capturing a `var` is refused: sharing it would need a heap cell, and
 // copying it would silently diverge from the interpreters.
 fun captureVar(): Int {
