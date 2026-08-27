@@ -1191,6 +1191,16 @@ class Parser(val toks: List<Token>) {
 
     fun typeExpr(): TypeEx {
         val t = this.peek()
+        // `borrow T` / `own T`: an ownership mode, contextual — `borrow`
+        // alone can still name a type, so the word only counts when a type
+        // follows it.
+        if (t.kind == "ident" and (t.text == "borrow" or t.text == "own") and this.peekAt(1).kind == "ident") {
+            this.advance()
+            val b = TypeEx("boundary", t.line, t.col)
+            b.name = t.text
+            b.inner = this.typeExpr()
+            return b
+        }
         var out = TypeEx("named", t.line, t.col)
         if (t.kind == "ident") {
             this.advance()

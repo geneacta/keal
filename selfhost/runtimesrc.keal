@@ -425,6 +425,16 @@ KEAL_FN int64_t keal_int_min(int64_t a, int64_t b) { return a < b ? a : b; }
 
 KEAL_FN int64_t keal_int_max(int64_t a, int64_t b) { return a > b ? a : b; }
 
+/* Adopts a NUL-terminated buffer from C: Keal owns it from here and will
+ * free() it when the last reference goes. The other half of `own String`.
+ * A NULL from C reads as the empty string. */
+KEAL_FN KealStr* keal_str_adopt(char* bytes) {
+    if (bytes == NULL) {
+        return keal_str_empty();
+    }
+    return keal_str_owning(bytes, (int64_t)strlen(bytes));
+}
+
 /* `s[i]` and `s.get(i)`: one character, as a string. Negative counts from
  * the end. */
 KEAL_FN KealStr* keal_str_get(KealStr* s, int64_t i, int64_t line) {

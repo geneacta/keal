@@ -386,6 +386,10 @@ pub struct TypeExpr {
 pub enum TypeExprKind {
     /// A name plus optional type arguments: `Int`, `List<String>`.
     Named { name: String, args: Vec<TypeExpr> },
+    /// `borrow T` / `own T` — who owns a value crossing an extern boundary.
+    /// Only meaningful on `extern fun` signatures; the checker says so
+    /// anywhere else.
+    Boundary { mode: String, inner: Box<TypeExpr> },
     /// `T?`
     Nullable(Box<TypeExpr>),
     /// `(A, B) -> C`

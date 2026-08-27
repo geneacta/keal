@@ -1188,6 +1188,7 @@ fn type_test_name(ty: &TypeExpr) -> String {
     match &ty.kind {
         TypeExprKind::Named { name, .. } => name.clone(),
         TypeExprKind::Nullable(inner) => type_test_name(inner),
+        TypeExprKind::Boundary { inner, .. } => type_test_name(inner),
         TypeExprKind::Fun { .. } => "Function".to_string(),
     }
 }

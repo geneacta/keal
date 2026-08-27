@@ -301,6 +301,7 @@ fn selfhosted_lexer_agrees_with_the_oracle() {
     let mut files = keal_files("tests/programs");
     files.extend(keal_files("examples"));
     files.extend(keal_files("tests/native"));
+    files.extend(keal_files("tests/native-extern"));
     files.extend(keal_files("tests/selfhost"));
     files.extend(keal_files("tests/selfhost/errors"));
     files.push(root().join("selfhost/lexer.keal"));
@@ -332,6 +333,7 @@ fn selfhosted_parser_agrees_with_the_oracle() {
     let mut files = keal_files("tests/programs");
     files.extend(keal_files("examples"));
     files.extend(keal_files("tests/native"));
+    files.extend(keal_files("tests/native-extern"));
     files.extend(keal_files("tests/selfhost"));
     files.extend(keal_files("tests/selfhost/errors"));
     files.extend(keal_files("tests/selfhost/parse-errors"));
@@ -367,6 +369,7 @@ fn selfhosted_checker_agrees_with_the_oracle() {
     let mut files = keal_files("tests/programs");
     files.extend(keal_files("examples"));
     files.extend(keal_files("tests/native"));
+    files.extend(keal_files("tests/native-extern"));
     files.extend(keal_files("tests/selfhost"));
     files.extend(keal_files("tests/selfhost/errors"));
     files.extend(keal_files("tests/selfhost/parse-errors"));
@@ -401,6 +404,7 @@ fn selfhosted_emitter_agrees_with_the_oracle() {
     let mut files = keal_files("tests/programs");
     files.extend(keal_files("examples"));
     files.extend(keal_files("tests/native"));
+    files.extend(keal_files("tests/native-extern"));
     files.extend(keal_files("tests/selfhost"));
     files.extend(keal_files("tests/selfhost/errors"));
     files.extend(keal_files("tests/selfhost/parse-errors"));
@@ -477,6 +481,23 @@ fn the_compiler_compiles_itself() {
         );
     }
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `keal emit-header` prints the C face of a program's boundary: the mirror
+/// structs its externs share with C, and a `k_` prototype for every function
+/// that crosses cleanly.
+#[test]
+fn emit_header_matches_snapshot() {
+    let out = keal(&["emit-header", "tests/native-extern/boundary.keal"]);
+    assert!(out.success, "emit-header failed:\n{}", out.stderr);
+    let expected_path = root().join("tests/native-extern/boundary.h.expected");
+    if std::env::var_os("UPDATE_EXPECT").is_some() {
+        std::fs::write(&expected_path, &out.stdout).expect("cannot write snapshot");
+        return;
+    }
+    let expected = std::fs::read_to_string(&expected_path)
+        .expect("missing snapshot; run UPDATE_EXPECT=1 cargo test");
+    assert_eq!(expected, out.stdout, "the generated header changed");
 }
 
 #[test]

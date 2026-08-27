@@ -147,6 +147,10 @@ struct CBackend {
     fun_decls: HashMap<String, FunDecl>,
     /// Extern functions: Keal name -> C symbol, called directly.
     externs: HashMap<String, String>,
+    /// The declarations themselves, for boundary marshalling.
+    extern_decls: HashMap<String, ExternDecl>,
+    /// Records already given a `Keal_Name` mirror struct for the boundary.
+    mirrored: std::collections::HashSet<String>,
     class_decls: HashMap<String, ClassDecl>,
     /// Which specialisations exist already, keyed by mangled name.
     instantiated: std::collections::HashSet<String>,
@@ -187,6 +191,8 @@ impl CBackend {
             tsubst: crate::types::Subst::new(),
             fun_decls: HashMap::new(),
             externs: HashMap::new(),
+            extern_decls: HashMap::new(),
+            mirrored: std::collections::HashSet::new(),
             class_decls: HashMap::new(),
             instantiated: std::collections::HashSet::new(),
             errors: Vec::new(),
@@ -458,6 +464,15 @@ impl CBackend {
                 Item::Extern(x) => {
                     self.global_funs.insert(x.name.clone());
                     self.externs.insert(x.name.clone(), x.symbol.clone());
+                    self.extern_decls.insert(x.name.clone(), x.clone());
+                    for p in &x.params {
+                        if let Some(te) = &p.ty {
+                            self.mirror_for(te);
+                        }
+                    }
+                    if let Some(te) = &x.ret {
+                        self.mirror_for(te);
+                    }
                 }
                 _ => {}
             }
@@ -487,6 +502,34 @@ impl CBackend {
             }
         }
         self.main(program);
+    }
+
+    /// The `Keal_Name` mirror struct for a record named in an extern
+    /// signature: the same fields in the same order, unmangled, headerless —
+    /// the C side's half of the by-value contract. Emitted once, before the
+    /// native blocks, so their code can use it.
+    fn mirror_for(&mut self, te: &TypeExpr) {
+        let name = match &te.kind {
+            TypeExprKind::Boundary { inner, .. } => match &inner.kind {
+                TypeExprKind::Named { name, args } if args.is_empty() => name.clone(),
+                _ => return,
+            },
+            TypeExprKind::Named { name, args } if args.is_empty() => name.clone(),
+            _ => return,
+        };
+        let Some(fields) = self.shapes.get(&name).cloned() else { return };
+        if !self.mirrored.insert(name.clone()) {
+            return;
+        }
+        self.types.push_str(&mirror_struct_c(&name, &fields));
+    }
+
+    /// Peels one boundary mode off a written type: (mode, the type inside).
+    fn peel_mode(te: &TypeExpr) -> (Option<&str>, &TypeExpr) {
+        match &te.kind {
+            TypeExprKind::Boundary { mode, inner } => (Some(mode.as_str()), inner),
+            _ => (None, te),
+        }
     }
 
     /// A class becomes a struct headed by its reference count, its fields in
@@ -1045,6 +1088,7 @@ impl CBackend {
     /// the supported subset, so the few shapes that appear are enough.
     fn resolved(&mut self, te: &TypeExpr, span: Span) -> Option<Type> {
         match &te.kind {
+            TypeExprKind::Boundary { inner, .. } => self.resolved(inner, span),
             TypeExprKind::Named { name, args } if args.is_empty() => match name.as_str() {
                 "Int" => Some(Type::Int),
                 "Float" => Some(Type::Float),
@@ -3635,11 +3679,64 @@ impl CBackend {
         }
 
         if let Some(symbol) = self.externs.get(name).cloned() {
+            let decl = self.extern_decls.get(name).cloned();
             let mut rendered = Vec::new();
-            for a in args {
-                rendered.push(self.expr(&a.value));
+            for (i, a) in args.iter().enumerate() {
+                let v = self.expr(&a.value);
+                let param_te = decl
+                    .as_ref()
+                    .and_then(|d| d.params.get(i))
+                    .and_then(|p| p.ty.as_ref());
+                let Some(te) = param_te else {
+                    rendered.push(v);
+                    continue;
+                };
+                let (mode, inner) = Self::peel_mode(te);
+                if mode == Some("borrow") {
+                    // C reads the bytes for the duration of the call; the
+                    // temp that owns the string outlives it.
+                    rendered.push(format!("{}->bytes", v));
+                    continue;
+                }
+                if let TypeExprKind::Named { name: rec, args: targs } = &inner.kind {
+                    if targs.is_empty() && self.shapes.contains_key(rec) {
+                        let fields = self.shapes.get(rec).cloned().unwrap_or_default();
+                        let mut lit = format!("(Keal_{}){{ ", rec);
+                        for (fi, (fname, _)) in fields.iter().enumerate() {
+                            if fi > 0 {
+                                lit.push_str(", ");
+                            }
+                            lit.push_str(&format!(".{} = {}->{}", fname, v, mangle(fname)));
+                        }
+                        lit.push_str(" }");
+                        rendered.push(lit);
+                        continue;
+                    }
+                }
+                rendered.push(v);
             }
             let call = format!("{}({})", symbol, rendered.join(", "));
+            let ret_te = decl.as_ref().and_then(|d| d.ret.as_ref());
+            if let Some(te) = ret_te {
+                let (mode, inner) = Self::peel_mode(te);
+                if mode == Some("own") {
+                    // C hands the buffer over; adopting it makes it a
+                    // counted string that frees the bytes at the end.
+                    return self.finish_call(e, format!("keal_str_adopt({})", call));
+                }
+                if let TypeExprKind::Named { name: rec, args: targs } = &inner.kind {
+                    if targs.is_empty() && self.shapes.contains_key(rec) {
+                        let fields = self.shapes.get(rec).cloned().unwrap_or_default();
+                        let raw = self.temp();
+                        self.line(format!("const Keal_{} {} = {};", rec, raw, call));
+                        let ctor_args: Vec<String> =
+                            fields.iter().map(|(f, _)| format!("{}.{}", raw, f)).collect();
+                        let make = format!("K_{}_new({})", rec, ctor_args.join(", "));
+                        return self
+                            .own_temp_of(&Type::class(rec.as_str(), Vec::new()), make);
+                    }
+                }
+            }
             return self.finish_call(e, call);
         }
         let (cname, callee_subst) = match &e.inst {
@@ -3993,6 +4090,24 @@ impl CBackend {
 }
 
 // ---- helpers -----------------------------------------------------------
+
+/// The `Keal_Name` mirror struct's exact text — shared with
+/// `keal emit-header`, so both translation units spell the contract
+/// identically.
+pub fn mirror_struct_c(name: &str, fields: &[(String, Type)]) -> String {
+    let mut out = format!("typedef struct Keal_{} {{\n", name);
+    for (fname, ty) in fields {
+        let ct = match ty {
+            Type::Int => "int64_t",
+            Type::Float => "double",
+            Type::Bool => "bool",
+            _ => continue,
+        };
+        out.push_str(&format!("    {} {};\n", ct, fname));
+    }
+    out.push_str(&format!("}} Keal_{};\n", name));
+    out
+}
 
 /// Prefixes every Keal name, so none can collide with C's own.
 fn mangle(name: &str) -> String {
@@ -4417,6 +4532,7 @@ fn type_expr_name(te: &TypeExpr) -> String {
     match &te.kind {
         TypeExprKind::Named { name, .. } => name.clone(),
         TypeExprKind::Nullable(inner) => format!("{}?", type_expr_name(inner)),
+        TypeExprKind::Boundary { inner, .. } => type_expr_name(inner),
         TypeExprKind::Fun { .. } => "a function".to_string(),
     }
 }

@@ -603,6 +603,14 @@ $ keal build program.keal helpers.cpp
 The triple-quoted string used above is a **raw string**: newlines welcome, no
 escapes, no interpolation — for text meant to pass through whole.
 
+Strings and small records cross the boundary too. A `String` must say who
+owns it — `borrow String` going in, `own String` coming back — and a record
+of `Int`/`Float`/`Bool` fields passes by copy as the mirror struct
+`Keal_Name` the generated C defines. And the door swings both ways: every
+Keal function with a clean signature is a C symbol `k_name`, and
+`keal emit-header program.keal` prints the header a companion `.c` file
+needs to call back in.
+
 ---
 
 ## Lazy sequences

@@ -102,6 +102,7 @@ fun typeExName(te: TypeEx): String {
     return when (te.kind) {
         "named" -> te.name
         "nullable" -> typeExName(te.inner!!) + "?"
+        "boundary" -> typeExName(te.inner!!)
         else -> "a function type"
     }
 }
@@ -423,6 +424,10 @@ class Checker() {
             if (c != null and item.kind == "class") { this.collectClass(c) }
             val f = item.funDecl
             if (f != null and item.kind == "fun") { this.collectFun(f) }
+        }
+        // Externs after the classes, so a record named in an extern
+        // signature already has its fields and can be judged C-compatible.
+        for (item in program.items) {
             val x = item.externDecl
             if (x != null and item.kind == "extern") { this.collectExtern(x) }
         }
@@ -453,34 +458,121 @@ class Checker() {
         }
     }
 
-    /// An extern is a global function; only value types may cross.
+    /// A record every field of which is a bare value crosses an extern
+    /// boundary by value, as the mirror struct `Keal_Name`. Body fields
+    /// disqualify it: only the constructor's shape is the C contract.
+    fun cRecord(t: Ty): Bool {
+        unless (t.kind == "Class") { return false }
+        unless (t.args.size == 0) { return false }
+        val info = this.classes[t.name]
+        if (info == null) { return false }
+        unless (info.isRecord) { return false }
+        unless (info.ctor.params.size == info.fields.size) { return false }
+        for (f in info.fields) {
+            unless (f.ty.kind == "Int" or f.ty.kind == "Float" or f.ty.kind == "Bool") {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// An extern is a global function with the signature it declares. What
+    /// may cross is what carries no ownership — `Int`, `Float`, `Bool`, a
+    /// value record by copy — or a `String` whose ownership the signature
+    /// spells out: `borrow` into C, `own` back from it.
     proc collectExtern(x: ExternN) {
         val params: List<PTy> = []
         for (p in x.params) {
-            var t = Ty("Error")
+            var mode = ""
+            var innerTe = p.tyEx
             val te = p.tyEx
-            if (te != null) { t = this.resolve(te) }
-            unless (t.kind == "Int" or t.kind == "Float" or t.kind == "Bool" or t.kind == "Error") {
+            if (te != null) {
+                if (te.kind == "boundary") {
+                    mode = te.name
+                    innerTe = te.inner
+                }
+            }
+            var t = Ty("Error")
+            val ite = innerTe
+            if (ite != null) { t = this.resolve(ite) }
+            if (mode == "borrow") {
+                unless (t.kind == "Str" or t.kind == "Error") {
+                    this.errorNote(
+                        p.file, p.line, p.col,
+                        "`borrow` is for `String`, not `${tyShow(t)}`",
+                        "only a string needs its ownership spelled out here"
+                    )
+                }
+            } else if (mode != "") {
                 this.errorNote(
                     p.file, p.line, p.col,
-                    "`${tyShow(t)}` cannot cross into C",
-                    "extern parameters are limited to Int, Float and Bool, which carry no ownership"
+                    "`own` belongs on an extern result, not a parameter",
+                    "a parameter crossing into C is borrowed: write `borrow String`"
                 )
+            } else {
+                if (t.kind == "Str") {
+                    this.errorNote(
+                        p.file, p.line, p.col,
+                        "a `String` parameter must say who owns it across the boundary",
+                        "write `borrow String`: C reads the bytes and must not keep them"
+                    )
+                } else {
+                    unless (t.kind == "Int" or t.kind == "Float" or t.kind == "Bool" or t.kind == "Error" or this.cRecord(t)) {
+                        this.errorNote(
+                            p.file, p.line, p.col,
+                            "`${tyShow(t)}` cannot cross into C",
+                            "extern parameters are limited to Int, Float, Bool, `borrow String` and records of those"
+                        )
+                    }
+                }
             }
             if (p.default != null) {
                 this.error(p.file, p.line, p.col, "an extern parameter cannot have a default")
             }
             params.add(PTy(p.name, t, false))
         }
+        var retMode = ""
+        var retInner = x.ret
+        val rte0 = x.ret
+        if (rte0 != null) {
+            if (rte0.kind == "boundary") {
+                retMode = rte0.name
+                retInner = rte0.inner
+            }
+        }
         var ret = Ty("Unit")
-        val rte = x.ret
+        val rte = retInner
         if (rte != null) { ret = this.resolve(rte) }
-        unless (ret.kind == "Int" or ret.kind == "Float" or ret.kind == "Bool" or ret.kind == "Unit" or ret.kind == "Error") {
+        if (retMode == "own") {
+            unless (ret.kind == "Str" or ret.kind == "Error") {
+                this.errorNote(
+                    x.file, x.line, x.col,
+                    "`own` is for `String`, not `${tyShow(ret)}`",
+                    "only a string needs its ownership spelled out here"
+                )
+            }
+        } else if (retMode != "") {
             this.errorNote(
                 x.file, x.line, x.col,
-                "`${tyShow(ret)}` cannot cross back from C",
-                "extern results are limited to Int, Float, Bool and none"
+                "`borrow` belongs on an extern parameter, not a result",
+                "a String coming back is adopted: write `own String`"
             )
+        } else {
+            if (ret.kind == "Str") {
+                this.errorNote(
+                    x.file, x.line, x.col,
+                    "a `String` result must say who owns it across the boundary",
+                    "write `own String`: C hands over a malloc'd buffer and Keal frees it"
+                )
+            } else {
+                unless (ret.kind == "Int" or ret.kind == "Float" or ret.kind == "Bool" or ret.kind == "Unit" or ret.kind == "Error" or this.cRecord(ret)) {
+                    this.errorNote(
+                        x.file, x.line, x.col,
+                        "`${tyShow(ret)}` cannot cross back from C",
+                        "extern results are limited to Int, Float, Bool, none, `own String` and records of those"
+                    )
+                }
+            }
         }
         if (this.scopes[0].contains(x.name)) {
             this.error(x.file, x.line, x.col, "`${x.name}` is declared twice")
@@ -892,6 +984,13 @@ class Checker() {
 
     /// Pure form of `resolve`: a failure sets `quietDiag` and returns null.
     fun resolveQuiet(te: TypeEx): Ty? {
+        if (te.kind == "boundary") {
+            this.quietDiag = DiagN(
+                te.file, te.line, te.col,
+                "`${te.name}` only means something at an extern boundary"
+            )
+            return null
+        }
         if (te.kind == "nullable") {
             val inner = this.resolveQuiet(te.inner!!)
             if (inner == null) { return null }

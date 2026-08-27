@@ -23,6 +23,25 @@ fun mangleMethod(name: String): String { "m_" + name }
 /// The C struct a class is emitted as.
 fun structName(class_: String): String { "K_" + class_ }
 
+/// The `Keal_Name` mirror struct's exact text — the by-value contract a
+/// record shares with C across an extern boundary.
+fun mirrorStructC(name: String, fields: List<SField>): String {
+    var out = "typedef struct Keal_${name} {\n"
+    for (f in fields) {
+        val ct = when (f.ty.kind) {
+            "Int" -> "int64_t"
+            "Float" -> "double"
+            "Bool" -> "bool"
+            else -> ""
+        }
+        unless (ct == "") {
+            out += "    ${ct} ${f.name};\n"
+        }
+    }
+    out += "} Keal_${name};\n"
+    return out
+}
+
 /// A type as a C identifier fragment, for specialisation names.
 fun mangleType(t: Ty): String {
     return when (t.kind) {
@@ -83,6 +102,7 @@ fun cTypeExName(te: TypeEx): String {
     return when (te.kind) {
         "named" -> te.name
         "nullable" -> cTypeExName(te.inner!!) + "?"
+        "boundary" -> cTypeExName(te.inner!!)
         else -> "a function"
     }
 }
@@ -628,6 +648,8 @@ class CBackend() {
     var tsubst: Map<String, Ty> = {}
     var funDecls: Map<String, FunN> = {}
     var externs: Map<String, String> = {}
+    var externDecls: Map<String, ExternN> = {}
+    var mirrored: Map<String, Bool> = {}
     var classDecls: Map<String, ClassN> = {}
     var instantiated: Map<String, Bool> = {}
     var errors: List<DiagN> = []
@@ -822,6 +844,13 @@ class CBackend() {
                 val x = item.externDecl!!
                 this.globalFuns[x.name] = true
                 this.externs[x.name] = x.symbol
+                this.externDecls[x.name] = x
+                for (p in x.params) {
+                    val te = p.tyEx
+                    if (te != null) { this.mirrorFor(te) }
+                }
+                val rte = x.ret
+                if (rte != null) { this.mirrorFor(rte) }
             }
         }
         // Structs next: a function signature may mention one.
@@ -835,6 +864,28 @@ class CBackend() {
             if (item.kind == "fun") { this.function(item.funDecl!!) }
         }
         this.emitMain(program)
+    }
+
+    /// The `Keal_Name` mirror struct for a record named in an extern
+    /// signature: the same fields in the same order, unmangled, headerless —
+    /// the C side's half of the by-value contract. Emitted once, before the
+    /// native blocks, so their code can use it.
+    proc mirrorFor(te: TypeEx) {
+        var name = ""
+        if (te.kind == "boundary") {
+            val inner = te.inner!!
+            unless (inner.kind == "named" and inner.args.size == 0) { return }
+            name = inner.name
+        } else if (te.kind == "named" and te.args.size == 0) {
+            name = te.name
+        } else {
+            return
+        }
+        val fields = this.shapes[name]
+        if (fields == null) { return }
+        if (this.mirrored.contains(name)) { return }
+        this.mirrored[name] = true
+        this.typesOut += mirrorStructC(name, fields)
     }
 
     /// A class becomes a struct headed by its reference count, its fields in
@@ -1424,6 +1475,9 @@ class CBackend() {
     /// A declared type, as the checker resolved it. Written types are rare
     /// in the supported subset, so the few shapes that appear are enough.
     fun resolvedTy(te: TypeEx, file: Int, atLine: Int, col: Int): Ty? {
+        if (te.kind == "boundary") {
+            return this.resolvedTy(te.inner!!, file, atLine, col)
+        }
         if (te.kind == "named" and te.args.size == 0) {
             val name = te.name
             if (name == "Int") { return Ty("Int") }
@@ -3877,11 +3931,86 @@ class CBackend() {
 
         val symbol = this.externs[name]
         if (symbol != null) {
+            val decl = this.externDecls[name]
             val rendered: List<String> = []
-            for (a in args) {
-                rendered.add(this.expr(a.value))
+            var ai = 0
+            while (ai < args.size) {
+                val v = this.expr(args[ai].value)
+                var paramTe: TypeEx? = null
+                if (decl != null) {
+                    if (ai < decl.params.size) { paramTe = decl.params[ai].tyEx }
+                }
+                val te = paramTe
+                if (te == null) {
+                    rendered.add(v)
+                    ai += 1
+                    continue
+                }
+                var mode = ""
+                var inner = te
+                if (te.kind == "boundary") {
+                    mode = te.name
+                    inner = te.inner!!
+                }
+                if (mode == "borrow") {
+                    // C reads the bytes for the duration of the call; the
+                    // temp that owns the string outlives it.
+                    rendered.add("${v}->bytes")
+                    ai += 1
+                    continue
+                }
+                var marshalled = false
+                if (inner.kind == "named" and inner.args.size == 0) {
+                    val fields = this.shapes[inner.name]
+                    if (fields != null) {
+                        var lit = "(Keal_${inner.name}){ "
+                        var fi = 0
+                        while (fi < fields.size) {
+                            if (fi > 0) { lit += ", " }
+                            lit += ".${fields[fi].name} = ${v}->${mangle(fields[fi].name)}"
+                            fi += 1
+                        }
+                        lit += " }"
+                        rendered.add(lit)
+                        marshalled = true
+                    }
+                }
+                unless (marshalled) { rendered.add(v) }
+                ai += 1
             }
             val call = "${symbol}(${rendered.join(", ")})"
+            var retTe: TypeEx? = null
+            if (decl != null) { retTe = decl.ret }
+            val rte = retTe
+            if (rte != null) {
+                var mode = ""
+                var inner = rte
+                if (rte.kind == "boundary") {
+                    mode = rte.name
+                    inner = rte.inner!!
+                }
+                if (mode == "own") {
+                    // C hands the buffer over; adopting it makes it a
+                    // counted string that frees the bytes at the end.
+                    return this.finishCall(e, "keal_str_adopt(${call})")
+                }
+                if (inner.kind == "named" and inner.args.size == 0) {
+                    val fields = this.shapes[inner.name]
+                    if (fields != null) {
+                        val raw = this.temp()
+                        this.line("const Keal_${inner.name} ${raw} = ${call};")
+                        var ctorArgs = ""
+                        var fi = 0
+                        while (fi < fields.size) {
+                            if (fi > 0) { ctorArgs += ", " }
+                            ctorArgs += "${raw}.${fields[fi].name}"
+                            fi += 1
+                        }
+                        val make = "K_${inner.name}_new(${ctorArgs})"
+                        return this.ownTempOf(tyClass(inner.name, []), make)
+                    }
+                }
+            }
             return this.finishCall(e, call)
         }
         var cname = mangle(name)

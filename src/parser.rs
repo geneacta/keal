@@ -1223,6 +1223,19 @@ impl Parser {
 
     fn type_expr(&mut self) -> Result<TypeExpr, Diag> {
         let span = self.span();
+        // `borrow T` / `own T`: an ownership mode, contextual — `borrow`
+        // alone can still name a type, so the word only counts when a type
+        // follows it.
+        if let Tok::Ident(word) = self.peek() {
+            if (word == "borrow" || word == "own")
+                && matches!(self.peek_at(1), Tok::Ident(_))
+            {
+                let mode = word.clone();
+                self.advance();
+                let inner = Box::new(self.type_expr()?);
+                return Ok(TypeExpr { span, kind: TypeExprKind::Boundary { mode, inner } });
+            }
+        }
         let mut ty = match self.peek().clone() {
             Tok::Ident(name) => {
                 self.advance();

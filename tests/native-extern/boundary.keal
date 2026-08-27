@@ -1,0 +1,60 @@
+// The tier-1 boundary: strings crossing with their ownership written down —
+// `borrow` into C, `own` back from it — and value records crossing by copy
+// as their `Keal_Name` mirror structs, which the generated C defines before
+// any native block so the C below can just use them.
+
+record Vec2(val x: Float, val y: Float)
+
+native """
+#include <string.h>
+#include <stdlib.h>
+#include <ctype.h>
+
+static int64_t count_vowels(const char* s) {
+    int64_t n = 0;
+    for (; *s; s++) {
+        char c = (char)tolower((unsigned char)*s);
+        if (c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u') { n++; }
+    }
+    return n;
+}
+
+static char* shout(const char* s) {
+    size_t n = strlen(s);
+    char* out = (char*)malloc(n + 2);
+    for (size_t i = 0; i < n; i++) { out[i] = (char)toupper((unsigned char)s[i]); }
+    out[n] = '!';
+    out[n + 1] = '\0';
+    return out;
+}
+
+static double vec2_dot(Keal_Vec2 a, Keal_Vec2 b) { return a.x * b.x + a.y * b.y; }
+static Keal_Vec2 vec2_scale(Keal_Vec2 v, double k) {
+    return (Keal_Vec2){ v.x * k, v.y * k };
+}
+"""
+
+// The other direction: C calling back into Keal. Every non-generic Keal
+// function with a clean boundary signature is an external `k_` symbol in
+// the generated C — `keal emit-header` prints these prototypes, and inside
+// a native block one line declares what it needs.
+native """
+extern int64_t k_bonus(int64_t n);
+static int64_t call_back(int64_t n) { return k_bonus(n) * 2; }
+"""
+
+fun bonus(n: Int): Int { return n + 58 }
+
+extern fun call_back(n: Int): Int
+
+extern fun count_vowels(s: borrow String): Int
+extern fun shout(s: borrow String): own String
+extern fun vec2_dot(a: Vec2, b: Vec2): Float
+extern fun vec2_scale(v: Vec2, k: Float): Vec2
+
+println(count_vowels("boundary crossing"))
+println(shout("hello from c"))
+val scaled = vec2_scale(Vec2(3.0, 4.0), 2.0)
+println(scaled)
+println(vec2_dot(scaled, Vec2(0.5, 0.25)))
+println(call_back(21))

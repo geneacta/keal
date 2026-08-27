@@ -130,6 +130,7 @@ fn type_line(te: &TypeExpr) -> String {
             }
         }
         TypeExprKind::Nullable(inner) => format!("{}?", type_line(inner)),
+        TypeExprKind::Boundary { mode, inner } => format!("{} {}", mode, type_line(inner)),
         TypeExprKind::Fun { params, ret } => {
             let ps: Vec<String> = params.iter().map(type_line).collect();
             format!("({}) -> {}", ps.join(", "), type_line(ret))

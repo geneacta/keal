@@ -1,0 +1,13 @@
+record Ok2(val a: Int)
+record Deep(val s: String)
+class NotRec(val a: Int)
+native """int q;"""
+extern fun e1(s: String): Int
+extern fun e2(s: own String): Int
+extern fun e3(n: borrow Int): Int
+extern fun e4(): String
+extern fun e5(): borrow String
+extern fun e6(): own Int
+extern fun e7(d: Deep): Int
+extern fun e8(c: NotRec): Int
+val bad: borrow String = "x"

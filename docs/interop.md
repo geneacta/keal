@@ -43,41 +43,60 @@ Everything below widens that boundary or drives it from the other side.
 
 ## Tier 1 — a richer C boundary (the enabler for everything else)
 
-Every other tier stands on this one. Three pieces, in order:
+Every other tier stands on this one. **Status: 1a, 1b and 1c are shipped**;
+1d is deferred, with the reason recorded below.
 
-**1a. Strings across the boundary.** The ownership rule the memory model
-already dictates, made explicit in the signature:
+**1a. Strings across the boundary — SHIPPED.** The ownership rule the
+memory model already dictates, explicit in the signature:
 
 ```keal
 extern fun parse(source: borrow String): Int      // C reads, does not keep
 extern fun render(doc: Int): own String           // C hands us a malloc'd buffer
 ```
 
-* `borrow String` passes `const char*` + length; the callee must not retain.
-* `own String` on a return means Keal adopts the buffer and frees it.
-* Cost: small — two calling conventions in the emitter, a `keal_str_adopt`
-  in the runtime. No new syntax beyond the two modifiers.
+* `borrow String` passes the NUL-terminated `const char*`; the callee must
+  not retain it past the call.
+* `own String` on a result adopts the buffer: Keal counts it and `free()`s
+  it with the string (`keal_str_adopt` in the runtime; a NULL from C reads
+  as the empty string).
+* The checker demands a mode on every `String` crossing, in both
+  directions, and rejects a mode anywhere else — misuse is a checked error
+  with a note saying what to write.
 
-**1b. Structs across the boundary.** A Keal `record` whose fields are all
-C-compatible (`Int`, `Float`, `Bool` — the layout table already knows) may
-be declared `@repr(c)` and passed **by value** as the matching C struct.
-`keal layout` already prints exactly the struct C will see; this stage just
-allows it through `extern`.
+**1b. Structs across the boundary — SHIPPED.** A `record` whose fields are
+all `Int`, `Float` or `Bool` crosses **by value**, no annotation needed: the
+generated C defines a headerless mirror `typedef struct Keal_Name { ... }`
+with unmangled field names, before any `native` block, and the boundary
+copies fields both ways. The C side just writes functions over `Keal_Name`:
 
-**1c. Header generation: `keal emit-header prog.keal > prog.h`.** The
-reverse direction — C calling *into* Keal. Every `fun` whose signature fits
-the boundary gets a prototype; the generated C already has stable mangled
-names (`k_name`). This is what makes Keal usable as a *library* language,
-and it is a prerequisite for the Go and JVM gateways, which need to call
-back.
+```keal
+record Vec2(val x: Float, val y: Float)
+native """
+static double vec2_dot(Keal_Vec2 a, Keal_Vec2 b) { return a.x*b.x + a.y*b.y; }
+"""
+extern fun vec2_dot(a: Vec2, b: Vec2): Float
+```
 
-**1d. Callbacks.** An `extern fun` parameter of function type passes a C
-function pointer built from a Keal closure (the closure header already
-carries the code pointer; the missing piece is a trampoline per signature).
+**1c. Header generation — SHIPPED.** `keal emit-header prog.keal > prog.h`
+prints the C face of the boundary: the `Keal_Name` mirror structs (same
+text as the generated C, so the two translation units agree) and a `k_name`
+prototype for every non-generic function whose signature crosses cleanly.
+A companion `.c` file compiled by `keal build prog.keal helper.c` includes
+it and calls straight back into Keal — the suite's boundary test does
+exactly that. This is the prerequisite the Go and JVM gateways needed.
 
-*Effort: the largest single item here is 1a; each of 1b–1d is a contained
-emitter feature. All are testable by the existing byte-equality discipline —
-oracle first, twin mirrored.*
+**1d. Closure callbacks — deferred, deliberately.** Passing a Keal
+*closure* to C as a bare function pointer needs somewhere to put the
+environment, and C callback APIs differ on it: most take a `void* userdata`
+alongside the pointer, some take nothing. Picking a convention shapes the
+syntax (`extern fun onEach(f: (Int) -> Int)` must say which argument is the
+userdata slot), so it waits for a real consumer instead of guessing.
+Meanwhile the shipped 1c covers the common need from the other side: C code
+can call named Keal functions (`k_name`) directly, today.
+
+*What shipped landed the way everything lands here: oracle first, the three
+self-hosted twins mirrored, byte-equality over the corpus, a build-and-run
+boundary test with `leaks` clean, and the bootstrap fixed point re-proven.*
 
 ---
 
@@ -192,14 +211,15 @@ story of the test suite stops at the boundary — JVM output is the JVM's.*
 
 ## Suggested order
 
-| # | Item | Unlocks |
-|---|------|---------|
-| 1 | Tier 1a strings + 1b structs | everything |
-| 2 | Link inputs (`.a`, `-l`) | Rust, Go, C libraries |
-| 3 | `keal bindgen` for C headers | sqlite/curl/every C lib, Rust via cbindgen, Go via c-archive |
-| 4 | Tier 1c `emit-header` + 1d callbacks | Keal as a library; Go/JVM callbacks |
-| 5 | JVM host module (4a) | Java + Kotlin |
-| 6 | `keal jbind` (4b) | typed Java/Kotlin imports |
+| # | Item | Unlocks | Status |
+|---|------|---------|--------|
+| 1 | Tier 1a strings + 1b structs | everything | **shipped** |
+| 2 | Tier 1c `emit-header` | Keal as a library; Go/JVM callbacks | **shipped** |
+| 3 | Link inputs (`.a`, `-l`) | Rust, Go, C libraries | next |
+| 4 | `keal bindgen` for C headers | sqlite/curl/every C lib, Rust via cbindgen, Go via c-archive | |
+| 5 | Closure callbacks (1d) | C APIs that take function pointers | waits for a consumer |
+| 6 | JVM host module (4a) | Java + Kotlin | |
+| 7 | `keal jbind` (4b) | typed Java/Kotlin imports | |
 
 Each row is independently shippable and independently testable; nothing in a
 later row forces rework of an earlier one.

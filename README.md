@@ -368,6 +368,33 @@ extern fun fib_cpp(n: Int): Int
 The interpreters refuse an extern call by name — `compile with keal build to
 call into C` — rather than pretending.
 
+**The boundary is wider than scalars.** A `String` crosses once its
+ownership is written down — `borrow String` into C (the callee reads, must
+not keep), `own String` back from it (Keal adopts the malloc'd buffer and
+frees it) — and a record of bare values crosses **by copy** as a headerless
+mirror struct `Keal_Name` the generated C defines for the native blocks to
+use. The other direction works too: every non-generic Keal function with a
+clean signature is an external `k_name` symbol, and `keal emit-header`
+prints the C header for all of it, so a companion `.c` file can call
+straight back into the program:
+
+```keal
+record Vec2(val x: Float, val y: Float)
+native """
+extern int64_t k_bonus(int64_t n);                       // Keal, from C
+static double dot(Keal_Vec2 a, Keal_Vec2 b) { return a.x*b.x + a.y*b.y; }
+static char* shout(const char* s) { /* malloc'd upper-case copy */ }
+"""
+fun bonus(n: Int): Int { return n + 58 }
+extern fun dot(a: Vec2, b: Vec2): Float
+extern fun shout(s: borrow String): own String
+```
+
+Misuse is a checked error with the fix in the note: a bare `String` at the
+boundary says *"write `borrow String`: C reads the bytes and must not keep
+them."* The staged path onward — Rust, Go, Java, Kotlin — is
+[`docs/interop.md`](docs/interop.md).
+
 **The backend covers most of the language.** Functions, control flow, `Int`,
 `Float`, `Bool`, `String`, classes and records with their methods, nullable
 references, `when`, `List<T>` with the same bounds panics as the interpreters,
@@ -439,10 +466,12 @@ The honest list, in rough order of intent:
 * **Actors on real threads** — the model ships and is deterministic today;
   the threaded scheduler (one heap per actor, counts stay non-atomic, exactly
   as the memory model planned) is the next runtime project. No API changes.
-* **Foreign languages** — C and C++ work today; the staged path to **Rust,
-  Go, Java and Kotlin** — richer boundary types, `keal bindgen` for C
-  headers, a JNI gateway and `keal jbind` for typed JVM imports — is laid
-  out in [`docs/interop.md`](docs/interop.md).
+* **Foreign languages** — C and C++ work today, with `borrow`/`own`
+  strings, by-value records and `keal emit-header` shipped (interop tier 1).
+  The staged path onward — link inputs, `keal bindgen` for C headers (which
+  carries **Rust** via cbindgen and **Go** via c-archive), a JNI gateway and
+  `keal jbind` for typed **Java/Kotlin** imports — is laid out in
+  [`docs/interop.md`](docs/interop.md).
 * **Cycle handling** — reference counting leaks cycles; the three candidate
   answers (documented leak, weak references, cycle collector) are weighed in
   [`docs/memory.md`](docs/memory.md) §5 and not yet chosen.

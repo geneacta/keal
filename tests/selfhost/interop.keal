@@ -1,0 +1,24 @@
+// Boundary syntax, held to the oracles by all four twin suites: ownership
+// modes on strings, value records crossing by copy, and a callback prototype.
+
+record Pixel(val r: Int, val g: Int, val b: Int)
+
+native """
+extern int64_t k_gamma(int64_t v);
+static int64_t luma(Keal_Pixel p) { return (2 * p.r + 7 * p.g + p.b) / 10; }
+static char* frame(const char* s) { (void)s; return 0; }
+static int64_t denoise(int64_t x) { return k_gamma(x); }
+"""
+
+fun gamma(v: Int): Int { return v * v / 255 }
+
+extern fun luma(p: Pixel): Int
+extern fun frame(s: borrow String): own String
+extern fun denoise(x: Int): Int
+
+fun main2(): Int {
+    val p = Pixel(200, 120, 40)
+    val l = luma(p)
+    val f = frame("q")
+    return l + f.length + denoise(3)
+}

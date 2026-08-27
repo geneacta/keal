@@ -165,12 +165,19 @@ been recorded rather than resolved.
 * `Int`, `Float`, `Bool`, `Unit` and `Range` cross cleanly. They are `int64_t`,
   `double`, a byte, nothing, and a pair of `int64_t`.
 * A `T?` over one of those crosses too: it is a small struct.
-* **A pointer to a counted object does not.** It has the shape C expects but
-  not the lifetime — something has to release it, and C does not know how.
+* A **record of bare values** crosses **by copy**, as the headerless mirror
+  struct `Keal_Name` the generated C defines — same fields, same order, no
+  count. Copies carry no ownership, so nothing needs releasing.
+* A **`String` crosses only with its ownership written down**: `borrow
+  String` hands C the bytes for the duration of a call, `own String` adopts
+  a malloc'd buffer C hands back — Keal counts it and frees it. The checker
+  refuses a bare `String` at the boundary and says which word to write.
+* **Any other pointer to a counted object still does not cross.** It has the
+  shape C expects but not the lifetime.
 
-That last one is the whole of the interop problem, and it will need the
-boundary to say which way ownership moves rather than passing a pointer and
-hoping. Declaring that is future work; recognising it is not.
+The boundary saying which way ownership moves — rather than passing a
+pointer and hoping — was this section's demand from the start; `borrow` and
+`own` are that demand kept.
 
 ---
 

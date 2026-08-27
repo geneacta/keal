@@ -327,8 +327,14 @@ impl Checker {
             match item {
                 Item::Class(c) => self.collect_class(c),
                 Item::Fun(f) => self.collect_fun(f),
-                Item::Extern(x) => self.collect_extern(x),
                 _ => {}
+            }
+        }
+        // Externs after the classes, so a record named in an extern
+        // signature already has its fields and can be judged C-compatible.
+        for item in &program.items {
+            if let Item::Extern(x) = item {
+                self.collect_extern(x);
             }
         }
 
@@ -363,33 +369,124 @@ impl Checker {
         last
     }
 
-    /// An extern is a global function with the signature it declares, and
-    /// only value types may cross: a counted reference has an owner, and C
-    /// is not it — the rule docs/memory.md section 6 already states.
+    /// A record every field of which is a bare value crosses an extern
+    /// boundary by value, as the mirror struct `Keal_Name`. Body fields
+    /// disqualify it: only the constructor's shape is the C contract.
+    fn c_record(&self, ty: &Type) -> bool {
+        let Type::Class(name, args) = ty else { return false };
+        if !args.is_empty() {
+            return false;
+        }
+        let Some(info) = self.classes.get(&**name) else { return false };
+        info.is_record
+            && info.ctor.params.len() == info.fields.len()
+            && info
+                .fields
+                .iter()
+                .all(|(_, f)| matches!(f.ty, Type::Int | Type::Float | Type::Bool))
+    }
+
+    /// An extern is a global function with the signature it declares. What
+    /// may cross is what carries no ownership — `Int`, `Float`, `Bool`, a
+    /// value record by copy — or a `String` whose ownership the signature
+    /// spells out: `borrow` into C, `own` back from it.
     fn collect_extern(&mut self, x: &ExternDecl) {
         let mut params = Vec::new();
         for p in &x.params {
-            let ty = p.ty.as_ref().map(|t| self.resolve(t)).unwrap_or(Type::Error);
-            if !matches!(ty, Type::Int | Type::Float | Type::Bool | Type::Error) {
-                self.error_note(
-                    p.span,
-                    format!("`{}` cannot cross into C", ty),
-                    "extern parameters are limited to Int, Float and Bool, \
-                     which carry no ownership",
-                );
+            let (mode, inner) = match p.ty.as_ref().map(|t| &t.kind) {
+                Some(TypeExprKind::Boundary { mode, inner }) => {
+                    (Some(mode.clone()), Some((**inner).clone()))
+                }
+                Some(_) => (None, p.ty.clone()),
+                None => (None, None),
+            };
+            let ty = inner.as_ref().map(|t| self.resolve(t)).unwrap_or(Type::Error);
+            match mode.as_deref() {
+                Some("borrow") => {
+                    if !matches!(ty, Type::Str | Type::Error) {
+                        self.error_note(
+                            p.span,
+                            format!("`borrow` is for `String`, not `{}`", ty),
+                            "only a string needs its ownership spelled out here",
+                        );
+                    }
+                }
+                Some(_) => {
+                    self.error_note(
+                        p.span,
+                        "`own` belongs on an extern result, not a parameter",
+                        "a parameter crossing into C is borrowed: write `borrow String`",
+                    );
+                }
+                None => {
+                    if ty == Type::Str {
+                        self.error_note(
+                            p.span,
+                            "a `String` parameter must say who owns it across the boundary",
+                            "write `borrow String`: C reads the bytes and must not keep them",
+                        );
+                    } else if !matches!(ty, Type::Int | Type::Float | Type::Bool | Type::Error)
+                        && !self.c_record(&ty)
+                    {
+                        self.error_note(
+                            p.span,
+                            format!("`{}` cannot cross into C", ty),
+                            "extern parameters are limited to Int, Float, Bool, \
+                             `borrow String` and records of those",
+                        );
+                    }
+                }
             }
             if p.default.is_some() {
                 self.error(p.span, "an extern parameter cannot have a default");
             }
             params.push(ParamType { name: p.name.clone(), ty, has_default: false });
         }
-        let ret = x.ret.as_ref().map(|t| self.resolve(t)).unwrap_or(Type::Unit);
-        if !matches!(ret, Type::Int | Type::Float | Type::Bool | Type::Unit | Type::Error) {
-            self.error_note(
-                x.span,
-                format!("`{}` cannot cross back from C", ret),
-                "extern results are limited to Int, Float, Bool and none",
-            );
+        let (ret_mode, ret_inner) = match x.ret.as_ref().map(|t| &t.kind) {
+            Some(TypeExprKind::Boundary { mode, inner }) => {
+                (Some(mode.clone()), Some((**inner).clone()))
+            }
+            Some(_) => (None, x.ret.clone()),
+            None => (None, None),
+        };
+        let ret = ret_inner.as_ref().map(|t| self.resolve(t)).unwrap_or(Type::Unit);
+        match ret_mode.as_deref() {
+            Some("own") => {
+                if !matches!(ret, Type::Str | Type::Error) {
+                    self.error_note(
+                        x.span,
+                        format!("`own` is for `String`, not `{}`", ret),
+                        "only a string needs its ownership spelled out here",
+                    );
+                }
+            }
+            Some(_) => {
+                self.error_note(
+                    x.span,
+                    "`borrow` belongs on an extern parameter, not a result",
+                    "a String coming back is adopted: write `own String`",
+                );
+            }
+            None => {
+                if ret == Type::Str {
+                    self.error_note(
+                        x.span,
+                        "a `String` result must say who owns it across the boundary",
+                        "write `own String`: C hands over a malloc'd buffer and Keal frees it",
+                    );
+                } else if !matches!(
+                    ret,
+                    Type::Int | Type::Float | Type::Bool | Type::Unit | Type::Error
+                ) && !self.c_record(&ret)
+                {
+                    self.error_note(
+                        x.span,
+                        format!("`{}` cannot cross back from C", ret),
+                        "extern results are limited to Int, Float, Bool, none, \
+                         `own String` and records of those",
+                    );
+                }
+            }
         }
         let ty = Type::Fun(Rc::new(FunType { params, ret }));
         if self.scopes[0].contains_key(&x.name) && !self.repl {
@@ -808,6 +905,10 @@ impl Checker {
     /// Pure form of `resolve`, usable from the `&self` narrowing analysis.
     fn resolve_quiet(&self, te: &TypeExpr) -> Result<Type, Diag> {
         match &te.kind {
+            TypeExprKind::Boundary { mode, .. } => Err(Diag::new(
+                te.span,
+                format!("`{}` only means something at an extern boundary", mode),
+            )),
             TypeExprKind::Nullable(inner) => Ok(self.resolve_quiet(inner)?.nullable()),
             TypeExprKind::Fun { params, ret } => {
                 let ps = params
@@ -2954,6 +3055,7 @@ fn type_expr_name(te: &TypeExpr) -> String {
     match &te.kind {
         TypeExprKind::Named { name, .. } => name.clone(),
         TypeExprKind::Nullable(inner) => format!("{}?", type_expr_name(inner)),
+        TypeExprKind::Boundary { inner, .. } => type_expr_name(inner),
         TypeExprKind::Fun { .. } => "a function type".to_string(),
     }
 }
