@@ -426,6 +426,59 @@ fn selfhosted_emitter_agrees_with_the_oracle() {
     }
 }
 
+/// The bootstrap: `keal build selfhost/cbackend.keal` compiles the
+/// self-hosted compiler to a native binary, and that binary must behave as
+/// the Rust oracle does — on ordinary programs, on programs that fail, and
+/// on its own source, where its output must be the very C it was built
+/// from. A compiler written in Keal, compiled by itself, at a fixed point.
+#[test]
+fn the_compiler_compiles_itself() {
+    let dir = root().join("target").join("bootstrap-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot create the bootstrap dir");
+
+    let built = Command::new(BIN)
+        .args(["build", &root().join("selfhost/cbackend.keal").to_string_lossy()])
+        .current_dir(&dir)
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the self-hosted compiler did not build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let native = dir.join("cbackend");
+
+    let cases = [
+        "tests/native/core.keal",
+        "tests/native/builtins.keal",
+        "tests/selfhost/type-errors/te01.keal",
+        "tests/selfhost/parse-errors/perr16.keal",
+        "selfhost/cbackend.keal",
+    ];
+    for case in cases {
+        let oracle = keal(&["cgen", case]);
+        let out = Command::new(&native)
+            .arg(case)
+            .current_dir(root())
+            .output()
+            .expect("cannot run the bootstrapped compiler");
+        assert_eq!(
+            oracle.stdout,
+            String::from_utf8_lossy(&out.stdout),
+            "the bootstrapped compiler disagrees on {}",
+            case
+        );
+        assert_eq!(
+            oracle.status_success(),
+            out.status.success(),
+            "the bootstrapped compiler disagrees on whether {} compiles",
+            case
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn cli_reports_missing_files() {
     let out = keal(&["run", "does/not/exist.keal"]);

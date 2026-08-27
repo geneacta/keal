@@ -229,7 +229,12 @@ fun isValueOpt(t: Ty): Bool {
 }
 
 /// True for a type held behind a pointer, which has null to spare.
-fun isReference(t: Ty): Bool { t.kind == "Str" or t.kind == "Class" }
+fun isReference(t: Ty): Bool {
+    return when (t.kind) {
+        "Str", "Class", "List", "Map", "Fun" -> true
+        else -> false
+    }
+}
 
 // The nullable-value helpers: how `Int?`, `Float?` and `Bool?` are built,
 // tested and unwrapped.
@@ -756,6 +761,12 @@ class CBackend() {
             if (this.elemKind(t.args[1], file, atLine, col) == null) { return null }
             return CElem("ptr", "KealMap", "keal_map")
         }
+        // A nullable reference is the same pointer, allowed to be null;
+        // retain and release both accept null, so the element machinery
+        // never needs to know.
+        if (t.kind == "Nullable" and isReference(t.args[0])) {
+            return this.elemKind(t.args[0], file, atLine, col)
+        }
         this.unsupported(file, atLine, col, "lists of `${tyShow(t)}`")
         return null
     }
@@ -895,8 +906,11 @@ class CBackend() {
         this.frameCells = {}
         val savedTop = this.atTopLevel
         this.atTopLevel = false
+        val savedRet = this.currentRet
+        this.currentRet = null
         this.emitStruct(sn, fields, file, atLine, col)
         this.classFunctionsNamed(c, fields, sn)
+        this.currentRet = savedRet
         this.atTopLevel = savedTop
         this.celled = savedCelled
         this.frameCells = savedCells
@@ -974,7 +988,10 @@ class CBackend() {
         this.frameCells = {}
         val savedTop = this.atTopLevel
         this.atTopLevel = false
+        val savedRet = this.currentRet
+        this.currentRet = null
         this.methodNamed(m, sn, fnName)
+        this.currentRet = savedRet
         this.atTopLevel = savedTop
         this.celled = savedCelled
         this.frameCells = savedCells
@@ -1041,7 +1058,10 @@ class CBackend() {
         // reached; a binding inside it must be a local.
         val savedTop = this.atTopLevel
         this.atTopLevel = false
+        val savedRet = this.currentRet
+        this.currentRet = null
         this.functionNamed(f, cname)
+        this.currentRet = savedRet
         this.atTopLevel = savedTop
         this.celled = savedCelled
         this.frameCells = savedCells
@@ -1809,6 +1829,32 @@ class CBackend() {
             this.closeScope()
             return
         }
+        // A string yields its characters, over a snapshot of them.
+        if (ity != null and ity.kind == "Str") {
+            this.openScope()
+            val s = this.expr(iter)
+            val snap = this.temp()
+            this.line("KealList* ${snap} = keal_str_chars(${s});")
+            this.own(snap, tyList(Ty("Str")))
+            val i = this.temp()
+            this.line("for (int64_t ${i} = 0; ${i} < ${snap}->len; ${i}++) {")
+            this.indent += 1
+            this.openScope()
+            this.declareLocal(varName, Ty("Str"), false)
+            // The loop variable borrows from the character list, whose
+            // lifetime spans the loop.
+            this.line("KealStr* ${mangle(varName)} = ((KealStr*)${snap}->data[${i}].p);")
+            this.loops.add(this.scopes.size)
+            for (st in body.stmts) {
+                this.stmt(st)
+            }
+            this.loops.removeAt(this.loops.size - 1)
+            this.closeScope()
+            this.indent -= 1
+            this.line("}")
+            this.closeScope()
+            return
+        }
         // A range compiles to a plain C loop with no allocation.
         unless (iter.kind == "range") {
             this.unsupported(file, atLine, col, "iterating over anything but a range or a list")
@@ -2355,6 +2401,261 @@ class CBackend() {
         return "0"
     }
 
+    /// The string methods the self-hosted compiler uses, each backed by a
+    /// runtime function mirroring the interpreters' semantics.
+    fun stringBuiltin(e: Ex, obj: Ex, name: String): String? {
+        val n = e.args.size
+        if (name == "substring" and n == 2) {
+            val s = this.expr(obj)
+            val a = this.expr(e.args[0].value)
+            val b = this.expr(e.args[1].value)
+            return this.ownTemp("keal_str_substring(${s}, ${a}, ${b}, ${e.line})")
+        }
+        if ((name == "take" or name == "drop") and n == 1) {
+            val s = this.expr(obj)
+            val cnt = this.expr(e.args[0].value)
+            val f = if (name == "take") { "keal_str_take" } else { "keal_str_drop" }
+            return this.ownTemp("${f}(${s}, ${cnt})")
+        }
+        if ((name == "contains" or name == "startsWith" or name == "endsWith") and n == 1) {
+            val s = this.expr(obj)
+            val needle = this.expr(e.args[0].value)
+            val f = when (name) {
+                "contains" -> "keal_str_contains"
+                "startsWith" -> "keal_str_starts_with"
+                else -> "keal_str_ends_with"
+            }
+            val t = this.temp()
+            this.line("const bool ${t} = ${f}(${s}, ${needle});")
+            return t
+        }
+        if (name == "indexOf" and n == 1) {
+            val s = this.expr(obj)
+            val needle = this.expr(e.args[0].value)
+            val t = this.temp()
+            this.line("const int64_t ${t} = keal_str_index_of(${s}, ${needle});")
+            return t
+        }
+        if (name == "replace" and n == 2) {
+            val s = this.expr(obj)
+            val old = this.expr(e.args[0].value)
+            val newer = this.expr(e.args[1].value)
+            return this.ownTemp("keal_str_replace(${s}, ${old}, ${newer}, ${e.line})")
+        }
+        if (name == "repeat" and n == 1) {
+            val s = this.expr(obj)
+            val cnt = this.expr(e.args[0].value)
+            return this.ownTemp("keal_str_repeat(${s}, ${cnt}, ${e.line})")
+        }
+        if (name == "split" and n == 1) {
+            val s = this.expr(obj)
+            val sep = this.expr(e.args[0].value)
+            return this.ownTempOf(tyList(Ty("Str")), "keal_str_split(${s}, ${sep})")
+        }
+        if (name == "chars" and n == 0) {
+            val s = this.expr(obj)
+            return this.ownTempOf(tyList(Ty("Str")), "keal_str_chars(${s})")
+        }
+        if (name == "get" and n == 1) {
+            val s = this.expr(obj)
+            val i = this.expr(e.args[0].value)
+            return this.ownTemp("keal_str_get(${s}, ${i}, ${e.line})")
+        }
+        if (name == "code" and n == 0) {
+            val s = this.expr(obj)
+            val t = this.temp()
+            this.line("const int64_t ${t} = keal_str_code(${s});")
+            return t
+        }
+        if (name == "toInt" and n == 0) {
+            val s = this.expr(obj)
+            val t = this.temp()
+            this.line("const KealOptI64 ${t} = keal_str_to_int(${s});")
+            return t
+        }
+        if (name == "toFloat" and n == 0) {
+            val s = this.expr(obj)
+            val t = this.temp()
+            this.line("const KealOptF64 ${t} = keal_str_to_float(${s});")
+            return t
+        }
+        return null
+    }
+
+    fun intBuiltin(e: Ex, obj: Ex, name: String): String? {
+        val n = e.args.size
+        if (name == "toFloat" and n == 0) {
+            val v = this.expr(obj)
+            return "(double)(${v})"
+        }
+        if ((name == "min" or name == "max") and n == 1) {
+            val a = this.expr(obj)
+            val b = this.expr(e.args[0].value)
+            val f = if (name == "min") { "keal_int_min" } else { "keal_int_max" }
+            val t = this.temp()
+            this.line("const int64_t ${t} = ${f}(${a}, ${b});")
+            return t
+        }
+        if (name == "toChar" and n == 0) {
+            val v = this.expr(obj)
+            return this.ownTemp("keal_int_to_char(${v}, ${e.line})")
+        }
+        return null
+    }
+
+    /// The equality a `contains` scan applies, by element kind; anything
+    /// deeper than a word or a string is refused rather than guessed.
+    fun elemEqFn(elemTy: Ty, file: Int, atLine: Int, col: Int): String? {
+        if (elemTy.kind == "Str") { return "keal_key_eq_str" }
+        if (elemTy.kind == "Float") { return "keal_key_eq_f64" }
+        if (elemTy.kind == "Int" or elemTy.kind == "Bool" or elemTy.kind == "Never") {
+            return "keal_key_eq_word"
+        }
+        this.unsupported(file, atLine, col, "`contains` on a list of `${tyShow(elemTy)}`")
+        return null
+    }
+
+    fun listBuiltin(e: Ex, obj: Ex, name: String, elemTy: Ty): String? {
+        val n = e.args.size
+        if (name == "removeAt" and n == 1) {
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val l = this.expr(obj)
+            val i = this.expr(e.args[0].value)
+            val w = this.temp()
+            this.line("const KealWord ${w} = keal_list_remove_at(${l}, ${i}, ${e.line});")
+            val value = elemUnword(elem, w)
+            if (countedC(elemTy)) {
+                // The list's own reference travels out with the element, so
+                // the temp owns it without a fresh retain.
+                val t = this.temp()
+                val ct = this.ctype(elemTy, e.file, e.line, e.col)
+                if (ct == null) { return null }
+                this.line("${ct} ${t} = ${value};")
+                this.own(t, elemTy)
+                return t
+            }
+            return value
+        }
+        if (name == "addAll" and n == 1) {
+            val l = this.expr(obj)
+            val other = this.expr(e.args[0].value)
+            this.line("keal_list_add_all(${l}, ${other});")
+            return "0"
+        }
+        if (name == "insert" and n == 2) {
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val l = this.expr(obj)
+            val i = this.expr(e.args[0].value)
+            val v = this.expr(e.args[1].value)
+            val stored = retained(elemTy, v)
+            this.line("keal_list_insert_at(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+            return "0"
+        }
+        if (name == "contains" and n == 1) {
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val eq = this.elemEqFn(elemTy, e.file, e.line, e.col)
+            if (eq == null) { return null }
+            val l = this.expr(obj)
+            val v = this.expr(e.args[0].value)
+            val t = this.temp()
+            this.line("const bool ${t} = keal_list_contains(${l}, ${elemWord(elem, v)}, ${eq});")
+            return t
+        }
+        if (name == "join" and n <= 1) {
+            unless (elemTy.kind == "Str") {
+                this.unsupported(e.file, e.line, e.col, "`join` on a list of `${tyShow(elemTy)}`")
+                return "0"
+            }
+            val l = this.expr(obj)
+            val sep = if (n == 1) {
+                this.expr(e.args[0].value)
+            } else {
+                this.ownTemp("keal_str_static(\", \", 2)")
+            }
+            return this.ownTemp("keal_list_join_str(${l}, ${sep})")
+        }
+        if (name == "any" and n == 1) {
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val l = this.expr(obj)
+            val snap = this.temp()
+            this.line("KealList* ${snap} = keal_list_snapshot(${l});")
+            this.own(snap, tyList(elemTy))
+            val f = this.expr(e.args[0].value)
+            val ft = tyFunOf([elemTy], Ty("Bool"))
+            val t = this.temp()
+            this.line("bool ${t} = false;")
+            val i = this.temp()
+            this.line("for (int64_t ${i} = 0; ${i} < ${snap}->len; ${i}++) {")
+            this.indent += 1
+            val item = elemUnword(elem, "${snap}->data[${i}]")
+            val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
+            if (call == null) { return null }
+            this.line("if (${call}) {")
+            this.indent += 1
+            this.line("${t} = true;")
+            this.line("break;")
+            this.indent -= 1
+            this.line("}")
+            this.indent -= 1
+            this.line("}")
+            return t
+        }
+        if (name == "sortedBy" and n == 1) {
+            // The key's type is whatever the lambda actually returns; only
+            // Int keys are compiled, which is all the compiler needs.
+            val fty = this.ety(e.args[0].value)
+            var keyOk = false
+            if (fty != null and fty.kind == "Fun") {
+                if (fty.ret!!.kind == "Int") { keyOk = true }
+            }
+            unless (keyOk) {
+                this.unsupported(e.file, e.line, e.col, "`sortedBy` with a key that is not an Int")
+                return "0"
+            }
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val l = this.expr(obj)
+            val snap = this.temp()
+            this.line("KealList* ${snap} = keal_list_snapshot(${l});")
+            this.own(snap, tyList(elemTy))
+            val f = this.expr(e.args[0].value)
+            val keys = this.temp()
+            this.line("KealList* ${keys} = keal_list_new(NULL);")
+            this.own(keys, tyList(Ty("Int")))
+            val ft = tyFunOf([elemTy], Ty("Int"))
+            val i = this.temp()
+            this.line("for (int64_t ${i} = 0; ${i} < ${snap}->len; ${i}++) {")
+            this.indent += 1
+            val item = elemUnword(elem, "${snap}->data[${i}]")
+            val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
+            if (call == null) { return null }
+            val k = this.temp()
+            this.line("const int64_t ${k} = ${call};")
+            this.line("keal_list_push(${keys}, (KealWord){ .i = ${k} });")
+            this.indent -= 1
+            this.line("}")
+            this.line("keal_list_sort_by_i64(${snap}, ${keys});")
+            val thunk = this.releaserThunk(elem)
+            val out = this.temp()
+            this.line("KealList* ${out} = keal_list_new(${thunk});")
+            this.own(out, tyList(elemTy))
+            val j = this.temp()
+            this.line("for (int64_t ${j} = 0; ${j} < ${snap}->len; ${j}++) {")
+            this.indent += 1
+            val sortedItem = elemUnword(elem, "${snap}->data[${j}]")
+            val stored = retained(elemTy, sortedItem)
+            this.line("keal_list_push(${out}, ${elemWord(elem, stored)});")
+            this.indent -= 1
+            this.line("}")
+            return out
+        }
+        return null
+    }
+
     fun mapLiteral(e: Ex): String {
         val mt = this.ety(e)
         if (mt == null or mt.kind != "Map") { return "0" }
@@ -2462,6 +2763,12 @@ class CBackend() {
         val ot = this.ety(obj)
         if (ot != null and ot.kind == "Map") {
             return this.mapGet(e, obj, index, null)
+        }
+        // `s[i]` is one character, as a string.
+        if (ot != null and ot.kind == "Str") {
+            val s = this.expr(obj)
+            val i = this.expr(index)
+            return this.ownTemp("keal_str_get(${s}, ${i}, ${e.line})")
         }
         if (ot == null or ot.kind != "List") {
             this.unsupported(e.file, e.line, e.col, "indexing anything but a list or a map")
@@ -2704,6 +3011,21 @@ class CBackend() {
             val v = this.listHigherOrder(e, obj, name, receiverTy.args[0])
             if (v != null) { return v }
         }
+        // The rest of the built-in surface the self-hosted compiler leans on.
+        if (receiverTy != null) {
+            if (receiverTy.kind == "Str") {
+                val v = this.stringBuiltin(e, obj, name)
+                if (v != null) { return v }
+            }
+            if (receiverTy.kind == "Int") {
+                val v = this.intBuiltin(e, obj, name)
+                if (v != null) { return v }
+            }
+            if (receiverTy.kind == "List") {
+                val v = this.listBuiltin(e, obj, name, receiverTy.args[0])
+                if (v != null) { return v }
+            }
+        }
         if (receiverTy == null or receiverTy.kind != "Class") {
             this.unsupported(e.file, e.line, e.col, "the method `${name}` on a built-in type")
             return "0"
@@ -2768,8 +3090,11 @@ class CBackend() {
 
     /// A `when` compiles to a chain of tests inside `do { } while (0)`.
     fun whenExpr(e: Ex): String {
+        // A branch join of `Any` can only sit in statement position — using
+        // the value would have been refused where it was used — so like
+        // `Unit` it needs no slot.
         val ety0 = this.ety(e)
-        val produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never"
+        val produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never" and ety0.kind != "Any"
         var slot = ""
         if (produces) {
             val ty = ety0
@@ -2783,6 +3108,8 @@ class CBackend() {
             }
             slot = t
         }
+        var slotTy: Ty? = null
+        unless (slot == "") { slotTy = this.ety(e) }
 
         var subjectSlot = ""
         var subjectTy: Ty? = null
@@ -2822,7 +3149,7 @@ class CBackend() {
             // The body's scope closes before the `break`, so its releases
             // run on the way out.
             this.openScope()
-            this.branchBody(arm.body.stmts, slot)
+            this.branchBody(arm.body.stmts, slot, slotTy)
             this.closeScope()
             this.line("break;")
             unless (cond == "") {
@@ -2890,26 +3217,41 @@ class CBackend() {
     }
 
     /// An arm's body: its last expression fills the slot when there is one.
-    proc branchBody(stmts: List<StmtN>, slot: String) {
+    proc branchBody(stmts: List<StmtN>, slot: String, slotTy: Ty?) {
         val last = stmts.size - 1
         var i = 0
         while (i < stmts.size) {
             val s = stmts[i]
             if (s.kind == "expr" and slot != "" and i == last) {
-                val inner = s.ex!!
-                val ity = this.ety(inner)
-                val counted = ity != null and countedC(ity)
-                val v = this.expr(inner)
-                val ty2 = this.ety(inner)
-                if (ty2 != null and counted) {
-                    this.line("${slot} = ${retained(ty2, v)};")
-                } else {
-                    this.line("${slot} = ${v};")
-                }
+                this.fillSlot(s.ex!!, slot, slotTy)
             } else {
                 this.stmt(s)
             }
             i += 1
+        }
+    }
+
+    /// Assigns a branch's value into the enclosing slot. A counted value
+    /// takes a reference of its own before this branch's is released, and a
+    /// value meeting a tagged nullable slot wraps on the way in.
+    proc fillSlot(e: Ex, slot: String, slotTy: Ty?) {
+        val ity = this.ety(e)
+        val counted = ity != null and countedC(ity)
+        if (counted) {
+            val v = this.expr(e)
+            val ty2 = this.ety(e)
+            if (ty2 != null) {
+                this.line("${slot} = ${retained(ty2, v)};")
+            } else {
+                this.line("${slot} = ${v};")
+            }
+        } else {
+            val v = if (slotTy != null) {
+                this.coercedTo(e, slotTy)
+            } else {
+                this.expr(e)
+            }
+            this.line("${slot} = ${v};")
         }
     }
 
@@ -3130,8 +3472,11 @@ class CBackend() {
     }
 
     fun ifExpr(e: Ex): String {
+        // A branch join of `Any` can only sit in statement position — using
+        // the value would have been refused where it was used — so like
+        // `Unit` it needs no slot.
         val ety0 = this.ety(e)
-        val produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never"
+        val produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never" and ety0.kind != "Any"
         var slot = ""
         if (produces) {
             val ty = ety0
@@ -3145,34 +3490,30 @@ class CBackend() {
             }
             slot = t
         }
+        var slotTy: Ty? = null
+        unless (slot == "") { slotTy = this.ety(e) }
 
         val c = this.condition(e.kids[0])
         this.line("if (${c}) {")
         this.indent += 1
-        this.branch(e.body!!.stmts, slot)
+        this.branch(e.body!!.stmts, slot, slotTy)
         this.indent -= 1
         val els = e.els
         val elseif = e.elseif
         if (els != null) {
             this.line("} else {")
             this.indent += 1
-            this.branch(els.stmts, slot)
+            this.branch(els.stmts, slot, slotTy)
             this.indent -= 1
             this.line("}")
         } else if (elseif != null) {
             this.line("} else {")
             this.indent += 1
             this.openScope()
-            val ity = this.ety(elseif)
-            val counted = ity != null and countedC(ity)
-            val v = this.expr(elseif)
-            unless (slot == "") {
-                val ty2 = this.ety(elseif)
-                if (ty2 != null and counted) {
-                    this.line("${slot} = ${retained(ty2, v)};")
-                } else {
-                    this.line("${slot} = ${v};")
-                }
+            if (slot == "") {
+                this.expr(elseif)
+            } else {
+                this.fillSlot(elseif, slot, slotTy)
             }
             this.closeScope()
             this.indent -= 1
@@ -3185,25 +3526,14 @@ class CBackend() {
     }
 
     /// A branch of an `if`, whose value is that of its last statement.
-    proc branch(stmts: List<StmtN>, slot: String) {
+    proc branch(stmts: List<StmtN>, slot: String, slotTy: Ty?) {
         this.openScope()
         val last = stmts.size - 1
         var i = 0
         while (i < stmts.size) {
             val s = stmts[i]
             if (s.kind == "expr" and slot != "" and i == last) {
-                val inner = s.ex!!
-                val ity = this.ety(inner)
-                val counted = ity != null and countedC(ity)
-                val v = this.expr(inner)
-                // The slot belongs to the enclosing block, so it takes a
-                // reference of its own before this one is released.
-                val ty2 = this.ety(inner)
-                if (ty2 != null and counted) {
-                    this.line("${slot} = ${retained(ty2, v)};")
-                } else {
-                    this.line("${slot} = ${v};")
-                }
+                this.fillSlot(s.ex!!, slot, slotTy)
             } else {
                 this.stmt(s)
             }

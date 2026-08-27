@@ -180,6 +180,227 @@ KEAL_FN void keal_print(KealStr* s, bool newline) {
     }
 }
 
+/* ---- string methods ---------------------------------------------------- */
+
+/* Byte offset of the n-th character; `n` past the end returns `len`. */
+KEAL_FN int64_t keal_str_char_byte(KealStr* s, int64_t n) {
+    int64_t seen = 0;
+    for (int64_t i = 0; i < s->len; i++) {
+        if (((unsigned char)s->bytes[i] & 0xC0) != 0x80) {
+            if (seen == n) {
+                return i;
+            }
+            seen++;
+        }
+    }
+    return s->len;
+}
+
+KEAL_FN KealStr* keal_str_substring(KealStr* s, int64_t a, int64_t b, int64_t line) {
+    int64_t len = keal_str_length(s);
+    int64_t ca = a < 0 ? 0 : a;
+    int64_t cb = b < 0 ? 0 : b;
+    if (ca > cb || cb > len) {
+        char msg[128];
+        snprintf(msg, sizeof msg,
+                 "substring(%" PRId64 ", %" PRId64 ") is out of range for a string of length %" PRId64,
+                 ca, cb, len);
+        keal_panic(msg, line);
+    }
+    int64_t from = keal_str_char_byte(s, ca);
+    int64_t to = keal_str_char_byte(s, cb);
+    return keal_str_from_bytes(s->bytes + from, to - from);
+}
+
+KEAL_FN KealStr* keal_str_take(KealStr* s, int64_t n) {
+    int64_t len = keal_str_length(s);
+    int64_t k = n < 0 ? 0 : (n > len ? len : n);
+    return keal_str_from_bytes(s->bytes, keal_str_char_byte(s, k));
+}
+
+KEAL_FN KealStr* keal_str_drop(KealStr* s, int64_t n) {
+    int64_t len = keal_str_length(s);
+    int64_t k = n < 0 ? 0 : (n > len ? len : n);
+    int64_t from = keal_str_char_byte(s, k);
+    return keal_str_from_bytes(s->bytes + from, s->len - from);
+}
+
+/* Byte position of `needle` in `s`, or -1. An empty needle is found at 0,
+ * matching what the interpreters (and Rust's `find`) say. */
+KEAL_FN int64_t keal_str_find_bytes(KealStr* s, KealStr* needle) {
+    if (needle->len == 0) {
+        return 0;
+    }
+    if (needle->len > s->len) {
+        return -1;
+    }
+    for (int64_t i = 0; i + needle->len <= s->len; i++) {
+        if (memcmp(s->bytes + i, needle->bytes, (size_t)needle->len) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+KEAL_FN bool keal_str_contains(KealStr* s, KealStr* needle) {
+    return keal_str_find_bytes(s, needle) >= 0;
+}
+
+KEAL_FN bool keal_str_starts_with(KealStr* s, KealStr* prefix) {
+    return prefix->len <= s->len
+        && memcmp(s->bytes, prefix->bytes, (size_t)prefix->len) == 0;
+}
+
+KEAL_FN bool keal_str_ends_with(KealStr* s, KealStr* suffix) {
+    return suffix->len <= s->len
+        && memcmp(s->bytes + (s->len - suffix->len), suffix->bytes,
+                  (size_t)suffix->len) == 0;
+}
+
+/* The index in characters, not bytes, as the interpreters report it. */
+KEAL_FN int64_t keal_str_index_of(KealStr* s, KealStr* needle) {
+    int64_t byte = keal_str_find_bytes(s, needle);
+    if (byte < 0) {
+        return -1;
+    }
+    int64_t chars = 0;
+    for (int64_t i = 0; i < byte; i++) {
+        if (((unsigned char)s->bytes[i] & 0xC0) != 0x80) {
+            chars++;
+        }
+    }
+    return chars;
+}
+
+KEAL_FN KealStr* keal_str_replace(KealStr* s, KealStr* old, KealStr* newer, int64_t line) {
+    if (old->len == 0) {
+        keal_panic("`replace` needs a non-empty search string", line);
+    }
+    /* KealBuf is declared later in this file, so the bytes are collected by
+     * hand into a local buffer. */
+    int64_t cap = s->len + 16;
+    int64_t len = 0;
+    char* out = (char*)keal_alloc((size_t)cap);
+    int64_t i = 0;
+    while (i < s->len) {
+        if (i + old->len <= s->len
+            && memcmp(s->bytes + i, old->bytes, (size_t)old->len) == 0) {
+            while (len + newer->len > cap) {
+                cap *= 2;
+                char* grown = (char*)keal_alloc((size_t)cap);
+                memcpy(grown, out, (size_t)len);
+                free(out);
+                out = grown;
+            }
+            memcpy(out + len, newer->bytes, (size_t)newer->len);
+            len += newer->len;
+            i += old->len;
+        } else {
+            while (len + 1 > cap) {
+                cap *= 2;
+                char* grown = (char*)keal_alloc((size_t)cap);
+                memcpy(grown, out, (size_t)len);
+                free(out);
+                out = grown;
+            }
+            out[len++] = s->bytes[i++];
+        }
+    }
+    KealStr* r = keal_str_from_bytes(out, len);
+    free(out);
+    return r;
+}
+
+KEAL_FN KealStr* keal_str_repeat(KealStr* s, int64_t n, int64_t line) {
+    if (n < 0) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "`repeat` needs a non-negative count, got %" PRId64, n);
+        keal_panic(msg, line);
+    }
+    int64_t total = s->len * n;
+    char* out = (char*)keal_alloc((size_t)(total < 1 ? 1 : total));
+    for (int64_t i = 0; i < n; i++) {
+        memcpy(out + i * s->len, s->bytes, (size_t)s->len);
+    }
+    KealStr* r = keal_str_from_bytes(out, total);
+    free(out);
+    return r;
+}
+
+/* The first code point, or -1 for an empty string. */
+KEAL_FN int64_t keal_str_code(KealStr* s) {
+    if (s->len == 0) {
+        return -1;
+    }
+    unsigned char b0 = (unsigned char)s->bytes[0];
+    if (b0 < 0x80) {
+        return b0;
+    }
+    if ((b0 & 0xE0) == 0xC0 && s->len >= 2) {
+        return ((int64_t)(b0 & 0x1F) << 6) | (s->bytes[1] & 0x3F);
+    }
+    if ((b0 & 0xF0) == 0xE0 && s->len >= 3) {
+        return ((int64_t)(b0 & 0x0F) << 12) | ((int64_t)(s->bytes[1] & 0x3F) << 6)
+            | (s->bytes[2] & 0x3F);
+    }
+    if ((b0 & 0xF8) == 0xF0 && s->len >= 4) {
+        return ((int64_t)(b0 & 0x07) << 18) | ((int64_t)(s->bytes[1] & 0x3F) << 12)
+            | ((int64_t)(s->bytes[2] & 0x3F) << 6) | (s->bytes[3] & 0x3F);
+    }
+    return b0;
+}
+
+KEAL_FN KealStr* keal_int_to_char(int64_t n, int64_t line) {
+    bool valid = n >= 0 && n <= 0x10FFFF && !(n >= 0xD800 && n <= 0xDFFF);
+    if (!valid) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "%" PRId64 " is not a valid character code", n);
+        keal_panic(msg, line);
+    }
+    char buf[4];
+    int len;
+    if (n < 0x80) {
+        buf[0] = (char)n;
+        len = 1;
+    } else if (n < 0x800) {
+        buf[0] = (char)(0xC0 | (n >> 6));
+        buf[1] = (char)(0x80 | (n & 0x3F));
+        len = 2;
+    } else if (n < 0x10000) {
+        buf[0] = (char)(0xE0 | (n >> 12));
+        buf[1] = (char)(0x80 | ((n >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (n & 0x3F));
+        len = 3;
+    } else {
+        buf[0] = (char)(0xF0 | (n >> 18));
+        buf[1] = (char)(0x80 | ((n >> 12) & 0x3F));
+        buf[2] = (char)(0x80 | ((n >> 6) & 0x3F));
+        buf[3] = (char)(0x80 | (n & 0x3F));
+        len = 4;
+    }
+    return keal_str_from_bytes(buf, len);
+}
+
+KEAL_FN int64_t keal_int_min(int64_t a, int64_t b) { return a < b ? a : b; }
+
+KEAL_FN int64_t keal_int_max(int64_t a, int64_t b) { return a > b ? a : b; }
+
+/* `s[i]` and `s.get(i)`: one character, as a string. Negative counts from
+ * the end. */
+KEAL_FN KealStr* keal_str_get(KealStr* s, int64_t i, int64_t line) {
+    int64_t len = keal_str_length(s);
+    int64_t idx = i < 0 ? i + len : i;
+    if (idx < 0 || idx >= len) {
+        char msg[128];
+        snprintf(msg, sizeof msg,
+                 "index %" PRId64 " is out of bounds for a string of length %" PRId64, i, len);
+        keal_panic(msg, line);
+    }
+    int64_t from = keal_str_char_byte(s, idx);
+    int64_t to = keal_str_char_byte(s, idx + 1);
+    return keal_str_from_bytes(s->bytes + from, to - from);
+}
+
 /* ---- lists ------------------------------------------------------------ */
 
 /* An element is one word: an integer, a double, or a pointer. The static
@@ -285,6 +506,86 @@ KEAL_FN KealList* keal_list_snapshot(KealList* l) {
     c->data = (KealWord*)keal_alloc((size_t)(l->len < 1 ? 1 : l->len) * sizeof(KealWord));
     memcpy(c->data, l->data, (size_t)l->len * sizeof(KealWord));
     return c;
+}
+
+/* Removal hands the element's reference to the caller, which knows the type
+ * and owns it from here. */
+KEAL_FN KealWord keal_list_remove_at(KealList* l, int64_t i, int64_t line) {
+    int64_t idx = i < 0 ? i + l->len : i;
+    if (idx < 0 || idx >= l->len) {
+        char msg[96];
+        snprintf(msg, sizeof msg,
+                 "index %" PRId64 " is out of bounds for a list of %" PRId64, i, l->len);
+        keal_panic(msg, line);
+    }
+    KealWord out = l->data[idx];
+    memmove(l->data + idx, l->data + idx + 1,
+            (size_t)(l->len - idx - 1) * sizeof(KealWord));
+    l->len--;
+    return out;
+}
+
+/* Takes ownership of the word, like push. */
+KEAL_FN void keal_list_insert_at(KealList* l, int64_t i, KealWord w, int64_t line) {
+    if (i < 0 || i > l->len) {
+        char msg[96];
+        snprintf(msg, sizeof msg,
+                 "cannot insert at index %" PRId64 " in a list of %" PRId64, i, l->len);
+        keal_panic(msg, line);
+    }
+    keal_list_push(l, w);
+    memmove(l->data + i + 1, l->data + i, (size_t)(l->len - i - 1) * sizeof(KealWord));
+    l->data[i] = w;
+}
+
+/* Every counted object leads with its count — the memory model's promise —
+ * so one raw bump serves whatever a pointer element points at. */
+KEAL_FN void keal_word_retain_raw(void* p) {
+    if (p != NULL) {
+        (*(int64_t*)p)++;
+    }
+}
+
+/* `dst.addAll(src)`: dst takes a reference of its own to each element. */
+KEAL_FN void keal_list_add_all(KealList* dst, KealList* src) {
+    int64_t n = src->len;
+    for (int64_t i = 0; i < n; i++) {
+        KealWord w = src->data[i];
+        if (dst->release_elem != NULL) {
+            keal_word_retain_raw(w.p);
+        }
+        keal_list_push(dst, w);
+    }
+}
+
+KEAL_FN bool keal_key_eq_f64(KealWord a, KealWord b) {
+    return a.d == b.d;
+}
+
+KEAL_FN bool keal_list_contains(KealList* l, KealWord w, bool (*eq)(KealWord, KealWord)) {
+    for (int64_t i = 0; i < l->len; i++) {
+        if (eq(l->data[i], w)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* A stable insertion sort of `items` by the parallel Int keys — small,
+ * predictable, and stable, which is the semantics the interpreters give. */
+KEAL_FN void keal_list_sort_by_i64(KealList* items, KealList* keys) {
+    for (int64_t i = 1; i < items->len; i++) {
+        KealWord it = items->data[i];
+        KealWord k = keys->data[i];
+        int64_t j = i - 1;
+        while (j >= 0 && keys->data[j].i > k.i) {
+            items->data[j + 1] = items->data[j];
+            keys->data[j + 1] = keys->data[j];
+            j--;
+        }
+        items->data[j + 1] = it;
+        keys->data[j + 1] = k;
+    }
 }
 
 /* ---- maps ------------------------------------------------------------- */
@@ -399,6 +700,72 @@ KEAL_FN KealList* keal_map_keys_snapshot(KealMap* m) {
         keal_list_push(l, m->data[2 * i]);
     }
     return l;
+}
+
+/* ---- strings as lists -------------------------------------------------- */
+
+KEAL_FN void rel_keal_str_thunk(void* p);
+
+/* One string per character, as `chars()` and `for (c in s)` see them. */
+KEAL_FN KealList* keal_str_chars(KealStr* s) {
+    KealList* l = keal_list_new(rel_keal_str_thunk);
+    int64_t i = 0;
+    while (i < s->len) {
+        int64_t j = i + 1;
+        while (j < s->len && ((unsigned char)s->bytes[j] & 0xC0) == 0x80) {
+            j++;
+        }
+        keal_list_push(l, (KealWord){ .p = keal_str_from_bytes(s->bytes + i, j - i) });
+        i = j;
+    }
+    return l;
+}
+
+/* An empty separator splits into characters; otherwise the separator's
+ * occurrences bound the parts, empty parts included — Rust's `split`. */
+KEAL_FN KealList* keal_str_split(KealStr* s, KealStr* sep) {
+    if (sep->len == 0) {
+        return keal_str_chars(s);
+    }
+    KealList* l = keal_list_new(rel_keal_str_thunk);
+    int64_t start = 0;
+    int64_t i = 0;
+    while (i + sep->len <= s->len) {
+        if (memcmp(s->bytes + i, sep->bytes, (size_t)sep->len) == 0) {
+            keal_list_push(l, (KealWord){ .p = keal_str_from_bytes(s->bytes + start, i - start) });
+            i += sep->len;
+            start = i;
+        } else {
+            i++;
+        }
+    }
+    keal_list_push(l, (KealWord){ .p = keal_str_from_bytes(s->bytes + start, s->len - start) });
+    return l;
+}
+
+/* `join` over strings; the default separator is the caller's business. */
+KEAL_FN KealStr* keal_list_join_str(KealList* l, KealStr* sep) {
+    int64_t total = 0;
+    for (int64_t i = 0; i < l->len; i++) {
+        total += ((KealStr*)l->data[i].p)->len;
+    }
+    if (l->len > 1) {
+        total += sep->len * (l->len - 1);
+    }
+    char* out = (char*)keal_alloc((size_t)(total < 1 ? 1 : total));
+    int64_t at = 0;
+    for (int64_t i = 0; i < l->len; i++) {
+        if (i > 0) {
+            memcpy(out + at, sep->bytes, (size_t)sep->len);
+            at += sep->len;
+        }
+        KealStr* part = (KealStr*)l->data[i].p;
+        memcpy(out + at, part->bytes, (size_t)part->len);
+        at += part->len;
+    }
+    KealStr* r = keal_str_from_bytes(out, total);
+    free(out);
+    return r;
 }
 
 /* ---- closures --------------------------------------------------------- */
@@ -531,6 +898,109 @@ typedef struct KealOptF64 {
     bool has;
     double v;
 } KealOptF64;
+
+/* `String.toInt`: trimmed, an optional sign, digits, nothing else, and no
+ * overflow — the grammar Rust's `i64::from_str` accepts, which is what the
+ * interpreters run. */
+KEAL_FN KealOptI64 keal_str_to_int(KealStr* s) {
+    KealOptI64 none = { false, 0 };
+    int64_t a = 0;
+    int64_t b = s->len;
+    while (a < b && (s->bytes[a] == ' ' || s->bytes[a] == '\t' || s->bytes[a] == '\n' || s->bytes[a] == '\r')) {
+        a++;
+    }
+    while (b > a && (s->bytes[b - 1] == ' ' || s->bytes[b - 1] == '\t' || s->bytes[b - 1] == '\n' || s->bytes[b - 1] == '\r')) {
+        b--;
+    }
+    if (a >= b) {
+        return none;
+    }
+    bool neg = false;
+    if (s->bytes[a] == '+' || s->bytes[a] == '-') {
+        neg = s->bytes[a] == '-';
+        a++;
+    }
+    if (a >= b) {
+        return none;
+    }
+    int64_t value = 0;
+    for (int64_t i = a; i < b; i++) {
+        char c = s->bytes[i];
+        if (c < '0' || c > '9') {
+            return none;
+        }
+        if (__builtin_mul_overflow(value, 10, &value)) {
+            return none;
+        }
+        int64_t d = neg ? -(c - '0') : (c - '0');
+        if (__builtin_add_overflow(value, d, &value)) {
+            return none;
+        }
+    }
+    KealOptI64 some = { true, value };
+    return some;
+}
+
+/* `String.toFloat`: validated against the grammar Rust's `f64::from_str`
+ * accepts — no hex floats, at least one digit — then read by `strtod`. */
+KEAL_FN KealOptF64 keal_str_to_float(KealStr* s) {
+    KealOptF64 none = { false, 0.0 };
+    int64_t a = 0;
+    int64_t b = s->len;
+    while (a < b && (s->bytes[a] == ' ' || s->bytes[a] == '\t' || s->bytes[a] == '\n' || s->bytes[a] == '\r')) {
+        a++;
+    }
+    while (b > a && (s->bytes[b - 1] == ' ' || s->bytes[b - 1] == '\t' || s->bytes[b - 1] == '\n' || s->bytes[b - 1] == '\r')) {
+        b--;
+    }
+    if (a >= b || b - a >= 512) {
+        return none;
+    }
+    char buf[512];
+    memcpy(buf, s->bytes + a, (size_t)(b - a));
+    buf[b - a] = '\0';
+    /* Validate: [+-]? (inf | infinity | nan | digits[.digits][e[+-]digits]
+     * with a digit somewhere and no hex). */
+    const char* p = buf;
+    if (*p == '+' || *p == '-') {
+        p++;
+    }
+    bool word = strcmp(p, "inf") == 0 || strcmp(p, "infinity") == 0 || strcmp(p, "nan") == 0
+        || strcmp(p, "NaN") == 0 || strcmp(p, "Inf") == 0;
+    if (!word) {
+        bool digit = false;
+        bool dot = false;
+        bool exp = false;
+        for (const char* q = p; *q; q++) {
+            char c = *q;
+            if (c >= '0' && c <= '9') {
+                digit = true;
+            } else if (c == '.' && !dot && !exp) {
+                dot = true;
+            } else if ((c == 'e' || c == 'E') && !exp && digit) {
+                exp = true;
+                if (q[1] == '+' || q[1] == '-') {
+                    q++;
+                }
+                if (q[1] < '0' || q[1] > '9') {
+                    return none;
+                }
+            } else {
+                return none;
+            }
+        }
+        if (!digit) {
+            return none;
+        }
+    }
+    char* end = NULL;
+    double v = strtod(buf, &end);
+    if (end == NULL || *end != '\0') {
+        return none;
+    }
+    KealOptF64 some = { true, v };
+    return some;
+}
 
 /* ---- cells ------------------------------------------------------------ */
 

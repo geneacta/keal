@@ -1,0 +1,103 @@
+// The built-in surface the self-hosted compiler leans on, exercised on all
+// three engines: the string methods (character-indexed, UTF-8 aware), the
+// list methods, numeric parsing and the constructs around them. The suite
+// holds native output to the interpreters byte for byte.
+
+// ---- strings ------------------------------------------------------------
+
+val s = "héllo, wörld"
+println(s.substring(1, 5))
+println(s.take(4))
+println(s.drop(7))
+println(s.contains("wö"))
+println(s.contains("x"))
+println(s.startsWith("hé"))
+println(s.endsWith("rld"))
+println(s.indexOf("wörld"))
+println(s.indexOf("zzz"))
+println(s.replace("l", "L"))
+println("ab".repeat(3))
+println("a,b,,c".split(","))
+println("abc".split(""))
+println(s.chars().size)
+println(s.get(1))
+println(s.get(-1))
+println(s[8])
+println("é".code())
+println("".code())
+println("42".toInt() ?: -1)
+println(" -7 ".toInt() ?: -1)
+println("4x".toInt() ?: -1)
+println("3.5".toFloat() ?: -1.0)
+println("bad".toFloat() ?: -1.0)
+
+var iterated = ""
+for (c in "aéz") {
+    iterated += "[" + c + "]"
+}
+println(iterated)
+
+// ---- integers -----------------------------------------------------------
+
+println(3.min(7))
+println(3.max(7))
+println(101.toChar())
+println(233.toChar())
+println(65.toFloat() / 2.0)
+
+// ---- lists --------------------------------------------------------------
+
+val xs = [10, 20, 30, 40]
+println(xs.removeAt(1))
+println(xs)
+xs.insert(1, 25)
+println(xs)
+xs.addAll([50, 60])
+println(xs)
+println(xs.contains(50))
+println(xs.contains(99))
+
+val names = ["b", "a", "c"]
+println(names.contains("a"))
+println(names.join("|"))
+println(names.join())
+println(names.any({ it == "c" }))
+println(names.any({ it == "z" }))
+
+record Entry(val label: String, val rank: Int)
+val entries = [Entry("late", 3), Entry("early", 1), Entry("mid", 2), Entry("early2", 1)]
+for (en in entries.sortedBy({ en -> en.rank })) {
+    println(en.label)
+}
+
+// ---- nullable references over containers --------------------------------
+
+var maybeList: List<Int>? = null
+println(maybeList == null)
+maybeList = [1, 2]
+val got = maybeList
+if (got != null) {
+    println(got.size)
+}
+
+val slots: List<String?> = ["x", null, "y"]
+println(slots.size)
+val second = slots[1]
+println(second == null)
+val third = slots[2]
+println(third ?: "-")
+
+// A statement `if` whose branches disagree needs no value.
+fun pick(flag: Bool): Int {
+    if (flag) {
+        println("yes")
+    } else {
+        pick2()
+    }
+    return 1
+}
+proc pick2() {
+    println("no")
+}
+val _ = pick(true)
+val _2 = pick(false)

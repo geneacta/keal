@@ -377,9 +377,19 @@ what found the first two bugs in this backend.
   themselves included: the corpus contains the checker type-checking its
   own program and the emitter refusing its own (by name, as designed).
   `keal tokens`, `keal ast`, `keal types` and `keal cgen` print the
-  oracles. What remains is closing the loop: teaching the C backend the
-  handful of string and list methods the selfhost tools use, so the Keal
-  compiler can compile itself to native.
+  oracles.
+
+* **The loop is closed: Keal compiles itself.** `keal build
+  selfhost/cbackend.keal` produces a native compiler, written in Keal,
+  that agrees with the Rust oracle byte for byte over the whole corpus —
+  and run on its own source it emits **the very C it was built from**, a
+  fixed point the suite verifies on every run
+  (`the_compiler_compiles_itself`). The bootstrapped binary compiles the
+  full compiler in about a fifth of a second. Getting there hardened the
+  backend for everyone: character-indexed UTF-8 string methods, the rest
+  of the list surface, numeric parsing, string iteration and indexing,
+  nullable containers — each mirrored in the interpreters' semantics and
+  held to them by the three-engine tests, with zero leaks.
 
 * **Lazy sequences**, the equivalent of Java's `Stream` / Kotlin's `Sequence`:
   pull-based, fusing, with infinite sources. The eager `map`/`filter`/`fold`

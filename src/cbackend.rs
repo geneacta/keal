@@ -375,6 +375,12 @@ impl CBackend {
                 self.elem_kind(v, span)?;
                 Elem::Ptr("KealMap".into(), "keal_map".into())
             }
+            // A nullable reference is the same pointer, allowed to be null;
+            // retain and release both accept null, so the element machinery
+            // never needs to know.
+            Type::Nullable(inner) if is_reference(inner) => {
+                return self.elem_kind(inner, span);
+            }
             other => {
                 self.unsupported(span, &format!("lists of `{}`", other));
                 return None;
@@ -550,8 +556,10 @@ impl CBackend {
         let saved_celled = std::mem::take(&mut self.celled);
         let saved_cells = std::mem::take(&mut self.frame_cells);
         let saved_top = std::mem::replace(&mut self.at_top_level, false);
+        let saved_ret = self.current_ret.take();
         self.emit_struct(&sn, &fields, span);
         self.class_functions_named(&c, &fields, &sn);
+        self.current_ret = saved_ret;
         self.at_top_level = saved_top;
         self.celled = saved_celled;
         self.frame_cells = saved_cells;
@@ -615,7 +623,9 @@ impl CBackend {
         let saved_celled = std::mem::take(&mut self.celled);
         let saved_cells = std::mem::take(&mut self.frame_cells);
         let saved_top = std::mem::replace(&mut self.at_top_level, false);
+        let saved_ret = self.current_ret.take();
         self.method_named(&c, &m, &sn, &fn_name);
+        self.current_ret = saved_ret;
         self.at_top_level = saved_top;
         self.celled = saved_celled;
         self.frame_cells = saved_cells;
@@ -666,7 +676,9 @@ impl CBackend {
         // A body being instantiated is not the top level, however the
         // instantiation was reached; a binding inside it must be a local.
         let saved_top = std::mem::replace(&mut self.at_top_level, false);
+        let saved_ret = self.current_ret.take();
         self.function_named(&f, &cname);
+        self.current_ret = saved_ret;
         self.at_top_level = saved_top;
         self.celled = saved_celled;
         self.frame_cells = saved_cells;
@@ -1397,6 +1409,41 @@ impl CBackend {
             self.close_scope();
             return;
         }
+        // A string yields its characters, over a snapshot of them.
+        if let Some(Type::Str) = self.ety(iter) {
+            self.open_scope();
+            let s = self.expr(iter);
+            let snap = self.temp();
+            self.line(format!("KealList* {} = keal_str_chars({});", snap, s));
+            self.own(&snap, &Type::list(Type::Str));
+            let i = self.temp();
+            self.line(format!(
+                "for (int64_t {i} = 0; {i} < {snap}->len; {i}++) {{",
+                i = i,
+                snap = snap
+            ));
+            self.indent += 1;
+            self.open_scope();
+            self.declare_local(var, &Type::Str, false);
+            // The loop variable borrows from the character list, whose
+            // lifetime spans the loop.
+            self.line(format!(
+                "KealStr* {} = ((KealStr*){}->data[{}].p);",
+                mangle(var),
+                snap,
+                i
+            ));
+            self.loops.push(self.scopes.len());
+            for st in &body.stmts {
+                self.stmt(st);
+            }
+            self.loops.pop();
+            self.close_scope();
+            self.indent -= 1;
+            self.line("}");
+            self.close_scope();
+            return;
+        }
         // A range compiles to a plain C loop with no allocation.
         let ExprKind::Range { start, end } = &iter.kind else {
             self.unsupported(span, "iterating over anything but a range or a list");
@@ -2002,6 +2049,330 @@ impl CBackend {
         Some(out)
     }
 
+    /// The string, integer and list methods the self-hosted compiler uses,
+    /// each backed by a runtime function that mirrors the interpreters'
+    /// semantics — bounds messages included. Returns `None` for anything
+    /// else, which falls through to the usual refusal.
+    fn builtin_method(
+        &mut self,
+        e: &Expr,
+        obj: &Expr,
+        name: &str,
+        args: &[Arg],
+        receiver_ty: &Option<Type>,
+    ) -> Option<String> {
+        match receiver_ty {
+            Some(Type::Str) => self.string_builtin(e, obj, name, args),
+            Some(Type::Int) => self.int_builtin(e, obj, name, args),
+            Some(Type::List(elem)) => {
+                let elem = (**elem).clone();
+                self.list_builtin(e, obj, name, args, &elem)
+            }
+            _ => None,
+        }
+    }
+
+    fn string_builtin(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> Option<String> {
+        match (name, args.len()) {
+            ("substring", 2) => {
+                let s = self.expr(obj);
+                let a = self.expr(&args[0].value);
+                let b = self.expr(&args[1].value);
+                Some(self.own_temp(format!(
+                    "keal_str_substring({}, {}, {}, {})",
+                    s, a, b, e.span.line
+                )))
+            }
+            ("take", 1) | ("drop", 1) => {
+                let s = self.expr(obj);
+                let n = self.expr(&args[0].value);
+                let f = if name == "take" { "keal_str_take" } else { "keal_str_drop" };
+                Some(self.own_temp(format!("{}({}, {})", f, s, n)))
+            }
+            ("contains", 1) | ("startsWith", 1) | ("endsWith", 1) => {
+                let s = self.expr(obj);
+                let n = self.expr(&args[0].value);
+                let f = match name {
+                    "contains" => "keal_str_contains",
+                    "startsWith" => "keal_str_starts_with",
+                    _ => "keal_str_ends_with",
+                };
+                let t = self.temp();
+                self.line(format!("const bool {} = {}({}, {});", t, f, s, n));
+                Some(t)
+            }
+            ("indexOf", 1) => {
+                let s = self.expr(obj);
+                let n = self.expr(&args[0].value);
+                let t = self.temp();
+                self.line(format!("const int64_t {} = keal_str_index_of({}, {});", t, s, n));
+                Some(t)
+            }
+            ("replace", 2) => {
+                let s = self.expr(obj);
+                let old = self.expr(&args[0].value);
+                let new = self.expr(&args[1].value);
+                Some(self.own_temp(format!(
+                    "keal_str_replace({}, {}, {}, {})",
+                    s, old, new, e.span.line
+                )))
+            }
+            ("repeat", 1) => {
+                let s = self.expr(obj);
+                let n = self.expr(&args[0].value);
+                Some(self.own_temp(format!("keal_str_repeat({}, {}, {})", s, n, e.span.line)))
+            }
+            ("split", 1) => {
+                let s = self.expr(obj);
+                let sep = self.expr(&args[0].value);
+                Some(self.own_temp_of(
+                    &Type::list(Type::Str),
+                    format!("keal_str_split({}, {})", s, sep),
+                ))
+            }
+            ("chars", 0) => {
+                let s = self.expr(obj);
+                Some(self.own_temp_of(&Type::list(Type::Str), format!("keal_str_chars({})", s)))
+            }
+            ("get", 1) => {
+                let s = self.expr(obj);
+                let i = self.expr(&args[0].value);
+                Some(self.own_temp(format!("keal_str_get({}, {}, {})", s, i, e.span.line)))
+            }
+            ("code", 0) => {
+                let s = self.expr(obj);
+                let t = self.temp();
+                self.line(format!("const int64_t {} = keal_str_code({});", t, s));
+                Some(t)
+            }
+            ("toInt", 0) => {
+                let s = self.expr(obj);
+                let t = self.temp();
+                self.line(format!("const KealOptI64 {} = keal_str_to_int({});", t, s));
+                Some(t)
+            }
+            ("toFloat", 0) => {
+                let s = self.expr(obj);
+                let t = self.temp();
+                self.line(format!("const KealOptF64 {} = keal_str_to_float({});", t, s));
+                Some(t)
+            }
+            _ => None,
+        }
+    }
+
+    fn int_builtin(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> Option<String> {
+        match (name, args.len()) {
+            ("toFloat", 0) => {
+                let v = self.expr(obj);
+                Some(format!("(double)({})", v))
+            }
+            ("min", 1) | ("max", 1) => {
+                let a = self.expr(obj);
+                let b = self.expr(&args[0].value);
+                let f = if name == "min" { "keal_int_min" } else { "keal_int_max" };
+                let t = self.temp();
+                self.line(format!("const int64_t {} = {}({}, {});", t, f, a, b));
+                Some(t)
+            }
+            ("toChar", 0) => {
+                let v = self.expr(obj);
+                Some(self.own_temp(format!("keal_int_to_char({}, {})", v, e.span.line)))
+            }
+            _ => None,
+        }
+    }
+
+    /// The equality a `contains` scan applies, by element kind; anything
+    /// deeper than a word or a string is refused rather than guessed.
+    fn elem_eq_fn(&mut self, elem_ty: &Type, span: Span) -> Option<&'static str> {
+        match elem_ty {
+            Type::Str => Some("keal_key_eq_str"),
+            Type::Float => Some("keal_key_eq_f64"),
+            Type::Int | Type::Bool | Type::Never => Some("keal_key_eq_word"),
+            other => {
+                self.unsupported(span, &format!("`contains` on a list of `{}`", other));
+                None
+            }
+        }
+    }
+
+    fn list_builtin(
+        &mut self,
+        e: &Expr,
+        obj: &Expr,
+        name: &str,
+        args: &[Arg],
+        elem_ty: &Type,
+    ) -> Option<String> {
+        match (name, args.len()) {
+            ("removeAt", 1) => {
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let l = self.expr(obj);
+                let i = self.expr(&args[0].value);
+                let w = self.temp();
+                self.line(format!(
+                    "const KealWord {} = keal_list_remove_at({}, {}, {});",
+                    w, l, i, e.span.line
+                ));
+                let value = elem.unword(&w);
+                if Self::counted(elem_ty) {
+                    // The list's own reference travels out with the element,
+                    // so the temp owns it without a fresh retain.
+                    let t = self.temp();
+                    let ct = self.ctype(elem_ty, e.span)?;
+                    self.line(format!("{} {} = {};", ct, t, value));
+                    self.own(&t, elem_ty);
+                    return Some(t);
+                }
+                Some(value)
+            }
+            ("addAll", 1) => {
+                let l = self.expr(obj);
+                let other = self.expr(&args[0].value);
+                self.line(format!("keal_list_add_all({}, {});", l, other));
+                Some("0".to_string())
+            }
+            ("insert", 2) => {
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let l = self.expr(obj);
+                let i = self.expr(&args[0].value);
+                let v = self.expr(&args[1].value);
+                let stored = Self::retained(elem_ty, &v);
+                self.line(format!(
+                    "keal_list_insert_at({}, {}, {}, {});",
+                    l,
+                    i,
+                    elem.word(&stored),
+                    e.span.line
+                ));
+                Some("0".to_string())
+            }
+            ("contains", 1) => {
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let eq = self.elem_eq_fn(elem_ty, e.span)?;
+                let l = self.expr(obj);
+                let v = self.expr(&args[0].value);
+                let t = self.temp();
+                self.line(format!(
+                    "const bool {} = keal_list_contains({}, {}, {});",
+                    t,
+                    l,
+                    elem.word(&v),
+                    eq
+                ));
+                Some(t)
+            }
+            ("join", 0) | ("join", 1) => {
+                if !matches!(elem_ty, Type::Str) {
+                    self.unsupported(e.span, &format!("`join` on a list of `{}`", elem_ty));
+                    return Some("0".to_string());
+                }
+                let l = self.expr(obj);
+                let sep = match args.first() {
+                    Some(a) => self.expr(&a.value),
+                    None => self.own_temp("keal_str_static(\", \", 2)".to_string()),
+                };
+                Some(self.own_temp(format!("keal_list_join_str({}, {})", l, sep)))
+            }
+            ("any", 1) => {
+                use crate::types::FunType;
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let l = self.expr(obj);
+                let snap = self.temp();
+                self.line(format!("KealList* {} = keal_list_snapshot({});", snap, l));
+                self.own(&snap, &Type::list(elem_ty.clone()));
+                let f = self.expr(&args[0].value);
+                let ft = FunType {
+                    params: vec![crate::types::ParamType::positional(elem_ty.clone())],
+                    ret: Type::Bool,
+                };
+                let t = self.temp();
+                self.line(format!("bool {} = false;", t));
+                let i = self.temp();
+                self.line(format!(
+                    "for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{",
+                    i = i,
+                    s = snap
+                ));
+                self.indent += 1;
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                let call = self.call_closure(&ft, &f, &[item], e.span)?;
+                self.line(format!("if ({}) {{", call));
+                self.indent += 1;
+                self.line(format!("{} = true;", t));
+                self.line("break;");
+                self.indent -= 1;
+                self.line("}");
+                self.indent -= 1;
+                self.line("}");
+                Some(t)
+            }
+            ("sortedBy", 1) => {
+                use crate::types::FunType;
+                // The key's type is whatever the lambda actually returns; only
+                // Int keys are compiled, which is all the compiler needs.
+                let key_ok = matches!(
+                    self.ety(&args[0].value),
+                    Some(Type::Fun(ft)) if ft.ret == Type::Int
+                );
+                if !key_ok {
+                    self.unsupported(e.span, "`sortedBy` with a key that is not an Int");
+                    return Some("0".to_string());
+                }
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let l = self.expr(obj);
+                let snap = self.temp();
+                self.line(format!("KealList* {} = keal_list_snapshot({});", snap, l));
+                self.own(&snap, &Type::list(elem_ty.clone()));
+                let f = self.expr(&args[0].value);
+                let keys = self.temp();
+                self.line(format!("KealList* {} = keal_list_new(NULL);", keys));
+                self.own(&keys, &Type::list(Type::Int));
+                let ft = FunType {
+                    params: vec![crate::types::ParamType::positional(elem_ty.clone())],
+                    ret: Type::Int,
+                };
+                let i = self.temp();
+                self.line(format!(
+                    "for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{",
+                    i = i,
+                    s = snap
+                ));
+                self.indent += 1;
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                let call = self.call_closure(&ft, &f, &[item], e.span)?;
+                let k = self.temp();
+                self.line(format!("const int64_t {} = {};", k, call));
+                self.line(format!(
+                    "keal_list_push({}, (KealWord){{ .i = {} }});",
+                    keys, k
+                ));
+                self.indent -= 1;
+                self.line("}");
+                self.line(format!("keal_list_sort_by_i64({}, {});", snap, keys));
+                let thunk = self.releaser_thunk(&elem);
+                let out = self.temp();
+                self.line(format!("KealList* {} = keal_list_new({});", out, thunk));
+                self.own(&out, &Type::list(elem_ty.clone()));
+                let j = self.temp();
+                self.line(format!(
+                    "for (int64_t {j} = 0; {j} < {s}->len; {j}++) {{",
+                    j = j,
+                    s = snap
+                ));
+                self.indent += 1;
+                let sorted_item = elem.unword(&format!("{}->data[{}]", snap, j));
+                let stored = Self::retained(elem_ty, &sorted_item);
+                self.line(format!("keal_list_push({}, {});", out, elem.word(&stored)));
+                self.indent -= 1;
+                self.line("}");
+                Some(out)
+            }
+            _ => None,
+        }
+    }
+
     fn map_literal(&mut self, e: &Expr, entries: &[(Expr, Expr)]) -> String {
         let Some(Type::Map(kt, vt)) = self.ety(e) else { return "0".to_string() };
         let (kt, vt) = ((*kt).clone(), (*vt).clone());
@@ -2120,6 +2491,12 @@ impl CBackend {
     fn index_get(&mut self, e: &Expr, obj: &Expr, index: &Expr) -> String {
         if matches!(self.ety(obj), Some(Type::Map(_, _))) {
             return self.map_get(e, obj, index, None);
+        }
+        // `s[i]` is one character, as a string.
+        if matches!(self.ety(obj), Some(Type::Str)) {
+            let s = self.expr(obj);
+            let i = self.expr(index);
+            return self.own_temp(format!("keal_str_get({}, {}, {})", s, i, e.span.line));
         }
         let Some(Type::List(elem_ty)) = self.ety(obj) else {
             self.unsupported(e.span, "indexing anything but a list or a map");
@@ -2378,6 +2755,10 @@ impl CBackend {
                 return v;
             }
         }
+        // The rest of the built-in surface the self-hosted compiler leans on.
+        if let Some(v) = self.builtin_method(e, obj, name, args, &receiver_ty) {
+            return v;
+        }
         let Some(Type::Class(class, class_args)) = receiver_ty else {
             self.unsupported(
                 e.span,
@@ -2448,7 +2829,11 @@ impl CBackend {
     /// its body and jumps out — which is what a `do { } while (0)` with
     /// `break`s spells in plain C.
     fn when(&mut self, e: &Expr, subject: Option<&Expr>, arms: &[WhenArm]) -> String {
-        let produces = !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never));
+        // A branch join of `Any` can only sit in statement position — using
+        // the value would have been refused where it was used — so like
+        // `Unit` it needs no slot.
+        let produces =
+            !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never) | Some(Type::Any));
         let slot = if produces {
             let Some(ty) = self.ety(e) else { return "0".to_string() };
             let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
@@ -2461,6 +2846,7 @@ impl CBackend {
         } else {
             None
         };
+        let slot_ty = if slot.is_some() { self.ety(e) } else { None };
 
         let subject_slot = match subject {
             Some(sub) => {
@@ -2501,7 +2887,7 @@ impl CBackend {
             // The body's scope closes before the `break`, so its releases sit
             // inside the braces and run on the way out.
             self.open_scope();
-            self.branch_body(&arm.body.stmts, slot.as_deref());
+            self.branch_body(&arm.body.stmts, slot.as_deref().zip(slot_ty.as_ref()));
             self.close_scope();
             self.line("break;");
             if cond.is_some() {
@@ -2578,19 +2964,12 @@ impl CBackend {
     }
 
     /// An arm's body: its last expression fills the slot when there is one.
-    fn branch_body(&mut self, stmts: &[Stmt], slot: Option<&str>) {
+    fn branch_body(&mut self, stmts: &[Stmt], slot: Option<(&str, &Type)>) {
         let last = stmts.len().saturating_sub(1);
         for (i, s) in stmts.iter().enumerate() {
             match (&s.kind, slot) {
-                (StmtKind::Expr(e), Some(t)) if i == last => {
-                    let counted = self.ety(e).map(|t| Self::counted(&t)).unwrap_or(false);
-                    let v = self.expr(e);
-                    match self.ety(e) {
-                        Some(ty) if counted => {
-                            self.line(format!("{} = {};", t, Self::retained(&ty, &v)))
-                        }
-                        _ => self.line(format!("{} = {};", t, v)),
-                    }
+                (StmtKind::Expr(e), Some(_)) if i == last => {
+                    self.fill_slot(e, slot);
                 }
                 _ => self.stmt(s),
             }
@@ -2818,7 +3197,11 @@ impl CBackend {
     }
 
     fn if_expr(&mut self, e: &Expr, cond: &Expr, then: &Block, els: Option<&Else>) -> String {
-        let produces = !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never));
+        // A branch join of `Any` can only sit in statement position — using
+        // the value would have been refused where it was used — so like
+        // `Unit` it needs no slot.
+        let produces =
+            !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never) | Some(Type::Any));
         let slot = if produces {
             let Some(ty) = self.ety(e) else { return "0".to_string() };
             let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
@@ -2832,16 +3215,18 @@ impl CBackend {
             None
         };
 
+        let slot_ty = if slot.is_some() { self.ety(e) } else { None };
+        let filled = slot.as_deref().zip(slot_ty.as_ref());
         let c = self.condition(cond);
         self.line(format!("if ({}) {{", c));
         self.indent += 1;
-        self.branch(&then.stmts, slot.as_deref());
+        self.branch(&then.stmts, filled);
         self.indent -= 1;
         match els {
             Some(Else::Block(b)) => {
                 self.line("} else {");
                 self.indent += 1;
-                self.branch(&b.stmts, slot.as_deref());
+                self.branch(&b.stmts, filled);
                 self.indent -= 1;
                 self.line("}");
             }
@@ -2849,16 +3234,7 @@ impl CBackend {
                 self.line("} else {");
                 self.indent += 1;
                 self.open_scope();
-                let counted = self.ety(inner).map(|t| Self::counted(&t)).unwrap_or(false);
-                let v = self.expr(inner);
-                if let Some(t) = &slot {
-                    match self.ety(inner) {
-                        Some(ty) if counted => {
-                            self.line(format!("{} = {};", t, Self::retained(&ty, &v)))
-                        }
-                        _ => self.line(format!("{} = {};", t, v)),
-                    }
-                }
+                self.fill_slot(inner, filled);
                 self.close_scope();
                 self.indent -= 1;
                 self.line("}");
@@ -2869,27 +3245,40 @@ impl CBackend {
     }
 
     /// A branch of an `if`, whose value is that of its last statement.
-    fn branch(&mut self, stmts: &[Stmt], slot: Option<&str>) {
+    fn branch(&mut self, stmts: &[Stmt], slot: Option<(&str, &Type)>) {
         self.open_scope();
         let last = stmts.len().saturating_sub(1);
         for (i, s) in stmts.iter().enumerate() {
             match (&s.kind, slot) {
-                (StmtKind::Expr(e), Some(t)) if i == last => {
-                    let counted = self.ety(e).map(|t| Self::counted(&t)).unwrap_or(false);
-                    let v = self.expr(e);
-                    // The slot belongs to the enclosing block, so it takes a
-                    // reference of its own before this one is released.
-                    match self.ety(e) {
-                        Some(ty) if counted => {
-                            self.line(format!("{} = {};", t, Self::retained(&ty, &v)))
-                        }
-                        _ => self.line(format!("{} = {};", t, v)),
-                    }
+                (StmtKind::Expr(e), Some(_)) if i == last => {
+                    self.fill_slot(e, slot);
                 }
                 _ => self.stmt(s),
             }
         }
         self.close_scope();
+    }
+
+    /// Assigns a branch's value into the enclosing slot. The slot belongs to
+    /// the enclosing block, so a counted value takes a reference of its own
+    /// before this branch's is released — and a value meeting a tagged
+    /// nullable slot wraps on the way in, exactly as an initializer would.
+    fn fill_slot(&mut self, e: &Expr, slot: Option<(&str, &Type)>) {
+        let Some((t, slot_ty)) = slot else {
+            self.expr(e);
+            return;
+        };
+        let counted = self.ety(e).map(|t| Self::counted(&t)).unwrap_or(false);
+        if counted {
+            let v = self.expr(e);
+            match self.ety(e) {
+                Some(ty) => self.line(format!("{} = {};", t, Self::retained(&ty, &v))),
+                None => self.line(format!("{} = {};", t, v)),
+            }
+        } else {
+            let v = self.coerced_to(e, slot_ty);
+            self.line(format!("{} = {};", t, v));
+        }
     }
 
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Arg]) -> String {
@@ -3728,7 +4117,10 @@ fn is_value_opt(ty: &Type) -> bool {
 
 /// True for a type held behind a pointer, which therefore has null to spare.
 fn is_reference(ty: &Type) -> bool {
-    matches!(ty, Type::Str | Type::Class(_, _))
+    matches!(
+        ty,
+        Type::Str | Type::Class(_, _) | Type::List(_) | Type::Map(_, _) | Type::Fun(_)
+    )
 }
 
 /// The C struct a class is emitted as. A generic class gets one struct per
