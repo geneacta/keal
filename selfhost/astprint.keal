@@ -204,6 +204,8 @@ fun pStmt(s: StmtN): String {
         }
         "break" -> "break " + sp
         "continue" -> "continue " + sp
+        "throw" -> "throw ${sp}\n" + indentBlock(pEx(s.ex!!))
+        "try" -> "try ${sp}\n" + indentBlock(pBlock("body", s.body!!)) + "\n" + indentBlock(pBlock("catch ${s.name}", s.handler!!))
         "while" -> "while ${sp}\n" + indentBlock(wrapNode("cond", pEx(s.ex!!))) + "\n" + indentBlock(pBlock("body", s.body!!))
         "for" -> {
             var head = "for ${s.name}"

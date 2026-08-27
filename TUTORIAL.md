@@ -641,6 +641,40 @@ fun cheapest<T: Ord>(a: T, b: T): T {
 assert(cheapest(4, 9) == 4, "guarded return, spoken comparison")
 ```
 
+## Throwing and catching
+
+Every failure in Keal is a panic with a message — overflow, division by
+zero, a failed `assert`. `throw "message"` raises your own, and
+`try`/`catch` intercepts any of them, binding the message:
+
+```keal
+fun parseAge(s: String): Int {
+    val n = s.toInt()
+    if (n == null) { throw "not a number: ${s}" }
+    return if (n >= 0) n
+    throw "an age cannot be negative: ${n}"
+}
+
+var caught = ""
+try {
+    parseAge("-3")
+} catch (e) {
+    caught = e
+}
+assert(caught == "an age cannot be negative: -3", "caught our own throw")
+
+try {
+    val zero = 0
+    println(10 / zero)
+} catch (e) {
+    assert(e == "division by zero", "built-in panics are the same kind")
+}
+```
+
+`return`, `break` and `continue` pass through a `try` untouched — only
+panics are caught. (The native backend refuses `try` for now and says so
+by name; caught panics run on the VM.)
+
 ## Lazy sequences
 
 The prelude carries a pull-based pipeline — Keal's `Stream`/`Sequence` —

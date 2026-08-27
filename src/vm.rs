@@ -37,6 +37,15 @@ struct Frame {
     supplied: u64,
 }
 
+/// A live `try` block: where to land, and how much machine to keep.
+struct Handler {
+    /// `frames.len()` when the handler was pushed; the try lives in
+    /// `frames[frames_len - 1]`.
+    frames_len: usize,
+    stack_len: usize,
+    target: usize,
+}
+
 pub struct Vm {
     globals: Vec<Value>,
     classes: Vec<Rc<RtClass>>,
@@ -44,6 +53,7 @@ pub struct Vm {
     functions: Vec<Rc<Function>>,
     stack: Vec<Value>,
     frames: Vec<Frame>,
+    handlers: Vec<Handler>,
 }
 
 impl Vm {
@@ -55,6 +65,7 @@ impl Vm {
             functions: Vec::new(),
             stack: Vec::with_capacity(1024),
             frames: Vec::new(),
+            handlers: Vec::new(),
         }
     }
 
@@ -240,8 +251,30 @@ impl Vm {
         out
     }
 
+    /// Runs `execute_inner`, catching panics in the innermost live `try`
+    /// whose frame belongs to this call (frames at or above `depth`). The
+    /// unwind is three truncations and a jump: reference counts stay exact
+    /// because every popped `Value` drops here, in one place.
     fn execute(&mut self, depth: usize) -> R<Value> {
-        let mut func = self.frames[depth].func.clone();
+        loop {
+            match self.execute_inner(depth) {
+                Err(Flow::Err(e)) => match self.handlers.last() {
+                    Some(h) if h.frames_len > depth => {
+                        let h = self.handlers.pop().unwrap();
+                        self.frames.truncate(h.frames_len);
+                        self.stack.truncate(h.stack_len);
+                        self.frames.last_mut().unwrap().ip = h.target;
+                        self.push(Value::str(&e.diag.msg));
+                    }
+                    _ => return Err(Flow::Err(e)),
+                },
+                other => return other,
+            }
+        }
+    }
+
+    fn execute_inner(&mut self, depth: usize) -> R<Value> {
+        let mut func = self.frames.last().unwrap().func.clone();
         let mut ip = self.frames.last().unwrap().ip;
         // Cached because they change only when a frame is pushed or popped,
         // which takes a lookup off every local and every jump.
@@ -452,11 +485,35 @@ impl Vm {
                     let v = if matches!(op, Op::Return) { self.pop() } else { Value::Unit };
                     let frame = self.frames.pop().unwrap();
                     self.stack.truncate(frame.base);
+                    // A `return` out of a `try` leaves its handler behind;
+                    // handlers of the popped frame die with it.
+                    while self.handlers.last().map_or(false, |h| h.frames_len > self.frames.len()) {
+                        self.handlers.pop();
+                    }
                     if self.frames.len() == depth {
                         return Ok(v);
                     }
                     self.push(v);
                     resume_frame!();
+                }
+
+                Op::PushHandler(t) => {
+                    self.handlers.push(Handler {
+                        frames_len: self.frames.len(),
+                        stack_len: self.stack.len(),
+                        target: t as usize,
+                    });
+                }
+                Op::PopHandler => {
+                    self.handlers.pop();
+                }
+                Op::Throw => {
+                    let v = self.pop();
+                    let msg = match v {
+                        Value::Str(s) => s.to_string(),
+                        other => other.type_name(),
+                    };
+                    return err(span, msg);
                 }
 
                 Op::MakeList(n) => {

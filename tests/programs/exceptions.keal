@@ -1,0 +1,69 @@
+// throw + catch, basic
+var hit = ""
+try {
+    throw "boom"
+    hit = "unreached"
+} catch (e) {
+    hit = e
+}
+assert(hit == "boom", "caught the thrown message")
+
+// runtime panics are catchable: division by zero, overflow, index, assert
+var msgs: List<String> = []
+fun boomDiv(): Int { val z = 0  return 1 / z }
+try { boomDiv() } catch (e) { msgs.add(e) }
+try { val big = 9223372036854775807  val r = big + 1  println(r) } catch (e) { msgs.add(e) }
+try { val l = [1, 2]  println(l[5]) } catch (e) { msgs.add(e) }
+try { assert(false, "told you") } catch (e) { msgs.add(e) }
+assert(msgs.size == 4, "caught four panics, got ${msgs.size}")
+assert(msgs[3] == "told you", "assert message came through")
+
+// nested try; rethrow
+var order = ""
+try {
+    try {
+        throw "inner"
+    } catch (e) {
+        order += "a:" + e
+        throw "outer:" + e
+    }
+    order += "unreached"
+} catch (e) {
+    order += " b:" + e
+}
+assert(order == "a:inner b:outer:inner", order)
+
+// return through try passes uncaught
+fun escape(): Int {
+    try { return 42 } catch (e) { return 0 }
+}
+assert(escape() == 42, "return passes through try")
+
+// break out of try inside loop; loop continues clean, later throw caught by outer
+var log = ""
+try {
+    var i = 0
+    while (i < 3) {
+        try {
+            if (i == 1) { break }
+        } catch (e) { log += "x" }
+        i += 1
+    }
+    throw "after:${i}"
+} catch (e) { log += e }
+assert(log == "after:1", log)
+
+// catch inside a called function catches callee-deeper panics
+fun safeDiv(a: Int, b: Int): Int {
+    try { return a / b } catch (e) { return -1 }
+}
+assert(safeDiv(10, 2) == 5, "clean path")
+assert(safeDiv(10, 0) == -1, "caught path")
+
+// closures called through natives (map) with handler outside
+var caught = ""
+try {
+    val r = [1, 0, 2].map({ n -> 10 / n })
+    println(r)
+} catch (e) { caught = e }
+assert(caught != "", "panic crossed the native map call")

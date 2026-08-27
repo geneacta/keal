@@ -13,7 +13,7 @@ use crate::native;
 use crate::runtime::{
     self, err, err_note, index_get, index_set, Flow, R, RtError, Runtime,
 };
-use crate::span::Span;
+use crate::span::{Diag, Span};
 use crate::value::*;
 
 /// How many nested Keal calls are allowed before we report runaway recursion.
@@ -125,6 +125,28 @@ impl Interp {
             }
             StmtKind::Break => Err(Flow::Break),
             StmtKind::Continue => Err(Flow::Continue),
+            StmtKind::Throw(e) => {
+                let v = self.eval(e, env)?;
+                let msg = match v {
+                    Value::Str(s) => s.to_string(),
+                    other => other.type_name(),
+                };
+                Err(Flow::Err(RtError { diag: Diag::new(s.span, msg), frames: Vec::new() }))
+            }
+            StmtKind::Try { body, name, handler } => {
+                match self.exec_block(body, env) {
+                    // A panic is caught; `return`/`break`/`continue` are jumps
+                    // and pass through untouched.
+                    Err(Flow::Err(e)) => {
+                        let scope = Scope::child(env);
+                        scope.define(name, Value::str(&e.diag.msg));
+                        self.exec_stmts(&handler.stmts, &scope)?;
+                        Ok(Value::Unit)
+                    }
+                    Err(jump) => Err(jump),
+                    Ok(_) => Ok(Value::Unit),
+                }
+            }
             StmtKind::While { cond, body } => {
                 loop {
                     if !self.eval(cond, env)?.truthy() {

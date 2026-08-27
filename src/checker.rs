@@ -1313,6 +1313,26 @@ impl Checker {
                 }
                 Type::Never
             }
+            StmtKind::Throw(e) => {
+                let t = self.check_coerced(e, &Type::Str);
+                self.expect_assignable(&t, &Type::Str, e.span, "thrown value");
+                Type::Never
+            }
+            StmtKind::Try { body, name, handler } => {
+                let bt = self.check_block(body);
+                self.push_scope();
+                self.declare(&name.clone(), Type::Str, BindKind::Val);
+                let ht = self.check_stmts(&mut handler.stmts);
+                self.pop_scope();
+                // `try { return a } catch (e) { return b }` leaves no way
+                // out the bottom, and counts as returning like an
+                // if/else that does.
+                if bt == Type::Never && ht == Type::Never {
+                    Type::Never
+                } else {
+                    Type::Unit
+                }
+            }
             StmtKind::While { cond, body } => {
                 let ct = self.check_expr(cond, Some(&Type::Bool));
                 self.expect_assignable(&ct, &Type::Bool, cond.span, "loop condition");

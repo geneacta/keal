@@ -1,0 +1,2 @@
+try { println(1/0) } catch (e) { println(e) }
+throw "top"

@@ -163,6 +163,13 @@ engines, which must agree on every byte they print.
 - **Guarded returns.** `return if (a > b) a` returns only when the guard
   holds and falls through otherwise — and the guard narrows, so
   `return unless (s == null) s` hands back a plain `String`.
+- **Exceptions, the honest way.** `throw "message"` raises the same panic
+  every built-in failure raises, and `try { ... } catch (e) { ... }` binds
+  the message and continues — one form covers your throws, overflow,
+  division by zero, a failed `assert`, all of it. `return` passes through
+  uncaught. The native backend still refuses `try` by name (unwinding
+  through reference counts wants a real drop design, not a leak), so
+  caught panics run on the VM today.
 - **Generics and traits.** `fun first<T>(...)`, `class Box<T>`, inferred one
   argument at a time so a later lambda knows what an earlier argument fixed.
   Traits carry required and default methods, `Self`, and bounds (`<T: Show +
@@ -519,7 +526,11 @@ The honest list, in rough order of intent:
   evaluator.
 * **Macros** — deliberately last: the language keeps earning features the
   hard way first.
-* Smaller items: exceptions or a `Result` idiom (undecided), indexing/call
+* **Native `try`/`catch`** — the VM and the tree-walker catch panics
+  today; the C backend refuses `try` by name until unwinding can release
+  what it skips. The drop design that fixes it is the same one that would
+  auto-free jbind's JVM handles — one stone, two birds.
+* Smaller items: indexing/call
   operator overloads, namespaced imports, a register-based VM if the
   bytecode engine ever needs to be faster than it is.
 

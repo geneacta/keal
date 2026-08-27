@@ -104,6 +104,12 @@ pub enum Op {
     JumpIfNotNullKeep(u32),
     Return,
     ReturnUnit,
+    /// Registers a catch handler at `target`; the unwinder pushes the panic
+    /// message there. Balanced by `PopHandler` on the try block's exits.
+    PushHandler(u32),
+    PopHandler,
+    /// Pops a `String` message and raises it as a runtime panic.
+    Throw,
 
     // ---- data ---------------------------------------------------------
     MakeList(u32),
@@ -205,6 +211,7 @@ impl Chunk {
         let target = self.code.len() as u32;
         self.code[at] = match self.code[at] {
             Op::Jump(_) => Op::Jump(target),
+            Op::PushHandler(_) => Op::PushHandler(target),
             Op::JumpIfFalse(_) => Op::JumpIfFalse(target),
             Op::JumpIfFalseKeep(_) => Op::JumpIfFalseKeep(target),
             Op::JumpIfTrueKeep(_) => Op::JumpIfTrueKeep(target),

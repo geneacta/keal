@@ -44,7 +44,8 @@ fun esc(s: String): String {
 fun keywordOf(w: String): String {
     return when (w) {
         "val", "var", "fun", "proc", "return", "if", "unless", "else",
-        "while", "for", "in", "break", "continue", "class", "this", "null",
+        "while", "for", "in", "break", "continue", "try", "catch", "throw",
+        "class", "this", "null",
         "true", "false", "when", "is", "import",
         "not", "and", "or", "xor", "xnor", "nand", "nor", "implies" -> w
         else -> ""

@@ -1416,6 +1416,24 @@ class Checker() {
             }
             return Ty("Never")
         }
+        if (s.kind == "throw") {
+            val v = s.ex!!
+            val t = this.checkCoerced(v, Ty("Str"))
+            this.expectAssignable(t, Ty("Str"), v.file, v.line, v.col, "thrown value")
+            return Ty("Never")
+        }
+        if (s.kind == "try") {
+            val bt = this.checkBlock(s.body!!)
+            this.pushScope()
+            this.declare(s.name, Ty("Str"), "val")
+            val ht = this.checkStmts(s.handler!!.stmts)
+            this.popScope()
+            // `try { return a } catch (e) { return b }` leaves no way
+            // out the bottom, and counts as returning like an
+            // if/else that does.
+            if (bt.kind == "Never" and ht.kind == "Never") { return Ty("Never") }
+            return Ty("Unit")
+        }
         if (s.kind == "while") {
             val cond = s.ex!!
             val ct = this.checkExpr(cond, Ty("Bool"))

@@ -138,6 +138,13 @@ pub enum StmtKind {
     For { var: String, ty: Option<TypeExpr>, iter: Expr, body: Block },
     Break,
     Continue,
+    /// `throw expr` — raises a runtime panic carrying a `String`, the same
+    /// kind every built-in failure raises, so one `catch` form covers both.
+    Throw(Expr),
+    /// `try { ... } catch (name) { ... }` — runs the body; any panic raised
+    /// dynamically inside it binds its message to `name` and runs the
+    /// handler. `return`/`break`/`continue` pass through uncaught.
+    Try { body: Block, name: String, handler: Block },
     /// A nested function declaration.
     Fun(FunDecl),
     Class(ClassDecl),

@@ -329,6 +329,15 @@ proc lambdaFreesInStmt(s: StmtN, out: Map<String, Bool>) {
         return
     }
     if (s.kind == "break" or s.kind == "continue") { return }
+    if (s.kind == "throw") {
+        lambdaFreesInExpr(s.ex!!, out)
+        return
+    }
+    if (s.kind == "try") {
+        for (st in s.body!!.stmts) { lambdaFreesInStmt(st, out) }
+        for (st in s.handler!!.stmts) { lambdaFreesInStmt(st, out) }
+        return
+    }
     if (s.kind == "while") {
         lambdaFreesInExpr(s.ex!!, out)
         for (st in s.body!!.stmts) { lambdaFreesInStmt(st, out) }
@@ -454,6 +463,12 @@ proc collectFree(stmts: List<StmtN>, bound: List<String>, free: List<String>) {
         } else if (s.kind == "return") {
             val e = s.ex
             if (e != null) { collectFreeExpr(e, bound, free) }
+        } else if (s.kind == "throw") {
+            collectFreeExpr(s.ex!!, bound, free)
+        } else if (s.kind == "try") {
+            collectFree(s.body!!.stmts, bound, free)
+            bound.add(s.name)
+            collectFree(s.handler!!.stmts, bound, free)
         } else if (s.kind == "while") {
             collectFreeExpr(s.ex!!, bound, free)
             collectFree(s.body!!.stmts, bound, free)
@@ -1788,6 +1803,22 @@ class CBackend() {
         }
         if (s.kind == "for") {
             this.forLoop(s.name, s.ex!!, s.body!!, s.file, s.line, s.col)
+            return
+        }
+        if (s.kind == "throw") {
+            // A thrown message is the same panic every built-in failure
+            // raises; uncaught, it ends the program identically on all
+            // three engines.
+            val m = this.expr(s.ex!!)
+            this.line("keal_panic(${m}->bytes, ${s.line});")
+            return
+        }
+        if (s.kind == "try") {
+            this.refuse(
+                s.file, s.line, s.col,
+                "`try`/`catch`",
+                "unwinding through reference counts needs the drop design; run it on the bytecode VM, which catches panics"
+            )
             return
         }
         if (s.kind == "break" or s.kind == "continue") {

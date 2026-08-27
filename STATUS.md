@@ -56,9 +56,26 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
-Nothing — operators/Comp/guarded-return, `keal jbind` AND the loader
-sugar `import java.time.LocalDate` are **DONE and pushed**. The whole
-interop endpoint the user asked for is in. See NEXT.
+Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
+`import java.time.LocalDate`, the verified Go demo AND exceptions
+(`throw` / `try`-`catch`) are **DONE and pushed**. See NEXT.
+
+**Exceptions, the shape that landed** (user asked for "gestion des
+exceptions"): `throw "msg"` raises the same String panic every built-in
+failure raises; `try { } catch (e) { }` (statement; `catch` may sit on
+the next line, skip-semis like `else`) binds the message and continues.
+`return`/`break`/`continue` pass through uncaught (VM pops a frame's
+handlers on Return; the compiler emits PopHandler for breaks that jump
+out of a try; `try{return}catch{return}` types as Never like if/else).
+Interp: intercept `Flow::Err` in exec_stmt. VM: `Op::PushHandler/
+PopHandler/Throw`, a `handlers` stack, and `execute` wraps
+`execute_inner` in a catch loop (three truncations + jump; RC stays
+exact because popped Values drop). **Native refuses `try` by name**
+(unwinding through refcounts leaks without a drop design — the same
+design that would auto-free jbind handles; do them together). `throw`
+compiles natively to `keal_panic(msg->bytes, line)`. Tests:
+tests/programs/exceptions.keal (+tutorial.keal), perr31, te37,
+tests/selfhost/tryrefuse.keal (cgen refusal corpus).
 
 ## Recently landed (kept for context)
 

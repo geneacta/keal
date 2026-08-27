@@ -1370,6 +1370,18 @@ impl CBackend {
                 self.line("}");
             }
             StmtKind::For { var, iter, body, .. } => self.for_loop(var, iter, body, s.span),
+            StmtKind::Throw(e) => {
+                // A thrown message is the same panic every built-in failure
+                // raises; uncaught, it ends the program identically on all
+                // three engines.
+                let m = self.expr(e);
+                self.line(format!("keal_panic({}->bytes, {});", m, s.span.line));
+            }
+            StmtKind::Try { .. } => self.refuse(
+                s.span,
+                "`try`/`catch`",
+                "unwinding through reference counts needs the drop design; run it on the bytecode VM, which catches panics",
+            ),
             StmtKind::Break | StmtKind::Continue => {
                 let depth = self.loops.last().map(|d| self.scopes.len() - d + 1).unwrap_or(1);
                 self.release_through(depth);
@@ -4303,6 +4315,15 @@ fn lambda_frees_in_stmt(s: &Stmt, out: &mut std::collections::HashSet<String>) {
         StmtKind::Expr(e) => lambda_frees_in_expr(e, out),
         StmtKind::Return(Some(e)) => lambda_frees_in_expr(e, out),
         StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
+        StmtKind::Throw(e) => lambda_frees_in_expr(e, out),
+        StmtKind::Try { body, handler, .. } => {
+            for st in &body.stmts {
+                lambda_frees_in_stmt(st, out);
+            }
+            for st in &handler.stmts {
+                lambda_frees_in_stmt(st, out);
+            }
+        }
         StmtKind::While { cond, body } => {
             lambda_frees_in_expr(cond, out);
             for st in &body.stmts {
@@ -4450,6 +4471,12 @@ fn collect_free(stmts: &[Stmt], bound: &mut Vec<String>, free: &mut Vec<String>)
             StmtKind::Expr(e) => collect_free_expr(e, bound, free),
             StmtKind::Return(Some(e)) => collect_free_expr(e, bound, free),
             StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::Throw(e) => collect_free_expr(e, bound, free),
+            StmtKind::Try { body, name, handler } => {
+                collect_free(&body.stmts, bound, free);
+                bound.push(name.clone());
+                collect_free(&handler.stmts, bound, free);
+            }
             StmtKind::While { cond, body } => {
                 collect_free_expr(cond, bound, free);
                 collect_free(&body.stmts, bound, free);

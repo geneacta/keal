@@ -46,6 +46,9 @@ struct LoopCtx {
     continue_target: u32,
     breaks: Vec<usize>,
     continues: Vec<usize>,
+    /// How many catch handlers were live when the loop began: a `break` or
+    /// `continue` jumping out of `try` blocks must pop the difference.
+    handler_depth: usize,
 }
 
 struct FnState {
@@ -58,6 +61,8 @@ struct FnState {
     capture_names: Vec<String>,
     /// Names this function must box because a nested function mentions them.
     boxed: HashSet<String>,
+    /// Catch handlers currently live at this point of compilation.
+    handlers: usize,
     /// True for the synthetic function holding a program's top level, where
     /// a declaration at depth zero becomes a global.
     top_level: bool,
@@ -77,6 +82,7 @@ impl FnState {
             boxed,
             top_level,
             loops: Vec::new(),
+            handlers: 0,
         }
     }
 }
@@ -509,6 +515,7 @@ impl Compiler {
                 };
             }
             StmtKind::Break => {
+                self.pop_handlers_to_loop(span)?;
                 let at = self.fs().chunk.emit_jump(Op::Jump, span);
                 match self.fs().loops.last_mut() {
                     Some(l) => l.breaks.push(at),
@@ -516,11 +523,33 @@ impl Compiler {
                 }
             }
             StmtKind::Continue => {
+                self.pop_handlers_to_loop(span)?;
                 let at = self.fs().chunk.emit_jump(Op::Jump, span);
                 match self.fs().loops.last_mut() {
                     Some(l) => l.continues.push(at),
                     None => return Err(Diag::new(span, "`continue` outside of a loop")),
                 }
+            }
+            StmtKind::Throw(e) => {
+                self.expr(e)?;
+                self.emit(Op::Throw, span);
+            }
+            StmtKind::Try { body, name, handler } => {
+                let push_at = self.fs().chunk.emit_jump(Op::PushHandler, span);
+                self.fs().handlers += 1;
+                self.push_scope();
+                self.compile_stmts(&body.stmts, false)?;
+                self.pop_scope();
+                self.fs().handlers -= 1;
+                self.emit(Op::PopHandler, span);
+                let done = self.fs().chunk.emit_jump(Op::Jump, span);
+                // The unwinder lands here with the panic message pushed.
+                self.fs().chunk.patch(push_at);
+                self.push_scope();
+                self.declare_and_store(name, span);
+                self.compile_stmts(&handler.stmts, false)?;
+                self.pop_scope();
+                self.fs().chunk.patch(done);
             }
             StmtKind::While { cond, body } => self.while_loop(cond, body, span)?,
             StmtKind::For { var, iter, body, .. } => self.for_loop(var, iter, body, span)?,
@@ -602,12 +631,25 @@ impl Compiler {
         };
     }
 
+    /// Emits the `PopHandler`s a jump out of the current loop owes: one per
+    /// `try` entered since the loop began.
+    fn pop_handlers_to_loop(&mut self, span: Span) -> Result<(), Diag> {
+        let fs = self.fs();
+        let Some(l) = fs.loops.last() else { return Ok(()) };
+        let owed = fs.handlers - l.handler_depth;
+        for _ in 0..owed {
+            self.emit(Op::PopHandler, span);
+        }
+        Ok(())
+    }
+
     fn while_loop(&mut self, cond: &Expr, body: &Block, span: Span) -> Result<(), Diag> {
         let top = self.fs().chunk.here();
         self.expr(cond)?;
         let exit = self.fs().chunk.emit_jump(Op::JumpIfFalse, span);
 
-        self.fs().loops.push(LoopCtx { continue_target: top, breaks: Vec::new(), continues: Vec::new() });
+        let handler_depth = self.fs().handlers;
+        self.fs().loops.push(LoopCtx { continue_target: top, breaks: Vec::new(), continues: Vec::new(), handler_depth });
         self.push_scope();
         self.compile_stmts(&body.stmts, false)?;
         self.pop_scope();
@@ -648,7 +690,8 @@ impl Compiler {
             self.emit(Op::InitCell(cell), span);
         }
 
-        self.fs().loops.push(LoopCtx { continue_target: top, breaks: Vec::new(), continues: Vec::new() });
+        let handler_depth = self.fs().handlers;
+        self.fs().loops.push(LoopCtx { continue_target: top, breaks: Vec::new(), continues: Vec::new(), handler_depth });
         self.compile_stmts(&body.stmts, false)?;
         self.emit(Op::Jump(top), span);
 
@@ -1216,6 +1259,15 @@ fn collect_idents_in_nested_stmt(s: &Stmt, out: &mut HashSet<String>) {
         StmtKind::Expr(e) => collect_idents_in_nested_expr(e, out),
         StmtKind::Return(Some(e)) => collect_idents_in_nested_expr(e, out),
         StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
+        StmtKind::Throw(e) => collect_idents_in_nested_expr(e, out),
+        StmtKind::Try { body, handler, .. } => {
+            for s in &body.stmts {
+                collect_idents_in_nested_stmt(s, out);
+            }
+            for s in &handler.stmts {
+                collect_idents_in_nested_stmt(s, out);
+            }
+        }
         StmtKind::While { cond, body } => {
             collect_idents_in_nested_expr(cond, out);
             for s in &body.stmts {
@@ -1258,6 +1310,12 @@ fn collect_all_idents_stmts(stmts: &[Stmt], out: &mut HashSet<String>) {
             StmtKind::Expr(e) => collect_all_idents_expr(e, out),
             StmtKind::Return(Some(e)) => collect_all_idents_expr(e, out),
             StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::Throw(e) => collect_all_idents_expr(e, out),
+            StmtKind::Try { body, name, handler } => {
+                out.insert(name.clone());
+                collect_all_idents_stmts(&body.stmts, out);
+                collect_all_idents_stmts(&handler.stmts, out);
+            }
             StmtKind::While { cond, body } => {
                 collect_all_idents_expr(cond, out);
                 collect_all_idents_stmts(&body.stmts, out);
@@ -1396,6 +1454,11 @@ fn walk_block(b: &Block, f: &mut dyn FnMut(&Expr) -> bool) {
             StmtKind::Expr(e) => walk_expr(e, f),
             StmtKind::Return(Some(e)) => walk_expr(e, f),
             StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::Throw(e) => walk_expr(e, f),
+            StmtKind::Try { body, handler, .. } => {
+                walk_block(body, f);
+                walk_block(handler, f);
+            }
             StmtKind::While { cond, body } => {
                 walk_expr(cond, f);
                 walk_block(body, f);

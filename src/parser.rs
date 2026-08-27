@@ -716,6 +716,24 @@ impl Parser {
                 self.advance();
                 StmtKind::Continue
             }
+            Tok::Throw => {
+                self.advance();
+                let value = self.expr()?;
+                StmtKind::Throw(value)
+            }
+            Tok::Try => {
+                self.advance();
+                let body = self.block()?;
+                // A newline between `}` and `catch` inserted a virtual `;`;
+                // `catch` is mandatory, so skipping is safe.
+                self.skip_semis();
+                self.expect(Tok::Catch, "after the `try` block")?;
+                self.expect(Tok::LParen, "after `catch`")?;
+                let (name, _) = self.expect_ident("a name for the caught message")?;
+                self.expect(Tok::RParen, "after the caught message's name")?;
+                let handler = self.block()?;
+                StmtKind::Try { body, name, handler }
+            }
             Tok::While => {
                 self.advance();
                 self.expect(Tok::LParen, "after `while`")?;

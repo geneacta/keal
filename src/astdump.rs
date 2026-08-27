@@ -303,6 +303,13 @@ fn stmt_node(s: &Stmt) -> String {
         },
         StmtKind::Break => format!("break {}", at(s.span)),
         StmtKind::Continue => format!("continue {}", at(s.span)),
+        StmtKind::Throw(e) => format!("throw {}\n{}", at(s.span), indent(&expr_node(e))),
+        StmtKind::Try { body, name, handler } => format!(
+            "try {}\n{}\n{}",
+            at(s.span),
+            indent(&block_node("body", body)),
+            indent(&block_node(&format!("catch {}", name), handler))
+        ),
         StmtKind::While { cond, body } => format!(
             "while {}\n{}\n{}",
             at(s.span),

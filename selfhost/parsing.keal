@@ -648,6 +648,26 @@ class Parser(val toks: List<Token>) {
             this.advance()
             return StmtN("continue", t.line, t.col)
         }
+        if (t.kind == "throw") {
+            this.advance()
+            val s = StmtN("throw", t.line, t.col)
+            s.ex = this.expr()
+            return s
+        }
+        if (t.kind == "try") {
+            this.advance()
+            val s = StmtN("try", t.line, t.col)
+            s.body = this.block()
+            // A newline between `}` and `catch` inserted a virtual `;`;
+            // `catch` is mandatory, so skipping is safe.
+            this.skipSemis()
+            this.expect("catch", "after the `try` block")
+            this.expect("(", "after `catch`")
+            s.name = this.expectIdent("a name for the caught message")
+            this.expect(")", "after the caught message's name")
+            s.handler = this.block()
+            return s
+        }
         if (t.kind == "while") {
             this.advance()
             this.expect("(", "after `while`")

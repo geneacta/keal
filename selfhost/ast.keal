@@ -100,7 +100,8 @@ class StmtN(val kind: String, val line: Int, val col: Int) {
     var init: Ex? = null           // let / destructure
     var pattern: DestrN? = null    // destructure
     var ex: Ex? = null             // expr / return value / while cond / for iter
-    var body: BlockN? = null       // while / for
+    var body: BlockN? = null       // while / for / try
+    var handler: BlockN? = null    // try: the catch block (`name` binds the message)
     var funDecl: FunN? = null
     var classDecl: ClassN? = null
 }

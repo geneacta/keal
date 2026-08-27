@@ -268,3 +268,27 @@ fun tutCheapest<T: Ord>(a: T, b: T): T {
     return b
 }
 assert(tutCheapest(4, 9) == 4, "guarded return, spoken comparison")
+
+// ---- throwing and catching (TUTORIAL.md) ---------------------------------
+
+fun tutParseAge(s: String): Int {
+    val n = s.toInt()
+    if (n == null) { throw "not a number: ${s}" }
+    return if (n >= 0) n
+    throw "an age cannot be negative: ${n}"
+}
+
+var tutCaught = ""
+try {
+    tutParseAge("-3")
+} catch (e) {
+    tutCaught = e
+}
+assert(tutCaught == "an age cannot be negative: -3", "caught our own throw")
+
+try {
+    val tutZero = 0
+    println(10 / tutZero)
+} catch (e) {
+    assert(e == "division by zero", "built-in panics are the same kind")
+}
