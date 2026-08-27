@@ -164,28 +164,43 @@ a C API (`jni.h`) that the generated C can call directly, because the
 generated program *is* C. No new backend capability is needed beyond tier 1;
 what is needed is a runtime module and a wrapper generator.
 
-**4a. The JVM host module** (`native`/`extern` over `libjvm`):
+**4a. The JVM host module — SHIPPED** ([`lib/jvm.keal`](../lib/jvm.keal)):
+one Keal module, no new compiler capability — a `native` block of helpers
+over `jni.h` plus `extern fun` declarations riding tier 1's `borrow`/`own`
+strings. Verified end to end by the suite (`jvm_gateway_works_end_to_end`,
+skipped when no JDK is installed):
 
 ```keal
-import "std/jvm.keal"
+import "lib/jvm.keal"
 
-jvmStart(["-Djava.class.path=lib/commons.jar"])
-val cls = jvmClass("java/util/UUID")
-val id = jvmCallStatic(cls, "randomUUID", "()Ljava/util/UUID;", [])
-println(jvmToString(id))   // e.g. 3f2a...-...
+jvmStart("")                              // or "-Djava.class.path=foo.jar"
+val date = jvmClass("java/time/LocalDate")
+jvmArgInt(2026)
+jvmArgInt(1)
+jvmArgInt(1)
+val d = jvmStaticObj(date, "of", "(III)Ljava/time/LocalDate;")
+jvmArgLong(58)
+println(jvmToString(jvmCallObj(d, "plusDays", "(J)Ljava/time/LocalDate;")))
+// 2026-02-28 — java.time, in a native Keal binary
 ```
 
-* `JNI_CreateJavaVM` behind `jvmStart`; object handles are opaque Keal
-  classes wrapping `jobject` global refs, released by the ordinary
-  reference-counting `release` (the class's release calls `DeleteGlobalRef`
-  — the memory model's "count first, then fields" makes this a one-liner).
-* `Int`/`Float`/`Bool`/`String` map to `jlong`/`jdouble`/`jboolean`/
-  `jstring` (strings copied at the boundary, tier 1a rules).
-* Exceptions: after every JNI call, `ExceptionOccurred` → a Keal panic
-  carrying the Java message. Honest and simple first; typed errors later.
+Build with the JDK on the line (link inputs from tier 2):
 
-**4b. `keal jbind Foo.jar com.example.Api`** — the wrapper generator. It
-reads class files (or runs `javap`) and emits typed Keal wrappers:
+```sh
+JH=$(/usr/libexec/java_home)
+keal build prog.keal -I$JH/include -I$JH/include/darwin \
+    -L$JH/lib/server -ljvm -Wl,-rpath,$JH/lib/server
+```
+
+The honest v1 shape: objects are opaque `Int` handles (JNI global refs,
+freed with `jvmFree`); arguments are pushed with `jvmArg*` matching the
+Java parameter type; calls take JNI signatures verbatim; a Java exception
+becomes a Keal panic carrying the throwable's `toString`. The worked
+example is [`examples/interop/java/`](../examples/interop/java/).
+
+**4b. `keal jbind`** — the wrapper generator, and the road to
+`import java.time.LocalDate`. It reads a class (via `javap` or the class
+file) and emits a typed Keal module over exactly the 4a calls:
 
 ```keal
 // generated
@@ -195,10 +210,17 @@ class JUuid(val handle: JvmRef) {
 fun uuidRandom(): JUuid { ... }
 ```
 
-so user code never touches JNI signatures. Kotlin classes are plain JVM
-classes — same generator, Kotlin's stdlib on the classpath. This is the
-"import Java/Kotlin classes" experience: `jbind` at build time, typed Keal
-API at write time.
+so user code never touches JNI signatures — handles live inside counted
+Keal classes whose release frees the global ref, and Java exceptions keep
+arriving as panics. Kotlin classes are plain JVM classes: same generator,
+Kotlin's stdlib on the classpath.
+
+The endpoint, in three steps that stack: **(1)** 4a, shipped — you write
+signatures; **(2)** `jbind`, next — a generated `LocalDate.keal` you
+import by path; **(3)** loader sugar — `import java.time.LocalDate`
+becomes a recognised import form: a non-path import asks jbind to generate
+(and cache) the module on the spot. Step 3 is a small loader extension;
+step 2 is the machinery.
 
 **4c. Later, if wanted:** GraalVM `native-image --shared` turns a JVM
 library into a plain C shared library with its own header — then the JVM
@@ -235,8 +257,8 @@ story of the test suite stops at the boundary — JVM output is the JVM's.*
 | 3 | Link inputs (`.a`, `-l`, `-L`, `-I`, `-D`) | Rust, Go, C libraries | **shipped** |
 | 4 | `keal bindgen` for C headers | sqlite/curl/every C lib, Rust via cbindgen, Go via c-archive | **shipped, with a verified Rust demo** |
 | 5 | Closure callbacks (1d) | C APIs that take function pointers | waits for a consumer |
-| 6 | JVM host module (4a) | Java + Kotlin | next |
-| 7 | `keal jbind` (4b) | typed Java/Kotlin imports | |
+| 6 | JVM host module (4a) | Java + Kotlin | **shipped, with a verified java.time demo** |
+| 7 | `keal jbind` (4b) | typed Java/Kotlin imports, then `import java.time.LocalDate` as loader sugar | next |
 
 Each row is independently shippable and independently testable; nothing in a
 later row forces rework of an earlier one.

@@ -483,12 +483,15 @@ The honest list, in rough order of intent:
 * **Actors on real threads** — the model ships and is deterministic today;
   the threaded scheduler (one heap per actor, counts stay non-atomic, exactly
   as the memory model planned) is the next runtime project. No API changes.
-* **Foreign languages** — C, C++ and **Rust** work today: `borrow`/`own`
-  strings, by-value records, `keal emit-header`, link inputs and
-  `keal bindgen` are all shipped, with a verified Rust demo in
-  [`examples/interop/rust/`](examples/interop/rust/). **Go** rides the same
-  two tools (`c-archive` headers bind the same way); what remains is the
-  JNI gateway and `keal jbind` for typed **Java/Kotlin** imports —
+* **Foreign languages** — C, C++, **Rust** and **Java/Kotlin** work today:
+  `borrow`/`own` strings, by-value records, `keal emit-header`, link
+  inputs, `keal bindgen` (verified Rust demo in
+  [`examples/interop/rust/`](examples/interop/rust/)) and the JVM gateway
+  [`lib/jvm.keal`](lib/jvm.keal) — `java.time.LocalDate` driven from a
+  native Keal binary in [`examples/interop/java/`](examples/interop/java/).
+  **Go** rides the same tools as Rust. What remains is `keal jbind`, the
+  generator that turns JNI signatures into typed Keal modules — and then
+  `import java.time.LocalDate` as loader sugar on top —
   [`docs/interop.md`](docs/interop.md) has the plan.
 * **Cycle handling** — reference counting leaks cycles; the three candidate
   answers (documented leak, weak references, cycle collector) are weighed in

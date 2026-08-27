@@ -304,6 +304,7 @@ fn selfhosted_lexer_agrees_with_the_oracle() {
     files.extend(keal_files("tests/native-extern"));
     files.extend(keal_files("tests/selfhost"));
     files.extend(keal_files("tests/selfhost/errors"));
+    files.push(root().join("lib/jvm.keal"));
     files.push(root().join("selfhost/lexer.keal"));
     files.push(root().join("src/prelude.keal"));
 
@@ -337,6 +338,7 @@ fn selfhosted_parser_agrees_with_the_oracle() {
     files.extend(keal_files("tests/selfhost"));
     files.extend(keal_files("tests/selfhost/errors"));
     files.extend(keal_files("tests/selfhost/parse-errors"));
+    files.push(root().join("lib/jvm.keal"));
     files.push(root().join("selfhost/lexer.keal"));
     files.push(root().join("selfhost/lexing.keal"));
     files.push(root().join("selfhost/parser.keal"));
@@ -374,6 +376,7 @@ fn selfhosted_checker_agrees_with_the_oracle() {
     files.extend(keal_files("tests/selfhost/errors"));
     files.extend(keal_files("tests/selfhost/parse-errors"));
     files.extend(keal_files("tests/selfhost/type-errors"));
+    files.push(root().join("lib/jvm.keal"));
     files.push(root().join("selfhost/checker.keal"));
     files.push(root().join("src/prelude.keal"));
 
@@ -409,6 +412,7 @@ fn selfhosted_emitter_agrees_with_the_oracle() {
     files.extend(keal_files("tests/selfhost/errors"));
     files.extend(keal_files("tests/selfhost/parse-errors"));
     files.extend(keal_files("tests/selfhost/type-errors"));
+    files.push(root().join("lib/jvm.keal"));
     files.push(root().join("selfhost/cbackend.keal"));
     files.push(root().join("src/prelude.keal"));
 
@@ -628,6 +632,53 @@ println(unnamed_params(40, 2.9))
         String::from_utf8_lossy(&ran.stdout),
         "43\n10.0\ntrue\n4\nLINKED!\nVec2(x=6.0, y=8.0)\n5.0\n42\n",
         "the linked program printed the wrong thing"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The JVM gateway: `java.time.LocalDate` driven from a natively compiled
+/// Keal program through lib/jvm.keal. Skipped when no JDK is around.
+#[test]
+fn jvm_gateway_works_end_to_end() {
+    let Ok(out) = Command::new("/usr/libexec/java_home").output() else {
+        eprintln!("skipping: no java_home helper");
+        return;
+    };
+    if !out.status.success() {
+        eprintln!("skipping: no JDK installed");
+        return;
+    }
+    let jh = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !Path::new(&jh).join("include/jni.h").exists() {
+        eprintln!("skipping: JDK without JNI headers");
+        return;
+    }
+
+    let dir = root().join("target").join("jvm-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot create the jvm test dir");
+
+    let built = Command::new(BIN)
+        .current_dir(&dir)
+        .arg("build")
+        .arg(root().join("examples/interop/java/localdate.keal"))
+        .arg(format!("-I{}/include", jh))
+        .arg(format!("-I{}/include/darwin", jh))
+        .arg(format!("-L{}/lib/server", jh))
+        .arg("-ljvm")
+        .arg(format!("-Wl,-rpath,{}/lib/server", jh))
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the JVM gateway did not build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let ran = Command::new(dir.join("localdate")).output().expect("cannot run the binary");
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        "2026-02-28\nSATURDAY\nfalse\n20512\n6765\n",
+        "the JVM gateway printed the wrong thing"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -1,0 +1,41 @@
+// Java from Keal, through the JVM gateway (lib/jvm.keal): java.time in a
+// natively compiled Keal program. Build with the JDK on the line —
+//
+//   JH=$(/usr/libexec/java_home)
+//   keal build localdate.keal -I$JH/include -I$JH/include/darwin \
+//       -L$JH/lib/server -ljvm -Wl,-rpath,$JH/lib/server
+//
+// `keal jbind` (interop tier 4b) will generate typed wrappers over exactly
+// these calls, so the signatures below disappear into a module.
+
+import "../../../lib/jvm.keal"
+
+unless (jvmStart("")) {
+    println("no JVM available")
+    exit(1)
+}
+
+val localDate = jvmClass("java/time/LocalDate")
+
+jvmArgInt(2026)
+jvmArgInt(1)
+jvmArgInt(1)
+val newYear = jvmStaticObj(localDate, "of", "(III)Ljava/time/LocalDate;")
+
+jvmArgLong(58)
+val later = jvmCallObj(newYear, "plusDays", "(J)Ljava/time/LocalDate;")
+println(jvmToString(later))
+
+val weekday = jvmCallObj(later, "getDayOfWeek", "()Ljava/time/DayOfWeek;")
+println(jvmToString(weekday))
+
+println(jvmCallBool(later, "isLeapYear", "()Z"))
+println(jvmCallLong(later, "toEpochDay", "()J"))
+
+val longClass = jvmClass("java/lang/Long")
+jvmArgStr("6765")
+println(jvmStaticLong(longClass, "parseLong", "(Ljava/lang/String;)J"))
+
+jvmFree(weekday)
+jvmFree(later)
+jvmFree(newYear)
