@@ -17,6 +17,7 @@ fun runtimeSource(): String {
  * C compiler can take without any flags. */
 
 #include <inttypes.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -381,6 +382,45 @@ KEAL_FN KealStr* keal_int_to_char(int64_t n, int64_t line) {
     return keal_str_from_bytes(buf, len);
 }
 
+/* `Float.toInt` truncates toward zero and saturates at the edges — the
+ * semantics of Rust's `as i64`, which is what the interpreters run. */
+KEAL_FN int64_t keal_f2i(double d) {
+    if (d != d) {
+        return 0;
+    }
+    if (d >= 9223372036854775807.0) {
+        return INT64_MAX;
+    }
+    if (d <= -9223372036854775808.0) {
+        return INT64_MIN;
+    }
+    return (int64_t)d;
+}
+
+KEAL_FN int64_t keal_int_abs(int64_t n) {
+    if (n < 0) {
+        return (int64_t)(0 - (uint64_t)n);
+    }
+    return n;
+}
+
+KEAL_FN int64_t keal_int_pow(int64_t n, int64_t e, int64_t line) {
+    if (e < 0) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "`Int.pow` needs a non-negative exponent, got %" PRId64, e);
+        keal_panic(msg, line);
+    }
+    int64_t r = 1;
+    for (int64_t i = 0; i < e; i++) {
+        if (__builtin_mul_overflow(r, n, &r)) {
+            char msg[96];
+            snprintf(msg, sizeof msg, "integer overflow in %" PRId64 ".pow(%" PRId64 ")", n, e);
+            keal_panic(msg, line);
+        }
+    }
+    return r;
+}
+
 KEAL_FN int64_t keal_int_min(int64_t a, int64_t b) { return a < b ? a : b; }
 
 KEAL_FN int64_t keal_int_max(int64_t a, int64_t b) { return a > b ? a : b; }
@@ -399,6 +439,43 @@ KEAL_FN KealStr* keal_str_get(KealStr* s, int64_t i, int64_t line) {
     int64_t from = keal_str_char_byte(s, idx);
     int64_t to = keal_str_char_byte(s, idx + 1);
     return keal_str_from_bytes(s->bytes + from, to - from);
+}
+
+/* Case mapping and trim are ASCII: the interpreters use Unicode tables the
+ * runtime does not carry, so non-ASCII cased letters pass through unchanged.
+ * ASCII covers what the language's own tooling needs. */
+KEAL_FN KealStr* keal_str_to_lower(KealStr* s) {
+    char* out = (char*)keal_alloc((size_t)(s->len < 1 ? 1 : s->len));
+    for (int64_t i = 0; i < s->len; i++) {
+        char c = s->bytes[i];
+        out[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+    }
+    KealStr* r = keal_str_from_bytes(out, s->len);
+    free(out);
+    return r;
+}
+
+KEAL_FN KealStr* keal_str_to_upper(KealStr* s) {
+    char* out = (char*)keal_alloc((size_t)(s->len < 1 ? 1 : s->len));
+    for (int64_t i = 0; i < s->len; i++) {
+        char c = s->bytes[i];
+        out[i] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
+    }
+    KealStr* r = keal_str_from_bytes(out, s->len);
+    free(out);
+    return r;
+}
+
+KEAL_FN KealStr* keal_str_trim(KealStr* s) {
+    int64_t a = 0;
+    int64_t b = s->len;
+    while (a < b && (s->bytes[a] == ' ' || s->bytes[a] == '\t' || s->bytes[a] == '\n' || s->bytes[a] == '\r')) {
+        a++;
+    }
+    while (b > a && (s->bytes[b - 1] == ' ' || s->bytes[b - 1] == '\t' || s->bytes[b - 1] == '\n' || s->bytes[b - 1] == '\r')) {
+        b--;
+    }
+    return keal_str_from_bytes(s->bytes + a, b - a);
 }
 
 /* ---- lists ------------------------------------------------------------ */
@@ -558,8 +635,64 @@ KEAL_FN void keal_list_add_all(KealList* dst, KealList* src) {
     }
 }
 
+/* `take` and `drop` build new lists; each element carried over gets a
+ * reference of its own, by the raw bump every counted object supports. */
+KEAL_FN KealList* keal_list_take(KealList* l, int64_t n) {
+    int64_t k = n < 0 ? 0 : (n > l->len ? l->len : n);
+    KealList* out = keal_list_new(l->release_elem);
+    for (int64_t i = 0; i < k; i++) {
+        if (out->release_elem != NULL) {
+            keal_word_retain_raw(l->data[i].p);
+        }
+        keal_list_push(out, l->data[i]);
+    }
+    return out;
+}
+
+KEAL_FN KealList* keal_list_drop(KealList* l, int64_t n) {
+    int64_t k = n < 0 ? 0 : (n > l->len ? l->len : n);
+    KealList* out = keal_list_new(l->release_elem);
+    for (int64_t i = k; i < l->len; i++) {
+        if (out->release_elem != NULL) {
+            keal_word_retain_raw(l->data[i].p);
+        }
+        keal_list_push(out, l->data[i]);
+    }
+    return out;
+}
+
+KEAL_FN int keal_cmp_i64(KealWord a, KealWord b) {
+    return a.i < b.i ? -1 : (a.i > b.i ? 1 : 0);
+}
+
+KEAL_FN int keal_cmp_str(KealWord a, KealWord b) {
+    return keal_str_cmp((KealStr*)a.p, (KealStr*)b.p);
+}
+
+/* A stable in-place insertion sort by the given comparator. */
+KEAL_FN void keal_list_sort_words(KealList* items, int (*cmp)(KealWord, KealWord)) {
+    for (int64_t i = 1; i < items->len; i++) {
+        KealWord it = items->data[i];
+        int64_t j = i - 1;
+        while (j >= 0 && cmp(items->data[j], it) > 0) {
+            items->data[j + 1] = items->data[j];
+            j--;
+        }
+        items->data[j + 1] = it;
+    }
+}
+
 KEAL_FN bool keal_key_eq_f64(KealWord a, KealWord b) {
     return a.d == b.d;
+}
+
+KEAL_FN bool keal_key_eq_opt_str(KealWord a, KealWord b) {
+    KealStr* x = (KealStr*)a.p;
+    KealStr* y = (KealStr*)b.p;
+    if (x == NULL || y == NULL) {
+        return x == y;
+    }
+    return keal_str_cmp(x, y) == 0;
 }
 
 KEAL_FN bool keal_list_contains(KealList* l, KealWord w, bool (*eq)(KealWord, KealWord)) {
@@ -570,6 +703,27 @@ KEAL_FN bool keal_list_contains(KealList* l, KealWord w, bool (*eq)(KealWord, Ke
     }
     return false;
 }
+
+/* Structural equality, as the interpreters compare lists: same length,
+ * elements equal pairwise. Null equals only null. */
+KEAL_FN bool keal_list_eq(KealList* a, KealList* b, bool (*eq)(KealWord, KealWord)) {
+    if (a == NULL || b == NULL || a == b) {
+        return a == b;
+    }
+    if (a->len != b->len) {
+        return false;
+    }
+    for (int64_t i = 0; i < a->len; i++) {
+        if (!eq(a->data[i], b->data[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* forward declaration: maps are declared below, their equality with them. */
+typedef struct KealMap KealMap;
+KEAL_FN int64_t keal_map_find(KealMap* m, KealWord key);
 
 /* A stable insertion sort of `items` by the parallel Int keys — small,
  * predictable, and stable, which is the semantics the interpreters give. */
@@ -691,6 +845,28 @@ KEAL_FN void keal_map_set(KealMap* m, KealWord key, KealWord value) {
     m->data[2 * m->len] = key;
     m->data[2 * m->len + 1] = value;
     m->len++;
+}
+
+/* Structural map equality, as the interpreters compare maps: same size, and
+ * every entry of `a` present in `b` with an equal value — insertion order
+ * does not matter. Keys compare by the map's own comparator. */
+KEAL_FN bool keal_map_eq(KealMap* a, KealMap* b, bool (*val_eq)(KealWord, KealWord)) {
+    if (a == NULL || b == NULL || a == b) {
+        return a == b;
+    }
+    if (a->len != b->len) {
+        return false;
+    }
+    for (int64_t i = 0; i < a->len; i++) {
+        int64_t at = keal_map_find(b, a->data[2 * i]);
+        if (at < 0) {
+            return false;
+        }
+        if (!val_eq(a->data[2 * i + 1], b->data[2 * at + 1])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /* A snapshot of the keys, for iteration; borrows, like the list snapshot. */

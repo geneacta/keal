@@ -80,5 +80,368 @@ record Tuple5<A, B, C, D, E>(
     val fourth: D,
     val fifth: E
 )
+
+// ---- lazy sequences ------------------------------------------------------
+//
+// The pull-based, fusing pipeline — Keal's equivalent of Java's Stream and
+// Kotlin's Sequence, written here in ordinary Keal: generic records, classes
+// and closures are all it needs. Nothing runs until a terminal operation
+// pulls, so `seq(xs).map(f).filter(p).take(3).toList()` calls `f` at most as
+// many times as it takes to find three keepers, and an infinite source like
+// `iterate(1, { it * 2 })` is fine as long as something downstream stops.
+//
+// Everything here is generic, so a program that never touches sequences
+// pays nothing for them — the native backend only compiles what a program
+// instantiates.
+
+/// One pass over a sequence: whether an element remains, and the next one.
+/// Calling `nextFn` without a true `hasNextFn` first is the caller's bug.
+class SeqIter<T>(val hasNextFn: () -> Bool, val nextFn: () -> T)
+
+/// A recipe for iteration. Each terminal operation asks `iterFn` for a
+/// fresh pass, so a sequence built from a stable source can be walked twice.
+class Sequence<T>(val iterFn: () -> SeqIter<T>) {
+    fun iterator(): SeqIter<T> {
+        val make = this.iterFn
+        return make()
+    }
+
+    /// Transforms each element as it is pulled.
+    fun map<R>(transform: (T) -> R): Sequence<R> {
+        val makeIter = this.iterFn
+        return Sequence({ ->
+            val it = makeIter()
+            val next = it.nextFn
+            SeqIter(it.hasNextFn, { -> transform(next()) })
+        })
+    }
+
+    /// Keeps the elements the predicate accepts. One element of lookahead,
+    /// held in a one-slot buffer, is what makes `hasNext` honest.
+    fun filter(predicate: (T) -> Bool): Sequence<T> {
+        val makeIter = this.iterFn
+        return Sequence({ ->
+            val it = makeIter()
+            val has = it.hasNextFn
+            val next = it.nextFn
+            val buf: List<T> = []
+            val advance = { ->
+                while (buf.size == 0 and has()) {
+                    val v = next()
+                    if (predicate(v)) { buf.add(v) }
+                }
+            }
+            SeqIter({ ->
+                advance()
+                buf.size > 0
+            }, { ->
+                advance()
+                buf.removeAt(0)
+            })
+        })
+    }
+
+    /// At most `n` elements, then stops pulling.
+    fun take(n: Int): Sequence<T> {
+        val makeIter = this.iterFn
+        return Sequence({ ->
+            val it = makeIter()
+            val has = it.hasNextFn
+            val next = it.nextFn
+            var left = n
+            SeqIter({ -> left > 0 and has() }, { ->
+                left -= 1
+                next()
+            })
+        })
+    }
+
+    /// Skips the first `n` elements, lazily: nothing is pulled until the
+    /// downstream asks.
+    fun drop(n: Int): Sequence<T> {
+        val makeIter = this.iterFn
+        return Sequence({ ->
+            val it = makeIter()
+            val has = it.hasNextFn
+            val next = it.nextFn
+            var toSkip = n
+            val advance = { ->
+                while (toSkip > 0 and has()) {
+                    next()
+                    toSkip -= 1
+                }
+            }
+            SeqIter({ ->
+                advance()
+                has()
+            }, { ->
+                advance()
+                next()
+            })
+        })
+    }
+
+    /// Elements while the predicate holds; the first refusal ends the
+    /// sequence and nothing after it is pulled.
+    fun takeWhile(predicate: (T) -> Bool): Sequence<T> {
+        val makeIter = this.iterFn
+        return Sequence({ ->
+            val it = makeIter()
+            val has = it.hasNextFn
+            val next = it.nextFn
+            val buf: List<T> = []
+            var done = false
+            val advance = { ->
+                if (not done and buf.size == 0 and has()) {
+                    val v = next()
+                    if (predicate(v)) { buf.add(v) } else { done = true }
+                }
+            }
+            SeqIter({ ->
+                advance()
+                buf.size > 0
+            }, { ->
+                advance()
+                buf.removeAt(0)
+            })
+        })
+    }
+
+    /// Skips the leading run the predicate accepts, keeps everything after.
+    fun dropWhile(predicate: (T) -> Bool): Sequence<T> {
+        val makeIter = this.iterFn
+        return Sequence({ ->
+            val it = makeIter()
+            val has = it.hasNextFn
+            val next = it.nextFn
+            val buf: List<T> = []
+            var dropping = true
+            val advance = { ->
+                if (dropping) {
+                    while (has()) {
+                        val v = next()
+                        unless (predicate(v)) {
+                            buf.add(v)
+                            break
+                        }
+                    }
+                    dropping = false
+                }
+            }
+            SeqIter({ ->
+                advance()
+                buf.size > 0 or has()
+            }, { ->
+                advance()
+                if (buf.size > 0) { buf.removeAt(0) } else { next() }
+            })
+        })
+    }
+
+    /// Substitutes a whole sequence for each element and flattens, still
+    /// pulling one element at a time.
+    fun flatMap<R>(transform: (T) -> Sequence<R>): Sequence<R> {
+        val makeIter = this.iterFn
+        return Sequence({ ->
+            val outer = makeIter()
+            val oHas = outer.hasNextFn
+            val oNext = outer.nextFn
+            val inner: List<SeqIter<R>> = []
+            val advance = { ->
+                while (true) {
+                    if (inner.size > 0) {
+                        val cur = inner[0]
+                        val curHas = cur.hasNextFn
+                        if (curHas()) { break }
+                        inner.removeAt(0)
+                    } else {
+                        unless (oHas()) { break }
+                        val sub = transform(oNext())
+                        val mk = sub.iterFn
+                        inner.add(mk())
+                    }
+                }
+            }
+            SeqIter({ ->
+                advance()
+                inner.size > 0
+            }, { ->
+                advance()
+                val cur = inner[0]
+                val curNext = cur.nextFn
+                curNext()
+            })
+        })
+    }
+
+    // -- terminal operations: these pull. --
+
+    fun toList(): List<T> {
+        val out: List<T> = []
+        val it = this.iterator()
+        val has = it.hasNextFn
+        val next = it.nextFn
+        while (has()) {
+            out.add(next())
+        }
+        return out
+    }
+
+    proc forEach(action: (T) -> Unit) {
+        val it = this.iterator()
+        val has = it.hasNextFn
+        val next = it.nextFn
+        while (has()) {
+            action(next())
+        }
+    }
+
+    fun fold<R>(initial: R, operation: (R, T) -> R): R {
+        val it = this.iterator()
+        val has = it.hasNextFn
+        val next = it.nextFn
+        var acc = initial
+        while (has()) {
+            acc = operation(acc, next())
+        }
+        return acc
+    }
+
+    fun count(): Int {
+        val it = this.iterator()
+        val has = it.hasNextFn
+        val next = it.nextFn
+        var n = 0
+        while (has()) {
+            next()
+            n += 1
+        }
+        return n
+    }
+
+    /// True as soon as one element passes; pulls no further.
+    fun any(predicate: (T) -> Bool): Bool {
+        val it = this.iterator()
+        val has = it.hasNextFn
+        val next = it.nextFn
+        while (has()) {
+            if (predicate(next())) { return true }
+        }
+        return false
+    }
+
+    /// False as soon as one element fails; pulls no further.
+    fun all(predicate: (T) -> Bool): Bool {
+        val it = this.iterator()
+        val has = it.hasNextFn
+        val next = it.nextFn
+        while (has()) {
+            unless (predicate(next())) { return false }
+        }
+        return true
+    }
+
+    /// The first element, or null for an empty sequence.
+    fun first(): T? {
+        val it = this.iterator()
+        val has = it.hasNextFn
+        val next = it.nextFn
+        if (has()) { return next() }
+        return null
+    }
+}
+
+/// A sequence over a list. The list is read as the sequence is pulled, one
+/// index at a time.
+fun seq<T>(xs: List<T>): Sequence<T> {
+    return Sequence({ ->
+        var i = 0
+        SeqIter({ -> i < xs.size }, { ->
+            val v = xs[i]
+            i += 1
+            v
+        })
+    })
+}
+
+/// The infinite sequence `seed, step(seed), step(step(seed)), ...`. Pair it
+/// with `take` or `takeWhile`; a plain `toList` on it will not come back.
+fun iterate<T>(seed: T, step: (T) -> T): Sequence<T> {
+    return Sequence({ ->
+        var current = seed
+        var started = false
+        SeqIter({ -> true }, { ->
+            if (started) {
+                current = step(current)
+            } else {
+                started = true
+            }
+            current
+        })
+    })
+}
+
+// ---- actors --------------------------------------------------------------
+//
+// The concurrency model the language committed to: actors that own their
+// state and talk only through messages. What lives here is the model itself,
+// runnable today on every engine — spawning, mailboxes, and a deterministic
+// scheduler — so programs can be written and tested against actor semantics
+// now. Running actors on real threads (one heap each, counts still plain,
+// exactly as docs/memory.md lays out) is the planned next step, and nothing
+// in this API will need to change for it: `send` is already asynchronous
+// and `run` is already the only synchronization point.
+//
+// One system carries one message type `M`; a protocol with several shapes
+// of message is a record or a `when` over a small union the program defines.
+
+/// The address of an actor: something to `send` to. Holds only the mailbox,
+/// so references never form cycles through the system.
+class ActorRef<M>(val mailbox: List<M>) {
+    /// Enqueues and returns immediately; delivery happens inside `run`.
+    proc send(msg: M) {
+        this.mailbox.add(msg)
+    }
+}
+
+/// A set of actors and their mailboxes. `spawn` registers a handler; `run`
+/// delivers until every mailbox is empty.
+class ActorSystem<M>() {
+    var handlers: List<(ActorRef<M>, M) -> Unit> = []
+    var mailboxes: List<List<M>> = []
+
+    /// A new actor. The handler receives the actor's own ref — for replies
+    /// and self-sends — and one message; its state lives in what the
+    /// handler's closure captured.
+    fun spawn(handler: (ActorRef<M>, M) -> Unit): ActorRef<M> {
+        val box: List<M> = []
+        this.handlers.add(handler)
+        this.mailboxes.add(box)
+        return ActorRef(box)
+    }
+
+    /// Delivers messages round-robin — one message per actor per pass, in
+    /// spawn order — until every mailbox is drained. Deterministic, so the
+    /// same program computes the same thing on every engine; a threaded
+    /// scheduler may later relax the ordering between actors, never within
+    /// one actor's mailbox.
+    proc run() {
+        var progress = true
+        while (progress) {
+            progress = false
+            var i = 0
+            while (i < this.mailboxes.size) {
+                val box = this.mailboxes[i]
+                if (box.size > 0) {
+                    val msg = box.removeAt(0)
+                    val handle = this.handlers[i]
+                    handle(ActorRef(box), msg)
+                    progress = true
+                }
+                i += 1
+            }
+        }
+    }
+}
 """
 }

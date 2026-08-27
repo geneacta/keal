@@ -605,6 +605,57 @@ escapes, no interpolation — for text meant to pass through whole.
 
 ---
 
+## Lazy sequences
+
+The prelude carries a pull-based pipeline — Keal's `Stream`/`Sequence` —
+written in ordinary Keal. Nothing runs until a terminal operation pulls:
+
+```keal
+var calls = 0
+val two = seq([10, 20, 30, 40]).map({ n ->
+    calls += 1
+    n + 1
+}).take(2).toList()
+assert(two == [11, 21], "only the taken elements were computed")
+assert(calls == 2, "take(2) pulled exactly twice")
+```
+
+Infinite sources are fine as long as something downstream stops:
+
+```keal
+val powers = iterate(1, { it * 2 }).take(5).toList()
+assert(powers == [1, 2, 4, 8, 16], "iterate is lazy")
+```
+
+`map`, `filter`, `take`, `drop`, `takeWhile`, `dropWhile` and `flatMap` are
+the lazy stages; `toList`, `forEach`, `fold`, `count`, `any`, `all` and
+`first` pull. Everything compiles to native like the rest of the language.
+
+## Actors
+
+Concurrency in Keal is actors: state owned by one handler, messages between
+them, and — today — a deterministic round-robin scheduler, so a program
+computes the same thing on every engine. An actor's state lives in whatever
+its handler's closure captured:
+
+```keal
+val tally: ActorSystem<Int> = ActorSystem()
+var total = 0
+val counter = tally.spawn({ self, n ->
+    total += n
+    if (n > 1) { self.send(n / 2) }
+})
+counter.send(8)
+tally.run()
+assert(total == 15, "8 + 4 + 2 + 1, delivered one message per pass")
+```
+
+`send` enqueues and returns; `run` delivers until every mailbox is empty.
+Running actors on real threads is the planned next step, and changes nothing
+in this API.
+
+---
+
 ## Where to go next
 
 * [`docs/language.md`](docs/language.md) — the complete reference.

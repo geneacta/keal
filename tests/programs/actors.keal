@@ -1,0 +1,59 @@
+// The actor model: mailboxes, spawn, deterministic delivery. State lives in
+// what each handler's closure captured; actors talk only through `send`.
+
+record Msg(val kind: String, val n: Int)
+
+// Ping-pong: two actors volley a counter down to zero.
+val sys: ActorSystem<Msg> = ActorSystem()
+val volleys: List<Int> = []
+
+// Forward declaration dance: each side needs the other's ref, so the refs
+// are captured through one-slot lists filled after both exist.
+val pingRef: List<ActorRef<Msg>> = []
+val pongRef: List<ActorRef<Msg>> = []
+
+val ping = sys.spawn({ self, msg ->
+    if (msg.n > 0) {
+        volleys.add(msg.n)
+        pongRef[0].send(Msg("pong", msg.n - 1))
+    }
+})
+val pong = sys.spawn({ self, msg ->
+    if (msg.n > 0) {
+        pingRef[0].send(Msg("ping", msg.n - 1))
+    }
+})
+pingRef.add(ping)
+pongRef.add(pong)
+
+ping.send(Msg("ping", 6))
+sys.run()
+assert(volleys == [6, 4, 2], "ping saw the even counts on the way down")
+
+// An accumulator actor: captured state survives across messages.
+val tally: ActorSystem<Int> = ActorSystem()
+val seen: List<Int> = []
+var total = 0
+val counter = tally.spawn({ self, n ->
+    total += n
+    seen.add(total)
+    // A self-send keeps the system running for another pass.
+    if (n > 1) {
+        self.send(n / 2)
+    }
+})
+counter.send(8)
+tally.run()
+assert(seen == [8, 12, 14, 15], "8, then self-sent 4, 2, 1")
+assert(total == 15, "the captured cell accumulated across messages")
+
+// Round-robin is one message per actor per pass, in spawn order.
+val order: ActorSystem<String> = ActorSystem()
+val log: List<String> = []
+val a = order.spawn({ self, m -> log.add("a:" + m) })
+val b = order.spawn({ self, m -> log.add("b:" + m) })
+a.send("1")
+a.send("2")
+b.send("x")
+order.run()
+assert(log == ["a:1", "b:x", "a:2"], "one message per actor per pass")

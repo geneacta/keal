@@ -1,0 +1,84 @@
+// Lazy sequences: the pipeline must be lazy — provably, via effect
+// counters — and every operation must agree with its eager cousin.
+
+// A terminal pulls; building a pipeline runs nothing.
+var calls = 0
+val pipeline = seq([1, 2, 3, 4, 5, 6]).map({ n ->
+    calls += 1
+    n * 10
+})
+assert(calls == 0, "building a pipeline must evaluate nothing")
+
+val all6 = pipeline.toList()
+assert(all6 == [10, 20, 30, 40, 50, 60], "map over a list")
+assert(calls == 6, "toList pulls each element once")
+
+// take stops the upstream: only what is needed is computed.
+calls = 0
+val firstTwo = seq([1, 2, 3, 4, 5, 6]).map({ n ->
+    calls += 1
+    n * 10
+}).take(2).toList()
+assert(firstTwo == [10, 20], "take(2)")
+assert(calls == 2, "take(2) must pull exactly two elements")
+
+// filter + map fuse per element.
+val odds = seq([1, 2, 3, 4, 5]).filter({ it % 2 == 1 }).map({ it * it }).toList()
+assert(odds == [1, 9, 25], "filter then map")
+
+// drop, takeWhile, dropWhile.
+assert(seq([1, 2, 3, 4]).drop(2).toList() == [3, 4], "drop(2)")
+assert(seq([1, 2, 3, 1]).takeWhile({ it < 3 }).toList() == [1, 2], "takeWhile")
+assert(seq([1, 2, 3, 1]).dropWhile({ it < 3 }).toList() == [3, 1], "dropWhile")
+
+// takeWhile pulls one element past the run, never more.
+calls = 0
+val whileSmall = seq([1, 2, 9, 1, 1]).map({ n ->
+    calls += 1
+    n
+}).takeWhile({ it < 5 }).toList()
+assert(whileSmall == [1, 2], "takeWhile keeps the accepted run")
+assert(calls == 3, "takeWhile pulls exactly one refusal")
+
+// flatMap flattens lazily.
+val flat = seq([1, 3]).flatMap({ n -> seq([n, n + 1]) }).toList()
+assert(flat == [1, 2, 3, 4], "flatMap")
+
+// Infinite sources are fine as long as something downstream stops.
+val powers = iterate(1, { it * 2 }).take(5).toList()
+assert(powers == [1, 2, 4, 8, 16], "iterate + take")
+val below = iterate(0, { it + 7 }).takeWhile({ it < 30 }).toList()
+assert(below == [0, 7, 14, 21, 28], "iterate + takeWhile")
+
+// Terminals.
+assert(seq([1, 2, 3]).fold(0, { acc, n -> acc + n }) == 6, "fold")
+assert(seq([1, 2, 3]).count() == 3, "count")
+assert(seq(["a", "b"]).any({ it == "b" }), "any hit")
+assert(not seq(["a", "b"]).any({ it == "z" }), "any miss")
+assert(seq([2, 4]).all({ it % 2 == 0 }), "all pass")
+assert(not seq([2, 3]).all({ it % 2 == 0 }), "all fail")
+
+// any and all stop pulling as soon as the answer is known.
+calls = 0
+val hit = seq([1, 2, 3, 4]).map({ n ->
+    calls += 1
+    n
+}).any({ it == 2 })
+assert(hit and calls == 2, "any short-circuits")
+
+// first: an element or null.
+val head = seq(["x", "y"]).first()
+assert(head == "x", "first of a non-empty sequence")
+val empty: List<String> = []
+assert(seq(empty).first() == null, "first of an empty sequence")
+
+// A sequence over a stable source can be walked twice.
+val twice = seq([1, 2]).map({ it + 1 })
+assert(twice.toList() == [2, 3], "first pass")
+assert(twice.toList() == [2, 3], "second pass")
+
+// Records flow through pipelines like anything else.
+record Score(val name: String, val points: Int)
+val scored = seq([Score("ana", 3), Score("bo", 9), Score("cy", 5)])
+val best = scored.filter({ it.points > 4 }).map({ it.name }).toList()
+assert(best == ["bo", "cy"], "records through a pipeline")

@@ -1,0 +1,23 @@
+// The actor model, compiled to native: closures in lists, mailboxes,
+// deterministic round-robin delivery.
+
+val sys: ActorSystem<Int> = ActorSystem()
+var total = 0
+val acc = sys.spawn({ self, n ->
+    total += n
+    println("got " + "${n}")
+    if (n > 1) {
+        self.send(n / 2)
+    }
+})
+acc.send(20)
+sys.run()
+println(total)
+
+val order: ActorSystem<String> = ActorSystem()
+val a = order.spawn({ self, m -> println("a:" + m) })
+val b = order.spawn({ self, m -> println("b:" + m) })
+a.send("1")
+a.send("2")
+b.send("x")
+order.run()

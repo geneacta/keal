@@ -1,1 +1,6 @@
 /target
+dist/
+cbackend
+cbackend.c
+cbackend.o
+.bootstrap-check.c

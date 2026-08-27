@@ -761,6 +761,12 @@ class CBackend() {
             if (this.elemKind(t.args[1], file, atLine, col) == null) { return null }
             return CElem("ptr", "KealMap", "keal_map")
         }
+        // A closure is one pointer too, as long as its signature is
+        // representable — the same test `ctype` applies.
+        if (t.kind == "Fun") {
+            if (this.ctype(t, file, atLine, col) == null) { return null }
+            return CElem("ptr", "KealClosure", "keal_fn")
+        }
         // A nullable reference is the same pointer, allowed to be null;
         // retain and release both accept null, so the element machinery
         // never needs to know.
@@ -2479,6 +2485,15 @@ class CBackend() {
             this.line("const KealOptF64 ${t} = keal_str_to_float(${s});")
             return t
         }
+        if ((name == "toLower" or name == "toUpper" or name == "trim") and n == 0) {
+            val s = this.expr(obj)
+            val f = when (name) {
+                "toLower" -> "keal_str_to_lower"
+                "toUpper" -> "keal_str_to_upper"
+                else -> "keal_str_trim"
+            }
+            return this.ownTemp("${f}(${s})")
+        }
         return null
     }
 
@@ -2500,18 +2515,85 @@ class CBackend() {
             val v = this.expr(obj)
             return this.ownTemp("keal_int_to_char(${v}, ${e.line})")
         }
+        if (name == "abs" and n == 0) {
+            val v = this.expr(obj)
+            val t = this.temp()
+            this.line("const int64_t ${t} = keal_int_abs(${v});")
+            return t
+        }
+        if (name == "pow" and n == 1) {
+            val a = this.expr(obj)
+            val b = this.expr(e.args[0].value)
+            val t = this.temp()
+            this.line("const int64_t ${t} = keal_int_pow(${a}, ${b}, ${e.line});")
+            return t
+        }
         return null
     }
 
-    /// The equality a `contains` scan applies, by element kind; anything
-    /// deeper than a word or a string is refused rather than guessed.
-    fun elemEqFn(elemTy: Ty, file: Int, atLine: Int, col: Int): String? {
+    fun floatBuiltin(e: Ex, obj: Ex, name: String): String? {
+        val n = e.args.size
+        if ((name == "toInt" or name == "floor" or name == "ceil" or name == "round") and n == 0) {
+            val v = this.expr(obj)
+            val inner = when (name) {
+                "toInt" -> v
+                "floor" -> "floor(${v})"
+                "ceil" -> "ceil(${v})"
+                else -> "round(${v})"
+            }
+            val t = this.temp()
+            this.line("const int64_t ${t} = keal_f2i(${inner});")
+            return t
+        }
+        if ((name == "abs" or name == "sqrt") and n == 0) {
+            val v = this.expr(obj)
+            val f = if (name == "abs") { "fabs" } else { "sqrt" }
+            val t = this.temp()
+            this.line("const double ${t} = ${f}(${v});")
+            return t
+        }
+        if ((name == "min" or name == "max" or name == "pow") and n == 1) {
+            val a = this.expr(obj)
+            val b = this.expr(e.args[0].value)
+            val f = when (name) {
+                "min" -> "fmin"
+                "max" -> "fmax"
+                else -> "pow"
+            }
+            val t = this.temp()
+            this.line("const double ${t} = ${f}(${a}, ${b});")
+            return t
+        }
+        if (name == "isNaN" and n == 0) {
+            val v = this.expr(obj)
+            val t = this.temp()
+            this.line("const bool ${t} = (bool)isnan(${v});")
+            return t
+        }
+        return null
+    }
+
+    /// The equality a `contains` scan or a list comparison applies, by
+    /// element kind; anything deeper than a word or a string is refused
+    /// rather than guessed. `what` names the construct in the refusal.
+    fun elemEqFn(elemTy: Ty, file: Int, atLine: Int, col: Int, what: String): String? {
         if (elemTy.kind == "Str") { return "keal_key_eq_str" }
         if (elemTy.kind == "Float") { return "keal_key_eq_f64" }
         if (elemTy.kind == "Int" or elemTy.kind == "Bool" or elemTy.kind == "Never") {
             return "keal_key_eq_word"
         }
-        this.unsupported(file, atLine, col, "`contains` on a list of `${tyShow(elemTy)}`")
+        // Instances and closures compare by identity inside a container —
+        // exactly what the interpreters' `values_equal` does — and a
+        // pointer is a word.
+        if (elemTy.kind == "Class" or elemTy.kind == "Fun") { return "keal_key_eq_word" }
+        if (elemTy.kind == "Nullable") {
+            val inner = elemTy.args[0]
+            if (inner.kind == "Str") { return "keal_key_eq_opt_str" }
+            if (inner.kind == "Class" or inner.kind == "Fun") { return "keal_key_eq_word" }
+            this.unsupported(file, atLine, col, "${what} `${tyShow(inner)}?`")
+            return null
+        }
+        this.unsupported(file, atLine, col, "${what} `${tyShow(elemTy)}`")
         return null
     }
 
@@ -2556,7 +2638,7 @@ class CBackend() {
         if (name == "contains" and n == 1) {
             val elem = this.elemKind(elemTy, e.file, e.line, e.col)
             if (elem == null) { return null }
-            val eq = this.elemEqFn(elemTy, e.file, e.line, e.col)
+            val eq = this.elemEqFn(elemTy, e.file, e.line, e.col, "`contains` on a list of")
             if (eq == null) { return null }
             val l = this.expr(obj)
             val v = this.expr(e.args[0].value)
@@ -2603,6 +2685,43 @@ class CBackend() {
             this.indent -= 1
             this.line("}")
             return t
+        }
+        if ((name == "take" or name == "drop") and n == 1) {
+            val l = this.expr(obj)
+            val cnt = this.expr(e.args[0].value)
+            val f = if (name == "take") { "keal_list_take" } else { "keal_list_drop" }
+            return this.ownTempOf(tyList(elemTy), "${f}(${l}, ${cnt})")
+        }
+        if (name == "sorted" and n == 0) {
+            var cmp = ""
+            if (elemTy.kind == "Int" or elemTy.kind == "Bool" or elemTy.kind == "Never") {
+                cmp = "keal_cmp_i64"
+            } else if (elemTy.kind == "Str") {
+                cmp = "keal_cmp_str"
+            } else {
+                this.unsupported(e.file, e.line, e.col, "`sorted` on a list of `${tyShow(elemTy)}`")
+                return "0"
+            }
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val l = this.expr(obj)
+            val snap = this.temp()
+            this.line("KealList* ${snap} = keal_list_snapshot(${l});")
+            this.own(snap, tyList(elemTy))
+            this.line("keal_list_sort_words(${snap}, ${cmp});")
+            val thunk = this.releaserThunk(elem)
+            val out = this.temp()
+            this.line("KealList* ${out} = keal_list_new(${thunk});")
+            this.own(out, tyList(elemTy))
+            val j = this.temp()
+            this.line("for (int64_t ${j} = 0; ${j} < ${snap}->len; ${j}++) {")
+            this.indent += 1
+            val sortedItem = elemUnword(elem, "${snap}->data[${j}]")
+            val stored = retained(elemTy, sortedItem)
+            this.line("keal_list_push(${out}, ${elemWord(elem, stored)});")
+            this.indent -= 1
+            this.line("}")
+            return out
         }
         if (name == "sortedBy" and n == 1) {
             // The key's type is whatever the lambda actually returns; only
@@ -3011,6 +3130,10 @@ class CBackend() {
             val v = this.listHigherOrder(e, obj, name, receiverTy.args[0])
             if (v != null) { return v }
         }
+        // `toString` renders any value the way interpolation would.
+        if (name == "toString" and e.args.size == 0 and receiverTy != null) {
+            return this.toStringValue(obj)
+        }
         // The rest of the built-in surface the self-hosted compiler leans on.
         if (receiverTy != null) {
             if (receiverTy.kind == "Str") {
@@ -3021,10 +3144,24 @@ class CBackend() {
                 val v = this.intBuiltin(e, obj, name)
                 if (v != null) { return v }
             }
+            if (receiverTy.kind == "Float") {
+                val v = this.floatBuiltin(e, obj, name)
+                if (v != null) { return v }
+            }
             if (receiverTy.kind == "List") {
                 val v = this.listBuiltin(e, obj, name, receiverTy.args[0])
                 if (v != null) { return v }
             }
+        }
+        // `x in a..b` as an expression: the desugared `contains` on a range
+        // literal is two comparisons, no allocation.
+        if (receiverTy != null and receiverTy.kind == "Range" and name == "contains" and e.args.size == 1 and obj.kind == "range") {
+            val lo = this.expr(obj.kids[0])
+            val hi = this.expr(obj.kids[1])
+            val v = this.expr(e.args[0].value)
+            val t = this.temp()
+            this.line("const bool ${t} = (${v} >= ${lo} && ${v} < ${hi});")
+            return t
         }
         if (receiverTy == null or receiverTy.kind != "Class") {
             this.unsupported(e.file, e.line, e.col, "the method `${name}` on a built-in type")
@@ -3314,6 +3451,54 @@ class CBackend() {
                 }
             }
         }
+        // Lists compare structurally, as the interpreters compare them; a
+        // pointer comparison would be a silent lie. Maps are refused by name
+        // until they earn the same treatment.
+        if ((op == "==" or op == "!=") and lhs.kind != "null" and rhs.kind != "null") {
+            val rt0 = this.ety(rhs)
+            var lbase0: Ty? = null
+            if (lty != null) { lbase0 = tyNonNull(lty) }
+            var rbase0: Ty? = null
+            if (rt0 != null) { rbase0 = tyNonNull(rt0) }
+            val lbase = lbase0
+            val rbase = rbase0
+            var listElem: Ty? = null
+            if (lbase != null) {
+                if (lbase.kind == "List") { listElem = lbase.args[0] }
+            }
+            val le0 = listElem
+            var listElem2: Ty? = le0
+            if (le0 == null and rbase != null) {
+                if (rbase.kind == "List") { listElem2 = rbase.args[0] }
+            }
+            val le = listElem2
+            if (le != null) {
+                val eq = this.elemEqFn(le, e.file, e.line, e.col, "comparing a list of")
+                if (eq == null) { return "0" }
+                val t = this.temp()
+                val negate = if (op == "!=") { "!" } else { "" }
+                this.line("const bool ${t} = ${negate}keal_list_eq(${a}, ${b}, ${eq});")
+                return t
+            }
+            var mapVal0: Ty? = null
+            if (lbase != null) {
+                if (lbase.kind == "Map") { mapVal0 = lbase.args[1] }
+            }
+            val mv0 = mapVal0
+            var mapVal1: Ty? = mv0
+            if (mv0 == null and rbase != null) {
+                if (rbase.kind == "Map") { mapVal1 = rbase.args[1] }
+            }
+            val vt = mapVal1
+            if (vt != null) {
+                val eq = this.elemEqFn(vt, e.file, e.line, e.col, "comparing map values of")
+                if (eq == null) { return "0" }
+                val t = this.temp()
+                val negate = if (op == "!=") { "!" } else { "" }
+                this.line("const bool ${t} = ${negate}keal_map_eq(${a}, ${b}, ${eq});")
+                return t
+            }
+        }
         val rty = this.ety(rhs)
         var nullableStr = false
         if (lty != null and lty.kind == "Nullable") {
@@ -3341,6 +3526,11 @@ class CBackend() {
             }
             this.line("const bool ${t} = keal_str_cmp(${a}, ${b}) ${cmp};")
             return t
+        }
+        // C's `%` is integer-only; the float remainder is `fmod`, which is
+        // also what Rust's `%` on f64 computes.
+        if (op == "%" and lty != null and lty.kind == "Float") {
+            return "fmod(${a}, ${b})"
         }
         return "(${a} ${op} ${b})"
     }
@@ -3592,6 +3782,38 @@ class CBackend() {
             // the whole process at once.
             this.line("exit((int)(${c}));")
             return "0"
+        }
+        // `assert`: the message, when given, is evaluated eagerly — the
+        // interpreters evaluate arguments before the call, and so does this.
+        if (name == "assert" and (args.size == 1 or args.size == 2)) {
+            val c = this.expr(args[0].value)
+            if (args.size == 2) {
+                val m = this.expr(args[1].value)
+                this.line("if (!(${c})) { keal_panic(${m}->bytes, ${e.line}); }")
+            } else {
+                this.line("if (!(${c})) { keal_panic(\"assertion failed\", ${e.line}); }")
+            }
+            return "0"
+        }
+        // The float globals map straight onto the C math library.
+        if (name == "sqrt" and args.size == 1) {
+            val v = this.expr(args[0].value)
+            val t = this.temp()
+            this.line("const double ${t} = sqrt(${v});")
+            return t
+        }
+        if (name == "pow" and args.size == 2) {
+            val a = this.expr(args[0].value)
+            val b = this.expr(args[1].value)
+            val t = this.temp()
+            this.line("const double ${t} = pow(${a}, ${b});")
+            return t
+        }
+        if ((name == "floor" or name == "ceil" or name == "round") and args.size == 1) {
+            val v = this.expr(args[0].value)
+            val t = this.temp()
+            this.line("const int64_t ${t} = keal_f2i(${name}(${v}));")
+            return t
         }
         // The two built-ins the subset needs.
         if (name == "println" or name == "print") {

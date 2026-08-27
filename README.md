@@ -1,12 +1,30 @@
-# Keal
+# Keal — a small, statically typed, self-hosting programming language
 
-A small statically typed language with a bytecode VM, written in Rust with no
-dependencies.
+**Keal** is a statically typed programming language that **compiles itself**:
+the compiler is written in Keal, compiles to native code through C, and
+reproduces its own source byte for byte — a bootstrap fixed point the test
+suite verifies on every run. The toolchain is written in Rust with **zero
+dependencies** and ships three engines that must agree on every byte they
+print: a tree-walking interpreter (the specification), a bytecode VM (the
+default), and a native compiler via C11.
 
-Keal takes its shape from Kotlin — declared types with inference, null safety
-in the type system, classes with primary constructors, `when`, lambdas — over
-a C-family surface syntax, and is heading towards a native backend: generics
-are designed for monomorphisation rather than erasure.
+At a glance:
+
+* **Type inference, null safety, smart casts** — Kotlin's shape over a
+  C-family syntax
+* **Pattern matching** (`when` / `is` / guards / destructuring), tuples,
+  records
+* **Generics by monomorphisation** (no erasure, no boxing), traits with
+  default methods, operator overloading
+* **Lazy sequences** (Stream/Sequence-style, written in Keal itself) and a
+  deterministic **actor model** for concurrency
+* **Reference counting** with a fully documented memory model — inspect any
+  program's layout with `keal layout`
+* **Native compilation** (`keal build`) ~84× faster than the VM, with **C and
+  C++ interop** built in — and a
+  [staged plan](docs/interop.md) for Rust, Go, Java and Kotlin
+* **Self-hosted lexer, parser, type checker and code generator**, each held
+  to byte-for-byte agreement with its Rust oracle
 
 ```keal
 class Point(val x: Float, val y: Float) {
@@ -78,8 +96,24 @@ keal build src/main.keal        # compile to a native executable
 keal emit-c src/main.keal       # print the C that build would compile
 keal repl                       # interactive session
 keal --ast program.keal         # run on the tree-walker instead of the VM
+keal tokens|ast|types|cgen f    # dump each compiler stage (the self-hosting oracles)
 keal version
 ```
+
+And the flagship: **build the compiler with itself.**
+
+```sh
+$ ./bootstrap.sh
+1/4 building the Rust toolchain (the oracle)...
+2/4 compiling the self-hosted compiler to native...
+3/4 verifying the fixed point...
+4/4 installing...
+dist/kealc — the Keal compiler, written in Keal, compiled by itself.
+
+$ dist/kealc program.keal > program.c && cc -O2 -std=c11 -o program program.c
+```
+
+`kealc` compiles the whole nine-module Keal compiler in about 0.2 seconds.
 
 **Editing Keal?** [`editors/vscode`](editors/vscode) has a VS Code extension:
 highlighting, snippets, and the compiler's own errors reported inline. The
@@ -138,6 +172,16 @@ engines, which must agree on every byte they print.
   constructor fields, and `is Circle(r) ->` tests and binds in one move.
   `fun divmod(a: Int, b: Int): (Int, Int) { return a / b, a % b }` returns
   several values of different types, taken apart with `val (q, r) = ...`.
+- **Lazy sequences** — the `Stream`/`Sequence` pipeline, written in ordinary
+  Keal in the prelude: `seq(xs).map(f).filter(p).take(3).toList()` computes
+  only what the terminal pulls, and `iterate(1, { it * 2 })` is an infinite
+  source. Pull-based, fusing, zero cost for programs that never use it, and
+  it compiles to native like everything else.
+- **Actors** — the concurrency model the language committed to, runnable
+  today: `spawn` a handler, `send` messages, `run` a deterministic
+  round-robin scheduler. One heap of truth per actor (state lives in the
+  handler's closure), messages as ordinary values, the same output on every
+  engine. Threaded execution is the planned next step and changes no API.
 - **A standard library** of about ninety built-ins over strings, lists, maps
   and numbers, including `map`/`filter`/`fold` typed generically.
 - **Modules.** `import "./other.keal"`, resolved relative to the importing
@@ -340,7 +384,7 @@ escape hatch, which needs run-time type information that scalar native code
 does not carry. Everything else landed — `Map`, default and named arguments,
 generic methods, `var` capture through shared heap cells, `Int?` as the
 tagged struct `keal layout` always priced it at, and the host trio
-(`args()`, `readFile`, `writeFile`, `exit`) that self-hosting waits on.
+(`args()`, `readFile`, `writeFile`, `exit`) that self-hosting stands on.
 Anything it cannot compile is **named**, not mis-compiled:
 
 ```
@@ -360,53 +404,56 @@ The test suite compiles a program with a real C compiler, runs it, and
 requires its output to match both interpreters byte for byte. That test is
 what found the first two bugs in this backend.
 
-## Decided, waiting their turn
+## Self-hosting: the compiler is written in Keal
 
-* **Self-hosting is the destination, and the whole pipeline is laid**:
-  [`selfhost/lexer.keal`](selfhost/lexer.keal) is the Keal lexer written in
-  Keal, [`selfhost/parser.keal`](selfhost/parser.keal) the parser building a
-  real tree, [`selfhost/checker.keal`](selfhost/checker.keal) the type
-  checker — scopes, inference, generics solved per call site, traits, smart
-  casts, operator rewrites, null safety, its own module loader and embedded
-  prelude — and [`selfhost/cbackend.keal`](selfhost/cbackend.keal) the C
-  emitter: monomorphisation, ownership scopes, closures, niche-optimised
-  nullables, the same named refusals. **A native compiler written in the
-  language it compiles.** The suite holds all four to *byte-for-byte
-  agreement* with the Rust ones — every file in the repository, every way
-  each stage can fail, spans, messages, notes and exit codes included,
-  themselves included: the corpus contains the checker type-checking its
-  own program and the emitter refusing its own (by name, as designed).
-  `keal tokens`, `keal ast`, `keal types` and `keal cgen` print the
-  oracles.
+The whole pipeline exists twice, and the two copies are held together by
+force. [`selfhost/lexer.keal`](selfhost/lexer.keal) is the Keal lexer written
+in Keal, [`selfhost/parser.keal`](selfhost/parser.keal) the parser building a
+real tree, [`selfhost/checker.keal`](selfhost/checker.keal) the type checker —
+scopes, inference, generics solved per call site, traits, smart casts,
+operator rewrites, null safety, its own module loader and embedded prelude —
+and [`selfhost/cbackend.keal`](selfhost/cbackend.keal) the C emitter:
+monomorphisation, ownership scopes, closures, niche-optimised nullables, the
+same named refusals. The suite holds all four to **byte-for-byte agreement**
+with the Rust originals — every file in the repository, every way each stage
+can fail, spans, messages, notes and exit codes included, themselves
+included. `keal tokens`, `keal ast`, `keal types` and `keal cgen` print the
+oracles either side can be compared against.
 
-* **The loop is closed: Keal compiles itself.** `keal build
-  selfhost/cbackend.keal` produces a native compiler, written in Keal,
-  that agrees with the Rust oracle byte for byte over the whole corpus —
-  and run on its own source it emits **the very C it was built from**, a
-  fixed point the suite verifies on every run
-  (`the_compiler_compiles_itself`). The bootstrapped binary compiles the
-  full compiler in about a fifth of a second. Getting there hardened the
-  backend for everyone: character-indexed UTF-8 string methods, the rest
-  of the list surface, numeric parsing, string iteration and indexing,
-  nullable containers — each mirrored in the interpreters' semantics and
-  held to them by the three-engine tests, with zero leaks.
+**And the loop is closed.** `./bootstrap.sh` compiles the self-hosted
+compiler to native, runs it on its own source, and verifies it emits **the
+very C it was built from** — then installs it as `dist/kealc`. The suite
+re-proves the fixed point on every run (`the_compiler_compiles_itself`).
+Being its own first serious user is also what hardened the backend: the
+UTF-8 string surface, structural list and map equality, numeric parsing —
+each held to the interpreters' semantics by three-engine tests, with zero
+leaks under macOS `leaks`.
 
-* **Lazy sequences**, the equivalent of Java's `Stream` / Kotlin's `Sequence`:
-  pull-based, fusing, with infinite sources. The eager `map`/`filter`/`fold`
-  on `List` already cover the API; what a sequence adds is not running work
-  the pipeline will discard. Deliberately deferred until the native backend
-  covers the rest of the language — it can then be written in pure Keal, in
-  the prelude, since generic records and closures are all it needs.
-* **Concurrency, when it comes, will be actors**: one heap per thread,
-  messages between them, no shared mutable state. Chosen now rather than
-  built now, because it is the one model that invalidates nothing — the
-  reference counts stay non-atomic (no object crosses threads), immutable
-  records are natural message types, and data races become inexpressible
-  rather than checked. Shared-memory threads would have cost atomic counts
-  on every retain and release, and bought the races along with them.
+## What remains
 
-## Not there yet
+The honest list, in rough order of intent:
 
-Class inheritance, exceptions, indexing and call operators, namespaced imports — and the native half of the plan: an explicit
-memory model (reference counting, decided), pointers and references,
-`constexpr`, macros, C interop, and native code generation.
+* **`Any` in native code** — the one construct the C backend still refuses
+  (by name, as always). It needs run-time type information; the tagged
+  representation is already designed in [`docs/memory.md`](docs/memory.md) §4.
+* **Actors on real threads** — the model ships and is deterministic today;
+  the threaded scheduler (one heap per actor, counts stay non-atomic, exactly
+  as the memory model planned) is the next runtime project. No API changes.
+* **Foreign languages** — C and C++ work today; the staged path to **Rust,
+  Go, Java and Kotlin** — richer boundary types, `keal bindgen` for C
+  headers, a JNI gateway and `keal jbind` for typed JVM imports — is laid
+  out in [`docs/interop.md`](docs/interop.md).
+* **Cycle handling** — reference counting leaks cycles; the three candidate
+  answers (documented leak, weak references, cycle collector) are weighed in
+  [`docs/memory.md`](docs/memory.md) §5 and not yet chosen.
+* **`constexpr` evaluation** — the tree-walking interpreter is kept as the
+  reference implementation partly so it can become the compile-time
+  evaluator.
+* **Macros** — deliberately last: the language keeps earning features the
+  hard way first.
+* Smaller items: exceptions or a `Result` idiom (undecided), indexing/call
+  operator overloads, namespaced imports, a register-based VM if the
+  bytecode engine ever needs to be faster than it is.
+
+Class inheritance is a **non-goal**: composition, traits with default
+methods and records cover the territory without the diamond.

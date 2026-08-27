@@ -228,3 +228,28 @@ val tpair = (1, "one")
 assert(tpair.first == 1 and tpair.second == "one", "reached by name")
 assert(tpair == (1, "one"), "compared by value")
 assert(tpair.toString() == "(1, \"one\")", "rendered as written")
+
+// ---- lazy sequences (TUTORIAL.md) ----------------------------------------
+
+var tutSeqCalls = 0
+val tutTwo = seq([10, 20, 30, 40]).map({ n ->
+    tutSeqCalls += 1
+    n + 1
+}).take(2).toList()
+assert(tutTwo == [11, 21], "only the taken elements were computed")
+assert(tutSeqCalls == 2, "take(2) pulled exactly twice")
+
+val tutPowers = iterate(1, { it * 2 }).take(5).toList()
+assert(tutPowers == [1, 2, 4, 8, 16], "iterate is lazy")
+
+// ---- actors (TUTORIAL.md) ------------------------------------------------
+
+val tutTallySys: ActorSystem<Int> = ActorSystem()
+var tutTotal = 0
+val tutCounter = tutTallySys.spawn({ self, n ->
+    tutTotal += n
+    if (n > 1) { self.send(n / 2) }
+})
+tutCounter.send(8)
+tutTallySys.run()
+assert(tutTotal == 15, "8 + 4 + 2 + 1, delivered one message per pass")

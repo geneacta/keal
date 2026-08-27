@@ -375,6 +375,12 @@ impl CBackend {
                 self.elem_kind(v, span)?;
                 Elem::Ptr("KealMap".into(), "keal_map".into())
             }
+            // A closure is one pointer too, as long as its signature is
+            // representable — the same test `ctype` applies.
+            Type::Fun(_) => {
+                self.ctype(ty, span)?;
+                Elem::Ptr("KealClosure".into(), "keal_fn".into())
+            }
             // A nullable reference is the same pointer, allowed to be null;
             // retain and release both accept null, so the element machinery
             // never needs to know.
@@ -2061,9 +2067,14 @@ impl CBackend {
         args: &[Arg],
         receiver_ty: &Option<Type>,
     ) -> Option<String> {
+        // `toString` renders any value the way interpolation would.
+        if name == "toString" && args.is_empty() {
+            return Some(self.to_string_value(obj));
+        }
         match receiver_ty {
             Some(Type::Str) => self.string_builtin(e, obj, name, args),
             Some(Type::Int) => self.int_builtin(e, obj, name, args),
+            Some(Type::Float) => self.float_builtin(e, obj, name, args),
             Some(Type::List(elem)) => {
                 let elem = (**elem).clone();
                 self.list_builtin(e, obj, name, args, &elem)
@@ -2157,6 +2168,15 @@ impl CBackend {
                 self.line(format!("const KealOptF64 {} = keal_str_to_float({});", t, s));
                 Some(t)
             }
+            ("toLower", 0) | ("toUpper", 0) | ("trim", 0) => {
+                let s = self.expr(obj);
+                let f = match name {
+                    "toLower" => "keal_str_to_lower",
+                    "toUpper" => "keal_str_to_upper",
+                    _ => "keal_str_trim",
+                };
+                Some(self.own_temp(format!("{}({})", f, s)))
+            }
             _ => None,
         }
     }
@@ -2179,19 +2199,91 @@ impl CBackend {
                 let v = self.expr(obj);
                 Some(self.own_temp(format!("keal_int_to_char({}, {})", v, e.span.line)))
             }
+            ("abs", 0) => {
+                let v = self.expr(obj);
+                let t = self.temp();
+                self.line(format!("const int64_t {} = keal_int_abs({});", t, v));
+                Some(t)
+            }
+            ("pow", 1) => {
+                let a = self.expr(obj);
+                let b = self.expr(&args[0].value);
+                let t = self.temp();
+                self.line(format!(
+                    "const int64_t {} = keal_int_pow({}, {}, {});",
+                    t, a, b, e.span.line
+                ));
+                Some(t)
+            }
             _ => None,
         }
     }
 
-    /// The equality a `contains` scan applies, by element kind; anything
-    /// deeper than a word or a string is refused rather than guessed.
-    fn elem_eq_fn(&mut self, elem_ty: &Type, span: Span) -> Option<&'static str> {
+    fn float_builtin(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> Option<String> {
+        match (name, args.len()) {
+            ("toInt", 0) | ("floor", 0) | ("ceil", 0) | ("round", 0) => {
+                let v = self.expr(obj);
+                let inner = match name {
+                    "toInt" => v,
+                    "floor" => format!("floor({})", v),
+                    "ceil" => format!("ceil({})", v),
+                    _ => format!("round({})", v),
+                };
+                let t = self.temp();
+                self.line(format!("const int64_t {} = keal_f2i({});", t, inner));
+                Some(t)
+            }
+            ("abs", 0) | ("sqrt", 0) => {
+                let v = self.expr(obj);
+                let f = if name == "abs" { "fabs" } else { "sqrt" };
+                let t = self.temp();
+                self.line(format!("const double {} = {}({});", t, f, v));
+                Some(t)
+            }
+            ("min", 1) | ("max", 1) | ("pow", 1) => {
+                let a = self.expr(obj);
+                let b = self.expr(&args[0].value);
+                let f = match name {
+                    "min" => "fmin",
+                    "max" => "fmax",
+                    _ => "pow",
+                };
+                let t = self.temp();
+                self.line(format!("const double {} = {}({}, {});", t, f, a, b));
+                Some(t)
+            }
+            ("isNaN", 0) => {
+                let v = self.expr(obj);
+                let t = self.temp();
+                self.line(format!("const bool {} = (bool)isnan({});", t, v));
+                Some(t)
+            }
+            _ => None,
+        }
+    }
+
+    /// The equality a `contains` scan or a list comparison applies, by
+    /// element kind; anything deeper than a word or a string is refused
+    /// rather than guessed. `what` names the construct in the refusal.
+    fn elem_eq_fn(&mut self, elem_ty: &Type, span: Span, what: &str) -> Option<&'static str> {
         match elem_ty {
             Type::Str => Some("keal_key_eq_str"),
             Type::Float => Some("keal_key_eq_f64"),
             Type::Int | Type::Bool | Type::Never => Some("keal_key_eq_word"),
+            // Instances and closures compare by identity inside a container —
+            // exactly what the interpreters' `values_equal` does — and a
+            // pointer is a word.
+            Type::Class(_, _) | Type::Fun(_) => Some("keal_key_eq_word"),
+            Type::Nullable(inner) => match &**inner {
+                Type::Str => Some("keal_key_eq_opt_str"),
+                Type::Class(_, _) | Type::Fun(_) => Some("keal_key_eq_word"),
+                other => {
+                    self.unsupported(span, &format!("{} `{}?`", what, other));
+                    None
+                }
+            },
             other => {
-                self.unsupported(span, &format!("`contains` on a list of `{}`", other));
+                self.unsupported(span, &format!("{} `{}`", what, other));
                 None
             }
         }
@@ -2250,7 +2342,7 @@ impl CBackend {
             }
             ("contains", 1) => {
                 let elem = self.elem_kind(elem_ty, e.span)?;
-                let eq = self.elem_eq_fn(elem_ty, e.span)?;
+                let eq = self.elem_eq_fn(elem_ty, e.span, "`contains` on a list of")?;
                 let l = self.expr(obj);
                 let v = self.expr(&args[0].value);
                 let t = self.temp();
@@ -2307,6 +2399,51 @@ impl CBackend {
                 self.indent -= 1;
                 self.line("}");
                 Some(t)
+            }
+            ("take", 1) | ("drop", 1) => {
+                let l = self.expr(obj);
+                let n = self.expr(&args[0].value);
+                let f = if name == "take" { "keal_list_take" } else { "keal_list_drop" };
+                Some(self.own_temp_of(
+                    &Type::list(elem_ty.clone()),
+                    format!("{}({}, {})", f, l, n),
+                ))
+            }
+            ("sorted", 0) => {
+                let cmp = match elem_ty {
+                    Type::Int | Type::Bool | Type::Never => "keal_cmp_i64",
+                    Type::Str => "keal_cmp_str",
+                    other => {
+                        self.unsupported(
+                            e.span,
+                            &format!("`sorted` on a list of `{}`", other),
+                        );
+                        return Some("0".to_string());
+                    }
+                };
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let l = self.expr(obj);
+                let snap = self.temp();
+                self.line(format!("KealList* {} = keal_list_snapshot({});", snap, l));
+                self.own(&snap, &Type::list(elem_ty.clone()));
+                self.line(format!("keal_list_sort_words({}, {});", snap, cmp));
+                let thunk = self.releaser_thunk(&elem);
+                let out = self.temp();
+                self.line(format!("KealList* {} = keal_list_new({});", out, thunk));
+                self.own(&out, &Type::list(elem_ty.clone()));
+                let j = self.temp();
+                self.line(format!(
+                    "for (int64_t {j} = 0; {j} < {s}->len; {j}++) {{",
+                    j = j,
+                    s = snap
+                ));
+                self.indent += 1;
+                let sorted_item = elem.unword(&format!("{}->data[{}]", snap, j));
+                let stored = Self::retained(elem_ty, &sorted_item);
+                self.line(format!("keal_list_push({}, {});", out, elem.word(&stored)));
+                self.indent -= 1;
+                self.line("}");
+                Some(out)
             }
             ("sortedBy", 1) => {
                 use crate::types::FunType;
@@ -2759,6 +2896,21 @@ impl CBackend {
         if let Some(v) = self.builtin_method(e, obj, name, args, &receiver_ty) {
             return v;
         }
+        // `x in a..b` as an expression: the desugared `contains` on a range
+        // literal is two comparisons, no allocation.
+        if let (Some(Type::Range), "contains", 1) = (&receiver_ty, name, args.len()) {
+            if let ExprKind::Range { start, end } = &obj.kind {
+                let lo = self.expr(start);
+                let hi = self.expr(end);
+                let v = self.expr(&args[0].value);
+                let t = self.temp();
+                self.line(format!(
+                    "const bool {} = ({} >= {} && {} < {});",
+                    t, v, lo, v, hi
+                ));
+                return t;
+            }
+        }
         let Some(Type::Class(class, class_args)) = receiver_ty else {
             self.unsupported(
                 e.span,
@@ -3043,6 +3195,47 @@ impl CBackend {
                 }
             }
         }
+        // Lists compare structurally, as the interpreters compare them; a
+        // pointer comparison would be a silent lie. Maps are refused by name
+        // until they earn the same treatment.
+        if matches!(op, BinOp::Eq | BinOp::Ne)
+            && !(matches!(lhs.kind, ExprKind::Null) || matches!(rhs.kind, ExprKind::Null))
+        {
+            let lbase = lty.as_ref().map(|t| t.non_null());
+            let rbase = self.ety(rhs).map(|t| t.non_null());
+            let list_elem = match (&lbase, &rbase) {
+                (Some(Type::List(t)), _) | (_, Some(Type::List(t))) => Some((**t).clone()),
+                _ => None,
+            };
+            if let Some(elem) = list_elem {
+                let Some(eq) = self.elem_eq_fn(&elem, e.span, "comparing a list of") else {
+                    return "0".to_string();
+                };
+                let t = self.temp();
+                let negate = if op == BinOp::Ne { "!" } else { "" };
+                self.line(format!(
+                    "const bool {} = {}keal_list_eq({}, {}, {});",
+                    t, negate, a, b, eq
+                ));
+                return t;
+            }
+            let map_val = match (&lbase, &rbase) {
+                (Some(Type::Map(_, v)), _) | (_, Some(Type::Map(_, v))) => Some((**v).clone()),
+                _ => None,
+            };
+            if let Some(vt) = map_val {
+                let Some(eq) = self.elem_eq_fn(&vt, e.span, "comparing map values of") else {
+                    return "0".to_string();
+                };
+                let t = self.temp();
+                let negate = if op == BinOp::Ne { "!" } else { "" };
+                self.line(format!(
+                    "const bool {} = {}keal_map_eq({}, {}, {});",
+                    t, negate, a, b, eq
+                ));
+                return t;
+            }
+        }
         let nullable_str = matches!(&lty, Some(Type::Nullable(i)) if **i == Type::Str)
             || matches!(&self.ety(rhs), Some(Type::Nullable(i)) if **i == Type::Str);
         let against_null =
@@ -3068,6 +3261,11 @@ impl CBackend {
             };
             self.line(format!("const bool {} = keal_str_cmp({}, {}) {};", t, a, b, cmp));
             return t;
+        }
+        // C's `%` is integer-only; the float remainder is `fmod`, which is
+        // also what Rust's `%` on f64 computes.
+        if op == BinOp::Rem && matches!(lty, Some(Type::Float)) {
+            return format!("fmod({}, {})", a, b);
         }
         format!("({} {} {})", a, c_operator(op), b)
     }
@@ -3330,6 +3528,47 @@ impl CBackend {
             // the whole process at once.
             self.line(format!("exit((int)({}));", c));
             return "0".to_string();
+        }
+        // `assert`: the message, when given, is evaluated eagerly — the
+        // interpreters evaluate arguments before the call, and so does this.
+        if name == "assert" && (args.len() == 1 || args.len() == 2) {
+            let c = self.expr(&args[0].value);
+            match args.get(1) {
+                Some(a) => {
+                    let m = self.expr(&a.value);
+                    self.line(format!(
+                        "if (!({})) {{ keal_panic({}->bytes, {}); }}",
+                        c, m, e.span.line
+                    ));
+                }
+                None => {
+                    self.line(format!(
+                        "if (!({})) {{ keal_panic(\"assertion failed\", {}); }}",
+                        c, e.span.line
+                    ));
+                }
+            }
+            return "0".to_string();
+        }
+        // The float globals map straight onto the C math library.
+        if name == "sqrt" && args.len() == 1 {
+            let v = self.expr(&args[0].value);
+            let t = self.temp();
+            self.line(format!("const double {} = sqrt({});", t, v));
+            return t;
+        }
+        if name == "pow" && args.len() == 2 {
+            let a = self.expr(&args[0].value);
+            let b = self.expr(&args[1].value);
+            let t = self.temp();
+            self.line(format!("const double {} = pow({}, {});", t, a, b));
+            return t;
+        }
+        if matches!(name.as_str(), "floor" | "ceil" | "round") && args.len() == 1 {
+            let v = self.expr(&args[0].value);
+            let t = self.temp();
+            self.line(format!("const int64_t {} = keal_f2i({}({}));", t, name, v));
+            return t;
         }
         // The two built-ins the subset needs.
         if name == "println" || name == "print" {
