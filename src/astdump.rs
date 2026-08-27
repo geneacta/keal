@@ -9,13 +9,72 @@
 use crate::ast::*;
 use crate::runtime::format_float;
 use crate::span::Span;
+use std::cell::Cell;
+
+thread_local! {
+    /// Whether expression nodes carry their checked types. Set for the
+    /// duration of a `dump_typed` call; `keal ast` output is unaffected.
+    static TYPED: Cell<bool> = const { Cell::new(false) };
+}
 
 pub fn dump(program: &Program) -> String {
+    TYPED.with(|t| t.set(false));
     let mut out = String::from("program\n");
     for item in &program.items {
         push(&mut out, 1, &item_node(item));
     }
     out
+}
+
+/// The same tree, after checking: every expression node carries the type the
+/// checker recorded (` :: T`) and, on a call to something generic, the solved
+/// type arguments (` inst<...>`). Rewrites the checker performed — operators
+/// turned into method calls, widened literals, synthesized record `equals`,
+/// copied trait defaults — appear as what they became. This is the oracle the
+/// self-hosted checker is held to.
+///
+/// `shown` filters by file id, so the prelude's items stay out of the dump.
+pub fn dump_typed(program: &Program, shown: impl Fn(u32) -> bool) -> String {
+    TYPED.with(|t| t.set(true));
+    let mut out = String::from("program\n");
+    for item in &program.items {
+        let file = match item {
+            Item::Fun(f) => f.span.file,
+            Item::Class(c) => c.span.file,
+            Item::Trait(t) => t.span.file,
+            Item::Native { span, .. } => span.file,
+            Item::Extern(x) => x.span.file,
+            Item::Import { span, .. } => span.file,
+            Item::Stmt(s) => s.span.file,
+        };
+        if shown(file) {
+            push(&mut out, 1, &item_node(item));
+        }
+    }
+    TYPED.with(|t| t.set(false));
+    out
+}
+
+/// In typed mode, appends the annotations to the node's first line.
+fn annotate(e: &Expr, node: String) -> String {
+    if !TYPED.with(|t| t.get()) {
+        return node;
+    }
+    let mut ann = String::new();
+    if let Some(t) = &e.ty {
+        ann.push_str(&format!(" :: {}", t));
+    }
+    if let Some(inst) = &e.inst {
+        let ts: Vec<String> = inst.iter().map(|t| t.to_string()).collect();
+        ann.push_str(&format!(" inst<{}>", ts.join(", ")));
+    }
+    if ann.is_empty() {
+        return node;
+    }
+    match node.find('\n') {
+        Some(i) => format!("{}{}{}", &node[..i], ann, &node[i..]),
+        None => format!("{}{}", node, ann),
+    }
 }
 
 /// Appends a multi-line node at `depth`.
@@ -274,6 +333,10 @@ fn wrap(tag: &str, node: &str) -> String {
 // ---- expressions --------------------------------------------------------
 
 fn expr_node(e: &Expr) -> String {
+    annotate(e, expr_node_inner(e))
+}
+
+fn expr_node_inner(e: &Expr) -> String {
     let sp = at(e.span);
     match &e.kind {
         ExprKind::Int(n) => format!("int {} {}", n, sp),

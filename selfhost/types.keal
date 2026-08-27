@@ -1,0 +1,380 @@
+// The semantic type lattice, in Keal — the twin of src/types.rs.
+//
+// A `Ty` is a tagged node: `kind` says which variant it is, and the payload
+// lives in `name`, `args`, `params` and `ret` according to the kind:
+//
+//   Int Float Bool Str Unit Any Null Never Error Range Self   (no payload)
+//   List      args[0] = element
+//   Map       args[0] = key, args[1] = value
+//   Nullable  args[0] = inner (never itself Nullable)
+//   Class     name, args = type arguments
+//   Param     name
+//   Fun       params, ret
+//
+// Rust's derived equality compares function parameters by name and default
+// too; `tyEq` reproduces that exactly, because `assignableTo` leans on where
+// the Rust code uses `==` and where it deliberately does not.
+
+class PTy(val name: String, val ty: Ty, val hasDefault: Bool)
+
+class Ty(val kind: String) {
+    var name: String = ""
+    var args: List<Ty> = []
+    var params: List<PTy> = []
+    var ret: Ty? = null
+}
+
+fun ty(kind: String): Ty { Ty(kind) }
+
+fun tyList(inner: Ty): Ty {
+    val t = Ty("List")
+    t.args = [inner]
+    return t
+}
+
+fun tyMap(k: Ty, v: Ty): Ty {
+    val t = Ty("Map")
+    t.args = [k, v]
+    return t
+}
+
+fun tyClass(name: String, args: List<Ty>): Ty {
+    val t = Ty("Class")
+    t.name = name
+    t.args = args
+    return t
+}
+
+fun tyParam(name: String): Ty {
+    val t = Ty("Param")
+    t.name = name
+    return t
+}
+
+fun tyFun(params: List<PTy>, ret: Ty): Ty {
+    val t = Ty("Fun")
+    t.params = params
+    t.ret = ret
+    return t
+}
+
+/// A function type whose parameters are positional and nameless.
+fun tyFunOf(params: List<Ty>, ret: Ty): Ty {
+    val ps: List<PTy> = []
+    for (p in params) { ps.add(PTy("", p, false)) }
+    return tyFun(ps, ret)
+}
+
+/// How many elements a tuple record holds, if this name is one.
+/// Mirrors `strip_prefix("Tuple")` + `parse::<usize>`: digits only.
+fun tupleArity(name: String): Int? {
+    unless (name.startsWith("Tuple")) { return null }
+    val rest = name.drop(5)
+    if (rest == "") { return null }
+    for (c in rest) {
+        val d = c.code()
+        if (d < 48 or d > 57) { return null }
+    }
+    return rest.toInt()
+}
+
+/// Wraps in `Nullable`, collapsing `T??` and leaving the types that already
+/// admit null alone.
+fun tyNullable(t: Ty): Ty {
+    return when (t.kind) {
+        "Nullable", "Any", "Null", "Never", "Error" -> t
+        else -> {
+            val n = Ty("Nullable")
+            n.args = [t]
+            n
+        }
+    }
+}
+
+/// Strips one level of `?`; `Null` becomes `Never`.
+fun tyNonNull(t: Ty): Ty {
+    return when (t.kind) {
+        "Nullable" -> t.args[0]
+        "Null" -> Ty("Never")
+        else -> t
+    }
+}
+
+fun tyIsNullable(t: Ty): Bool {
+    return when (t.kind) {
+        "Nullable", "Null", "Any", "Error" -> true
+        else -> false
+    }
+}
+
+fun tyIsNumeric(t: Ty): Bool { t.kind == "Int" or t.kind == "Float" }
+
+/// Structural equality, matching Rust's derived `PartialEq` — including
+/// function parameter names and defaults.
+fun tyEq(a: Ty, b: Ty): Bool {
+    if (a.kind != b.kind) { return false }
+    return when (a.kind) {
+        "Class" -> (a.name == b.name) and tyArgsEq(a.args, b.args)
+        "Param" -> a.name == b.name
+        "List", "Nullable" -> tyEq(a.args[0], b.args[0])
+        "Map" -> tyEq(a.args[0], b.args[0]) and tyEq(a.args[1], b.args[1])
+        "Fun" -> funEq(a, b)
+        else -> true
+    }
+}
+
+fun tyArgsEq(a: List<Ty>, b: List<Ty>): Bool {
+    if (a.size != b.size) { return false }
+    var i = 0
+    while (i < a.size) {
+        unless (tyEq(a[i], b[i])) { return false }
+        i += 1
+    }
+    return true
+}
+
+fun funEq(a: Ty, b: Ty): Bool {
+    if (a.params.size != b.params.size) { return false }
+    var i = 0
+    while (i < a.params.size) {
+        val p = a.params[i]
+        val q = b.params[i]
+        if (p.name != q.name) { return false }
+        unless (tyEq(p.ty, q.ty)) { return false }
+        if (p.hasDefault != q.hasDefault) { return false }
+        i += 1
+    }
+    return tyEq(a.ret!!, b.ret!!)
+}
+
+/// Can a value of `a` be used where `b` is expected?
+fun assignableTo(a: Ty, b: Ty): Bool {
+    if (tyEq(a, b)) { return true }
+    if (a.kind == "Error" or b.kind == "Error") { return true }
+    if (a.kind == "Never") { return true }
+    if (b.kind == "Any") { return true }
+    if (a.kind == "Any") { return false }
+    if (a.kind == "Null") { return tyIsNullable(b) }
+    if (a.kind == "Nullable" and b.kind == "Nullable") {
+        return assignableTo(a.args[0], b.args[0])
+    }
+    if (b.kind == "Nullable") { return assignableTo(a, b.args[0]) }
+    // Containers are invariant, but an empty literal types as `List<Nothing>`
+    // and must fit anywhere.
+    if (a.kind == "List" and b.kind == "List") {
+        return assignableTo(a.args[0], b.args[0]) and (a.args[0].kind == "Never")
+    }
+    if (a.kind == "Map" and b.kind == "Map") {
+        return (a.args[0].kind == "Never") and (a.args[1].kind == "Never") and assignableTo(a.args[0], b.args[0]) and assignableTo(a.args[1], b.args[1])
+    }
+    if (a.kind == "Fun" and b.kind == "Fun") {
+        if (a.params.size != b.params.size) { return false }
+        var i = 0
+        while (i < a.params.size) {
+            unless (assignableTo(b.params[i].ty, a.params[i].ty)) { return false }
+            i += 1
+        }
+        return assignableTo(a.ret!!, b.ret!!)
+    }
+    // Same class, arguments compared structurally in both directions.
+    if (a.kind == "Class" and b.kind == "Class") {
+        unless (a.name == b.name and a.args.size == b.args.size) { return false }
+        var i = 0
+        while (i < a.args.size) {
+            unless (assignableTo(a.args[i], b.args[i]) and assignableTo(b.args[i], a.args[i])) {
+                return false
+            }
+            i += 1
+        }
+        return true
+    }
+    return false
+}
+
+/// True when any type parameter still appears inside this type.
+fun hasParams(t: Ty): Bool {
+    return when (t.kind) {
+        "Param", "Self" -> true
+        "List", "Nullable" -> hasParams(t.args[0])
+        "Map" -> hasParams(t.args[0]) or hasParams(t.args[1])
+        "Class" -> t.args.any({ hasParams(it) })
+        "Fun" -> t.params.any({ hasParams(it.ty) }) or hasParams(t.ret!!)
+        else -> false
+    }
+}
+
+/// Rewrites every type parameter named in `subst`; absent names stay as they
+/// are. `Self` substitutes under its reserved key like any parameter.
+fun substitute(t: Ty, subst: Map<String, Ty>): Ty {
+    return when (t.kind) {
+        "Param" -> subst[t.name] ?: t
+        "Self" -> subst["Self"] ?: t
+        "List" -> tyList(substitute(t.args[0], subst))
+        "Nullable" -> tyNullable(substitute(t.args[0], subst))
+        "Map" -> tyMap(substitute(t.args[0], subst), substitute(t.args[1], subst))
+        "Class" -> {
+            val args: List<Ty> = []
+            for (a in t.args) { args.add(substitute(a, subst)) }
+            tyClass(t.name, args)
+        }
+        "Fun" -> {
+            val ps: List<PTy> = []
+            for (p in t.params) { ps.add(PTy(p.name, substitute(p.ty, subst), p.hasDefault)) }
+            tyFun(ps, substitute(t.ret!!, subst))
+        }
+        else -> t
+    }
+}
+
+fun substituteFun(ft: Ty, subst: Map<String, Ty>): Ty {
+    val ps: List<PTy> = []
+    for (p in ft.params) { ps.add(PTy(p.name, substitute(p.ty, subst), p.hasDefault)) }
+    return tyFun(ps, substitute(ft.ret!!, subst))
+}
+
+/// A substitution that only replaces `Self`.
+fun selfSubst(t: Ty): Map<String, Ty> {
+    val s: Map<String, Ty> = {}
+    s["Self"] = t
+    return s
+}
+
+/// Matches a declared type against an actual one, recording what each type
+/// parameter must be. Returns false only when the shapes cannot correspond.
+fun unify(declared: Ty, actual: Ty, subst: Map<String, Ty>): Bool {
+    if (actual.kind == "Error" or actual.kind == "Never") { return true }
+    if (declared.kind == "Self") { return true }
+    if (declared.kind == "Param") {
+        // `null` alone says nothing about T; wait for a better witness.
+        if (actual.kind == "Null") { return true }
+        val known = subst[declared.name]
+        if (known == null) {
+            subst[declared.name] = actual
+        } else {
+            subst[declared.name] = tyJoin(known, actual)
+        }
+        return true
+    }
+    if (declared.kind == "List" and actual.kind == "List") {
+        return unify(declared.args[0], actual.args[0], subst)
+    }
+    if (declared.kind == "Map" and actual.kind == "Map") {
+        return unify(declared.args[0], actual.args[0], subst) and unify(declared.args[1], actual.args[1], subst)
+    }
+    if (declared.kind == "Class" and actual.kind == "Class") {
+        unless (declared.name == actual.name and declared.args.size == actual.args.size) {
+            return false
+        }
+        var i = 0
+        var ok = true
+        while (i < declared.args.size) {
+            ok = ok and unify(declared.args[i], actual.args[i], subst)
+            i += 1
+        }
+        return ok
+    }
+    if (declared.kind == "Nullable" and actual.kind == "Nullable") {
+        return unify(declared.args[0], actual.args[0], subst)
+    }
+    // `T?` matched against a plain `T`: the parameter is the bare type.
+    if (declared.kind == "Nullable") {
+        return unify(declared.args[0], actual, subst)
+    }
+    if (declared.kind == "Fun" and actual.kind == "Fun" and declared.params.size == actual.params.size) {
+        var i = 0
+        var ok = true
+        while (i < declared.params.size) {
+            unless (unify(declared.params[i].ty, actual.params[i].ty, subst)) { ok = false }
+            i += 1
+        }
+        // Mirrors Rust's `all(...) && unify(ret)`: the return side is only
+        // unified when every parameter side matched.
+        unless (ok) { return false }
+        return unify(declared.ret!!, actual.ret!!, subst)
+    }
+    return true
+}
+
+/// The least type both `a` and `b` fit into.
+fun tyJoin(a: Ty, b: Ty): Ty {
+    if (tyEq(a, b)) { return a }
+    if (a.kind == "Error" or b.kind == "Error") { return Ty("Error") }
+    if (a.kind == "Never") { return b }
+    if (b.kind == "Never") { return a }
+    if (a.kind == "Null") { return tyNullable(b) }
+    if (b.kind == "Null") { return tyNullable(a) }
+    if (a.kind == "Nullable") { return tyNullable(tyJoin(a.args[0], tyNonNull(b))) }
+    if (b.kind == "Nullable") { return tyNullable(tyJoin(b.args[0], tyNonNull(a))) }
+    if (assignableTo(a, b)) { return b }
+    if (assignableTo(b, a)) { return a }
+    return Ty("Any")
+}
+
+/// Element type produced by `for (x in this)`, if iterable.
+fun iterElem(t: Ty): Ty? {
+    return when (t.kind) {
+        "List" -> t.args[0]
+        "Range" -> Ty("Int")
+        "Str" -> Ty("Str")
+        "Map" -> t.args[0]
+        else -> null
+    }
+}
+
+/// Renders a type the way diagnostics and the typed dump spell it.
+fun tyShow(t: Ty): String {
+    return when (t.kind) {
+        "Int" -> "Int"
+        "Float" -> "Float"
+        "Bool" -> "Bool"
+        "Str" -> "String"
+        "Unit" -> "Unit"
+        "Any" -> "Any"
+        "Null" -> "Null"
+        "Never" -> "Nothing"
+        "Error" -> "<error>"
+        "Range" -> "Range"
+        "Self" -> "Self"
+        "Param" -> t.name
+        "List" -> "List<" + tyShow(t.args[0]) + ">"
+        "Map" -> "Map<" + tyShow(t.args[0]) + ", " + tyShow(t.args[1]) + ">"
+        "Nullable" -> tyShow(t.args[0]) + "?"
+        "Fun" -> {
+            var out = "("
+            var first = true
+            for (p in t.params) {
+                unless (first) { out += ", " }
+                out += tyShow(p.ty)
+                first = false
+            }
+            out + ") -> " + tyShow(t.ret!!)
+        }
+        else -> {
+            // A class; a tuple renders as `(A, B)` rather than `Tuple2<A, B>`.
+            val n = tupleArity(t.name)
+            if (n != null and n == t.args.size) {
+                var out = "("
+                var first = true
+                for (a in t.args) {
+                    unless (first) { out += ", " }
+                    out += tyShow(a)
+                    first = false
+                }
+                out + ")"
+            } else {
+                var out = t.name
+                if (t.args.size > 0) {
+                    out += "<"
+                    var first = true
+                    for (a in t.args) {
+                        unless (first) { out += ", " }
+                        out += tyShow(a)
+                        first = false
+                    }
+                    out += ">"
+                }
+                out
+            }
+        }
+    }
+}

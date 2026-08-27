@@ -1,0 +1,379 @@
+// The tree printer behind the self-hosted `ast` and `types` dumps — the twin
+// of src/astdump.rs, held to it byte for byte.
+//
+// `typedDump` switches on the checker's annotations: every expression node's
+// first line gains ` :: T`, and a call to something generic gains
+// ` inst<...>`. The untyped mode is what the parser driver prints.
+
+import "./lexing.keal"
+import "./ast.keal"
+
+var typedDump = false
+
+/// Two spaces per line, and — like the oracle's indent() — no trailing
+/// whitespace survives on the block's last line.
+fun indentBlock(s: String): String {
+    val lines = s.split("\n")
+    var out = ""
+    var first = true
+    for (l in lines) {
+        unless (first) { out += "\n" }
+        out += "  " + l
+        first = false
+    }
+    while (out.endsWith(" ") or out.endsWith("\t")) {
+        out = out.substring(0, out.length - 1)
+    }
+    return out
+}
+
+fun wrapNode(tag: String, child: String): String { tag + "\n" + indentBlock(child) }
+
+fun printProgram(p: ProgramN): String {
+    var out = "program"
+    for (i in p.items) {
+        out += "\n" + indentBlock(pItem(i))
+    }
+    return out
+}
+
+// ---- types, on one line -------------------------------------------------
+
+fun typeLine(t: TypeEx): String {
+    return when (t.kind) {
+        "named" -> {
+            if (t.args.size == 0) {
+                t.name
+            } else {
+                var out = t.name + "<"
+                var first = true
+                for (a in t.args) {
+                    unless (first) { out += ", " }
+                    out += typeLine(a)
+                    first = false
+                }
+                out + ">"
+            }
+        }
+        "nullable" -> typeLine(t.inner!!) + "?"
+        else -> {
+            var out = "("
+            var first = true
+            for (a in t.args) {
+                unless (first) { out += ", " }
+                out += typeLine(a)
+                first = false
+            }
+            out + ") -> " + typeLine(t.ret!!)
+        }
+    }
+}
+
+// ---- items --------------------------------------------------------------
+
+fun pItem(i: ItemN): String {
+    return when (i.kind) {
+        "fun" -> pFun("fun", i.funDecl!!)
+        "class" -> pClass(i.classDecl!!)
+        "trait" -> pTrait(i.traitDecl!!)
+        "import" -> "import ${esc(i.text)} ${i.line}:${i.col}"
+        "native" -> "native ${esc(i.text)} ${i.line}:${i.col}"
+        "extern" -> pExtern(i.externDecl!!)
+        else -> pStmt(i.stmt!!)
+    }
+}
+
+fun pFun(tag: String, f: FunN): String {
+    var out = "${tag} ${f.name} ${f.line}:${f.col}"
+    for (tp in f.typeParams) { out += "\n" + indentBlock(pTParam(tp)) }
+    for (p in f.params) { out += "\n" + indentBlock(pParam(p)) }
+    val ret = f.ret
+    if (ret != null) { out += "\n" + indentBlock("ret " + typeLine(ret)) }
+    out += "\n" + indentBlock(pBlock("body", f.body))
+    return out
+}
+
+fun pTParam(tp: TParamN): String {
+    if (tp.bounds.size == 0) { return "tparam ${tp.name}" }
+    var bs = ""
+    var first = true
+    for (b in tp.bounds) {
+        unless (first) { bs += " + " }
+        bs += typeLine(b)
+        first = false
+    }
+    return "tparam ${tp.name}: ${bs}"
+}
+
+fun pParam(p: ParamN): String {
+    var head = "param ${p.name}"
+    val t = p.tyEx
+    if (t != null) { head += ": " + typeLine(t) }
+    head += " ${p.line}:${p.col}"
+    val d = p.default
+    if (d != null) { return head + "\n" + indentBlock(pEx(d)) }
+    return head
+}
+
+fun pClass(c: ClassN): String {
+    val tag = if (c.isRecord) { "record" } else { "class" }
+    var out = "${tag} ${c.name} ${c.line}:${c.col}"
+    for (tp in c.typeParams) { out += "\n" + indentBlock(pTParam(tp)) }
+    for (t in c.traits) { out += "\n" + indentBlock("impl " + typeLine(t)) }
+    for (p in c.ctor) {
+        val kw = when (p.fieldKind) {
+            "var" -> "var "
+            "val" -> "val "
+            else -> ""
+        }
+        var head = "ctor ${kw}${p.name}: ${typeLine(p.tyEx!!)} ${p.line}:${p.col}"
+        val d = p.default
+        if (d != null) { head += "\n" + indentBlock(pEx(d)) }
+        out += "\n" + indentBlock(head)
+    }
+    for (f in c.fields) {
+        val kw = if (f.mutable) { "var" } else { "val" }
+        var head = "field ${kw} ${f.name}"
+        val t = f.tyEx
+        if (t != null) { head += ": " + typeLine(t) }
+        head += " ${f.line}:${f.col}"
+        val init = f.init
+        if (init != null) { head += "\n" + indentBlock(pEx(init)) }
+        out += "\n" + indentBlock(head)
+    }
+    for (m in c.methods) { out += "\n" + indentBlock(pFun("method", m)) }
+    return out
+}
+
+fun pTrait(t: TraitN): String {
+    var out = "trait ${t.name} ${t.line}:${t.col}"
+    for (m in t.methods) {
+        val tag = if (m.hasDefault) { "default" } else { "required" }
+        out += "\n" + indentBlock(pFun(tag, m.decl))
+    }
+    return out
+}
+
+fun pExtern(x: ExternN): String {
+    var out = "extern ${x.name} = ${esc(x.symbol)} ${x.line}:${x.col}"
+    for (p in x.params) { out += "\n" + indentBlock(pParam(p)) }
+    val ret = x.ret
+    if (ret != null) { out += "\n" + indentBlock("ret " + typeLine(ret)) }
+    return out
+}
+
+// ---- statements ---------------------------------------------------------
+
+fun pBlock(tag: String, b: BlockN): String {
+    var out = tag
+    for (s in b.stmts) { out += "\n" + indentBlock(pStmt(s)) }
+    return out
+}
+
+fun pStmt(s: StmtN): String {
+    val sp = "${s.line}:${s.col}"
+    return when (s.kind) {
+        "let" -> {
+            val kw = if (s.mutable) { "var" } else { "val" }
+            var head = "let ${kw} ${s.name}"
+            val t = s.tyEx
+            if (t != null) { head += ": " + typeLine(t) }
+            head + " " + sp + "\n" + indentBlock(pEx(s.init!!))
+        }
+        "destructure" -> {
+            val kw = if (s.mutable) { "var" } else { "val" }
+            val d = s.pattern!!
+            var binds = ""
+            var first = true
+            for (b in d.binds) {
+                unless (first) { binds += ", " }
+                binds += b
+                first = false
+            }
+            "destructure ${kw} ${d.typeName}(${binds}) ${sp}\n" + indentBlock(pEx(s.init!!))
+        }
+        "expr" -> "expr ${sp}\n" + indentBlock(pEx(s.ex!!))
+        "return" -> {
+            val v = s.ex
+            if (v != null) {
+                "return ${sp}\n" + indentBlock(pEx(v))
+            } else {
+                "return " + sp
+            }
+        }
+        "break" -> "break " + sp
+        "continue" -> "continue " + sp
+        "while" -> "while ${sp}\n" + indentBlock(wrapNode("cond", pEx(s.ex!!))) + "\n" + indentBlock(pBlock("body", s.body!!))
+        "for" -> {
+            var head = "for ${s.name}"
+            val t = s.tyEx
+            if (t != null) { head += ": " + typeLine(t) }
+            head + " " + sp + "\n" + indentBlock(wrapNode("iter", pEx(s.ex!!))) + "\n" + indentBlock(pBlock("body", s.body!!))
+        }
+        "fun" -> pFun("fun", s.funDecl!!)
+        else -> pClass(s.classDecl!!)
+    }
+}
+
+// ---- expressions --------------------------------------------------------
+
+fun annotate(e: Ex, node: String): String {
+    unless (typedDump) { return node }
+    var ann = ""
+    val t = e.ty
+    if (t != null) { ann += " :: " + tyShow(t) }
+    val inst = e.inst
+    if (inst != null) {
+        var ts = ""
+        var first = true
+        for (x in inst) {
+            unless (first) { ts += ", " }
+            ts += tyShow(x)
+            first = false
+        }
+        ann += " inst<" + ts + ">"
+    }
+    if (ann == "") { return node }
+    val nl = node.indexOf("\n")
+    if (nl >= 0) {
+        return node.substring(0, nl) + ann + node.substring(nl, node.length)
+    }
+    return node + ann
+}
+
+fun pEx(e: Ex): String { annotate(e, pExInner(e)) }
+
+fun pExInner(e: Ex): String {
+    val sp = "${e.line}:${e.col}"
+    return when (e.kind) {
+        "int" -> "int ${e.iVal} ${sp}"
+        "float" -> "float ${e.fVal} ${sp}"
+        "bool" -> "bool ${e.text} ${sp}"
+        "str" -> "str ${esc(e.text)} ${sp}"
+        "null" -> "null " + sp
+        "this" -> "this " + sp
+        "ident" -> "ident ${e.text} ${sp}"
+        "interp" -> {
+            var out = "interp " + sp
+            for (p in e.parts) {
+                if (p.isLit) {
+                    out += "\n" + indentBlock("lit " + esc(p.text))
+                } else {
+                    out += "\n" + indentBlock(pEx(p.ex!!))
+                }
+            }
+            out
+        }
+        "unary" -> "unary ${e.text} ${sp}\n" + indentBlock(pEx(e.kids[0]))
+        "binary" -> "binary ${e.text} ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
+        "logical" -> "logical ${e.text} ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
+        "elvis" -> "elvis ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
+        "notnull" -> "notnull ${sp}\n" + indentBlock(pEx(e.kids[0]))
+        "assign" -> "assign ${e.assignOp} ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
+        "call" -> {
+            var out = "call ${sp}\n" + indentBlock(pEx(e.kids[0]))
+            for (a in e.args) { out += "\n" + indentBlock(pArg(a)) }
+            out
+        }
+        "field" -> {
+            val tag = if (e.safe) { "safefield" } else { "field" }
+            "${tag} ${e.text} ${sp}\n" + indentBlock(pEx(e.kids[0]))
+        }
+        "method" -> {
+            val tag = if (e.safe) { "safemethod" } else { "method" }
+            var out = "${tag} ${e.text} ${sp}\n" + indentBlock(pEx(e.kids[0]))
+            for (a in e.args) { out += "\n" + indentBlock(pArg(a)) }
+            out
+        }
+        "index" -> "index ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
+        "if" -> {
+            var out = "if ${sp}\n" + indentBlock(wrapNode("cond", pEx(e.kids[0]))) + "\n" + indentBlock(pBlock("then", e.body!!))
+            val els = e.els
+            if (els != null) {
+                out += "\n" + indentBlock(pBlock("else", els))
+            }
+            val elseif = e.elseif
+            if (elseif != null) {
+                out += "\n" + indentBlock(wrapNode("elseif", pEx(elseif)))
+            }
+            out
+        }
+        "when" -> {
+            var out = "when " + sp
+            val sub = e.subject
+            if (sub != null) { out += "\n" + indentBlock(wrapNode("subject", pEx(sub))) }
+            for (arm in e.arms) { out += "\n" + indentBlock(pArm(arm)) }
+            out
+        }
+        "list" -> {
+            var out = "list " + sp
+            for (k in e.kids) { out += "\n" + indentBlock(pEx(k)) }
+            out
+        }
+        "map" -> {
+            var out = "map " + sp
+            var i = 0
+            while (i < e.keys.size) {
+                out += "\n" + indentBlock(wrapNode("key", pEx(e.keys[i])))
+                out += "\n" + indentBlock(wrapNode("value", pEx(e.values[i])))
+                i += 1
+            }
+            out
+        }
+        "lambda" -> {
+            var out = "lambda " + sp
+            for (p in e.params) { out += "\n" + indentBlock(pParam(p)) }
+            out + "\n" + indentBlock(pBlock("body", e.body!!))
+        }
+        "range" -> "range ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
+        else -> {
+            // is / isnot
+            val tag = if (e.negated) { "isnot" } else { "is" }
+            "${tag} ${typeLine(e.tyEx!!)} ${sp}\n" + indentBlock(pEx(e.kids[0]))
+        }
+    }
+}
+
+fun pArg(a: ArgN): String {
+    if (a.name == "") { return wrapNode("arg", pEx(a.value)) }
+    return "arg ${a.name}\n" + indentBlock(pEx(a.value))
+}
+
+fun pPattern(arm: ArmN): String {
+    return when (arm.patternKind) {
+        "else" -> "pattern else"
+        "values" -> {
+            var out = "pattern values"
+            for (v in arm.values) { out += "\n" + indentBlock(pEx(v)) }
+            out
+        }
+        "is" -> {
+            val tag = if (arm.patNegated) { "pattern isnot" } else { "pattern is" }
+            val d = arm.binds
+            if (d != null) {
+                var bs = ""
+                var first = true
+                for (b in d.binds) {
+                    unless (first) { bs += ", " }
+                    bs += b
+                    first = false
+                }
+                "${tag} ${typeLine(arm.patTyEx!!)}(${bs})"
+            } else {
+                "${tag} ${typeLine(arm.patTyEx!!)}"
+            }
+        }
+        else -> {
+            val tag = if (arm.patNegated) { "pattern notin" } else { "pattern in" }
+            tag + "\n" + indentBlock(pEx(arm.values[0]))
+        }
+    }
+}
+
+fun pArm(arm: ArmN): String {
+    var out = "arm ${arm.line}:${arm.col}\n" + indentBlock(pPattern(arm))
+    val g = arm.guard
+    if (g != null) { out += "\n" + indentBlock(wrapNode("guard", pEx(g))) }
+    out += "\n" + indentBlock(pBlock("body", arm.body))
+    return out
+}

@@ -37,6 +37,7 @@ usage:
     keal layout <file.keal>   show how the program's values are laid out
     keal tokens <file.keal>   dump the token stream (the self-hosting oracle)
     keal ast <file.keal>      dump the parse tree (likewise)
+    keal types <file.keal>    dump the checked, typed tree (likewise)
     keal emit-c <file.keal>   print the C a native build would compile
     keal build <file.keal> [more.c more.cpp ...]
                               compile to a native executable, together with
@@ -94,7 +95,7 @@ fn real_main() -> ExitCode {
                 && !matches!(
                     one.as_str(),
                     "run" | "check" | "layout" | "emit-c" | "build" | "repl" | "version"
-                        | "help" | "tokens" | "ast"
+                        | "help" | "tokens" | "ast" | "types"
                 ) =>
         {
             ("run", Some(one.clone()))
@@ -102,7 +103,7 @@ fn real_main() -> ExitCode {
         [cmd, file, ..]
             if matches!(
                 cmd.as_str(),
-                "run" | "check" | "layout" | "emit-c" | "build" | "tokens" | "ast"
+                "run" | "check" | "layout" | "emit-c" | "build" | "tokens" | "ast" | "types"
             ) =>
         {
             (
@@ -113,6 +114,7 @@ fn real_main() -> ExitCode {
                     "emit-c" => "emit-c",
                     "tokens" => "tokens",
                     "ast" => "ast",
+                    "types" => "types",
                     _ => "build",
                 },
                 Some(file.clone()),
@@ -134,6 +136,7 @@ fn real_main() -> ExitCode {
         "layout" => show_layout(&target.unwrap()),
         "tokens" => dump_tokens(&target.unwrap()),
         "ast" => dump_ast(&target.unwrap()),
+        "types" => dump_types(&target.unwrap()),
         "emit-c" => nativebuild::emit_only(&target.unwrap()),
         "build" => {
             // Anything after the program is a C or C++ source built with it.
@@ -369,6 +372,49 @@ fn dump_ast(path: &str) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// The checked tree with every expression's type on it, in a format the
+/// self-hosted checker reproduces. Errors come out one per line — compact,
+/// deterministic, with the note attached — and the prelude's items are
+/// filtered from the dump (its declarations still shape everything shown).
+fn dump_types(path: &str) -> ExitCode {
+    let mut sources = Sources::new();
+    let mut program = match loader::load(path, &mut sources) {
+        Ok(p) => p,
+        Err(d) => {
+            println!(
+                "error {}:{}:{} {}",
+                sources.path(d.span.file),
+                d.span.line,
+                d.span.col,
+                d.msg
+            );
+            return ExitCode::FAILURE;
+        }
+    };
+    let errors = checker::check(&mut program);
+    if !errors.is_empty() {
+        for d in &errors {
+            let mut line = format!(
+                "error {}:{}:{} {}",
+                sources.path(d.span.file),
+                d.span.line,
+                d.span.col,
+                d.msg
+            );
+            if let Some(note) = &d.note {
+                line.push_str(&format!(" -- {}", note));
+            }
+            println!("{}", line);
+        }
+        return ExitCode::FAILURE;
+    }
+    let prelude: Vec<u32> = (0..sources.len() as u32)
+        .filter(|id| sources.path(*id) == "<prelude>")
+        .collect();
+    print!("{}", astdump::dump_typed(&program, |file| !prelude.contains(&file)));
+    ExitCode::SUCCESS
 }
 
 fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {

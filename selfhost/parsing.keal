@@ -1,0 +1,1201 @@
+// The Keal parser, in Keal — now building a real tree.
+//
+// It mirrors src/parser.rs decision for decision; selfhost/astprint.keal
+// renders the tree in the `keal ast` format, and the suite holds the pair to
+// byte-for-byte agreement with the Rust parser, error messages and exit codes
+// included.
+//
+// Failure is loud by default: print the error the oracle prints, and stop.
+// The places the grammar backtracks — is `{` a lambda or a map, is this a
+// lambda parameter list — run with `quiet` raised, where a failure only sets
+// a flag for the caller to roll back on. A quiet failure may return a dummy
+// node; the caller always rolls back before it could be seen.
+//
+// `errorPrefix` sits in front of the `L:C` in error lines: the parser driver
+// leaves it empty, the checker driver sets it to `path:` so a failure inside
+// an imported module says which file it came from.
+
+import "./lexing.keal"
+import "./ast.keal"
+
+/// How an expected token reads in an error message.
+fun describeKind(kind: String): String {
+    return when (kind) {
+        "eof" -> "end of file"
+        ";" -> "end of statement"
+        else -> "`${kind}`"
+    }
+}
+
+/// The word an operator token contributes to a `binary` node.
+fun binaryOpOf(kind: String): String {
+    return when (kind) {
+        "==", "!=", "<", "<=", ">", ">=", "+", "-", "*", "/", "%" -> kind
+        else -> ""
+    }
+}
+
+fun binaryPowerOf(kind: String): Int {
+    return when (kind) {
+        "==", "!=" -> 2
+        "<", "<=", ">", ">=" -> 3
+        "+", "-" -> 6
+        "*", "/", "%" -> 7
+        else -> 0
+    }
+}
+
+/// The connective a token spells, with `&&`, `||` and `^` as aliases.
+fun logicalOpOf(kind: String): String {
+    return when (kind) {
+        "and", "&&" -> "and"
+        "or", "||" -> "or"
+        "xor", "^" -> "xor"
+        "xnor" -> "xnor"
+        "nand" -> "nand"
+        "nor" -> "nor"
+        "implies" -> "implies"
+        else -> ""
+    }
+}
+
+fun isAssignOp(kind: String): Bool {
+    return when (kind) {
+        "=", "+=", "-=", "*=", "/=", "%=" -> true
+        else -> false
+    }
+}
+
+/// What a compound assignment contributes to the tree: `+=` reads as `+`,
+/// and plain `=` as itself.
+fun assignOpName(kind: String): String {
+    return when (kind) {
+        "+=" -> "+"
+        "-=" -> "-"
+        "*=" -> "*"
+        "/=" -> "/"
+        "%=" -> "%"
+        else -> "="
+    }
+}
+
+class Parser(val toks: List<Token>) {
+    var pos: Int = 0
+    var quiet: Int = 0
+    var failed: Bool = false
+    var errorPrefix: String = ""
+
+    fun peek(): Token {
+        val i = this.pos.min(this.toks.size - 1)
+        return this.toks[i]
+    }
+
+    fun peekAt(k: Int): Token {
+        val i = (this.pos + k).min(this.toks.size - 1)
+        return this.toks[i]
+    }
+
+    fun advance(): Token {
+        val t = this.peek()
+        if (this.pos < this.toks.size - 1) { this.pos += 1 }
+        return t
+    }
+
+    fun at(kind: String): Bool { this.peek().kind == kind }
+
+    fun eat(kind: String): Bool {
+        if (this.at(kind)) {
+            this.advance()
+            return true
+        }
+        return false
+    }
+
+    proc fail(atLine: Int, atCol: Int, msg: String) {
+        if (this.quiet > 0) {
+            this.failed = true
+            return
+        }
+        println("error ${this.errorPrefix}${atLine}:${atCol} ${msg}")
+        exit(1)
+    }
+
+    proc failHere(msg: String) {
+        val t = this.peek()
+        this.fail(t.line, t.col, msg)
+    }
+
+    proc expect(kind: String, ctx: String) {
+        if (this.at(kind)) {
+            this.advance()
+            return
+        }
+        this.failHere(
+            "expected ${describeKind(kind)} ${ctx}, found ${describeToken(this.peek())}"
+        )
+    }
+
+    /// The name, or "" after a quiet failure.
+    fun expectIdent(ctx: String): String {
+        if (this.at("ident")) {
+            return this.advance().text
+        }
+        this.failHere("expected ${ctx}, found ${describeToken(this.peek())}")
+        return ""
+    }
+
+    proc skipSemis() {
+        while (this.at(";")) { this.advance() }
+    }
+
+    /// True when the token after this one could name a declaration.
+    fun namesDeclaration(): Bool { this.peekAt(1).kind == "ident" }
+
+    // ---- program --------------------------------------------------------
+
+    fun program(): ProgramN {
+        val out = ProgramN()
+        while (true) {
+            this.skipSemis()
+            if (this.at("eof")) { return out }
+            out.items.add(this.item())
+        }
+        return out
+    }
+
+    fun item(): ItemN {
+        val t = this.peek()
+        if (t.kind == "fun" or t.kind == "proc") {
+            val i = ItemN("fun", t.line, t.col)
+            i.funDecl = this.funDecl()
+            return i
+        }
+        if (t.kind == "class") {
+            val i = ItemN("class", t.line, t.col)
+            i.classDecl = this.classDecl(false)
+            return i
+        }
+        if (t.kind == "ident" and t.text == "record" and this.namesDeclaration()) {
+            this.advance()
+            val i = ItemN("class", t.line, t.col)
+            i.classDecl = this.classDecl(true)
+            return i
+        }
+        if (t.kind == "ident" and t.text == "trait" and this.namesDeclaration()) {
+            val i = ItemN("trait", t.line, t.col)
+            i.traitDecl = this.traitDecl()
+            return i
+        }
+        if (t.kind == "ident" and t.text == "native" and this.peekAt(1).kind == "str") {
+            this.advance()
+            val strTok = this.advance()
+            if (strTok.parts.size == 1 and strTok.parts[0].isLit) {
+                val i = ItemN("native", t.line, t.col)
+                i.text = strTok.parts[0].text
+                return i
+            }
+            this.fail(t.line, t.col, "a `native` block cannot interpolate")
+            return ItemN("native", t.line, t.col)
+        }
+        if (t.kind == "ident" and t.text == "extern" and this.peekAt(1).kind == "fun") {
+            val i = ItemN("extern", t.line, t.col)
+            i.externDecl = this.externDecl()
+            return i
+        }
+        if (t.kind == "import") {
+            this.advance()
+            val next = this.peek()
+            if (next.kind == "str") {
+                this.advance()
+                if (next.parts.size == 1 and next.parts[0].isLit) {
+                    val i = ItemN("import", t.line, t.col)
+                    i.text = next.parts[0].text
+                    return i
+                }
+                this.fail(t.line, t.col, "import path must be a plain string literal")
+                return ItemN("import", t.line, t.col)
+            }
+            this.failHere(
+                "expected an import path string, found ${describeToken(next)}"
+            )
+            return ItemN("import", t.line, t.col)
+        }
+        val i = ItemN("stmt", t.line, t.col)
+        i.stmt = this.stmt()
+        return i
+    }
+
+    // ---- declarations ---------------------------------------------------
+
+    fun funDecl(): FunN {
+        val start = this.peek()
+        val isFun = this.at("fun")
+        this.advance() // fun or proc
+        val name = this.expectIdent(if (isFun) { "a function name" } else { "a name" })
+        val f = FunN(name, start.line, start.col)
+        f.typeParams = this.typeParamList()
+        f.params = this.paramList()
+        f.ret = this.returnType(isFun, name)
+        f.body = this.block()
+        return f
+    }
+
+    /// The `: T` after a parameter list — required on `fun`, rejected on
+    /// `proc`, which is the point of the split.
+    fun returnType(isFun: Bool, name: String): TypeEx? {
+        unless (isFun) {
+            if (this.at(":")) {
+                this.failHere("`proc ${name}` cannot declare a return type")
+            }
+            return null
+        }
+        unless (this.at(":")) {
+            this.failHere("`fun ${name}` must declare what it returns")
+            return null
+        }
+        this.advance()
+        return this.typeExpr()
+    }
+
+    fun typeParamList(): List<TParamN> {
+        val out: List<TParamN> = []
+        unless (this.at("<")) { return out }
+        this.advance()
+        while (not this.at(">")) {
+            val name = this.expectIdent("a type parameter name")
+            val tp = TParamN(name)
+            if (this.eat(":")) {
+                var going = true
+                while (going) {
+                    tp.bounds.add(this.typeExpr())
+                    going = this.eat("+")
+                }
+            }
+            out.add(tp)
+            unless (this.eat(",")) { break }
+        }
+        this.expect(">", "to close the type parameter list")
+        if (out.size == 0) {
+            this.failHere("a type parameter list cannot be empty")
+        }
+        return out
+    }
+
+    fun paramList(): List<ParamN> {
+        this.expect("(", "to start a parameter list")
+        val out: List<ParamN> = []
+        while (not this.at(")")) {
+            val start = this.peek()
+            val name = this.expectIdent("a parameter name")
+            this.expect(":", "after a parameter name")
+            val p = ParamN(name, start.line, start.col)
+            p.tyEx = this.typeExpr()
+            if (this.eat("=")) {
+                p.default = this.expr()
+            }
+            out.add(p)
+            unless (this.eat(",")) { break }
+        }
+        this.expect(")", "to close the parameter list")
+        return out
+    }
+
+    fun classDecl(isRecord: Bool): ClassN {
+        val start = this.peek()
+        unless (isRecord) { this.expect("class", "to start a class declaration") }
+        val name = this.expectIdent(
+            if (isRecord) { "a record name" } else { "a class name" }
+        )
+        val c = ClassN(name, isRecord, start.line, start.col)
+        c.typeParams = this.typeParamList()
+
+        if (this.at("(")) {
+            this.advance()
+            while (not this.at(")")) {
+                val pstart = this.peek()
+                var kw = ""
+                if (this.eat("val")) {
+                    kw = "val"
+                } else if (this.at("var")) {
+                    if (isRecord) {
+                        this.failHere("a record's fields cannot be `var`")
+                    }
+                    this.advance()
+                    kw = "var"
+                } else if (isRecord) {
+                    // In a record every parameter is a field; `val` is implied.
+                    kw = "val"
+                }
+                val pname = this.expectIdent("a constructor parameter name")
+                this.expect(":", "after a constructor parameter name")
+                val cp = CtorN(pname, pstart.line, pstart.col)
+                cp.fieldKind = kw
+                cp.tyEx = this.typeExpr()
+                if (this.eat("=")) {
+                    cp.default = this.expr()
+                }
+                c.ctor.add(cp)
+                unless (this.eat(",")) { break }
+            }
+            this.expect(")", "to close the constructor parameter list")
+        }
+
+        if (this.eat(":")) {
+            var going = true
+            while (going) {
+                c.traits.add(this.typeExpr())
+                going = this.eat(",")
+            }
+        }
+
+        // A class whose state is entirely in its constructor needs no body.
+        unless (this.at("{")) { return c }
+        this.advance()
+        while (true) {
+            this.skipSemis()
+            if (this.at("}") or this.at("eof")) { break }
+            val m = this.peek()
+            if (m.kind == "fun" or m.kind == "proc") {
+                c.methods.add(this.funDecl())
+            } else if (m.kind == "val" or m.kind == "var") {
+                val mutable = this.advance().kind == "var"
+                if (mutable and isRecord) {
+                    this.fail(m.line, m.col, "a record's fields cannot be `var`")
+                }
+                val fname = this.expectIdent("a field name")
+                val fd = FieldN(fname, m.line, m.col)
+                fd.mutable = mutable
+                if (this.eat(":")) {
+                    fd.tyEx = this.typeExpr()
+                }
+                if (this.eat("=")) {
+                    fd.init = this.expr()
+                }
+                if (fd.tyEx == null and fd.init == null) {
+                    this.fail(
+                        m.line,
+                        m.col,
+                        "field `${fname}` needs either a type or an initializer"
+                    )
+                }
+                c.fields.add(fd)
+            } else {
+                this.failHere(
+                    "expected `fun`, `proc`, `val` or `var` in a class body, found ${describeToken(m)}"
+                )
+            }
+        }
+        this.expect("}", "to close the class body")
+        return c
+    }
+
+    fun traitDecl(): TraitN {
+        val start = this.peek()
+        this.advance() // trait
+        val name = this.expectIdent("a trait name")
+        val t = TraitN(name, start.line, start.col)
+        this.expect("{", "to open the trait body")
+        while (true) {
+            this.skipSemis()
+            if (this.at("}") or this.at("eof")) { break }
+            val mstart = this.peek()
+            val isFun = this.at("fun")
+            if (isFun) {
+                this.advance()
+            } else {
+                this.expect("proc", "to start a trait member")
+            }
+            val mname = this.expectIdent("a method name")
+            val decl = FunN(mname, mstart.line, mstart.col)
+            decl.typeParams = this.typeParamList()
+            decl.params = this.paramList()
+            decl.ret = this.returnType(isFun, mname)
+            val hasDefault = this.at("{")
+            if (hasDefault) {
+                decl.body = this.block()
+            }
+            t.methods.add(TraitMethodN(decl, hasDefault))
+        }
+        this.expect("}", "to close the trait body")
+        return t
+    }
+
+    fun externDecl(): ExternN {
+        val start = this.peek()
+        this.advance() // extern
+        this.expect("fun", "after `extern`")
+        val name = this.expectIdent("a function name")
+        val x = ExternN(name, start.line, start.col)
+        x.params = this.paramList()
+        x.ret = this.returnType(true, name)
+        x.symbol = name
+        if (this.eat("=")) {
+            // The token is consumed before it is judged, so a bad one is
+            // reported at whatever follows it — as the oracle does.
+            val t = this.advance()
+            if (t.kind == "str") {
+                if (t.parts.size == 1 and t.parts[0].isLit) {
+                    x.symbol = t.parts[0].text
+                } else {
+                    this.fail(
+                        start.line,
+                        start.col,
+                        "a symbol name cannot interpolate"
+                    )
+                }
+            } else {
+                this.failHere(
+                    "expected a C symbol string, found ${describeToken(t)}"
+                )
+            }
+        }
+        return x
+    }
+
+    // ---- statements -----------------------------------------------------
+
+    fun block(): BlockN {
+        this.expect("{", "to open a block")
+        val out = BlockN()
+        while (true) {
+            this.skipSemis()
+            if (this.at("}") or this.at("eof")) { break }
+            out.stmts.add(this.stmt())
+        }
+        this.expect("}", "to close the block")
+        return out
+    }
+
+    fun stmt(): StmtN {
+        val t = this.peek()
+        if (t.kind == "val" or t.kind == "var") {
+            val kw = this.advance().kind
+            // `val (a, b) = t` names a tuple's elements.
+            if (this.at("(")) {
+                val pstart = this.peek()
+                val binds = this.bindList(pstart.line, pstart.col)
+                if (binds.size < 2 or binds.size > 5) {
+                    this.fail(
+                        pstart.line,
+                        pstart.col,
+                        "a tuple pattern names between 2 and 5 values"
+                    )
+                }
+                this.expect("=", "in a destructuring declaration")
+                val s = StmtN("destructure", t.line, t.col)
+                s.mutable = kw == "var"
+                s.pattern = DestrN("Tuple${binds.size}", binds, pstart.line, pstart.col)
+                s.init = this.expr()
+                return s
+            }
+            // `val Point(x, y) = p` destructures; `val p = ...` binds.
+            if (this.at("ident") and this.peekAt(1).kind == "(") {
+                val nameTok = this.advance()
+                val binds = this.bindList(nameTok.line, nameTok.col)
+                this.expect("=", "in a destructuring declaration")
+                val s = StmtN("destructure", t.line, t.col)
+                s.mutable = kw == "var"
+                s.pattern = DestrN(nameTok.text, binds, nameTok.line, nameTok.col)
+                s.init = this.expr()
+                return s
+            }
+            val name = this.expectIdent("a variable name")
+            val s = StmtN("let", t.line, t.col)
+            s.name = name
+            s.mutable = kw == "var"
+            if (this.eat(":")) {
+                s.tyEx = this.typeExpr()
+            }
+            this.expect("=", "in a variable declaration")
+            s.init = this.expr()
+            return s
+        }
+        if (t.kind == "return") {
+            this.advance()
+            val s = StmtN("return", t.line, t.col)
+            if (this.at(";") or this.at("}") or this.at("eof")) {
+                return s
+            }
+            var value = this.expr()
+            // `return a, b` returns both, as a tuple.
+            if (this.at(",")) {
+                val items: List<Ex> = [value]
+                while (this.eat(",")) {
+                    items.add(this.expr())
+                }
+                value = this.tuple(items, t)
+            }
+            s.ex = value
+            return s
+        }
+        if (t.kind == "break") {
+            this.advance()
+            return StmtN("break", t.line, t.col)
+        }
+        if (t.kind == "continue") {
+            this.advance()
+            return StmtN("continue", t.line, t.col)
+        }
+        if (t.kind == "while") {
+            this.advance()
+            this.expect("(", "after `while`")
+            val s = StmtN("while", t.line, t.col)
+            s.ex = this.expr()
+            this.expect(")", "after the `while` condition")
+            s.body = this.block()
+            return s
+        }
+        if (t.kind == "for") {
+            this.advance()
+            this.expect("(", "after `for`")
+            val v = this.expectIdent("a loop variable name")
+            val s = StmtN("for", t.line, t.col)
+            s.name = v
+            if (this.eat(":")) {
+                s.tyEx = this.typeExpr()
+            }
+            this.expect("in", "after the loop variable")
+            s.ex = this.expr()
+            this.expect(")", "after the `for` iterable")
+            s.body = this.block()
+            return s
+        }
+        if (t.kind == "fun" or t.kind == "proc") {
+            val s = StmtN("fun", t.line, t.col)
+            s.funDecl = this.funDecl()
+            return s
+        }
+        if (t.kind == "class") {
+            val s = StmtN("class", t.line, t.col)
+            s.classDecl = this.classDecl(false)
+            return s
+        }
+
+        val target = this.expr()
+        val opTok = this.peek()
+        unless (isAssignOp(opTok.kind)) {
+            val s = StmtN("expr", t.line, t.col)
+            s.ex = target
+            return s
+        }
+        this.advance()
+        unless (target.kind == "ident" or target.kind == "field" or target.kind == "index") {
+            this.fail(
+                opTok.line,
+                opTok.col,
+                "left side of an assignment is not assignable"
+            )
+        }
+        val assign = Ex("assign", t.line, t.col)
+        assign.assignOp = assignOpName(opTok.kind)
+        assign.kids = [target, this.expr()]
+        val s = StmtN("expr", t.line, t.col)
+        s.ex = assign
+        return s
+    }
+
+    /// `(a, _, c)` — the shared half of every destructuring form. An empty
+    /// list is reported at the pattern's head — the type name, or the `(`
+    /// of a tuple pattern — which is why the position comes from the caller.
+    fun bindList(atLine: Int, atCol: Int): List<String> {
+        this.expect("(", "to start a destructuring pattern")
+        val out: List<String> = []
+        while (not this.at(")")) {
+            if (this.at("(")) {
+                this.failHere("a pattern cannot nest inside another")
+            }
+            val name = this.expectIdent("a field name, or `_` to skip one")
+            out.add(name)
+            unless (this.eat(",")) { break }
+        }
+        this.expect(")", "to close the destructuring pattern")
+        if (out.size == 0) {
+            this.fail(atLine, atCol, "a destructuring pattern needs at least one name")
+        }
+        return out
+    }
+
+    // ---- expressions ----------------------------------------------------
+
+    fun expr(): Ex { this.binary(0) }
+
+    fun binary(minBp: Int): Ex {
+        var lhs = this.unary()
+        while (true) {
+            val t = this.peek()
+
+            val logical = logicalOpOf(t.kind)
+            unless (logical == "") {
+                if (1 < minBp) { return lhs }
+                this.advance()
+                val rhs = this.binary(2)
+                val node = Ex("logical", t.line, t.col)
+                node.text = logical
+                node.kids = [lhs, rhs]
+                lhs = node
+                // No connective outranks another; only an associative repeat
+                // may chain.
+                val next = logicalOpOf(this.peek().kind)
+                unless (next == "") {
+                    val repeats = next == logical and (logical == "and" or logical == "or" or logical == "xor" or logical == "xnor")
+                    unless (repeats) {
+                        if (next == logical) {
+                            this.failHere("`${logical}` does not chain")
+                        } else {
+                            this.failHere(
+                                "`${logical}` and `${next}` need parentheses to say which applies first"
+                            )
+                        }
+                    }
+                }
+                continue
+            }
+
+            if (t.kind == "?:" and 4 >= minBp) {
+                this.advance()
+                val node = Ex("elvis", t.line, t.col)
+                node.kids = [lhs, this.binary(4)]
+                lhs = node
+                continue
+            }
+            if (t.kind == ".." and 5 >= minBp) {
+                this.advance()
+                val node = Ex("range", t.line, t.col)
+                node.kids = [lhs, this.binary(6)]
+                lhs = node
+                continue
+            }
+            if (t.kind == "is" and 3 >= minBp) {
+                this.advance()
+                val node = Ex("is", t.line, t.col)
+                node.tyEx = this.typeExpr()
+                node.kids = [lhs]
+                lhs = node
+                continue
+            }
+            if (t.kind == "!" and 3 >= minBp and (this.peekAt(1).kind == "is" or this.peekAt(1).kind == "in")) {
+                this.advance()
+                if (this.eat("is")) {
+                    val node = Ex("is", t.line, t.col)
+                    node.negated = true
+                    node.tyEx = this.typeExpr()
+                    node.kids = [lhs]
+                    lhs = node
+                } else {
+                    this.advance() // in
+                    val rhs = this.binary(4)
+                    // `x !in xs` is `not xs.contains(x)`.
+                    val call = Ex("method", t.line, t.col)
+                    call.text = "contains"
+                    call.kids = [rhs]
+                    call.args = [ArgN("", lhs)]
+                    val neg = Ex("unary", t.line, t.col)
+                    neg.text = "not"
+                    neg.kids = [call]
+                    lhs = neg
+                }
+                continue
+            }
+            if (t.kind == "in" and 3 >= minBp) {
+                this.advance()
+                val rhs = this.binary(4)
+                // `x in xs` is `xs.contains(x)`.
+                val call = Ex("method", t.line, t.col)
+                call.text = "contains"
+                call.kids = [rhs]
+                call.args = [ArgN("", lhs)]
+                lhs = call
+                continue
+            }
+
+            val op = binaryOpOf(t.kind)
+            if (op == "") { return lhs }
+            val bp = binaryPowerOf(t.kind)
+            if (bp < minBp) { return lhs }
+            this.advance()
+            val node = Ex("binary", t.line, t.col)
+            node.text = op
+            node.kids = [lhs, this.binary(bp + 1)]
+            lhs = node
+        }
+        return lhs
+    }
+
+    fun unary(): Ex {
+        val t = this.peek()
+        val op = when (t.kind) {
+            "-" -> "neg"
+            "!", "not" -> "not"
+            else -> ""
+        }
+        if (op == "") { return this.postfix() }
+        this.advance()
+        val node = Ex("unary", t.line, t.col)
+        node.text = op
+        node.kids = [this.binary(8)]
+        return node
+    }
+
+    fun postfix(): Ex {
+        // Errors about a call or an index point at the whole expression.
+        val start = this.peek()
+        var e = this.primary()
+        while (true) {
+            val t = this.peek()
+            if (t.kind == "." or t.kind == "?.") {
+                val safe = this.advance().kind == "?."
+                val nameTok = this.peek()
+                val name = this.expectIdent("a field or method name")
+                if (this.at("(")) {
+                    val node = Ex("method", nameTok.line, nameTok.col)
+                    node.text = name
+                    node.safe = safe
+                    node.kids = [e]
+                    node.args = this.argList()
+                    e = node
+                } else {
+                    val node = Ex("field", nameTok.line, nameTok.col)
+                    node.text = name
+                    node.safe = safe
+                    node.kids = [e]
+                    e = node
+                }
+            } else if (t.kind == "!!") {
+                this.advance()
+                val node = Ex("notnull", start.line, start.col)
+                node.kids = [e]
+                e = node
+            } else if (t.kind == "(") {
+                val node = Ex("call", start.line, start.col)
+                node.kids = [e]
+                node.args = this.argList()
+                e = node
+            } else if (t.kind == "[") {
+                this.advance()
+                val index = this.expr()
+                this.expect("]", "to close an index expression")
+                val node = Ex("index", start.line, start.col)
+                node.kids = [e, index]
+                e = node
+            } else {
+                return e
+            }
+        }
+        return e
+    }
+
+    fun argList(): List<ArgN> {
+        this.expect("(", "to start an argument list")
+        val out: List<ArgN> = []
+        while (not this.at(")")) {
+            // `name = value` is a named argument; `name == value` is not.
+            var name = ""
+            if (this.at("ident") and this.peekAt(1).kind == "=") {
+                name = this.advance().text
+                this.advance()
+            }
+            out.add(ArgN(name, this.expr()))
+            unless (this.eat(",")) { break }
+        }
+        this.expect(")", "to close the argument list")
+        return out
+    }
+
+    fun tuple(items: List<Ex>, t: Token): Ex {
+        if (items.size < 2 or items.size > 5) {
+            this.fail(
+                t.line,
+                t.col,
+                "a tuple holds between 2 and 5 values, not ${items.size}"
+            )
+        }
+        val callee = Ex("ident", t.line, t.col)
+        callee.text = "Tuple${items.size}"
+        val node = Ex("call", t.line, t.col)
+        node.kids = [callee]
+        for (i in items) { node.args.add(ArgN("", i)) }
+        return node
+    }
+
+    fun primary(): Ex {
+        val t = this.peek()
+        if (t.kind == "int") {
+            this.advance()
+            val node = Ex("int", t.line, t.col)
+            node.iVal = t.text.toInt() ?: 0
+            return node
+        }
+        if (t.kind == "float") {
+            this.advance()
+            val node = Ex("float", t.line, t.col)
+            node.fVal = t.text.toFloat() ?: 0.0
+            return node
+        }
+        if (t.kind == "true" or t.kind == "false") {
+            this.advance()
+            val node = Ex("bool", t.line, t.col)
+            node.text = t.kind
+            return node
+        }
+        if (t.kind == "null") {
+            this.advance()
+            return Ex("null", t.line, t.col)
+        }
+        if (t.kind == "this") {
+            this.advance()
+            return Ex("this", t.line, t.col)
+        }
+        if (t.kind == "ident") {
+            this.advance()
+            val node = Ex("ident", t.line, t.col)
+            node.text = t.text
+            return node
+        }
+        if (t.kind == "str") {
+            this.advance()
+            return this.stringExpr(t)
+        }
+        if (t.kind == "(") {
+            this.advance()
+            val first = this.expr()
+            unless (this.at(",")) {
+                this.expect(")", "to close a parenthesised expression")
+                return first
+            }
+            val items: List<Ex> = [first]
+            while (this.eat(",")) {
+                this.skipSemis()
+                if (this.at(")")) { break }
+                items.add(this.expr())
+            }
+            this.expect(")", "to close a tuple")
+            return this.tuple(items, t)
+        }
+        if (t.kind == "[") {
+            this.advance()
+            val node = Ex("list", t.line, t.col)
+            while (not this.at("]")) {
+                this.skipSemis()
+                if (this.at("]")) { break }
+                node.kids.add(this.expr())
+                this.skipSemis()
+                unless (this.eat(",")) { break }
+            }
+            this.skipSemis()
+            this.expect("]", "to close a list literal")
+            return node
+        }
+        if (t.kind == "if" or t.kind == "unless") { return this.ifExpr() }
+        if (t.kind == "when") { return this.whenExpr() }
+        if (t.kind == "{") { return this.braceExpr() }
+        this.failHere("expected an expression, found ${describeToken(t)}")
+        return Ex("null", t.line, t.col)
+    }
+
+    fun stringExpr(t: Token): Ex {
+        if (t.parts.size == 1 and t.parts[0].isLit) {
+            val node = Ex("str", t.line, t.col)
+            node.text = t.parts[0].text
+            return node
+        }
+        val node = Ex("interp", t.line, t.col)
+        for (p in t.parts) {
+            val part = PartN(p.isLit)
+            if (p.isLit) {
+                part.text = p.text
+            } else {
+                val sub = Parser(lexFragment(p.text, p.line, p.col))
+                sub.errorPrefix = this.errorPrefix
+                part.ex = sub.exprOnly()
+            }
+            node.parts.add(part)
+        }
+        return node
+    }
+
+    /// A whole fragment as one expression — `${...}` holes and nothing else.
+    fun exprOnly(): Ex {
+        val e = this.expr()
+        this.skipSemis()
+        unless (this.at("eof")) {
+            this.failHere("unexpected trailing input in expression")
+        }
+        return e
+    }
+
+    fun ifExpr(): Ex {
+        val start = this.peek()
+        val negated = this.at("unless")
+        val word = if (negated) { "unless" } else { "if" }
+        if (negated) {
+            this.advance()
+        } else {
+            this.expect("if", "to start an `if`")
+        }
+        this.expect("(", "after `${word}`")
+        var cond = this.expr()
+        this.expect(")", "after the `${word}` condition")
+        if (negated) {
+            // `unless (c)` is `if (not c)`, at the condition node's own span.
+            val neg = Ex("unary", cond.line, cond.col)
+            neg.text = "not"
+            neg.kids = [cond]
+            cond = neg
+        }
+        val node = Ex("if", start.line, start.col)
+        node.kids = [cond]
+        node.body = this.block()
+
+        // A newline before `else` inserted a `;`; skip it only if `else`
+        // really follows.
+        val save = this.pos
+        this.skipSemis()
+        if (this.eat("else")) {
+            if (this.at("if") or this.at("unless")) {
+                node.elseif = this.ifExpr()
+            } else {
+                node.els = this.block()
+            }
+        } else {
+            this.pos = save
+        }
+        return node
+    }
+
+    fun whenExpr(): Ex {
+        val start = this.peek()
+        this.expect("when", "to start a `when`")
+        val node = Ex("when", start.line, start.col)
+        if (this.eat("(")) {
+            node.subject = this.expr()
+            this.expect(")", "after the `when` subject")
+        }
+        this.expect("{", "to open a `when` body")
+        while (true) {
+            this.skipSemis()
+            if (this.at("}") or this.at("eof")) { break }
+            node.arms.add(this.whenArm())
+        }
+        this.expect("}", "to close the `when` body")
+        return node
+    }
+
+    fun whenArm(): ArmN {
+        val start = this.peek()
+        val arm = ArmN(start.line, start.col)
+        if (this.eat("else")) {
+            arm.patternKind = "else"
+        } else if (this.eat("is")) {
+            arm.patternKind = "is"
+            val tyTok = this.peek()
+            val te = this.typeExpr()
+            arm.patTyEx = te
+            if (this.at("(")) {
+                unless (te.kind == "named") {
+                    this.fail(
+                        tyTok.line,
+                        tyTok.col,
+                        "only a class or record can be destructured"
+                    )
+                }
+                val binds = this.bindList(tyTok.line, tyTok.col)
+                arm.binds = DestrN(te.name, binds, tyTok.line, tyTok.col)
+            }
+        } else if (this.at("!") and (this.peekAt(1).kind == "is" or this.peekAt(1).kind == "in")) {
+            this.advance()
+            if (this.eat("is")) {
+                arm.patternKind = "is"
+                arm.patNegated = true
+                arm.patTyEx = this.typeExpr()
+            } else {
+                this.advance()
+                arm.patternKind = "in"
+                arm.patNegated = true
+                arm.values = [this.expr()]
+            }
+        } else if (this.eat("in")) {
+            arm.patternKind = "in"
+            arm.values = [this.expr()]
+        } else {
+            arm.patternKind = "values"
+            var going = true
+            while (going) {
+                arm.values.add(this.expr())
+                going = this.eat(",")
+            }
+        }
+
+        if (this.at("if")) {
+            if (arm.patternKind == "else") {
+                this.failHere("`else` cannot have a guard")
+            }
+            this.advance()
+            this.expect("(", "after `if` in a guard")
+            arm.guard = this.expr()
+            this.expect(")", "after a guard condition")
+        }
+        this.expect("->", "after a `when` pattern")
+
+        // Inside a `when` arm, `{` means a block, not a lambda.
+        if (this.at("{")) {
+            arm.body = this.block()
+        } else {
+            val e = this.expr()
+            val s = StmtN("expr", e.line, e.col)
+            s.ex = e
+            val b = BlockN()
+            b.stmts = [s]
+            arm.body = b
+        }
+        return arm
+    }
+
+    /// `{` opens a lambda with parameters, a map literal, or a lambda whose
+    /// one parameter is the implicit `it` — tried in that order.
+    fun braceExpr(): Ex {
+        val start = this.peek()
+        this.expect("{", "to open a lambda or map literal")
+        val save = this.pos
+
+        this.quiet += 1
+        val (matched, params) = this.lambdaParams()
+        this.quiet -= 1
+        if (matched and not this.failed) {
+            return this.lambdaBody(start, params)
+        }
+        this.failed = false
+        this.pos = save
+
+        val (isMap, mapNode) = this.tryMapLiteral(start)
+        if (isMap) {
+            return mapNode
+        }
+        this.failed = false
+        this.pos = save
+
+        val implicit: List<ParamN> = [ParamN("it", start.line, start.col)]
+        return this.lambdaBody(start, implicit)
+    }
+
+    /// Tries to read `x: T, y ->`. On anything else the caller rolls back.
+    fun lambdaParams(): (Bool, List<ParamN>) {
+        val out: List<ParamN> = []
+        if (this.at("->")) {
+            this.advance()
+            return true, out
+        }
+        while (true) {
+            val start = this.peek()
+            unless (this.at("ident")) { return false, out }
+            val name = this.advance().text
+            val p = ParamN(name, start.line, start.col)
+            if (this.eat(":")) {
+                p.tyEx = this.typeExpr()
+                if (this.failed) { return false, out }
+            }
+            out.add(p)
+            if (this.eat(",")) { continue }
+            if (this.eat("->")) { return true, out }
+            return false, out
+        }
+        return false, out
+    }
+
+    fun lambdaBody(start: Token, params: List<ParamN>): Ex {
+        val node = Ex("lambda", start.line, start.col)
+        node.params = params
+        val b = BlockN()
+        while (true) {
+            this.skipSemis()
+            if (this.at("}") or this.at("eof")) { break }
+            b.stmts.add(this.stmt())
+        }
+        this.expect("}", "to close the lambda")
+        node.body = b
+        return node
+    }
+
+    /// `{}` and `{ k: v, ... }`; rolled back by the caller when the braces
+    /// hold something else. Only the first key is tentative: once its `:` is
+    /// seen this is a map, and later errors are real errors.
+    fun tryMapLiteral(start: Token): (Bool, Ex) {
+        val node = Ex("map", start.line, start.col)
+        this.skipSemis()
+        if (this.eat("}")) {
+            return true, node
+        }
+        this.quiet += 1
+        val firstKey = this.expr()
+        this.quiet -= 1
+        if (this.failed) { return false, node }
+        unless (this.at(":")) { return false, node }
+        this.advance()
+        node.keys.add(firstKey)
+        node.values.add(this.expr())
+        while (this.eat(",")) {
+            this.skipSemis()
+            if (this.at("}")) { break }
+            val key = this.expr()
+            this.expect(":", "between a map key and its value")
+            node.keys.add(key)
+            node.values.add(this.expr())
+        }
+        this.skipSemis()
+        this.expect("}", "to close a map literal")
+        return true, node
+    }
+
+    // ---- types ----------------------------------------------------------
+
+    fun typeExpr(): TypeEx {
+        val t = this.peek()
+        var out = TypeEx("named", t.line, t.col)
+        if (t.kind == "ident") {
+            this.advance()
+            out.name = t.text
+            if (this.at("<")) {
+                this.advance()
+                var going = true
+                while (going) {
+                    out.args.add(this.typeExpr())
+                    going = this.eat(",")
+                }
+                this.expect(">", "to close type arguments")
+            }
+        } else if (t.kind == "(") {
+            this.advance()
+            val params: List<TypeEx> = []
+            while (not this.at(")")) {
+                params.add(this.typeExpr())
+                unless (this.eat(",")) { break }
+            }
+            this.expect(")", "to close a function type's parameters")
+            // `(A, B) -> C` is a function; `(A, B)` alone is a tuple.
+            unless (this.at("->")) {
+                if (params.size < 2 or params.size > 5) {
+                    this.fail(
+                        t.line,
+                        t.col,
+                        "a tuple type holds between 2 and 5 types, not ${params.size}"
+                    )
+                }
+                out.name = "Tuple${params.size}"
+                out.args = params
+            } else {
+                this.advance()
+                out = TypeEx("fun", t.line, t.col)
+                out.args = params
+                out.ret = this.typeExpr()
+            }
+        } else {
+            this.failHere("expected a type, found ${describeToken(t)}")
+            return out
+        }
+        while (this.eat("?")) {
+            val wrapped = TypeEx("nullable", t.line, t.col)
+            wrapped.inner = out
+            out = wrapped
+        }
+        return out
+    }
+}
