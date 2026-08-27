@@ -227,12 +227,28 @@ snapshot test (`tests/jbind/`) JDK-free; the end-to-end test builds a
 native binary against live-generated `java.time` wrappers. Kotlin classes
 are plain JVM classes: same generator, Kotlin's stdlib on the classpath.
 
-The endpoint, in three steps that stack: **(1)** 4a, shipped — you write
-signatures; **(2)** `jbind`, shipped — a generated `LocalDate.keal` you
-import by path; **(3)** loader sugar, next — `import java.time.LocalDate`
-becomes a recognised import form: a non-path import asks jbind to generate
-(and cache) the module on the spot. Step 3 is a small loader extension;
-step 2 was the machinery.
+The endpoint, in three steps that stack — **all three shipped**:
+**(1)** 4a — you write signatures; **(2)** `jbind` — a generated
+`LocalDate.keal` you import by path; **(3)** loader sugar —
+
+```keal
+import java.time.LocalDate, java.time.DayOfWeek
+
+jvmStart("")
+val d = localDateOf(2026, 1, 1).plusDays(58)
+println(d.toString())               // 2026-02-28
+println(d.getDayOfWeek().toString())  // SATURDAY
+```
+
+A non-path import desugars to `.jbind/<classes>.keal` next to the file;
+classes named in one import are bound together, so they see each other
+typed. `keal run`/`check`/`build` fill the cache through `javap` when it
+is missing (`keal jbind --cache .jbind java.time.LocalDate` does it by
+hand), and the directory carries its own copy of the gateway, so a
+committed `.jbind/` builds anywhere — no JDK needed until the classes
+change. The compiler stages themselves never generate: `keal
+tokens`/`ast`/`types`/`cgen` and the self-hosted twins read only what is
+on disk, which keeps the byte-for-byte corpora meaningful.
 
 **4c. Later, if wanted:** GraalVM `native-image --shared` turns a JVM
 library into a plain C shared library with its own header — then the JVM

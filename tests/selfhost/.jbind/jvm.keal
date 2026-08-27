@@ -1,0 +1,376 @@
+// The JVM gateway — interop tier 4a (docs/interop.md).
+//
+// Java and Kotlin are one target: the JVM, reached through JNI, which is a
+// C API — and a Keal program compiles *to* C, so the whole gateway is this
+// one module: a `native` block of helpers over `jni.h`, and `extern fun`
+// declarations over them. No new compiler capability was needed.
+//
+//     import "lib/jvm.keal"        // adjust the relative path
+//
+//     jvmStart("")                 // or "-Djava.class.path=lib/foo.jar" paths
+//     val date = jvmClass("java/time/LocalDate")
+//     jvmArgInt(2026)
+//     jvmArgInt(1)
+//     jvmArgInt(1)
+//     val d = jvmStaticObj(date, "of", "(III)Ljava/time/LocalDate;")
+//     jvmArgLong(58)
+//     val later = jvmCallObj(d, "plusDays", "(J)Ljava/time/LocalDate;")
+//     println(jvmToString(later))  // 2026-02-28
+//
+// Build against the JDK (java_home = $(/usr/libexec/java_home) on macOS):
+//
+//     keal build prog.keal \
+//         -I$JAVA_HOME/include -I$JAVA_HOME/include/darwin \
+//         -L$JAVA_HOME/lib/server -ljvm -Wl,-rpath,$JAVA_HOME/lib/server
+//
+// The shape of the API, honestly stated:
+//
+// * A JVM object is an opaque **handle** (`Int`): a JNI global reference.
+//   Free it with `jvmFree` when done — handles are manual in this tier;
+//   `keal jbind` (tier 4b) will wrap them in counted Keal classes.
+// * Arguments are pushed with `jvmArg*` — matching the Java parameter type
+//   (`jvmArgInt` for Java `int`, `jvmArgLong` for `long`) — then consumed
+//   by the next call. Calls take the JNI method signature verbatim.
+// * A Java exception becomes a Keal panic carrying the throwable's
+//   `toString`. Simple first; typed errors ride in with jbind.
+
+native """
+#include <jni.h>
+
+static JavaVM* keal_jvm_vm = NULL;
+static JNIEnv* keal_jvm_env = NULL;
+
+#define KEAL_JVM_MAX_ARGS 16
+static jvalue keal_jvm_args[KEAL_JVM_MAX_ARGS];
+static int keal_jvm_argc = 0;
+
+/* A pending Java exception ends the program the Keal way: as a panic that
+ * says which call threw and what the throwable printed. */
+static void keal_jvm_check(const char* what) {
+    if ((*keal_jvm_env)->ExceptionCheck(keal_jvm_env)) {
+        jthrowable ex = (*keal_jvm_env)->ExceptionOccurred(keal_jvm_env);
+        (*keal_jvm_env)->ExceptionClear(keal_jvm_env);
+        const char* text = "unknown Java exception";
+        jclass cls = (*keal_jvm_env)->GetObjectClass(keal_jvm_env, ex);
+        jmethodID mid = (*keal_jvm_env)->GetMethodID(keal_jvm_env, cls, "toString",
+                                                     "()Ljava/lang/String;");
+        jstring s = NULL;
+        if (mid != NULL) {
+            s = (jstring)(*keal_jvm_env)->CallObjectMethod(keal_jvm_env, ex, mid);
+        }
+        if (s != NULL) {
+            text = (*keal_jvm_env)->GetStringUTFChars(keal_jvm_env, s, NULL);
+        }
+        char msg[512];
+        snprintf(msg, sizeof msg, "%s threw: %s", what, text);
+        keal_panic(msg, 0);
+    }
+}
+
+static void keal_jvm_need(void) {
+    if (keal_jvm_env == NULL) {
+        keal_panic("the JVM is not running; call jvmStart first", 0);
+    }
+}
+
+static bool keal_jvm_start_impl(const char* options) {
+    if (keal_jvm_env != NULL) {
+        return true;
+    }
+    static char optbuf[4096];
+    JavaVMOption opts[1];
+    JavaVMInitArgs args;
+    int nopts = 0;
+    if (options != NULL && options[0] != '\0') {
+        snprintf(optbuf, sizeof optbuf, "%s", options);
+        opts[nopts].optionString = optbuf;
+        nopts++;
+    }
+    args.version = JNI_VERSION_1_8;
+    args.nOptions = nopts;
+    args.options = opts;
+    args.ignoreUnrecognized = JNI_TRUE;
+    return JNI_CreateJavaVM(&keal_jvm_vm, (void**)&keal_jvm_env, &args) == JNI_OK;
+}
+
+static int64_t keal_jvm_class_impl(const char* name) {
+    keal_jvm_need();
+    jclass local = (*keal_jvm_env)->FindClass(keal_jvm_env, name);
+    keal_jvm_check(name);
+    jclass global = (jclass)(*keal_jvm_env)->NewGlobalRef(keal_jvm_env, local);
+    (*keal_jvm_env)->DeleteLocalRef(keal_jvm_env, local);
+    return (int64_t)(intptr_t)global;
+}
+
+static void keal_jvm_push(jvalue v) {
+    if (keal_jvm_argc >= KEAL_JVM_MAX_ARGS) {
+        keal_panic("too many JVM call arguments (16 at most)", 0);
+    }
+    keal_jvm_args[keal_jvm_argc] = v;
+    keal_jvm_argc++;
+}
+
+static void keal_jvm_arg_int_impl(int64_t v) {
+    jvalue j;
+    j.i = (jint)v;
+    keal_jvm_push(j);
+}
+
+static void keal_jvm_arg_long_impl(int64_t v) {
+    jvalue j;
+    j.j = (jlong)v;
+    keal_jvm_push(j);
+}
+
+static void keal_jvm_arg_double_impl(double v) {
+    jvalue j;
+    j.d = (jdouble)v;
+    keal_jvm_push(j);
+}
+
+static void keal_jvm_arg_bool_impl(bool v) {
+    jvalue j;
+    j.z = v ? JNI_TRUE : JNI_FALSE;
+    keal_jvm_push(j);
+}
+
+static void keal_jvm_arg_str_impl(const char* s) {
+    keal_jvm_need();
+    jvalue j;
+    j.l = (*keal_jvm_env)->NewStringUTF(keal_jvm_env, s);
+    keal_jvm_push(j);
+}
+
+static void keal_jvm_arg_obj_impl(int64_t h) {
+    jvalue j;
+    j.l = (jobject)(intptr_t)h;
+    keal_jvm_push(j);
+}
+
+static jmethodID keal_jvm_method(jclass cls, const char* name, const char* sig,
+                                 int is_static) {
+    jmethodID mid = is_static
+        ? (*keal_jvm_env)->GetStaticMethodID(keal_jvm_env, cls, name, sig)
+        : (*keal_jvm_env)->GetMethodID(keal_jvm_env, cls, name, sig);
+    keal_jvm_check(name);
+    return mid;
+}
+
+static int64_t keal_jvm_keep(jobject local) {
+    if (local == NULL) {
+        return 0;
+    }
+    jobject global = (*keal_jvm_env)->NewGlobalRef(keal_jvm_env, local);
+    (*keal_jvm_env)->DeleteLocalRef(keal_jvm_env, local);
+    return (int64_t)(intptr_t)global;
+}
+
+static int64_t keal_jvm_static_obj_impl(int64_t cls, const char* name, const char* sig) {
+    keal_jvm_need();
+    jclass c = (jclass)(intptr_t)cls;
+    jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    jobject r = (*keal_jvm_env)->CallStaticObjectMethodA(keal_jvm_env, c, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return keal_jvm_keep(r);
+}
+
+static int64_t keal_jvm_static_long_impl(int64_t cls, const char* name, const char* sig) {
+    keal_jvm_need();
+    jclass c = (jclass)(intptr_t)cls;
+    jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    jlong r = (*keal_jvm_env)->CallStaticLongMethodA(keal_jvm_env, c, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return (int64_t)r;
+}
+
+static double keal_jvm_static_double_impl(int64_t cls, const char* name, const char* sig) {
+    keal_jvm_need();
+    jclass c = (jclass)(intptr_t)cls;
+    jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    jdouble r = (*keal_jvm_env)->CallStaticDoubleMethodA(keal_jvm_env, c, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return (double)r;
+}
+
+static bool keal_jvm_static_bool_impl(int64_t cls, const char* name, const char* sig) {
+    keal_jvm_need();
+    jclass c = (jclass)(intptr_t)cls;
+    jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    jboolean r = (*keal_jvm_env)->CallStaticBooleanMethodA(keal_jvm_env, c, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return r == JNI_TRUE;
+}
+
+static void keal_jvm_static_void_impl(int64_t cls, const char* name, const char* sig) {
+    keal_jvm_need();
+    jclass c = (jclass)(intptr_t)cls;
+    jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    (*keal_jvm_env)->CallStaticVoidMethodA(keal_jvm_env, c, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+}
+
+static int64_t keal_jvm_new_impl(int64_t cls, const char* sig) {
+    keal_jvm_need();
+    jclass c = (jclass)(intptr_t)cls;
+    jmethodID mid = keal_jvm_method(c, "<init>", sig, 0);
+    jobject r = (*keal_jvm_env)->NewObjectA(keal_jvm_env, c, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check("<init>");
+    return keal_jvm_keep(r);
+}
+
+static int64_t keal_jvm_static_int_impl(int64_t cls, const char* name, const char* sig) {
+    keal_jvm_need();
+    jclass c = (jclass)(intptr_t)cls;
+    jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    jint r = (*keal_jvm_env)->CallStaticIntMethodA(keal_jvm_env, c, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return (int64_t)r;
+}
+
+static jclass keal_jvm_class_of(jobject obj) {
+    return (*keal_jvm_env)->GetObjectClass(keal_jvm_env, obj);
+}
+
+static int64_t keal_jvm_call_obj_impl(int64_t obj, const char* name, const char* sig) {
+    keal_jvm_need();
+    jobject o = (jobject)(intptr_t)obj;
+    jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    jobject r = (*keal_jvm_env)->CallObjectMethodA(keal_jvm_env, o, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return keal_jvm_keep(r);
+}
+
+static int64_t keal_jvm_call_int_impl(int64_t obj, const char* name, const char* sig) {
+    keal_jvm_need();
+    jobject o = (jobject)(intptr_t)obj;
+    jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    jint r = (*keal_jvm_env)->CallIntMethodA(keal_jvm_env, o, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return (int64_t)r;
+}
+
+static int64_t keal_jvm_call_long_impl(int64_t obj, const char* name, const char* sig) {
+    keal_jvm_need();
+    jobject o = (jobject)(intptr_t)obj;
+    jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    jlong r = (*keal_jvm_env)->CallLongMethodA(keal_jvm_env, o, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return (int64_t)r;
+}
+
+static double keal_jvm_call_double_impl(int64_t obj, const char* name, const char* sig) {
+    keal_jvm_need();
+    jobject o = (jobject)(intptr_t)obj;
+    jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    jdouble r = (*keal_jvm_env)->CallDoubleMethodA(keal_jvm_env, o, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return (double)r;
+}
+
+static bool keal_jvm_call_bool_impl(int64_t obj, const char* name, const char* sig) {
+    keal_jvm_need();
+    jobject o = (jobject)(intptr_t)obj;
+    jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    jboolean r = (*keal_jvm_env)->CallBooleanMethodA(keal_jvm_env, o, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return r == JNI_TRUE;
+}
+
+static void keal_jvm_call_void_impl(int64_t obj, const char* name, const char* sig) {
+    keal_jvm_need();
+    jobject o = (jobject)(intptr_t)obj;
+    jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    (*keal_jvm_env)->CallVoidMethodA(keal_jvm_env, o, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+}
+
+/* The throwable-free path to text: whatever the object's toString says,
+ * as a malloc'd buffer Keal adopts. */
+static char* keal_jvm_to_string_impl(int64_t obj) {
+    keal_jvm_need();
+    if (obj == 0) {
+        char* out = (char*)malloc(5);
+        memcpy(out, "null", 5);
+        return out;
+    }
+    jobject o = (jobject)(intptr_t)obj;
+    jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), "toString",
+                                    "()Ljava/lang/String;", 0);
+    jstring s = (jstring)(*keal_jvm_env)->CallObjectMethod(keal_jvm_env, o, mid);
+    keal_jvm_check("toString");
+    const char* utf = (*keal_jvm_env)->GetStringUTFChars(keal_jvm_env, s, NULL);
+    size_t n = strlen(utf);
+    char* out = (char*)malloc(n + 1);
+    memcpy(out, utf, n + 1);
+    (*keal_jvm_env)->ReleaseStringUTFChars(keal_jvm_env, s, utf);
+    (*keal_jvm_env)->DeleteLocalRef(keal_jvm_env, s);
+    return out;
+}
+
+static void keal_jvm_free_impl(int64_t obj) {
+    keal_jvm_need();
+    if (obj != 0) {
+        (*keal_jvm_env)->DeleteGlobalRef(keal_jvm_env, (jobject)(intptr_t)obj);
+    }
+}
+"""
+
+/// Starts the JVM in this process. `options` is one JVM option string, or
+/// "" for none — typically "-Djava.class.path=lib/foo.jar". Returns whether
+/// a JVM is running; calling again once it is, is a no-op that returns true.
+extern fun jvmStart(options: borrow String): Bool = "keal_jvm_start_impl"
+
+/// A class handle, by JNI name: "java/time/LocalDate". Panics if missing.
+extern fun jvmClass(name: borrow String): Int = "keal_jvm_class_impl"
+
+// Argument pushes for the next call — match the Java parameter type.
+extern fun jvmArgInt(v: Int): Unit = "keal_jvm_arg_int_impl"
+extern fun jvmArgLong(v: Int): Unit = "keal_jvm_arg_long_impl"
+extern fun jvmArgDouble(v: Float): Unit = "keal_jvm_arg_double_impl"
+extern fun jvmArgBool(v: Bool): Unit = "keal_jvm_arg_bool_impl"
+extern fun jvmArgStr(s: borrow String): Unit = "keal_jvm_arg_str_impl"
+extern fun jvmArgObj(h: Int): Unit = "keal_jvm_arg_obj_impl"
+
+/// Constructs an instance: pushed arguments, then the constructor's JNI
+/// signature (always `(...)V`). Returns a new handle. `keal jbind` calls
+/// this for `public` constructors; JNI names them `<init>`.
+extern fun jvmNew(cls: Int, sig: borrow String): Int = "keal_jvm_new_impl"
+
+// Static calls, by JNI signature; the pushed arguments are consumed.
+// `Int` and `Long` are separate calls because JNI requires the call to
+// match the method's exact return type — a Java `int` must come back
+// through `CallStaticIntMethodA`, never the long one.
+extern fun jvmStaticInt(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_int_impl"
+extern fun jvmStaticObj(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_obj_impl"
+extern fun jvmStaticLong(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_long_impl"
+extern fun jvmStaticDouble(cls: Int, method: borrow String, sig: borrow String): Float = "keal_jvm_static_double_impl"
+extern fun jvmStaticBool(cls: Int, method: borrow String, sig: borrow String): Bool = "keal_jvm_static_bool_impl"
+extern fun jvmStaticVoid(cls: Int, method: borrow String, sig: borrow String): Unit = "keal_jvm_static_void_impl"
+
+// Instance calls on an object handle.
+extern fun jvmCallInt(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_int_impl"
+extern fun jvmCallObj(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_obj_impl"
+extern fun jvmCallLong(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_long_impl"
+extern fun jvmCallDouble(obj: Int, method: borrow String, sig: borrow String): Float = "keal_jvm_call_double_impl"
+extern fun jvmCallBool(obj: Int, method: borrow String, sig: borrow String): Bool = "keal_jvm_call_bool_impl"
+extern fun jvmCallVoid(obj: Int, method: borrow String, sig: borrow String): Unit = "keal_jvm_call_void_impl"
+
+/// The object's `toString`, adopted; a null handle reads as "null".
+extern fun jvmToString(h: Int): own String = "keal_jvm_to_string_impl"
+
+/// Releases a handle. Handles are manual in this tier; `keal jbind` will
+/// wrap them in counted classes whose release does this for you.
+extern fun jvmFree(h: Int): Unit = "keal_jvm_free_impl"

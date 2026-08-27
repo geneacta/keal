@@ -17,10 +17,22 @@ use crate::span::{Diag, Sources, Span};
 const PRELUDE: &str = include_str!("prelude.keal");
 
 pub fn load(entry: &str, sources: &mut Sources) -> Result<Program, Diag> {
+    load_inner(entry, sources, false)
+}
+
+/// Like `load`, but a missing `.jbind/` module is generated on the spot
+/// (through `javap`, so a JDK must be installed). Only the running commands
+/// take this path — the dump commands stay pure functions of the files on
+/// disk, so the self-hosting corpora compare the same inputs on both sides.
+pub fn load_generating(entry: &str, sources: &mut Sources) -> Result<Program, Diag> {
+    load_inner(entry, sources, true)
+}
+
+fn load_inner(entry: &str, sources: &mut Sources, generate: bool) -> Result<Program, Diag> {
     let mut seen = HashSet::new();
     let mut items = prelude(sources)?;
     let path = normalise(Path::new(entry));
-    load_file(&path, None, sources, &mut seen, &mut items)?;
+    load_file(&path, None, sources, &mut seen, &mut items, generate)?;
     Ok(Program { items })
 }
 
@@ -40,15 +52,32 @@ fn load_file(
     sources: &mut Sources,
     seen: &mut HashSet<PathBuf>,
     items: &mut Vec<Item>,
+    generate: bool,
 ) -> Result<(), Diag> {
     if !seen.insert(path.to_path_buf()) {
         return Ok(());
+    }
+
+    if generate && !path.exists() && path.parent().map(|d| d.ends_with(".jbind")).unwrap_or(false)
+    {
+        if let Err(reason) = crate::jbind::ensure_cache(path) {
+            let msg = format!("cannot generate `{}`: {}", path.display(), reason);
+            return Err(match imported_from {
+                Some(span) => Diag::new(span, msg),
+                None => Diag::new(Span::default(), msg),
+            });
+        }
     }
 
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) => {
             let msg = format!("cannot read `{}`: {}", path.display(), e);
+            let msg = if path.parent().map(|d| d.ends_with(".jbind")).unwrap_or(false) {
+                format!("{} -- `import java.time.LocalDate`-style modules are generated: run `keal jbind --cache` for this import, or run/build with a JDK installed", msg)
+            } else {
+                msg
+            };
             return Err(match imported_from {
                 Some(span) => Diag::new(span, msg),
                 // No import site: the failure is the entry point itself.
@@ -67,7 +96,7 @@ fn load_file(
         match item {
             Item::Import { path: rel, span } => {
                 let target = normalise(&dir.join(&rel));
-                load_file(&target, Some(span), sources, seen, items)?;
+                load_file(&target, Some(span), sources, seen, items, generate)?;
             }
             other => own.push(other),
         }

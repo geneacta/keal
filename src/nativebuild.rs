@@ -12,7 +12,7 @@ use crate::{cbackend, checker, loader, span::Sources};
 /// Type-checks and emits C, or reports why it cannot.
 fn compile(path: &str) -> Result<String, ExitCode> {
     let mut sources = Sources::new();
-    let mut program = match loader::load(path, &mut sources) {
+    let mut program = match loader::load_generating(path, &mut sources) {
         Ok(p) => p,
         Err(d) => {
             eprint!("{}", sources.render("error", &d));

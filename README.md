@@ -503,11 +503,11 @@ The honest list, in rough order of intent:
   [`examples/interop/rust/`](examples/interop/rust/)) and the JVM gateway
   [`lib/jvm.keal`](lib/jvm.keal) — `java.time.LocalDate` driven from a
   native Keal binary in [`examples/interop/java/`](examples/interop/java/).
-  **Go** rides the same tools as Rust. `keal jbind java.time.LocalDate`
-  now generates the typed module itself — `javap`-driven wrappers where a
-  Java `compareTo` even makes the class `Ord` — so what remains is
-  `import java.time.LocalDate` as loader sugar on top —
-  [`docs/interop.md`](docs/interop.md) has the plan.
+  **Go** rides the same tools as Rust. And the endpoint is in:
+  `import java.time.LocalDate, java.time.DayOfWeek` — no path — generates
+  `javap`-driven typed wrappers into a `.jbind/` cache on the next
+  `run`/`build` (a Java `compareTo` even makes the class `Ord`).
+  [`docs/interop.md`](docs/interop.md) tells the whole story.
 * **Cycle handling** — reference counting leaks cycles; the three candidate
   answers (documented leak, weak references, cycle collector) are weighed in
   [`docs/memory.md`](docs/memory.md) §5 and not yet chosen.

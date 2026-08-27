@@ -742,6 +742,75 @@ d.free()
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The endpoint of the interop plan: `import java.time.LocalDate` with no
+/// path. The build generates the `.jbind/` cache through `javap` and links
+/// a native binary; the dump commands never generate, so this stays here,
+/// JDK-gated, and the corpora stay pure.
+#[test]
+fn import_sugar_works_end_to_end() {
+    let Ok(out) = Command::new("/usr/libexec/java_home").output() else {
+        eprintln!("skipping: no java_home helper");
+        return;
+    };
+    if !out.status.success() {
+        eprintln!("skipping: no JDK installed");
+        return;
+    }
+    let jh = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !Path::new(&jh).join("include/jni.h").exists() {
+        eprintln!("skipping: JDK without JNI headers");
+        return;
+    }
+
+    let dir = root().join("target").join("sugar-e2e");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot create the sugar test dir");
+    std::fs::write(
+        dir.join("main.keal"),
+        r#"import java.time.LocalDate, java.time.DayOfWeek
+jvmStart("")
+val d = localDateOf(2026, 1, 1)
+val later = d.plusDays(58)
+println(later.toString())
+val dow = later.getDayOfWeek()
+println(dow.toString())
+dow.free()
+later.free()
+d.free()
+"#,
+    )
+    .expect("cannot write the program");
+
+    let built = Command::new(BIN)
+        .current_dir(&dir)
+        .arg("build")
+        .arg("main.keal")
+        .arg(format!("-I{}/include", jh))
+        .arg(format!("-I{}/include/darwin", jh))
+        .arg(format!("-L{}/lib/server", jh))
+        .arg("-ljvm")
+        .arg(format!("-Wl,-rpath,{}/lib/server", jh))
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the sugar import did not build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    assert!(
+        dir.join(".jbind/java.time.LocalDate+java.time.DayOfWeek.keal").exists(),
+        "the build did not fill the .jbind cache"
+    );
+    let ran = Command::new(dir.join("main")).output().expect("cannot run the binary");
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        "2026-02-28\nSATURDAY\n",
+        "the sugar import printed the wrong thing:\n{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn jvm_gateway_works_end_to_end() {
     let Ok(out) = Command::new("/usr/libexec/java_home").output() else {

@@ -46,7 +46,9 @@ usage:
     keal bindgen <header.h>   turn a C header into extern declarations
     keal jbind <java.Class>... generate typed Keal wrappers for Java
                               classes over lib/jvm.keal (needs javap;
-                              --jvm <path> sets the emitted import path)
+                              --jvm <path> sets the emitted import path,
+                              --cache <dir> writes the module a no-path
+                              `import java.time.LocalDate` loads)
     keal build <file.keal> [sources... libs... flags...]
                               compile to a native executable; extras may be
                               C/C++ sources, .a/.so/.o link inputs, -l/-L
@@ -215,7 +217,7 @@ fn show_layout(path: &str) -> ExitCode {
     use layout::{builtin_reprs, object_layout, Repr, WORD};
 
     let mut sources = span::Sources::new();
-    let mut program = match loader::load(path, &mut sources) {
+    let mut program = match loader::load_generating(path, &mut sources) {
         Ok(p) => p,
         Err(d) => {
             eprint!("{}", sources.render("error", &d));
@@ -499,7 +501,7 @@ fn emit_header(path: &str) -> ExitCode {
     use types::Type;
 
     let mut sources = Sources::new();
-    let mut program = match loader::load(path, &mut sources) {
+    let mut program = match loader::load_generating(path, &mut sources) {
         Ok(p) => p,
         Err(d) => {
             eprint!("{}", sources.render("error", &d));
@@ -639,7 +641,7 @@ fn emit_header(path: &str) -> ExitCode {
 fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {
     let mut sources = Sources::new();
 
-    let mut program = match loader::load(path, &mut sources) {
+    let mut program = match loader::load_generating(path, &mut sources) {
         Ok(p) => p,
         Err(d) => {
             eprint!("{}", sources.render("error", &d));

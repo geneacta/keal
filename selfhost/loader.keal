@@ -85,7 +85,11 @@ class Loader() {
         if (text == null) {
             // The oracle carries the OS's own words; "not found" is the one
             // failure that realistically reaches this line.
-            val msg = "cannot read `${path}`: No such file or directory (os error 2)"
+            var msg = "cannot read `${path}`: No such file or directory (os error 2)"
+            val dir = dirOf(path)
+            if (dir.endsWith("/.jbind") or dir == ".jbind") {
+                msg = msg + " -- `import java.time.LocalDate`-style modules are generated: run `keal jbind --cache` for this import, or run/build with a JDK installed"
+            }
             if (fromPath == "") {
                 println("error <prelude>:0:0 ${msg}")
             } else {

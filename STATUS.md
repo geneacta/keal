@@ -56,9 +56,9 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
-Nothing — operators/Comp/guarded-return AND `keal jbind` are **DONE and
-pushed**. Next up is the loader sugar `import java.time.LocalDate`
-(see NEXT).
+Nothing — operators/Comp/guarded-return, `keal jbind` AND the loader
+sugar `import java.time.LocalDate` are **DONE and pushed**. The whole
+interop endpoint the user asked for is in. See NEXT.
 
 ## Recently landed (kept for context)
 
@@ -140,6 +140,17 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
    `free()`; an on-release drop hook is a language feature to design
    (interp/VM would have to call user code at refcount zero — decide
    carefully). Go demo (c-archive) worth adding.
+   **Loader sugar — DONE too**: `import java.time.LocalDate,
+   java.time.DayOfWeek` desugars IN BOTH PARSERS to
+   `.jbind/<classes joined with +>.keal`; classes in one import are bound
+   together. `keal run`/`check`/`build`/`layout`/`emit-header` use
+   `loader::load_generating` (fills the cache via `javap`; the dir gets
+   its own `jvm.keal` copy so a committed cache builds without a JDK);
+   the four dump commands and the twins NEVER generate — cache-only —
+   so the corpora stay pure (missing cache → identical error + hint in
+   oracle and twin loader). Corpus: `tests/selfhost/jbindsugar.keal` +
+   committed `tests/selfhost/.jbind/`, `perr30`, `err11`; suite test
+   `import_sugar_works_end_to_end` (JDK-gated).
 2. Closure callbacks at the C boundary (interop 1d) once a consumer fixes
    the `userdata` convention.
 3. Threaded actors (same API, one heap per actor); `Any` natively (RTTI);

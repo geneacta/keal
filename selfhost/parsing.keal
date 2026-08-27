@@ -231,6 +231,48 @@ class Parser(val toks: List<Token>) {
                 this.fail(t.line, t.col, "import path must be a plain string literal")
                 return ItemN("import", t.line, t.col)
             }
+            if (next.kind == "ident") {
+                // `import java.time.LocalDate, java.time.DayOfWeek` — the
+                // jbind sugar: dotted class names, comma-separated, become
+                // the path of the cached generated module.
+                var classes = ""
+                var more = true
+                while (more) {
+                    var fq = ""
+                    var dotted = true
+                    while (dotted) {
+                        val part = this.peek()
+                        if (part.kind == "ident") {
+                            this.advance()
+                            fq = fq + part.text
+                        } else {
+                            this.failHere(
+                                "expected a Java class name part, found ${describeToken(part)}"
+                            )
+                            return ItemN("import", t.line, t.col)
+                        }
+                        if (this.peek().kind == ".") {
+                            this.advance()
+                            fq = fq + "."
+                        } else {
+                            dotted = false
+                        }
+                    }
+                    if (classes == "") {
+                        classes = fq
+                    } else {
+                        classes = classes + "+" + fq
+                    }
+                    if (this.peek().kind == ",") {
+                        this.advance()
+                    } else {
+                        more = false
+                    }
+                }
+                val i = ItemN("import", t.line, t.col)
+                i.text = ".jbind/" + classes + ".keal"
+                return i
+            }
             this.failHere(
                 "expected an import path string, found ${describeToken(next)}"
             )

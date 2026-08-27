@@ -15,10 +15,16 @@
 //! An argument naming an existing file is read as saved `javap` output
 //! instead of running `javap` — that keeps the snapshot test JDK-free.
 
+use std::path::Path;
 use std::process::{Command, ExitCode};
+
+/// The gateway module, embedded so a generated cache is self-contained: a
+/// `.jbind/` directory carries its own copy and imports it as `jvm.keal`.
+const JVM_KEAL: &str = include_str!("../lib/jvm.keal");
 
 pub fn run(args: &[String]) -> ExitCode {
     let mut jvm_path = "lib/jvm.keal".to_string();
+    let mut cache_dir: Option<String> = None;
     let mut inputs: Vec<String> = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -28,6 +34,13 @@ pub fn run(args: &[String]) -> ExitCode {
                 return ExitCode::FAILURE;
             };
             jvm_path = p.clone();
+            i += 2;
+        } else if args[i] == "--cache" {
+            let Some(p) = args.get(i + 1) else {
+                eprintln!("error: `--cache` needs a directory (usually `.jbind`)");
+                return ExitCode::FAILURE;
+            };
+            cache_dir = Some(p.clone());
             i += 2;
         } else {
             inputs.push(args[i].clone());
@@ -39,37 +52,80 @@ pub fn run(args: &[String]) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    if let Some(dir) = cache_dir {
+        // The same file an `import java.time.LocalDate, ...` would load.
+        let target = Path::new(&dir).join(format!("{}.keal", inputs.join("+")));
+        return match ensure_cache(&target) {
+            Ok(()) => {
+                println!("{}", target.display());
+                ExitCode::SUCCESS
+            }
+            Err(reason) => {
+                eprintln!("error: {}", reason);
+                ExitCode::FAILURE
+            }
+        };
+    }
+
     let mut texts = Vec::new();
     for input in &inputs {
-        if std::path::Path::new(input).is_file() {
-            match std::fs::read_to_string(input) {
-                Ok(t) => texts.push(t),
-                Err(e) => {
-                    eprintln!("error: cannot read `{}`: {}", input, e);
-                    return ExitCode::FAILURE;
-                }
-            }
-        } else {
-            let out = match Command::new("javap").arg("-public").arg(input).output() {
-                Ok(o) => o,
-                Err(e) => {
-                    eprintln!("error: cannot run `javap` (jbind needs a JDK): {}", e);
-                    return ExitCode::FAILURE;
-                }
-            };
-            if !out.status.success() {
-                eprintln!(
-                    "error: `javap -public {}` failed:\n{}",
-                    input,
-                    String::from_utf8_lossy(&out.stderr).trim_end()
-                );
+        match fetch(input) {
+            Ok(t) => texts.push(t),
+            Err(reason) => {
+                eprintln!("error: {}", reason);
                 return ExitCode::FAILURE;
             }
-            texts.push(String::from_utf8_lossy(&out.stdout).into_owned());
         }
     }
     print!("{}", generate(&jvm_path, &inputs, &texts));
     ExitCode::SUCCESS
+}
+
+/// One input's `javap` text: an existing file is read as saved output,
+/// anything else is asked of the JDK.
+fn fetch(input: &str) -> Result<String, String> {
+    if Path::new(input).is_file() {
+        return std::fs::read_to_string(input)
+            .map_err(|e| format!("cannot read `{}`: {}", input, e));
+    }
+    let out = Command::new("javap")
+        .arg("-public")
+        .arg(input)
+        .output()
+        .map_err(|e| format!("cannot run `javap` (jbind needs a JDK): {}", e))?;
+    if !out.status.success() {
+        return Err(format!(
+            "`javap -public {}` failed:\n{}",
+            input,
+            String::from_utf8_lossy(&out.stderr).trim_end()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Writes the module behind one `import java.time.LocalDate, ...` — `path`
+/// is the `.jbind/<classes joined with +>.keal` the import desugared to.
+/// The directory gets its own copy of the gateway to stay self-contained.
+pub fn ensure_cache(path: &Path) -> Result<(), String> {
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("`{}` does not name a module", path.display()))?;
+    let inputs: Vec<String> = stem.split('+').map(str::to_string).collect();
+    let mut texts = Vec::new();
+    for input in &inputs {
+        texts.push(fetch(input)?);
+    }
+    let dir = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(dir)
+        .map_err(|e| format!("cannot create `{}`: {}", dir.display(), e))?;
+    let gateway = dir.join("jvm.keal");
+    if !gateway.exists() {
+        std::fs::write(&gateway, JVM_KEAL)
+            .map_err(|e| format!("cannot write `{}`: {}", gateway.display(), e))?;
+    }
+    std::fs::write(path, generate("jvm.keal", &inputs, &texts))
+        .map_err(|e| format!("cannot write `{}`: {}", path.display(), e))
 }
 
 const KEAL_KEYWORDS: &[&str] = &[

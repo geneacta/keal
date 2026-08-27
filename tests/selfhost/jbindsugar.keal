@@ -1,0 +1,4 @@
+import java.util.UUID
+// The sugar form: this file parses, checks and cgen-dumps against the
+// committed cache in .jbind/ -- no JDK needed by the dump commands.
+fun uuidText(u: UUID): String { return u.toString() }

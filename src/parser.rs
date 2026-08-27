@@ -204,6 +204,49 @@ impl Parser {
                             _ => Err(Diag::new(span, "import path must be a plain string literal")),
                         }
                     }
+                    // `import java.time.LocalDate, java.time.DayOfWeek` — the
+                    // jbind sugar: dotted class names, comma-separated, become
+                    // the path of the cached generated module. `keal jbind
+                    // --cache` (or a `keal run`/`build` with a JDK) fills it.
+                    Tok::Ident(_) => {
+                        let mut classes = Vec::new();
+                        loop {
+                            let mut fq = String::new();
+                            loop {
+                                match self.peek().clone() {
+                                    Tok::Ident(part) => {
+                                        self.advance();
+                                        fq.push_str(&part);
+                                    }
+                                    other => {
+                                        return Err(Diag::new(
+                                            self.span(),
+                                            format!(
+                                                "expected a Java class name part, found {}",
+                                                other.describe()
+                                            ),
+                                        ))
+                                    }
+                                }
+                                if matches!(self.peek(), Tok::Dot) {
+                                    self.advance();
+                                    fq.push('.');
+                                } else {
+                                    break;
+                                }
+                            }
+                            classes.push(fq);
+                            if matches!(self.peek(), Tok::Comma) {
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                        Ok(Item::Import {
+                            path: format!(".jbind/{}.keal", classes.join("+")),
+                            span,
+                        })
+                    }
                     other => Err(Diag::new(
                         self.span(),
                         format!("expected an import path string, found {}", other.describe()),
