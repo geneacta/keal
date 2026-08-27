@@ -1,0 +1,5 @@
+record Point(val x: Int, val y: Int)
+val Point(a, b, c) = Point(1, 2)
+val NotAClass(d) = 3
+val (p, q) = Point(1, 2)
+val (u, w) = 42

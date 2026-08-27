@@ -1,0 +1,4 @@
+val x: Int? = 3
+val ok = x is Int?
+val y = 5
+val t = y is Int

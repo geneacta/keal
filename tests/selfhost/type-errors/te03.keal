@@ -1,0 +1,6 @@
+trait T { fun a(): Int }
+trait T { fun b(): Int }
+class D {
+  fun m(): Int { return 1 }
+  fun m(): Int { return 2 }
+}

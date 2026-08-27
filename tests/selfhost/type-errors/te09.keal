@@ -1,0 +1,4 @@
+fun outer(): Int {
+  class Inner(val x: Int)
+  return 1
+}

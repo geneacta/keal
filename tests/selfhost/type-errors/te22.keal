@@ -1,0 +1,5 @@
+val xs = [1, 2]
+val m = xs["k"]
+val s: String? = null
+val c = s[0]
+val b = true[0]

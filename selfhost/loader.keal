@@ -1,0 +1,252 @@
+// Module loading, in Keal — the twin of src/loader.rs.
+//
+// Reads the entry file, resolves its `import`s relative to it, and splices
+// everything into one program: prelude items first, then each module's items
+// before the file that imported it. A file is loaded at most once.
+//
+// File ids mirror the oracle's: the prelude is 0, the entry file takes the
+// next id the moment it is read — before its imports are — and every node is
+// stamped with its file so diagnostics can sort and print the way the oracle
+// sorts and prints them.
+
+import "./parsing.keal"
+import "./preludesrc.keal"
+
+/// The paths the loader registered, by file id. `paths()[0]` is `<prelude>`.
+class Loaded(val program: ProgramN, val paths: List<String>)
+
+/// Collapses `.` and `..` segments so the same file is never loaded twice
+/// under two spellings. Does not need the file to exist.
+fun normalisePath(p: String): String {
+    val out: List<String> = []
+    for (part in p.split("/")) {
+        if (part == "" or part == ".") { continue }
+        if (part == "..") {
+            if (out.size > 0 and out[out.size - 1] != "..") {
+                out.removeAt(out.size - 1)
+            } else {
+                out.add("..")
+            }
+        } else {
+            out.add(part)
+        }
+    }
+    if (out.size == 0) { return "." }
+    var s = if (p.startsWith("/")) { "/" } else { "" }
+    var first = true
+    for (part in out) {
+        unless (first) { s += "/" }
+        s += part
+        first = false
+    }
+    return s
+}
+
+/// The directory holding `path`, or "." when it has none.
+fun dirOf(path: String): String {
+    var cut = -1
+    var i = 0
+    while (i < path.length) {
+        if (path.get(i) == "/") { cut = i }
+        i += 1
+    }
+    if (cut < 0) { return "." }
+    if (cut == 0) { return "/" }
+    return path.substring(0, cut)
+}
+
+class Loader() {
+    var paths: List<String> = []
+    var seen: Map<String, Bool> = {}
+    var items: List<ItemN> = []
+
+    fun load(entry: String): Loaded {
+        // The prelude parses under its own file id, 0.
+        this.paths.add("<prelude>")
+        lexErrorPrefix = "<prelude>:"
+        val pp = Parser(lexFile(preludeSource()))
+        pp.errorPrefix = "<prelude>:"
+        val prelude = pp.program()
+        for (i in prelude.items) { stampItem(i, 0) }
+        this.items.addAll(prelude.items)
+
+        this.loadFile(normalisePath(entry), "", 0, 0)
+
+        val program = ProgramN()
+        program.items = this.items
+        return Loaded(program, this.paths)
+    }
+
+    proc loadFile(path: String, fromPath: String, fromLine: Int, fromCol: Int) {
+        if (this.seen.contains(path)) { return }
+        this.seen[path] = true
+
+        val text = readFile(path)
+        if (text == null) {
+            // The oracle carries the OS's own words; "not found" is the one
+            // failure that realistically reaches this line.
+            val msg = "cannot read `${path}`: No such file or directory (os error 2)"
+            if (fromPath == "") {
+                println("error <prelude>:0:0 ${msg}")
+            } else {
+                println("error ${fromPath}:${fromLine}:${fromCol} ${msg}")
+            }
+            exit(1)
+        }
+
+        val file = this.paths.size
+        this.paths.add(path)
+        lexErrorPrefix = path + ":"
+        val parser = Parser(lexFile(text))
+        parser.errorPrefix = path + ":"
+        val program = parser.program()
+
+        val dir = dirOf(path)
+        val own: List<ItemN> = []
+        for (item in program.items) {
+            if (item.kind == "import") {
+                val target = normalisePath(dir + "/" + item.text)
+                this.loadFile(target, path, item.line, item.col)
+            } else {
+                stampItem(item, file)
+                own.add(item)
+            }
+        }
+        this.items.addAll(own)
+    }
+}
+
+// ---- stamping every node with its file id -------------------------------
+
+proc stampItem(i: ItemN, f: Int) {
+    i.file = f
+    val fd = i.funDecl
+    if (fd != null) { stampFun(fd, f) }
+    val cd = i.classDecl
+    if (cd != null) { stampClass(cd, f) }
+    val td = i.traitDecl
+    if (td != null) { stampTrait(td, f) }
+    val xd = i.externDecl
+    if (xd != null) { stampExtern(xd, f) }
+    val st = i.stmt
+    if (st != null) { stampStmt(st, f) }
+}
+
+proc stampFun(fn: FunN, f: Int) {
+    fn.file = f
+    for (tp in fn.typeParams) {
+        for (b in tp.bounds) { stampTypeEx(b, f) }
+    }
+    for (p in fn.params) { stampParam(p, f) }
+    val r = fn.ret
+    if (r != null) { stampTypeEx(r, f) }
+    stampBlock(fn.body, f)
+}
+
+proc stampParam(p: ParamN, f: Int) {
+    p.file = f
+    val t = p.tyEx
+    if (t != null) { stampTypeEx(t, f) }
+    val d = p.default
+    if (d != null) { stampEx(d, f) }
+}
+
+proc stampClass(c: ClassN, f: Int) {
+    c.file = f
+    for (tp in c.typeParams) {
+        for (b in tp.bounds) { stampTypeEx(b, f) }
+    }
+    for (t in c.traits) { stampTypeEx(t, f) }
+    for (p in c.ctor) {
+        p.file = f
+        val t = p.tyEx
+        if (t != null) { stampTypeEx(t, f) }
+        val d = p.default
+        if (d != null) { stampEx(d, f) }
+    }
+    for (fd in c.fields) {
+        fd.file = f
+        val t = fd.tyEx
+        if (t != null) { stampTypeEx(t, f) }
+        val init = fd.init
+        if (init != null) { stampEx(init, f) }
+    }
+    for (m in c.methods) { stampFun(m, f) }
+}
+
+proc stampTrait(t: TraitN, f: Int) {
+    t.file = f
+    for (m in t.methods) { stampFun(m.decl, f) }
+}
+
+proc stampExtern(x: ExternN, f: Int) {
+    x.file = f
+    for (p in x.params) { stampParam(p, f) }
+    val r = x.ret
+    if (r != null) { stampTypeEx(r, f) }
+}
+
+proc stampBlock(b: BlockN, f: Int) {
+    for (s in b.stmts) { stampStmt(s, f) }
+}
+
+proc stampStmt(s: StmtN, f: Int) {
+    s.file = f
+    val t = s.tyEx
+    if (t != null) { stampTypeEx(t, f) }
+    val init = s.init
+    if (init != null) { stampEx(init, f) }
+    val pat = s.pattern
+    if (pat != null) { pat.file = f }
+    val e = s.ex
+    if (e != null) { stampEx(e, f) }
+    val b = s.body
+    if (b != null) { stampBlock(b, f) }
+    val fd = s.funDecl
+    if (fd != null) { stampFun(fd, f) }
+    val cd = s.classDecl
+    if (cd != null) { stampClass(cd, f) }
+}
+
+proc stampEx(e: Ex, f: Int) {
+    e.file = f
+    for (k in e.kids) { stampEx(k, f) }
+    for (a in e.args) { stampEx(a.value, f) }
+    for (p in e.parts) {
+        val inner = p.ex
+        if (inner != null) { stampEx(inner, f) }
+    }
+    val te = e.tyEx
+    if (te != null) { stampTypeEx(te, f) }
+    for (p in e.params) { stampParam(p, f) }
+    val b = e.body
+    if (b != null) { stampBlock(b, f) }
+    val els = e.els
+    if (els != null) { stampBlock(els, f) }
+    val elseif = e.elseif
+    if (elseif != null) { stampEx(elseif, f) }
+    val sub = e.subject
+    if (sub != null) { stampEx(sub, f) }
+    for (arm in e.arms) {
+        arm.file = f
+        for (v in arm.values) { stampEx(v, f) }
+        val pt = arm.patTyEx
+        if (pt != null) { stampTypeEx(pt, f) }
+        val bd = arm.binds
+        if (bd != null) { bd.file = f }
+        val g = arm.guard
+        if (g != null) { stampEx(g, f) }
+        stampBlock(arm.body, f)
+    }
+    for (k in e.keys) { stampEx(k, f) }
+    for (v in e.values) { stampEx(v, f) }
+}
+
+proc stampTypeEx(t: TypeEx, f: Int) {
+    t.file = f
+    for (a in t.args) { stampTypeEx(a, f) }
+    val inner = t.inner
+    if (inner != null) { stampTypeEx(inner, f) }
+    val r = t.ret
+    if (r != null) { stampTypeEx(r, f) }
+}

@@ -1,0 +1,4 @@
+class C(val x: Int)
+class C(val y: Int)
+fun f(): Int { return 1 }
+fun f(): Int { return 2 }

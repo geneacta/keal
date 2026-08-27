@@ -1,0 +1,9 @@
+val x = 3
+val r = when (x) {
+  1 -> "one"
+  2 -> "two"
+}
+val s = when (x) {
+  is String -> 1
+  else -> 2
+}

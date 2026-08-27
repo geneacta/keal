@@ -1,0 +1,3 @@
+fun g(): Int {
+  val a = 1
+}

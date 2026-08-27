@@ -358,6 +358,40 @@ fn selfhosted_parser_agrees_with_the_oracle() {
     }
 }
 
+/// The self-hosted checker must print exactly the typed tree the Rust one
+/// prints — inferred types, generic instantiations, operator rewrites — or
+/// exactly its diagnostics, sorted the same, notes included. Third plank of
+/// self-hosting, and the corpus includes the checker checking itself.
+#[test]
+fn selfhosted_checker_agrees_with_the_oracle() {
+    let mut files = keal_files("tests/programs");
+    files.extend(keal_files("examples"));
+    files.extend(keal_files("tests/native"));
+    files.extend(keal_files("tests/selfhost"));
+    files.extend(keal_files("tests/selfhost/errors"));
+    files.extend(keal_files("tests/selfhost/parse-errors"));
+    files.extend(keal_files("tests/selfhost/type-errors"));
+    files.push(root().join("selfhost/checker.keal"));
+    files.push(root().join("src/prelude.keal"));
+
+    for file in files {
+        let path = relative(&file);
+        let oracle = keal(&["types", &path]);
+        let mine = keal(&["--vm", "selfhost/checker.keal", &path]);
+        assert_eq!(
+            oracle.stdout, mine.stdout,
+            "the checkers disagree on {}",
+            path
+        );
+        assert_eq!(
+            oracle.status_success(),
+            mine.status_success(),
+            "the checkers disagree on whether {} checks",
+            path
+        );
+    }
+}
+
 #[test]
 fn cli_reports_missing_files() {
     let out = keal(&["run", "does/not/exist.keal"]);

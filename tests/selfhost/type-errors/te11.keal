@@ -1,0 +1,4 @@
+val s = "x"
+val a = s!!
+val b = s ?: "y"
+val c = s?.length

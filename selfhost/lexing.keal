@@ -62,6 +62,11 @@ fun endsStatement(kind: String): Bool {
 
 /// One piece of a string literal: literal text, or an interpolation hole
 /// with the source it holds and where that source starts.
+/// Prepended to the `L:C` of every lexing error. Empty for the single-file
+/// drivers; the checker's loader sets it to `path:` per file, and fragments
+/// lexed for interpolation holes inherit it automatically.
+var lexErrorPrefix = ""
+
 record Part(val isLit: Bool, val text: String, val line: Int, val col: Int)
 
 /// One token. `parts` is only ever filled for `str`.
@@ -124,9 +129,11 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
         }
     }
 
-    /// Prints the failure the way the oracle does, and gives up.
+    /// Prints the failure the way the oracle does, and gives up. The prefix
+    /// is empty for the token-dump driver; the checker's loader sets it to
+    /// `path:` so a failure inside an imported module names its file.
     proc fail(atLine: Int, atCol: Int, msg: String) {
-        println("error ${atLine}:${atCol} ${msg}")
+        println("error ${lexErrorPrefix}${atLine}:${atCol} ${msg}")
         exit(1)
     }
 

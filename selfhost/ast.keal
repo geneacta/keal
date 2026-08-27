@@ -46,7 +46,11 @@ class DestrN(val typeName: String, val binds: List<String>, val line: Int, val c
 /// Expressions. kind is one of: int float bool str interp null this ident
 /// unary binary logical elvis notnull assign call field method index if when
 /// list map lambda range is
-class Ex(val kind: String, val line: Int, val col: Int) {
+///
+/// `kind` is a `var` because the checker rewrites nodes in place: an integer
+/// literal widens to a float, and an operator on a user type becomes the
+/// method call it stands for.
+class Ex(var kind: String, val line: Int, val col: Int) {
     var file: Int = 0
     var iVal: Int = 0              // int
     var fVal: Float = 0.0          // float

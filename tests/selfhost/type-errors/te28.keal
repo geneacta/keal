@@ -1,0 +1,8 @@
+val a = 1
+val b = 2.5
+val c = a + b
+val d = "s" + p()
+proc p() { }
+val e = 1 + "x"
+val f = [1] == "s"
+val g = true < false

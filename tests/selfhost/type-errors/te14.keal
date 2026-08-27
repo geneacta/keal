@@ -1,0 +1,7 @@
+trait Greet { fun hello(): String }
+class Silent : Greet
+class Wrong : Greet {
+  fun hello(): Int { return 1 }
+}
+class NotTrait
+class User : NotTrait

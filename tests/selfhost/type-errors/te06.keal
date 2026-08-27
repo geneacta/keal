@@ -1,0 +1,6 @@
+fun h(): Int {
+  return "no"
+}
+proc q() {
+  return 5
+}

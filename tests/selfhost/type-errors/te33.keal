@@ -1,0 +1,16 @@
+when (3) {
+  is Int -> 1
+  else -> 2
+}
+when {
+  is Int -> 1
+  else -> 2
+}
+when (3) {
+  in true -> 1
+  else -> 2
+}
+when (3) {
+  "s" -> 1
+  else -> 2
+}

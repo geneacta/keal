@@ -362,16 +362,20 @@ what found the first two bugs in this backend.
 
 ## Decided, waiting their turn
 
-* **Self-hosting is the destination**, and two planks are laid:
+* **Self-hosting is the destination**, and three planks are laid:
   [`selfhost/lexer.keal`](selfhost/lexer.keal) is the Keal lexer written in
-  Keal, and [`selfhost/parser.keal`](selfhost/parser.keal) is the parser —
-  the full grammar, from `unless` to `when` guards to lambda/map
-  disambiguation. The suite holds both to *byte-for-byte agreement* with the
-  Rust ones — every file in the repository, every way lexing or parsing can
-  fail, error spans, messages and exit codes included, themselves included.
-  `keal tokens file` and `keal ast file` print the oracles either can be
-  compared against. The checker is next, by the same method: an oracle dump,
-  a Keal twin, agreement enforced by the suite.
+  Keal, [`selfhost/parser.keal`](selfhost/parser.keal) is the parser — the
+  full grammar, building a real tree — and
+  [`selfhost/checker.keal`](selfhost/checker.keal) is the type checker:
+  scopes, inference, generics solved per call site, traits, smart casts,
+  operator rewrites, null safety, its own module loader and embedded
+  prelude. The suite holds all three to *byte-for-byte agreement* with the
+  Rust ones — every file in the repository, every way each stage can fail,
+  spans, messages, notes and exit codes included, themselves included: the
+  corpus contains the checker type-checking its own eight-module program.
+  `keal tokens`, `keal ast` and `keal types` print the oracles. What
+  remains of the front end is nothing; next comes emitting code from the
+  tree the Keal compiler now builds and types itself.
 
 * **Lazy sequences**, the equivalent of Java's `Stream` / Kotlin's `Sequence`:
   pull-based, fusing, with infinite sources. The eager `map`/`filter`/`fold`

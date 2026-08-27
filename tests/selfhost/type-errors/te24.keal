@@ -1,0 +1,7 @@
+record R(val x: Int)
+val r = R(1)
+r.x = 5
+r.missing = 6
+class C(val y: Int)
+val c = C(2)
+c.y = 7

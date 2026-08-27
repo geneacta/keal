@@ -1,0 +1,4 @@
+fun println(x: Int): Int { return x }
+class Dup(val x: Int)
+fun Dup(): Int { return 1 }
+val c = Dup

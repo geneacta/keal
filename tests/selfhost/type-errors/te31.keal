@@ -1,0 +1,4 @@
+val x = 5
+val y = x.missing()
+val z = x.missing
+val s = "a".undefined(1)

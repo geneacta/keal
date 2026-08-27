@@ -1,0 +1,4 @@
+class Odd(val n: Int) : Ord {
+  fun compareTo(other: Odd): String { return "no" }
+}
+val r = Odd(1) < Odd(2)

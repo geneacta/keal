@@ -1,0 +1,4 @@
+val s: String? = null
+val n = s.length
+var v: String? = null
+val m = v.length

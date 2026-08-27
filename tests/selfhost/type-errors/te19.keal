@@ -1,0 +1,7 @@
+fun add(a: Int, b: Int): Int { return a + b }
+val r1 = add(1, 2, 3)
+val r2 = add(1)
+val r3 = add(a = 1, 2)
+val r4 = add(a = 1, a = 2)
+val r5 = add(c = 1, b = 2)
+val r6 = println(value = 3)

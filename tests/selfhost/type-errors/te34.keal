@@ -1,0 +1,5 @@
+val s: String? = "x"
+val t = s ?: 3
+if (s != null) {
+  val l = s.length
+}

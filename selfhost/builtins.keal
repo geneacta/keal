@@ -1,0 +1,251 @@
+// Type signatures for the built-in globals, methods and properties — the
+// twin of src/builtins.rs.
+//
+// Built-ins are the only generic things in Keal, so instead of a real
+// generic system each signature is computed from the receiver and the
+// argument types already inferred. The checker calls `methodSig` twice:
+// once with all arguments unknown, for lambda parameter hints, and once
+// with the real types, for the final signature.
+
+import "./types.keal"
+
+fun bp(name: String, t: Ty): PTy { PTy(name, t, false) }
+
+fun bopt(name: String, t: Ty): PTy { PTy(name, t, true) }
+
+/// The return type of a function-typed argument, or `Any` when not yet known.
+fun fnRet(args: List<Ty?>, i: Int): Ty {
+    if (i >= args.size) { return Ty("Any") }
+    val t = args[i]
+    if (t == null) { return Ty("Any") }
+    if (t.kind == "Fun") { return t.ret!! }
+    return Ty("Any")
+}
+
+fun knownArg(args: List<Ty?>, i: Int): Ty {
+    if (i >= args.size) { return Ty("Any") }
+    return args[i] ?: Ty("Any")
+}
+
+/// Properties readable with `.name` and no call parentheses.
+fun propertySig(recv: Ty, name: String): Ty? {
+    if (recv.kind == "Str" and name == "length") { return Ty("Int") }
+    if (recv.kind == "List" and name == "size") { return Ty("Int") }
+    if (recv.kind == "Map" and name == "size") { return Ty("Int") }
+    if (recv.kind == "Range" and (name == "start" or name == "end")) { return Ty("Int") }
+    return null
+}
+
+/// The prelude's operator methods, as the built-in types implement them.
+fun operatorSig(recv: Ty, name: String): Ty? {
+    val arithmetic = recv.kind == "Int" or recv.kind == "Float"
+    if (name == "plus" and (arithmetic or recv.kind == "Str")) {
+        return tyFun([bp("other", recv)], recv)
+    }
+    if ((name == "minus" or name == "times" or name == "div" or name == "rem") and arithmetic) {
+        return tyFun([bp("other", recv)], recv)
+    }
+    if (name == "negate" and arithmetic) { return tyFun([], recv) }
+    if (name == "equals") { return tyFun([bp("other", recv)], Ty("Bool")) }
+    if (name == "compareTo" and (arithmetic or recv.kind == "Str")) {
+        return tyFun([bp("other", recv)], Ty("Int"))
+    }
+    return null
+}
+
+/// Methods callable on any value, whatever its type.
+fun universalSig(name: String): Ty? {
+    if (name == "toString") { return tyFun([], Ty("Str")) }
+    return null
+}
+
+fun methodSig(recv: Ty, name: String, args: List<Ty?>): Ty? {
+    val specific = when (recv.kind) {
+        "Str" -> stringSig(name)
+        "Int" -> intSig(name)
+        "Float" -> floatSig(name)
+        "Bool" -> operatorSig(Ty("Bool"), name)
+        "List" -> listSig(recv.args[0], name, args)
+        "Map" -> mapSig(recv.args[0], recv.args[1], name)
+        "Range" -> rangeSig(name)
+        else -> null
+    }
+    return specific ?: universalSig(name)
+}
+
+fun stringSig(name: String): Ty? {
+    val op = operatorSig(Ty("Str"), name)
+    if (op != null) { return op }
+    val s = Ty("Str")
+    return when (name) {
+        "isEmpty" -> tyFun([], Ty("Bool"))
+        "substring" -> tyFun([bp("start", Ty("Int")), bp("end", Ty("Int"))], s)
+        "take", "drop" -> tyFun([bp("n", Ty("Int"))], s)
+        "split" -> tyFun([bp("separator", s)], tyList(Ty("Str")))
+        "trim", "toUpper", "toLower", "reversed" -> tyFun([], s)
+        "contains", "startsWith", "endsWith" -> tyFun([bp("other", s)], Ty("Bool"))
+        "indexOf" -> tyFun([bp("other", s)], Ty("Int"))
+        "replace" -> tyFun([bp("old", s), bp("new", s)], s)
+        "repeat" -> tyFun([bp("count", Ty("Int"))], s)
+        "chars" -> tyFun([], tyList(Ty("Str")))
+        "get" -> tyFun([bp("index", Ty("Int"))], s)
+        "toInt" -> tyFun([], tyNullable(Ty("Int")))
+        "toFloat" -> tyFun([], tyNullable(Ty("Float")))
+        "code" -> tyFun([], Ty("Int"))
+        else -> null
+    }
+}
+
+fun intSig(name: String): Ty? {
+    val op = operatorSig(Ty("Int"), name)
+    if (op != null) { return op }
+    return when (name) {
+        "toFloat" -> tyFun([], Ty("Float"))
+        "abs" -> tyFun([], Ty("Int"))
+        "min", "max" -> tyFun([bp("other", Ty("Int"))], Ty("Int"))
+        "pow" -> tyFun([bp("exponent", Ty("Int"))], Ty("Int"))
+        "toChar" -> tyFun([], Ty("Str"))
+        else -> null
+    }
+}
+
+fun floatSig(name: String): Ty? {
+    val op = operatorSig(Ty("Float"), name)
+    if (op != null) { return op }
+    return when (name) {
+        "toInt", "floor", "ceil", "round" -> tyFun([], Ty("Int"))
+        "abs", "sqrt" -> tyFun([], Ty("Float"))
+        "min", "max" -> tyFun([bp("other", Ty("Float"))], Ty("Float"))
+        "pow" -> tyFun([bp("exponent", Ty("Float"))], Ty("Float"))
+        "isNaN" -> tyFun([], Ty("Bool"))
+        else -> null
+    }
+}
+
+fun listSig(elem: Ty, name: String, args: List<Ty?>): Ty? {
+    val t = elem
+    val listT = tyList(t)
+    return when (name) {
+        "isEmpty" -> tyFun([], Ty("Bool"))
+        "add" -> tyFun([bp("value", t)], Ty("Unit"))
+        "addAll" -> tyFun([bp("other", listT)], Ty("Unit"))
+        "insert" -> tyFun([bp("index", Ty("Int")), bp("value", t)], Ty("Unit"))
+        "get" -> tyFun([bp("index", Ty("Int"))], t)
+        "set" -> tyFun([bp("index", Ty("Int")), bp("value", t)], Ty("Unit"))
+        "removeAt" -> tyFun([bp("index", Ty("Int"))], t)
+        "clear" -> tyFun([], Ty("Unit"))
+        "contains" -> tyFun([bp("value", t)], Ty("Bool"))
+        "indexOf" -> tyFun([bp("value", t)], Ty("Int"))
+        "first", "last" -> tyFun([], tyNullable(t))
+        "map" -> tyFun([bp("transform", tyFunOf([t], Ty("Any")))], tyList(fnRet(args, 0)))
+        "flatMap" -> {
+            var r = fnRet(args, 0)
+            if (r.kind == "List") { r = r.args[0] }
+            tyFun([bp("transform", tyFunOf([t], Ty("Any")))], tyList(r))
+        }
+        "filter" -> tyFun([bp("predicate", tyFunOf([t], Ty("Bool")))], listT)
+        "forEach" -> tyFun([bp("action", tyFunOf([t], Ty("Any")))], Ty("Unit"))
+        "any", "all", "none" -> tyFun([bp("predicate", tyFunOf([t], Ty("Bool")))], Ty("Bool"))
+        "find" -> tyFun([bp("predicate", tyFunOf([t], Ty("Bool")))], tyNullable(t))
+        "count" -> tyFun([bp("predicate", tyFunOf([t], Ty("Bool")))], Ty("Int"))
+        "fold" -> {
+            val acc = knownArg(args, 0)
+            tyFun([bp("initial", acc), bp("operation", tyFunOf([acc, t], acc))], acc)
+        }
+        "sorted", "reversed" -> tyFun([], listT)
+        "sortedBy" -> tyFun([bp("key", tyFunOf([t], Ty("Any")))], listT)
+        "slice" -> tyFun([bp("start", Ty("Int")), bp("end", Ty("Int"))], listT)
+        "take", "drop" -> tyFun([bp("n", Ty("Int"))], listT)
+        "join" -> tyFun([bopt("separator", Ty("Str"))], Ty("Str"))
+        "sum" -> {
+            if (elem.kind == "Int" or elem.kind == "Float") {
+                tyFun([], elem)
+            } else {
+                null
+            }
+        }
+        else -> null
+    }
+}
+
+fun mapSig(k: Ty, v: Ty, name: String): Ty? {
+    return when (name) {
+        "isEmpty" -> tyFun([], Ty("Bool"))
+        "get" -> tyFun([bp("key", k)], tyNullable(v))
+        "set" -> tyFun([bp("key", k), bp("value", v)], Ty("Unit"))
+        "remove" -> tyFun([bp("key", k)], tyNullable(v))
+        "contains", "containsKey" -> tyFun([bp("key", k)], Ty("Bool"))
+        "keys" -> tyFun([], tyList(k))
+        "values" -> tyFun([], tyList(v))
+        "clear" -> tyFun([], Ty("Unit"))
+        else -> null
+    }
+}
+
+fun rangeSig(name: String): Ty? {
+    return when (name) {
+        "contains" -> tyFun([bp("value", Ty("Int"))], Ty("Bool"))
+        "toList" -> tyFun([], tyList(Ty("Int")))
+        "isEmpty" -> tyFun([], Ty("Bool"))
+        else -> null
+    }
+}
+
+/// Free functions available without any import.
+fun globalSig(name: String, args: List<Ty?>): Ty? {
+    return when (name) {
+        "println", "print" -> tyFun([bopt("value", Ty("Any"))], Ty("Unit"))
+        "readLine" -> tyFun([], tyNullable(Ty("Str")))
+        "panic" -> tyFun([bp("message", Ty("Str"))], Ty("Never"))
+        "assert" -> tyFun([bp("condition", Ty("Bool")), bopt("message", Ty("Str"))], Ty("Unit"))
+        "typeOf" -> tyFun([bp("value", Ty("Any"))], Ty("Str"))
+        "sqrt" -> tyFun([bp("x", Ty("Float"))], Ty("Float"))
+        "pow" -> tyFun([bp("base", Ty("Float")), bp("exponent", Ty("Float"))], Ty("Float"))
+        "floor", "ceil", "round" -> tyFun([bp("x", Ty("Float"))], Ty("Int"))
+        "random" -> tyFun([], Ty("Float"))
+        "randomInt" -> tyFun([bp("min", Ty("Int")), bp("max", Ty("Int"))], Ty("Int"))
+        "time" -> tyFun([], Ty("Float"))
+        "args" -> tyFun([], tyList(Ty("Str")))
+        "readFile" -> tyFun([bp("path", Ty("Str"))], tyNullable(Ty("Str")))
+        "writeFile" -> tyFun([bp("path", Ty("Str")), bp("content", Ty("Str"))], Ty("Bool"))
+        "exit" -> tyFun([bp("code", Ty("Int"))], Ty("Never"))
+        "abs" -> {
+            val t = numericOf([knownArg(args, 0)])
+            tyFun([bp("x", t)], t)
+        }
+        "min", "max" -> {
+            val t = numericOf([knownArg(args, 0), knownArg(args, 1)])
+            tyFun([bp("a", t), bp("b", t)], t)
+        }
+        else -> null
+    }
+}
+
+/// `Float` if any argument is a Float, otherwise `Int`.
+fun numericOf(args: List<Ty>): Ty {
+    for (t in args) {
+        if (t.kind == "Float") { return Ty("Float") }
+    }
+    return Ty("Int")
+}
+
+/// Result of `expr[index]`, or null when the type is not indexable.
+fun indexResult(recv: Ty): (Ty, Ty)? {
+    if (recv.kind == "List") { return Ty("Int"), recv.args[0] }
+    if (recv.kind == "Map") { return recv.args[0], tyNullable(recv.args[1]) }
+    if (recv.kind == "Str") { return Ty("Int"), Ty("Str") }
+    return null
+}
+
+/// Element type stored by `expr[index] = value`.
+fun indexAssignType(recv: Ty): (Ty, Ty)? {
+    if (recv.kind == "List") { return Ty("Int"), recv.args[0] }
+    if (recv.kind == "Map") { return recv.args[0], recv.args[1] }
+    return null
+}
+
+/// Names that cannot be used for user declarations.
+fun isReservedGlobal(name: String): Bool {
+    val two: List<Ty?> = [null, null]
+    return globalSig(name, two) != null
+}

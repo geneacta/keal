@@ -1,0 +1,2 @@
+val f: (Int) -> Int = { a, b -> a }
+val g = { x -> x }

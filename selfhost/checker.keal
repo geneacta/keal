@@ -1,0 +1,2936 @@
+// Static type checking, in Keal — the twin of src/checker.rs, and the third
+// plank of self-hosting.
+//
+// The checker walks the tree once per phase: traits, class signatures,
+// function signatures, top-level statements, then every body. It reports as
+// many independent errors as it can by falling back to the Error type, which
+// is compatible with everything and never reported twice.
+//
+// It also performs the language's two rewrites: an integer literal used
+// where a Float is expected widens in place, and an operator on a user type
+// becomes the trait method call it stands for. `keal types` dumps the Rust
+// checker's answer — types, rewrites, diagnostics, exit code — and the suite
+// holds this file to it byte for byte.
+//
+//     keal selfhost/checker.keal path/to/file.keal
+
+import "./loader.keal"
+import "./builtins.keal"
+import "./astprint.keal"
+
+class DiagN(val file: Int, val line: Int, val col: Int, val msg: String) {
+    var note: String = ""
+}
+
+/// Why a binding cannot be assigned to, by the kind that introduced it.
+fun whyImmutable(kind: String): String {
+    return when (kind) {
+        "val" -> "it is declared with `val`; use `var` to make it mutable"
+        "param" -> "parameters cannot be reassigned; copy it into a `var` first"
+        "loop" -> "the loop variable is rebound on each iteration"
+        "fun" -> "a function declaration cannot be reassigned"
+        else -> ""
+    }
+}
+
+/// A declared type parameter: its name and the traits it must satisfy.
+class PDef(val name: String) {
+    var bounds: List<String> = []
+}
+
+class Binding(val ty: Ty, val kind: String) {
+    var typeParams: List<PDef> = []
+}
+
+class FInfo(val name: String, var ty: Ty, val mutable: Bool)
+
+class MInfo(val typeParams: List<PDef>, val sig: Ty)
+
+class CInfo(val file: Int, val line: Int, val col: Int, val isRecord: Bool) {
+    var typeParams: List<PDef> = []
+    var fields: List<FInfo> = []
+    var methods: Map<String, MInfo> = {}
+    var ctor: Ty = tyFun([], Ty("Unit"))
+}
+
+class TrInfo() {
+    var methods: Map<String, MInfo> = {}
+    var required: List<String> = []
+}
+
+/// What `return` may do at the current point.
+class RetCtx(val isLambda: Bool, val ty: Ty)
+
+/// One fact a guard proved about a variable.
+class Fact(val name: String, val ty: Ty)
+
+/// A receiver with its `?` peeled: no base means the error is already out.
+class Recv(val base: Ty?, val nullable: Bool)
+
+/// The prelude trait an operator is wired to, and the method it calls.
+fun operatorTrait(op: String): (String, String) {
+    return when (op) {
+        "+" -> ("Add", "plus")
+        "-" -> ("Sub", "minus")
+        "*" -> ("Mul", "times")
+        "/" -> ("Div", "div")
+        "%" -> ("Rem", "rem")
+        "==", "!=" -> ("Eq", "equals")
+        else -> ("Ord", "compareTo")
+    }
+}
+
+/// The operator traits the built-in types already satisfy.
+fun builtinImplements(t: Ty, traitName: String): Bool {
+    if (t.kind == "Int" or t.kind == "Float") {
+        return when (traitName) {
+            "Add", "Sub", "Mul", "Div", "Rem", "Neg", "Eq", "Ord" -> true
+            else -> false
+        }
+    }
+    if (t.kind == "Str") {
+        return traitName == "Add" or traitName == "Eq" or traitName == "Ord"
+    }
+    if (t.kind == "Bool") { return traitName == "Eq" }
+    return false
+}
+
+/// True for the types whose operators go through a trait method.
+fun overloadable(t: Ty): Bool { t.kind == "Class" or t.kind == "Param" }
+
+/// The name a written type mentions, for error messages about non-traits.
+fun typeExName(te: TypeEx): String {
+    return when (te.kind) {
+        "named" -> te.name
+        "nullable" -> typeExName(te.inner!!) + "?"
+        else -> "a function type"
+    }
+}
+
+/// Renders a signature the way the user would write it.
+fun renderSignature(name: String, ft: Ty): String {
+    var ps = ""
+    var first = true
+    for (p in ft.params) {
+        unless (first) { ps += ", " }
+        ps += "${p.name}: ${tyShow(p.ty)}"
+        first = false
+    }
+    val ret = ft.ret!!
+    if (ret.kind == "Unit") { return "fun ${name}(${ps})" }
+    return "fun ${name}(${ps}): ${tyShow(ret)}"
+}
+
+fun describeArity(required: Int, total: Int): String {
+    if (required == total) { return "${required}" }
+    return "${required} to ${total}"
+}
+
+/// True when every numeric leaf is an integer literal, so the whole
+/// expression can be reinterpreted as Float without changing its meaning.
+fun canWiden(e: Ex): Bool {
+    if (e.kind == "int") { return true }
+    if (e.kind == "unary" and e.text == "neg") { return canWiden(e.kids[0]) }
+    if (e.kind == "binary") {
+        val op = e.text
+        if (op == "<" or op == "<=" or op == ">" or op == ">=") { return false }
+        if (op == "==" or op == "!=") { return false }
+        return canWiden(e.kids[0]) and canWiden(e.kids[1])
+    }
+    return false
+}
+
+proc widen(e: Ex) {
+    if (e.kind == "int") {
+        e.kind = "float"
+        e.fVal = e.iVal.toFloat()
+        return
+    }
+    if (e.kind == "unary") {
+        widen(e.kids[0])
+        return
+    }
+    if (e.kind == "binary") {
+        widen(e.kids[0])
+        widen(e.kids[1])
+    }
+}
+
+/// The truth the left operand must have for the right one to be reached.
+fun logicalGuard(op: String): Bool? {
+    return when (op) {
+        "and", "nand", "implies" -> true
+        "or", "nor" -> false
+        else -> null
+    }
+}
+
+/// When the whole connective is known to be `outcome`, the truth both
+/// operands are then forced to, if any.
+fun impliedOperands(op: String, outcome: Bool): Bool? {
+    if (op == "and" and outcome) { return true }
+    if (op == "or" and not outcome) { return false }
+    if (op == "nand" and not outcome) { return true }
+    if (op == "nor" and outcome) { return false }
+    return null
+}
+
+// ---- deep copies, for trait defaults ------------------------------------
+//
+// A trait's default method is copied into every class that does not override
+// it, exactly as the oracle clones the declaration; sharing the nodes would
+// let one class's check scribble types on another's copy.
+
+fun cloneTypeEx(t: TypeEx): TypeEx {
+    val out = TypeEx(t.kind, t.line, t.col)
+    out.file = t.file
+    out.name = t.name
+    for (a in t.args) { out.args.add(cloneTypeEx(a)) }
+    val inner = t.inner
+    if (inner != null) { out.inner = cloneTypeEx(inner) }
+    val r = t.ret
+    if (r != null) { out.ret = cloneTypeEx(r) }
+    return out
+}
+
+fun cloneParam(p: ParamN): ParamN {
+    val out = ParamN(p.name, p.line, p.col)
+    out.file = p.file
+    val t = p.tyEx
+    if (t != null) { out.tyEx = cloneTypeEx(t) }
+    val d = p.default
+    if (d != null) { out.default = cloneEx(d) }
+    return out
+}
+
+fun cloneBlock(b: BlockN): BlockN {
+    val out = BlockN()
+    for (s in b.stmts) { out.stmts.add(cloneStmt(s)) }
+    return out
+}
+
+fun cloneStmt(s: StmtN): StmtN {
+    val out = StmtN(s.kind, s.line, s.col)
+    out.file = s.file
+    out.name = s.name
+    out.mutable = s.mutable
+    val t = s.tyEx
+    if (t != null) { out.tyEx = cloneTypeEx(t) }
+    val init = s.init
+    if (init != null) { out.init = cloneEx(init) }
+    val pat = s.pattern
+    if (pat != null) {
+        val d = DestrN(pat.typeName, pat.binds, pat.line, pat.col)
+        d.file = pat.file
+        out.pattern = d
+    }
+    val e = s.ex
+    if (e != null) { out.ex = cloneEx(e) }
+    val b = s.body
+    if (b != null) { out.body = cloneBlock(b) }
+    val fd = s.funDecl
+    if (fd != null) { out.funDecl = cloneFun(fd) }
+    val cd = s.classDecl
+    if (cd != null) { out.classDecl = cd }
+    return out
+}
+
+fun cloneEx(e: Ex): Ex {
+    val out = Ex(e.kind, e.line, e.col)
+    out.file = e.file
+    out.iVal = e.iVal
+    out.fVal = e.fVal
+    out.text = e.text
+    for (k in e.kids) { out.kids.add(cloneEx(k)) }
+    for (a in e.args) { out.args.add(ArgN(a.name, cloneEx(a.value))) }
+    for (p in e.parts) {
+        val np = PartN(p.isLit)
+        np.text = p.text
+        val inner = p.ex
+        if (inner != null) { np.ex = cloneEx(inner) }
+        out.parts.add(np)
+    }
+    val te = e.tyEx
+    if (te != null) { out.tyEx = cloneTypeEx(te) }
+    out.negated = e.negated
+    out.safe = e.safe
+    out.assignOp = e.assignOp
+    for (p in e.params) { out.params.add(cloneParam(p)) }
+    val b = e.body
+    if (b != null) { out.body = cloneBlock(b) }
+    val els = e.els
+    if (els != null) { out.els = cloneBlock(els) }
+    val elseif = e.elseif
+    if (elseif != null) { out.elseif = cloneEx(elseif) }
+    val sub = e.subject
+    if (sub != null) { out.subject = cloneEx(sub) }
+    for (arm in e.arms) {
+        val na = ArmN(arm.line, arm.col)
+        na.file = arm.file
+        na.patternKind = arm.patternKind
+        for (v in arm.values) { na.values.add(cloneEx(v)) }
+        val pt = arm.patTyEx
+        if (pt != null) { na.patTyEx = cloneTypeEx(pt) }
+        na.patNegated = arm.patNegated
+        val bd = arm.binds
+        if (bd != null) {
+            val d = DestrN(bd.typeName, bd.binds, bd.line, bd.col)
+            d.file = bd.file
+            na.binds = d
+        }
+        val g = arm.guard
+        if (g != null) { na.guard = cloneEx(g) }
+        na.body = cloneBlock(arm.body)
+        out.arms.add(na)
+    }
+    for (k in e.keys) { out.keys.add(cloneEx(k)) }
+    for (v in e.values) { out.values.add(cloneEx(v)) }
+    return out
+}
+
+fun cloneFun(f: FunN): FunN {
+    val out = FunN(f.name, f.line, f.col)
+    out.file = f.file
+    for (tp in f.typeParams) {
+        val np = TParamN(tp.name)
+        for (b in tp.bounds) { np.bounds.add(cloneTypeEx(b)) }
+        out.typeParams.add(np)
+    }
+    for (p in f.params) { out.params.add(cloneParam(p)) }
+    val r = f.ret
+    if (r != null) { out.ret = cloneTypeEx(r) }
+    out.body = cloneBlock(f.body)
+    return out
+}
+
+// ---- the checker --------------------------------------------------------
+
+class Checker() {
+    var classes: Map<String, CInfo> = {}
+    var scopes: List<Map<String, Binding>> = [{}]
+    var returns: List<RetCtx> = []
+    var thisTy: List<Ty> = []
+    var loopDepth: Int = 0
+    var errors: List<DiagN> = []
+    var typeParams: List<List<PDef>> = []
+    var traits: Map<String, TrInfo> = {}
+    var impls: Map<String, List<String>> = {}
+    var lastInst: List<Ty>? = null
+    var guardNarrowing: List<Fact>? = null
+    var quietDiag: DiagN? = null
+
+    proc error(file: Int, line: Int, col: Int, msg: String) {
+        this.errors.add(DiagN(file, line, col, msg))
+    }
+
+    proc errorNote(file: Int, line: Int, col: Int, msg: String, note: String) {
+        val d = DiagN(file, line, col, msg)
+        d.note = note
+        this.errors.add(d)
+    }
+
+    // ---- scopes --------------------------------------------------------
+
+    proc pushScope() {
+        val m: Map<String, Binding> = {}
+        this.scopes.add(m)
+    }
+
+    proc popScope() {
+        this.scopes.removeAt(this.scopes.size - 1)
+    }
+
+    proc declare(name: String, t: Ty, kind: String) {
+        this.scopes[this.scopes.size - 1][name] = Binding(t, kind)
+    }
+
+    fun lookup(name: String): Binding? {
+        var i = this.scopes.size - 1
+        while (i >= 0) {
+            val b = this.scopes[i][name]
+            if (b != null) { return b }
+            i -= 1
+        }
+        return null
+    }
+
+    // ---- driver --------------------------------------------------------
+
+    proc checkProgram(program: ProgramN) {
+        // 0. Traits first: bounds and implements lists need them registered.
+        for (item in program.items) {
+            val t = item.traitDecl
+            if (item.kind == "trait" and t != null) {
+                if (this.traits.contains(t.name)) {
+                    this.error(t.file, t.line, t.col, "trait `${t.name}` is declared twice")
+                }
+                this.traits[t.name] = TrInfo()
+            }
+        }
+        for (item in program.items) {
+            val t = item.traitDecl
+            if (item.kind == "trait" and t != null) {
+                this.collectTrait(t)
+            }
+        }
+        this.expandRecords(program)
+        this.expandTraitDefaults(program)
+
+        // 1. Class names, so classes may reference one another.
+        for (item in program.items) {
+            val c = item.classDecl
+            if (item.kind == "class" and c != null) {
+                if (this.classes.contains(c.name)) {
+                    this.error(c.file, c.line, c.col, "class `${c.name}` is declared twice")
+                    continue
+                }
+                val info = CInfo(c.file, c.line, c.col, c.isRecord)
+                for (p in c.typeParams) { info.typeParams.add(PDef(p.name)) }
+                this.classes[c.name] = info
+            }
+        }
+
+        // 1b. Which traits each class claims to implement.
+        for (item in program.items) {
+            val c = item.classDecl
+            if (item.kind == "class" and c != null) {
+                val names: List<String> = []
+                for (t in c.traits) {
+                    val n = this.traitNameOf(t)
+                    if (n != null) {
+                        if (names.contains(n)) {
+                            this.error(
+                                t.file, t.line, t.col,
+                                "`${n}` is listed twice on `${c.name}`"
+                            )
+                        } else {
+                            names.add(n)
+                        }
+                    } else {
+                        this.errorNote(
+                            t.file, t.line, t.col,
+                            "`${typeExName(t)}` is not a trait",
+                            "a class may only list traits after `:`"
+                        )
+                    }
+                }
+                this.impls[c.name] = names
+            }
+        }
+
+        // 2. Class members and 3. free-function signatures.
+        for (item in program.items) {
+            val c = item.classDecl
+            if (c != null and item.kind == "class") { this.collectClass(c) }
+            val f = item.funDecl
+            if (f != null and item.kind == "fun") { this.collectFun(f) }
+            val x = item.externDecl
+            if (x != null and item.kind == "extern") { this.collectExtern(x) }
+        }
+
+        // 3b. Every promise made after `:` must be kept.
+        for (item in program.items) {
+            val c = item.classDecl
+            if (item.kind == "class" and c != null) { this.verifyImpls(c) }
+        }
+
+        // 4. Top-level statements, in order.
+        for (item in program.items) {
+            val s = item.stmt
+            if (item.kind == "stmt" and s != null) {
+                this.checkStmt(s)
+                val facts = this.guardNarrowing
+                this.guardNarrowing = null
+                if (facts != null) { this.apply(facts) }
+            }
+        }
+
+        // 5. Bodies, now that every global name is known.
+        for (item in program.items) {
+            val f = item.funDecl
+            if (item.kind == "fun" and f != null) { this.checkFunBody(f, null) }
+            val c = item.classDecl
+            if (item.kind == "class" and c != null) { this.checkClassBody(c) }
+        }
+    }
+
+    /// An extern is a global function; only value types may cross.
+    proc collectExtern(x: ExternN) {
+        val params: List<PTy> = []
+        for (p in x.params) {
+            var t = Ty("Error")
+            val te = p.tyEx
+            if (te != null) { t = this.resolve(te) }
+            unless (t.kind == "Int" or t.kind == "Float" or t.kind == "Bool" or t.kind == "Error") {
+                this.errorNote(
+                    p.file, p.line, p.col,
+                    "`${tyShow(t)}` cannot cross into C",
+                    "extern parameters are limited to Int, Float and Bool, which carry no ownership"
+                )
+            }
+            if (p.default != null) {
+                this.error(p.file, p.line, p.col, "an extern parameter cannot have a default")
+            }
+            params.add(PTy(p.name, t, false))
+        }
+        var ret = Ty("Unit")
+        val rte = x.ret
+        if (rte != null) { ret = this.resolve(rte) }
+        unless (ret.kind == "Int" or ret.kind == "Float" or ret.kind == "Bool" or ret.kind == "Unit" or ret.kind == "Error") {
+            this.errorNote(
+                x.file, x.line, x.col,
+                "`${tyShow(ret)}` cannot cross back from C",
+                "extern results are limited to Int, Float, Bool and none"
+            )
+        }
+        if (this.scopes[0].contains(x.name)) {
+            this.error(x.file, x.line, x.col, "`${x.name}` is declared twice")
+        }
+        this.scopes[0][x.name] = Binding(tyFun(params, ret), "fun")
+    }
+
+    proc collectFun(f: FunN) {
+        if (isReservedGlobal(f.name)) {
+            this.error(f.file, f.line, f.col, "`${f.name}` is a built-in and cannot be redefined")
+            return
+        }
+        if (this.classes.contains(f.name)) {
+            this.error(f.file, f.line, f.col, "`${f.name}` is already the name of a class")
+            return
+        }
+        val ft = this.funType(f)
+        if (this.scopes[0].contains(f.name)) {
+            this.error(f.file, f.line, f.col, "function `${f.name}` is declared twice")
+        }
+        val b = Binding(ft, "fun")
+        b.typeParams = this.paramDefs(f.typeParams)
+        this.scopes[0][f.name] = b
+    }
+
+    /// Records a declaration's type parameters without bringing them into
+    /// scope; the copy stored alongside a callable's signature.
+    fun paramDefs(params: List<TParamN>): List<PDef> {
+        val out: List<PDef> = []
+        for (p in params) {
+            val d = PDef(p.name)
+            for (b in p.bounds) {
+                val n = this.traitNameOf(b)
+                if (n != null) { d.bounds.add(n) }
+            }
+            out.add(d)
+        }
+        return out
+    }
+
+    fun funType(f: FunN): Ty {
+        this.pushTypeParams(f.typeParams)
+        val ft = this.funTypeInner(f)
+        this.popTypeParams()
+        return ft
+    }
+
+    fun funTypeInner(f: FunN): Ty {
+        val params: List<PTy> = []
+        for (p in f.params) {
+            var t = Ty("Error")
+            val te = p.tyEx
+            if (te != null) { t = this.resolve(te) }
+            params.add(PTy(p.name, t, p.default != null))
+        }
+        var ret = Ty("Unit")
+        val rte = f.ret
+        if (rte != null) { ret = this.resolve(rte) }
+        return tyFun(params, ret)
+    }
+
+    proc collectTrait(t: TraitN) {
+        // Inside the declaration `Self` stands for whichever type implements.
+        this.thisTy.add(Ty("Self"))
+        val info = TrInfo()
+        for (m in t.methods) {
+            if (info.methods.contains(m.decl.name)) {
+                this.error(
+                    m.decl.file, m.decl.line, m.decl.col,
+                    "`${t.name}` declares `${m.decl.name}` twice"
+                )
+            }
+            val sig = this.funType(m.decl)
+            val tps = this.paramDefs(m.decl.typeParams)
+            unless (m.hasDefault) { info.required.add(m.decl.name) }
+            info.methods[m.decl.name] = MInfo(tps, sig)
+        }
+        this.thisTy.removeAt(this.thisTy.size - 1)
+        this.traits[t.name] = info
+    }
+
+    /// Gives every record the `Eq` implementation its shape determines.
+    proc expandRecords(program: ProgramN) {
+        for (item in program.items) {
+            val c = item.classDecl
+            if (item.kind != "class" or c == null) { continue }
+            unless (c.isRecord) { continue }
+            var hasEquals = false
+            for (m in c.methods) {
+                if (m.name == "equals") { hasEquals = true }
+            }
+            unless (hasEquals) {
+                c.methods.add(synthRecordEquals(c))
+            }
+            var hasEq = false
+            for (t in c.traits) {
+                if (t.kind == "named" and t.name == "Eq") { hasEq = true }
+            }
+            unless (hasEq) {
+                val te = TypeEx("named", c.line, c.col)
+                te.file = c.file
+                te.name = "Eq"
+                c.traits.add(te)
+            }
+        }
+    }
+
+    /// Copies each trait's default methods into the classes that implement
+    /// it and do not override them.
+    proc expandTraitDefaults(program: ProgramN) {
+        val defaults: Map<String, List<FunN>> = {}
+        for (item in program.items) {
+            val t = item.traitDecl
+            if (item.kind == "trait" and t != null) {
+                val ms: List<FunN> = []
+                for (m in t.methods) {
+                    if (m.hasDefault) { ms.add(m.decl) }
+                }
+                if (ms.size > 0) { defaults[t.name] = ms }
+            }
+        }
+        if (defaults.size == 0) { return }
+        for (item in program.items) {
+            val c = item.classDecl
+            if (item.kind != "class" or c == null) { continue }
+            for (t in c.traits) {
+                unless (t.kind == "named") { continue }
+                val ms = defaults[t.name]
+                if (ms == null) { continue }
+                for (m in ms) {
+                    var overridden = false
+                    for (own in c.methods) {
+                        if (own.name == m.name) { overridden = true }
+                    }
+                    unless (overridden) { c.methods.add(cloneFun(m)) }
+                }
+            }
+        }
+    }
+
+    /// Checks that a class supplies every method its traits require, with a
+    /// signature that matches once `Self` reads as the class itself.
+    proc verifyImpls(c: ClassN) {
+        val traitNames = this.impls[c.name]
+        if (traitNames == null) { return }
+        if (traitNames.size == 0) { return }
+        val cinfo = this.classes[c.name]
+        val ownArgs: List<Ty> = []
+        if (cinfo != null) {
+            for (p in cinfo.typeParams) { ownArgs.add(tyParam(p.name)) }
+        }
+        val selfTy = tyClass(c.name, ownArgs)
+        val subst = selfSubst(selfTy)
+
+        for (tname in traitNames) {
+            val info = this.traits[tname]
+            if (info == null) { continue }
+
+            for (name in info.required) {
+                var has = false
+                val ci = this.classes[c.name]
+                if (ci != null) { has = ci.methods.contains(name) }
+                unless (has) {
+                    // Show the signature as the class must write it.
+                    var wanted = name
+                    val m = info.methods[name]
+                    if (m != null) {
+                        wanted = renderSignature(name, substituteFun(m.sig, subst))
+                    }
+                    this.errorNote(
+                        c.file, c.line, c.col,
+                        "`${c.name}` does not implement `${tname}`: `${name}` is missing",
+                        "add `${wanted}`"
+                    )
+                }
+            }
+
+            for (name in info.methods.keys()) {
+                val want0 = info.methods[name]!!
+                var got0: Ty? = null
+                val ci = this.classes[c.name]
+                if (ci != null) {
+                    val gm = ci.methods[name]
+                    if (gm != null) { got0 = gm.sig }
+                }
+                val got = got0
+                if (got == null) { continue }
+                val want = substituteFun(want0.sig, subst)
+                var mismatch = want.params.size != got.params.size
+                unless (mismatch) {
+                    var i = 0
+                    while (i < want.params.size) {
+                        unless (tyEq(want.params[i].ty, got.params[i].ty)) { mismatch = true }
+                        i += 1
+                    }
+                    unless (tyEq(want.ret!!, got.ret!!)) { mismatch = true }
+                }
+                if (mismatch) {
+                    var wFile = c.file
+                    var wLine = c.line
+                    var wCol = c.col
+                    for (m in c.methods) {
+                        if (m.name == name) {
+                            wFile = m.file
+                            wLine = m.line
+                            wCol = m.col
+                            break
+                        }
+                    }
+                    this.errorNote(
+                        wFile, wLine, wCol,
+                        "`${c.name}.${name}` does not match `${tname}`, which declares `${renderSignature(name, want)}`",
+                        "found `${renderSignature(name, got)}`"
+                    )
+                }
+            }
+        }
+    }
+
+    proc collectClass(c: ClassN) {
+        val typeParams = this.pushTypeParams(c.typeParams)
+        val fields: List<FInfo> = []
+        val ctorParams: List<PTy> = []
+        for (p in c.ctor) {
+            var t = Ty("Error")
+            val te = p.tyEx
+            if (te != null) { t = this.resolve(te) }
+            ctorParams.add(PTy(p.name, t, p.default != null))
+            unless (p.fieldKind == "") {
+                var dup = false
+                for (f in fields) {
+                    if (f.name == p.name) { dup = true }
+                }
+                if (dup) {
+                    this.error(p.file, p.line, p.col, "field `${p.name}` is declared twice")
+                }
+                fields.add(FInfo(p.name, t, p.fieldKind == "var"))
+            }
+        }
+        for (f in c.fields) {
+            var t = Ty("Error")
+            val te = f.tyEx
+            if (te != null) { t = this.resolve(te) }
+            var dup = false
+            for (fi in fields) {
+                if (fi.name == f.name) { dup = true }
+            }
+            if (dup) {
+                this.error(f.file, f.line, f.col, "field `${f.name}` is declared twice")
+            }
+            fields.add(FInfo(f.name, t, f.mutable))
+        }
+
+        val methods: Map<String, MInfo> = {}
+        for (m in c.methods) {
+            if (methods.contains(m.name)) {
+                this.error(m.file, m.line, m.col, "method `${m.name}` is declared twice")
+            }
+            val ft = this.funType(m)
+            methods[m.name] = MInfo(this.paramDefs(m.typeParams), ft)
+        }
+
+        // A constructor returns the class instantiated at its own parameters.
+        val ownArgs: List<Ty> = []
+        for (p in typeParams) { ownArgs.add(tyParam(p.name)) }
+        val info = CInfo(c.file, c.line, c.col, c.isRecord)
+        info.typeParams = typeParams
+        info.fields = fields
+        info.methods = methods
+        info.ctor = tyFun(ctorParams, tyClass(c.name, ownArgs))
+        this.popTypeParams()
+        this.classes[c.name] = info
+    }
+
+    /// Maps a class's type parameters onto a receiver's type arguments.
+    fun classSubst(name: String, args: List<Ty>): Map<String, Ty> {
+        val subst: Map<String, Ty> = {}
+        val info = this.classes[name]
+        if (info != null) {
+            var i = 0
+            while (i < info.typeParams.size and i < args.size) {
+                subst[info.typeParams[i].name] = args[i]
+                i += 1
+            }
+        }
+        return subst
+    }
+
+    /// Second pass over a class: infer un-annotated field types, then check
+    /// initializers and method bodies.
+    proc checkClassBody(c: ClassN) {
+        this.validateTypeParams(c.typeParams)
+        val names = this.pushTypeParams(c.typeParams)
+        val ownArgs: List<Ty> = []
+        for (p in names) { ownArgs.add(tyParam(p.name)) }
+        val thisT = tyClass(c.name, ownArgs)
+
+        // Field initializers see the constructor parameters and `this`.
+        this.pushScope()
+        this.thisTy.add(thisT)
+        for (p in c.ctor) {
+            var t = Ty("Error")
+            val te = p.tyEx
+            if (te != null) { t = this.resolve(te) }
+            val d = p.default
+            if (d != null) {
+                val dt = this.checkCoerced(d, t)
+                this.expectAssignable(dt, t, d.file, d.line, d.col, "default value")
+            }
+            this.declare(p.name, t, "param")
+        }
+        for (f in c.fields) {
+            var t = Ty("Error")
+            val te = f.tyEx
+            val init = f.init
+            if (te != null) {
+                val d = this.resolve(te)
+                if (init != null) {
+                    val it = this.checkCoerced(init, d)
+                    this.expectAssignable(it, d, init.file, init.line, init.col, "field initializer")
+                }
+                t = d
+            } else if (init != null) {
+                val it = this.checkExpr(init, null)
+                this.rejectUnusable(it, init.file, init.line, init.col)
+                t = it
+            }
+            val info = this.classes[c.name]
+            if (info != null) {
+                for (fi in info.fields) {
+                    if (fi.name == f.name) { fi.ty = t }
+                }
+            }
+        }
+        this.thisTy.removeAt(this.thisTy.size - 1)
+        this.popScope()
+
+        for (m in c.methods) {
+            this.checkFunBody(m, thisT)
+        }
+        this.popTypeParams()
+    }
+
+    proc checkFunBody(f: FunN, thisT: Ty?) {
+        this.validateTypeParams(f.typeParams)
+        this.pushTypeParams(f.typeParams)
+        val ft = this.funTypeInner(f)
+        this.pushScope()
+        if (thisT != null) { this.thisTy.add(thisT) }
+        var i = 0
+        while (i < f.params.size and i < ft.params.size) {
+            val p = f.params[i]
+            val pt = ft.params[i]
+            val d = p.default
+            if (d != null) {
+                val dt = this.checkCoerced(d, pt.ty)
+                this.expectAssignable(dt, pt.ty, d.file, d.line, d.col, "default value")
+            }
+            this.declare(p.name, pt.ty, "param")
+            i += 1
+        }
+        val retT = ft.ret!!
+        this.returns.add(RetCtx(false, retT))
+        val bodyTy = this.checkBlock(f.body)
+        this.returns.removeAt(this.returns.size - 1)
+
+        // A non-Unit function must not be able to fall off the end.
+        unless (retT.kind == "Unit" or retT.kind == "Error" or bodyTy.kind == "Never") {
+            var tFile = f.file
+            var tLine = f.line
+            var tCol = f.col
+            if (f.body.stmts.size > 0) {
+                val tail = f.body.stmts[f.body.stmts.size - 1]
+                tFile = tail.file
+                tLine = tail.line
+                tCol = tail.col
+            }
+            if (bodyTy.kind == "Unit") {
+                this.errorNote(
+                    f.file, f.line, f.col,
+                    "function `${f.name}` must return a value of type `${tyShow(retT)}`",
+                    "add a `return`, or make the last expression the result"
+                )
+            } else if (not assignableTo(bodyTy, retT)) {
+                this.errorNote(
+                    tFile, tLine, tCol,
+                    "function `${f.name}` ends with an expression of type `${tyShow(bodyTy)}`, but its return type is `${tyShow(retT)}`",
+                    "the value of a function body is its last expression"
+                )
+            }
+        }
+        if (thisT != null) { this.thisTy.removeAt(this.thisTy.size - 1) }
+        this.popScope()
+        this.popTypeParams()
+    }
+
+    // ---- types ---------------------------------------------------------
+
+    fun resolve(te: TypeEx): Ty {
+        val t = this.resolveQuiet(te)
+        if (t == null) {
+            val d = this.quietDiag
+            if (d != null) { this.errors.add(d) }
+            this.quietDiag = null
+            return Ty("Error")
+        }
+        return t
+    }
+
+    /// Pure form of `resolve`: a failure sets `quietDiag` and returns null.
+    fun resolveQuiet(te: TypeEx): Ty? {
+        if (te.kind == "nullable") {
+            val inner = this.resolveQuiet(te.inner!!)
+            if (inner == null) { return null }
+            return tyNullable(inner)
+        }
+        if (te.kind == "fun") {
+            val ps: List<Ty> = []
+            for (p in te.args) {
+                val t = this.resolveQuiet(p)
+                if (t == null) { return null }
+                ps.add(t)
+            }
+            val r = this.resolveQuiet(te.ret!!)
+            if (r == null) { return null }
+            return tyFunOf(ps, r)
+        }
+        val name = te.name
+        val arity = te.args.size
+        if (name == "Int" or name == "Float" or name == "Bool" or name == "String" or name == "Unit" or name == "Any" or name == "Nothing" or name == "Range") {
+            unless (arity == 0) {
+                this.quietDiag = DiagN(
+                    te.file, te.line, te.col,
+                    "`${name}` takes 0 type argument(s), found ${arity}"
+                )
+                return null
+            }
+            return when (name) {
+                "Int" -> Ty("Int")
+                "Float" -> Ty("Float")
+                "Bool" -> Ty("Bool")
+                "String" -> Ty("Str")
+                "Unit" -> Ty("Unit")
+                "Any" -> Ty("Any")
+                "Nothing" -> Ty("Never")
+                else -> Ty("Range")
+            }
+        }
+        if (name == "List") {
+            unless (arity == 1) {
+                this.quietDiag = DiagN(
+                    te.file, te.line, te.col,
+                    "`List` takes 1 type argument(s), found ${arity}"
+                )
+                return null
+            }
+            val inner = this.resolveQuiet(te.args[0])
+            if (inner == null) { return null }
+            return tyList(inner)
+        }
+        if (name == "Map") {
+            unless (arity == 2) {
+                this.quietDiag = DiagN(
+                    te.file, te.line, te.col,
+                    "`Map` takes 2 type argument(s), found ${arity}"
+                )
+                return null
+            }
+            val k = this.resolveQuiet(te.args[0])
+            if (k == null) { return null }
+            val v = this.resolveQuiet(te.args[1])
+            if (v == null) { return null }
+            return tyMap(k, v)
+        }
+        if (name == "Self") {
+            if (this.thisTy.size == 0) {
+                this.quietDiag = DiagN(
+                    te.file, te.line, te.col,
+                    "`Self` is only available inside a trait or a class"
+                )
+                return null
+            }
+            unless (arity == 0) {
+                this.quietDiag = DiagN(
+                    te.file, te.line, te.col,
+                    "`Self` takes 0 type argument(s), found ${arity}"
+                )
+                return null
+            }
+            return this.thisTy[this.thisTy.size - 1]
+        }
+        if (this.typeParamInScope(name)) {
+            unless (arity == 0) {
+                this.quietDiag = DiagN(
+                    te.file, te.line, te.col,
+                    "`${name}` takes 0 type argument(s), found ${arity}"
+                )
+                return null
+            }
+            return tyParam(name)
+        }
+        val info = this.classes[name]
+        if (info != null) {
+            val wanted = info.typeParams.size
+            unless (arity == wanted) {
+                this.quietDiag = DiagN(
+                    te.file, te.line, te.col,
+                    "`${name}` takes ${wanted} type argument(s), found ${arity}"
+                )
+                return null
+            }
+            val resolved: List<Ty> = []
+            for (a in te.args) {
+                val t = this.resolveQuiet(a)
+                if (t == null) { return null }
+                resolved.add(t)
+            }
+            return tyClass(name, resolved)
+        }
+        this.quietDiag = DiagN(te.file, te.line, te.col, "unknown type `${name}`")
+        return null
+    }
+
+    /// Resolves the type written after `is`. A run-time check only sees a
+    /// value's outer shape, so bare `List` means "any list" and checking the
+    /// arguments is rejected.
+    fun resolveIsType(te: TypeEx): Ty {
+        if (te.kind == "named") {
+            val name = te.name
+            val info = this.classes[name]
+            if (info != null) {
+                val arity = info.typeParams.size
+                if (arity > 0) {
+                    if (te.args.size > 0) {
+                        this.errorNote(
+                            te.file, te.line, te.col,
+                            "`is` cannot check the type arguments of `${name}`",
+                            "write `is ${name}` to test the class alone"
+                        )
+                        return Ty("Error")
+                    }
+                    val anys: List<Ty> = []
+                    var i = 0
+                    while (i < arity) {
+                        anys.add(Ty("Any"))
+                        i += 1
+                    }
+                    return tyClass(name, anys)
+                }
+            }
+            if (te.args.size == 0 and this.typeParamInScope(name)) {
+                this.errorNote(
+                    te.file, te.line, te.col,
+                    "`is` cannot test the type parameter `${name}`",
+                    "type parameters have no run-time identity to check against"
+                )
+                return Ty("Error")
+            }
+            val container = name == "List" or name == "Map"
+            if (container and te.args.size == 0) {
+                if (name == "List") { return tyList(Ty("Any")) }
+                return tyMap(Ty("Any"), Ty("Any"))
+            }
+            if (container) {
+                this.errorNote(
+                    te.file, te.line, te.col,
+                    "`is` cannot check the type arguments of `${name}`",
+                    "write `is ${name}` to test the container alone"
+                )
+                return Ty("Error")
+            }
+        }
+        return this.resolve(te)
+    }
+
+    /// Pure form of `resolveIsType`, for the narrowing analysis.
+    fun resolveIsQuiet(te: TypeEx): Ty? {
+        if (te.kind == "named" and te.args.size == 0) {
+            val info = this.classes[te.name]
+            if (info != null) {
+                val arity = info.typeParams.size
+                if (arity > 0) {
+                    val anys: List<Ty> = []
+                    var i = 0
+                    while (i < arity) {
+                        anys.add(Ty("Any"))
+                        i += 1
+                    }
+                    return tyClass(te.name, anys)
+                }
+            }
+            if (te.name == "List") { return tyList(Ty("Any")) }
+            if (te.name == "Map") { return tyMap(Ty("Any"), Ty("Any")) }
+        }
+        val out = this.resolveQuiet(te)
+        this.quietDiag = null
+        return out
+    }
+
+    fun typeParamInScope(name: String): Bool { this.findParam(name) != null }
+
+    fun findParam(name: String): PDef? {
+        var i = this.typeParams.size - 1
+        while (i >= 0) {
+            for (p in this.typeParams[i]) {
+                if (p.name == name) { return p }
+            }
+            i -= 1
+        }
+        return null
+    }
+
+    fun pushTypeParams(params: List<TParamN>): List<PDef> {
+        val defs = this.paramDefs(params)
+        this.typeParams.add(defs)
+        return defs
+    }
+
+    /// Reports what is wrong with a `<T, U: Bound>` list. Kept apart from
+    /// `pushTypeParams`, which runs once per pass and would repeat reports.
+    proc validateTypeParams(params: List<TParamN>) {
+        for (p in params) {
+            for (b in p.bounds) {
+                if (this.traitNameOf(b) == null) {
+                    this.errorNote(
+                        b.file, b.line, b.col,
+                        "`${typeExName(b)}` is not a trait, so it cannot bound `${p.name}`",
+                        "declare it with `trait Name { ... }`"
+                    )
+                }
+            }
+        }
+    }
+
+    /// Reads a written type in bound or implements position.
+    fun traitNameOf(te: TypeEx): String? {
+        if (te.kind == "named" and te.args.size == 0 and this.traits.contains(te.name)) {
+            return te.name
+        }
+        return null
+    }
+
+    /// Does `t` provide everything `traitName` requires?
+    fun implements(t: Ty, traitName: String): Bool {
+        if (builtinImplements(t, traitName)) { return true }
+        if (t.kind == "Class") {
+            val ts = this.impls[t.name]
+            if (ts == null) { return false }
+            return ts.contains(traitName)
+        }
+        if (t.kind == "Param") {
+            val p = this.findParam(t.name)
+            if (p == null) { return false }
+            return p.bounds.contains(traitName)
+        }
+        // Errors already reported elsewhere must not cascade.
+        if (t.kind == "Error" or t.kind == "Never") { return true }
+        return false
+    }
+
+    /// Finds a method reachable through a type parameter's bounds.
+    fun boundMethod(param: String, method: String): MInfo? {
+        val def = this.findParam(param)
+        if (def == null) { return null }
+        for (t in def.bounds) {
+            val info = this.traits[t]
+            if (info != null) {
+                val m = info.methods[method]
+                if (m != null) { return m }
+            }
+        }
+        return null
+    }
+
+    proc popTypeParams() {
+        this.typeParams.removeAt(this.typeParams.size - 1)
+    }
+
+    proc expectAssignable(actual: Ty, expected: Ty, file: Int, line: Int, col: Int, what: String) {
+        // `Unit` fits `Any` in the lattice, which is what lets a lambda body
+        // end in a statement; it must still not be handed around as a value.
+        if (actual.kind == "Unit" and expected.kind != "Unit" and expected.kind != "Error") {
+            this.errorNote(
+                file, line, col,
+                "${what} produces no value",
+                "a `proc` returns nothing; use `fun` if it should produce a value"
+            )
+            return
+        }
+        if (assignableTo(actual, expected)) { return }
+        val d = DiagN(
+            file, line, col,
+            "${what} has type `${tyShow(actual)}`, but `${tyShow(expected)}` was expected"
+        )
+        if (tyEq(tyNonNull(actual), expected) and tyIsNullable(actual)) {
+            d.note = "the value may be null; use `?:`, `!!` or a null check"
+        }
+        this.errors.add(d)
+    }
+
+    /// Rejects types that cannot meaningfully be stored in a binding.
+    proc rejectUnusable(t: Ty, file: Int, line: Int, col: Int) {
+        if (t.kind == "Unit") {
+            this.error(file, line, col, "expression produces no value")
+        } else if (t.kind == "Null") {
+            this.errorNote(
+                file, line, col,
+                "cannot infer a type from `null` alone",
+                "add an explicit type, e.g. `val x: String? = null`"
+            )
+        }
+    }
+
+    // ---- statements ----------------------------------------------------
+
+    fun checkBlock(b: BlockN): Ty {
+        this.pushScope()
+        val t = this.checkStmts(b.stmts)
+        this.popScope()
+        return t
+    }
+
+    fun checkStmts(stmts: List<StmtN>): Ty {
+        var result = Ty("Unit")
+        var diverged = false
+        val last = stmts.size - 1
+        var i = 0
+        while (i < stmts.size) {
+            val t = this.checkStmt(stmts[i])
+            // `if (x == null) { return }` proves x non-null from here on.
+            val facts = this.guardNarrowing
+            this.guardNarrowing = null
+            if (facts != null) { this.apply(facts) }
+            if (i == last) { result = t }
+            if (t.kind == "Never") { diverged = true }
+            i += 1
+        }
+        if (diverged) { return Ty("Never") }
+        return result
+    }
+
+    fun checkStmt(s: StmtN): Ty {
+        // Only a guard that is itself a statement may narrow its successors.
+        this.guardNarrowing = null
+        if (s.kind == "let") {
+            val te = s.tyEx
+            val init = s.init!!
+            var actual = Ty("Error")
+            if (te != null) {
+                val d = this.resolve(te)
+                val t = this.checkCoerced(init, d)
+                this.expectAssignable(t, d, init.file, init.line, init.col, "initializer")
+                actual = d
+            } else {
+                val t = this.checkExpr(init, null)
+                this.rejectUnusable(t, init.file, init.line, init.col)
+                actual = if (t.kind == "Never") { Ty("Error") } else { t }
+            }
+            val kind = if (s.mutable) { "var" } else { "val" }
+            if (this.scopes[this.scopes.size - 1].contains(s.name)) {
+                this.error(s.file, s.line, s.col, "`${s.name}` is already declared in this scope")
+            }
+            this.declare(s.name, actual, kind)
+            return Ty("Unit")
+        }
+        if (s.kind == "destructure") {
+            val kind = if (s.mutable) { "var" } else { "val" }
+            val pattern = s.pattern!!
+            val init = s.init!!
+            val expected = this.destructuredType(pattern)
+            val actual = if (expected != null) {
+                this.checkCoerced(init, expected)
+            } else {
+                this.checkExpr(init, null)
+            }
+            val fields = this.destructureFields(pattern, actual)
+            var i = 0
+            while (i < pattern.binds.size and i < fields.size) {
+                val bind = pattern.binds[i]
+                unless (bind == "_") {
+                    if (this.scopes[this.scopes.size - 1].contains(bind)) {
+                        this.error(
+                            pattern.file, pattern.line, pattern.col,
+                            "`${bind}` is already declared in this scope"
+                        )
+                    }
+                    this.declare(bind, fields[i], kind)
+                }
+                i += 1
+            }
+            return Ty("Unit")
+        }
+        if (s.kind == "expr") {
+            return this.checkExpr(s.ex!!, null)
+        }
+        if (s.kind == "return") {
+            var expected = Ty("Error")
+            if (this.returns.size == 0) {
+                this.error(s.file, s.line, s.col, "`return` outside of a function")
+                return Ty("Never")
+            }
+            val ctx = this.returns[this.returns.size - 1]
+            if (ctx.isLambda) {
+                this.errorNote(
+                    s.file, s.line, s.col,
+                    "`return` is not allowed inside a lambda",
+                    "the value of a lambda is its last expression"
+                )
+                return Ty("Never")
+            }
+            expected = ctx.ty
+            val v = s.ex
+            if (v != null) {
+                if (expected.kind == "Unit") {
+                    this.checkExpr(v, null)
+                    this.errorNote(
+                        s.file, s.line, s.col,
+                        "a `proc` cannot return a value",
+                        "declare it with `fun` and a return type instead"
+                    )
+                    return Ty("Never")
+                }
+                val t = this.checkCoerced(v, expected)
+                this.expectAssignable(t, expected, v.file, v.line, v.col, "returned value")
+            } else {
+                unless (expected.kind == "Unit" or expected.kind == "Error") {
+                    this.error(
+                        s.file, s.line, s.col,
+                        "this function must return a value of type `${tyShow(expected)}`"
+                    )
+                }
+            }
+            return Ty("Never")
+        }
+        if (s.kind == "while") {
+            val cond = s.ex!!
+            val ct = this.checkExpr(cond, Ty("Bool"))
+            this.expectAssignable(ct, Ty("Bool"), cond.file, cond.line, cond.col, "loop condition")
+            val narrowed = this.narrowings(cond, true)
+            this.pushScope()
+            this.apply(narrowed)
+            this.loopDepth += 1
+            this.checkBlock(s.body!!)
+            this.loopDepth -= 1
+            this.popScope()
+            return Ty("Unit")
+        }
+        if (s.kind == "for") {
+            val iter = s.ex!!
+            val it = this.checkExpr(iter, null)
+            var elem = Ty("Error")
+            val ie = iterElem(it)
+            if (ie != null) {
+                elem = ie
+            } else if (it.kind != "Error") {
+                this.errorNote(
+                    iter.file, iter.line, iter.col,
+                    "`${tyShow(it)}` is not iterable",
+                    "`for` works over List, Map, String and ranges"
+                )
+            }
+            var declared = elem
+            val te = s.tyEx
+            if (te != null) {
+                val d = this.resolve(te)
+                this.expectAssignable(elem, d, iter.file, iter.line, iter.col, "loop element")
+                declared = d
+            }
+            this.pushScope()
+            this.declare(s.name, declared, "loop")
+            this.loopDepth += 1
+            this.checkBlock(s.body!!)
+            this.loopDepth -= 1
+            this.popScope()
+            return Ty("Unit")
+        }
+        if (s.kind == "break" or s.kind == "continue") {
+            if (this.loopDepth == 0) {
+                this.error(s.file, s.line, s.col, "`${s.kind}` outside of a loop")
+            }
+            return Ty("Never")
+        }
+        if (s.kind == "fun") {
+            val f = s.funDecl!!
+            this.collectLocalFun(f)
+            this.checkFunBody(f, null)
+            return Ty("Unit")
+        }
+        // A nested class declaration.
+        val c = s.classDecl!!
+        this.errorNote(
+            c.file, c.line, c.col,
+            "classes can only be declared at the top level",
+            "move this class out of the enclosing function"
+        )
+        return Ty("Unit")
+    }
+
+    /// The type a pattern names, when it is a class with no type arguments.
+    fun destructuredType(pattern: DestrN): Ty? {
+        val info = this.classes[pattern.typeName]
+        if (info == null) { return null }
+        if (info.typeParams.size == 0) {
+            return tyClass(pattern.typeName, [])
+        }
+        return null
+    }
+
+    /// Types the fields a pattern binds, reporting a mismatch in name or
+    /// arity. Returns one type per name so the caller can bind positionally
+    /// whatever went wrong.
+    fun destructureFields(pattern: DestrN, actual: Ty): List<Ty> {
+        val filler: List<Ty> = []
+        for (b in pattern.binds) { filler.add(Ty("Error")) }
+
+        val info = this.classes[pattern.typeName]
+        if (info == null) {
+            this.error(
+                pattern.file, pattern.line, pattern.col,
+                "`${pattern.typeName}` is not a class or record"
+            )
+            return filler
+        }
+        // Only the constructor parameters are positional.
+        val ctor: List<Ty> = []
+        val names: List<String> = []
+        for (p in info.ctor.params) {
+            ctor.add(p.ty)
+            names.add(p.name)
+        }
+
+        // A tuple pattern is written `(a, b)`, so nobody should be told
+        // about the record it happens to be underneath.
+        val tuple = tupleArity(pattern.typeName)
+
+        if (actual.kind == "Class") {
+            if (actual.name != pattern.typeName) {
+                val complaint = if (tuple != null) {
+                    "a pattern of ${tuple} value(s) cannot match `${tyShow(actual)}`"
+                } else {
+                    "the pattern matches `${pattern.typeName}`, but the value has type `${tyShow(actual)}`"
+                }
+                this.error(pattern.file, pattern.line, pattern.col, complaint)
+                return filler
+            }
+        } else if (actual.kind != "Error") {
+            val complaint = if (tuple != null) {
+                "`${tyShow(actual)}` is not a tuple"
+            } else {
+                "`${tyShow(actual)}` cannot be destructured with a pattern"
+            }
+            this.error(pattern.file, pattern.line, pattern.col, complaint)
+            return filler
+        }
+
+        if (ctor.size != pattern.binds.size) {
+            if (tuple != null) {
+                this.error(
+                    pattern.file, pattern.line, pattern.col,
+                    "this tuple holds ${ctor.size} value(s), but the pattern names ${tuple}"
+                )
+                return filler
+            }
+            var listed = ""
+            var first = true
+            for (n in names) {
+                unless (first) { listed += ", " }
+                listed += "`${n}`"
+                first = false
+            }
+            val note = if (names.size == 0) {
+                "it has no constructor fields to destructure"
+            } else {
+                "they are ${listed}, in that order; use `_` to skip one"
+            }
+            this.errorNote(
+                pattern.file, pattern.line, pattern.col,
+                "`${pattern.typeName}` has ${ctor.size} constructor field(s), but the pattern names ${pattern.binds.size}",
+                note
+            )
+            return filler
+        }
+
+        // A generic record binds its fields at the value's type arguments.
+        var subst: Map<String, Ty> = {}
+        if (actual.kind == "Class") {
+            subst = this.classSubst(actual.name, actual.args)
+        }
+        val out: List<Ty> = []
+        for (t in ctor) { out.add(substitute(t, subst)) }
+        return out
+    }
+
+    proc collectLocalFun(f: FunN) {
+        val ft = this.funType(f)
+        val b = Binding(ft, "fun")
+        b.typeParams = this.paramDefs(f.typeParams)
+        this.scopes[this.scopes.size - 1][f.name] = b
+    }
+
+    // ---- expressions ---------------------------------------------------
+
+    /// Checks `e` against `expected`, applying integer-literal widening.
+    fun checkCoerced(e: Ex, expected: Ty): Ty {
+        val t = this.checkExpr(e, expected)
+        if (t.kind == "Int" and expected.kind == "Float" and canWiden(e)) {
+            widen(e)
+            return Ty("Float")
+        }
+        return t
+    }
+
+    /// Types an expression and records the answer on the node, so a backend
+    /// never has to work it out again.
+    fun checkExpr(e: Ex, expected: Ty?): Ty {
+        val t = this.checkExprInner(e, expected)
+        e.ty = t
+        // Taken unconditionally, so it can never outlive the node it was
+        // solved for; kept only where a call can use it.
+        val inst = this.lastInst
+        this.lastInst = null
+        if (e.kind == "call" or e.kind == "method") {
+            e.inst = inst
+        }
+        return t
+    }
+
+    fun checkExprInner(e: Ex, expected: Ty?): Ty {
+        if (e.kind == "int") { return Ty("Int") }
+        if (e.kind == "float") { return Ty("Float") }
+        if (e.kind == "bool") { return Ty("Bool") }
+        if (e.kind == "str") { return Ty("Str") }
+        if (e.kind == "null") { return Ty("Null") }
+        if (e.kind == "interp") {
+            for (part in e.parts) {
+                val inner = part.ex
+                if (inner != null) {
+                    val t = this.checkExpr(inner, null)
+                    if (t.kind == "Unit") {
+                        this.error(
+                            inner.file, inner.line, inner.col,
+                            "cannot interpolate an expression with no value"
+                        )
+                    }
+                }
+            }
+            return Ty("Str")
+        }
+        if (e.kind == "this") {
+            if (this.thisTy.size == 0) {
+                this.error(e.file, e.line, e.col, "`this` is only available inside a method")
+                return Ty("Error")
+            }
+            return this.thisTy[this.thisTy.size - 1]
+        }
+        if (e.kind == "ident") {
+            val name = e.text
+            val b = this.lookup(name)
+            if (b != null) {
+                if (b.typeParams.size > 0) {
+                    var listed = ""
+                    var first = true
+                    for (p in b.typeParams) {
+                        unless (first) { listed += ", " }
+                        listed += p.name
+                        first = false
+                    }
+                    this.errorNote(
+                        e.file, e.line, e.col,
+                        "`${name}` is generic over ${listed} and cannot be used as a value",
+                        "call it instead; each instantiation compiles to its own function"
+                    )
+                    return Ty("Error")
+                }
+                return b.ty
+            }
+            if (this.classes.contains(name)) {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "`${name}` is a class, not a value",
+                    "did you mean to construct one with `${name}(...)`?"
+                )
+                return Ty("Error")
+            }
+            val two: List<Ty?> = [null, null]
+            val g = globalSig(name, two)
+            if (g != null) { return g }
+            this.error(e.file, e.line, e.col, "cannot find `${name}` in this scope")
+            return Ty("Error")
+        }
+        if (e.kind == "unary") {
+            val rhs = e.kids[0]
+            val t = this.checkExpr(rhs, expected)
+            if (e.text == "neg") {
+                // `-value` on a user type goes through `Neg.negate`.
+                if (overloadable(t)) {
+                    return this.rewriteUnaryNeg(e, t)
+                }
+                if (not tyIsNumeric(t) and t.kind != "Error") {
+                    this.error(e.file, e.line, e.col, "cannot negate a value of type `${tyShow(t)}`")
+                    return Ty("Error")
+                }
+                return t
+            }
+            this.expectAssignable(t, Ty("Bool"), rhs.file, rhs.line, rhs.col, "operand of `!`")
+            return Ty("Bool")
+        }
+        if (e.kind == "binary") {
+            // May rewrite the node into a method call; the returned type
+            // describes whatever the node became.
+            return this.checkBinary(e)
+        }
+        if (e.kind == "logical") {
+            val op = e.text
+            val lhs = e.kids[0]
+            val rhs = e.kids[1]
+            val lt = this.checkExpr(lhs, Ty("Bool"))
+            this.expectAssignable(lt, Ty("Bool"), lhs.file, lhs.line, lhs.col, "operand of a logical operator")
+            // Where the right operand is only reached once the left one has
+            // a known truth value, it may rely on what that proves.
+            val truth = logicalGuard(op)
+            var narrowed: List<Fact> = []
+            if (truth != null) { narrowed = this.narrowings(lhs, truth) }
+            this.pushScope()
+            this.apply(narrowed)
+            val rt = this.checkExpr(rhs, Ty("Bool"))
+            this.popScope()
+            this.expectAssignable(rt, Ty("Bool"), rhs.file, rhs.line, rhs.col, "operand of a logical operator")
+            return Ty("Bool")
+        }
+        if (e.kind == "elvis") {
+            val lhs = e.kids[0]
+            val rhs = e.kids[1]
+            val lt = this.checkExpr(lhs, expected)
+            if (not tyIsNullable(lt) and lt.kind != "Never") {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "`?:` applied to non-nullable type `${tyShow(lt)}`",
+                    "the right-hand side can never be reached"
+                )
+            }
+            val left = tyNonNull(lt)
+            val rt = this.checkCoerced(rhs, left)
+            return tyJoin(left, rt)
+        }
+        if (e.kind == "notnull") {
+            val inner = e.kids[0]
+            val t = this.checkExpr(inner, null)
+            if (not tyIsNullable(t) and t.kind != "Error") {
+                this.error(e.file, e.line, e.col, "`!!` applied to non-nullable type `${tyShow(t)}`")
+            }
+            return tyNonNull(t)
+        }
+        if (e.kind == "range") {
+            val start = e.kids[0]
+            val end = e.kids[1]
+            val st = this.checkExpr(start, Ty("Int"))
+            val et = this.checkExpr(end, Ty("Int"))
+            this.expectAssignable(st, Ty("Int"), start.file, start.line, start.col, "range start")
+            this.expectAssignable(et, Ty("Int"), end.file, end.line, end.col, "range end")
+            return Ty("Range")
+        }
+        if (e.kind == "is") {
+            val value = e.kids[0]
+            val vt = this.checkExpr(value, null)
+            val target = this.resolveIsType(e.tyEx!!)
+            if (target.kind == "Error") { return Ty("Bool") }
+            if (tyIsNullable(target) and target.kind != "Null") {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "`is` cannot test a nullable type",
+                    "compare with `== null` instead, or test the underlying type"
+                )
+            }
+            if (not tyIsNullable(vt) and vt.kind != "Any" and vt.kind != "Error" and tyEq(vt, target)) {
+                this.error(
+                    e.file, e.line, e.col,
+                    "this check is always true: `${tyShow(vt)}` is `${tyShow(target)}`"
+                )
+            }
+            return Ty("Bool")
+        }
+        if (e.kind == "list") {
+            var hint0: Ty? = null
+            if (expected != null and expected.kind == "List") {
+                // While `T` is unsolved it says nothing about the elements.
+                unless (hasParams(expected.args[0])) { hint0 = expected.args[0] }
+            }
+            val hint = hint0
+            var elem = Ty("Never")
+            for (item in e.kids) {
+                var t = Ty("Error")
+                if (hint != null) {
+                    val got = this.checkCoerced(item, hint)
+                    this.expectAssignable(got, hint, item.file, item.line, item.col, "list element")
+                    t = hint
+                } else {
+                    t = this.checkExpr(item, null)
+                }
+                elem = tyJoin(elem, t)
+            }
+            return tyList(hint ?: elem)
+        }
+        if (e.kind == "map") {
+            var hintK0: Ty? = null
+            var hintV0: Ty? = null
+            if (expected != null and expected.kind == "Map") {
+                unless (hasParams(expected.args[0]) or hasParams(expected.args[1])) {
+                    hintK0 = expected.args[0]
+                    hintV0 = expected.args[1]
+                }
+            }
+            val hintK = hintK0
+            val hintV = hintV0
+            var kt = Ty("Never")
+            var vt = Ty("Never")
+            var i = 0
+            while (i < e.keys.size) {
+                val k = e.keys[i]
+                val v = e.values[i]
+                if (hintK != null and hintV != null) {
+                    val a = this.checkCoerced(k, hintK)
+                    this.expectAssignable(a, hintK, k.file, k.line, k.col, "map key")
+                    val b = this.checkCoerced(v, hintV)
+                    this.expectAssignable(b, hintV, v.file, v.line, v.col, "map value")
+                } else {
+                    val a = this.checkExpr(k, null)
+                    val b = this.checkExpr(v, null)
+                    kt = tyJoin(kt, a)
+                    vt = tyJoin(vt, b)
+                }
+                i += 1
+            }
+            if (hintK != null and hintV != null) { return tyMap(hintK, hintV) }
+            return tyMap(kt, vt)
+        }
+        if (e.kind == "lambda") {
+            var hint0: Ty? = null
+            if (expected != null and expected.kind == "Fun") { hint0 = expected }
+            val hint = hint0
+            if (hint != null) {
+                if (hint.params.size != e.params.size) {
+                    this.error(
+                        e.file, e.line, e.col,
+                        "this lambda takes ${e.params.size} parameter(s), but ${hint.params.size} were expected"
+                    )
+                }
+            }
+            val paramTys: List<PTy> = []
+            var i = 0
+            while (i < e.params.size) {
+                val p = e.params[i]
+                var t = Ty("Error")
+                val te = p.tyEx
+                if (te != null) {
+                    t = this.resolve(te)
+                } else {
+                    var fromHint0: Ty? = null
+                    if (hint != null and i < hint.params.size) {
+                        val ht = hint.params[i].ty
+                        unless (hasParams(ht)) { fromHint0 = ht }
+                    }
+                    val fromHint = fromHint0
+                    if (fromHint != null) {
+                        t = fromHint
+                    } else {
+                        this.errorNote(
+                            p.file, p.line, p.col,
+                            "cannot infer the type of parameter `${p.name}`",
+                            "annotate it, e.g. `{ x: Int -> ... }`"
+                        )
+                    }
+                }
+                paramTys.add(PTy(p.name, t, false))
+                i += 1
+            }
+
+            this.pushScope()
+            for (pt in paramTys) {
+                this.declare(pt.name, pt.ty, "param")
+            }
+            this.returns.add(RetCtx(true, Ty("Unit")))
+            val savedLoop = this.loopDepth
+            this.loopDepth = 0
+            val ret = this.checkStmts(e.body!!.stmts)
+            this.loopDepth = savedLoop
+            this.returns.removeAt(this.returns.size - 1)
+            this.popScope()
+
+            return tyFun(paramTys, ret)
+        }
+        if (e.kind == "if") {
+            val cond = e.kids[0]
+            val ct = this.checkExpr(cond, Ty("Bool"))
+            this.expectAssignable(ct, Ty("Bool"), cond.file, cond.line, cond.col, "`if` condition")
+
+            val yes = this.narrowings(cond, true)
+            this.pushScope()
+            this.apply(yes)
+            val tt = this.checkBlock(e.body!!)
+            this.popScope()
+
+            val els = e.els
+            val elseif = e.elseif
+            if (els == null and elseif == null) {
+                val wantsValue = expected != null and expected.kind != "Unit" and expected.kind != "Error"
+                if (wantsValue) {
+                    this.errorNote(
+                        e.file, e.line, e.col,
+                        "an `if` without `else` produces no value",
+                        "add an `else` branch so every path has a result"
+                    )
+                    // Reported here; do not let the caller complain again.
+                    return Ty("Error")
+                } else if (tt.kind == "Never") {
+                    // The `then` branch always leaves, so from here on the
+                    // condition is known to be false.
+                    val facts = this.narrowings(cond, false)
+                    if (facts.size > 0) {
+                        this.guardNarrowing = facts
+                    }
+                }
+                return Ty("Unit")
+            }
+            val no = this.narrowings(cond, false)
+            this.pushScope()
+            this.apply(no)
+            var et = Ty("Unit")
+            if (els != null) {
+                et = this.checkBlock(els)
+            } else if (elseif != null) {
+                et = this.checkExpr(elseif, expected)
+            }
+            this.popScope()
+            return tyJoin(tt, et)
+        }
+        if (e.kind == "when") {
+            return this.checkWhen(e, expected)
+        }
+        if (e.kind == "index") {
+            val obj = e.kids[0]
+            val index = e.kids[1]
+            val ot = this.checkExpr(obj, null)
+            if (tyIsNullable(ot) and ot.kind != "Error") {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "cannot index into nullable type `${tyShow(ot)}`",
+                    "use `?.get(...)`, `!!` or a null check first"
+                )
+                this.checkExpr(index, null)
+                return Ty("Error")
+            }
+            val res = indexResult(ot)
+            if (res != null) {
+                val (kt, vt) = res
+                val it = this.checkCoerced(index, kt)
+                this.expectAssignable(it, kt, index.file, index.line, index.col, "index")
+                return vt
+            }
+            if (ot.kind != "Error") {
+                this.error(e.file, e.line, e.col, "`${tyShow(ot)}` cannot be indexed")
+            }
+            this.checkExpr(index, null)
+            return Ty("Error")
+        }
+        if (e.kind == "field") {
+            val obj = e.kids[0]
+            val name = e.text
+            val ot = this.checkExpr(obj, null)
+            val hint = this.varNarrowingHint(obj)
+            val r = this.unwrapReceiver(ot, e.safe, e, name, hint)
+            val base = r.base
+            if (base == null) { return Ty("Error") }
+            val t = this.fieldType(base, name, e)
+            if (r.nullable) { return tyNullable(t) }
+            return t
+        }
+        if (e.kind == "method") {
+            val obj = e.kids[0]
+            val name = e.text
+            val ot = this.checkExpr(obj, null)
+            val hint = this.varNarrowingHint(obj)
+            val r = this.unwrapReceiver(ot, e.safe, e, name, hint)
+            val base = r.base
+            if (base == null) {
+                for (a in e.args) {
+                    this.checkExpr(a.value, null)
+                }
+                return Ty("Error")
+            }
+            val t = this.methodCall(base, name, e.args, e, expected)
+            if (r.nullable) { return tyNullable(t) }
+            return t
+        }
+        if (e.kind == "call") {
+            return this.checkCall(e, expected)
+        }
+        // assign
+        val target = e.kids[0]
+        val value = e.kids[1]
+        val (tt, problemWhat, problemWhy) = this.checkAssignTarget(target)
+        unless (problemWhat == "") {
+            this.errorNote(e.file, e.line, e.col, "cannot assign to ${problemWhat}", problemWhy)
+        }
+        if (e.assignOp == "=") {
+            val vt = this.checkCoerced(value, tt)
+            this.expectAssignable(vt, tt, value.file, value.line, value.col, "assigned value")
+        } else {
+            val vt = this.checkCoerced(value, tt)
+            val result = this.binaryResult(e.assignOp, tt, vt, e.file, e.line, e.col)
+            this.expectAssignable(result, tt, e.file, e.line, e.col, "result of the compound assignment")
+        }
+        return Ty("Unit")
+    }
+
+    /// A `var` is never narrowed by a null check; point that out rather than
+    /// leaving the user to wonder why the check they wrote had no effect.
+    fun varNarrowingHint(obj: Ex): String {
+        unless (obj.kind == "ident") { return "" }
+        val b = this.lookup(obj.text)
+        if (b == null) { return "" }
+        if (b.kind == "var" and tyIsNullable(b.ty)) {
+            return "`${obj.text}` is a `var`, so a null check cannot narrow it; copy it into a `val` first"
+        }
+        return ""
+    }
+
+    /// Peels `?` off a receiver, reporting the error when `?.` was not used.
+    /// Returns (base type or null, whether the result must go nullable).
+    fun unwrapReceiver(ot: Ty, safe: Bool, e: Ex, member: String, hint: String): Recv {
+        if (ot.kind == "Error") { return Recv(null, false) }
+        if (safe) {
+            unless (tyIsNullable(ot)) {
+                // Harmless, but worth flagging as dead syntax.
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "`?.` used on non-nullable type `${tyShow(ot)}`",
+                    "a plain `.` is enough here"
+                )
+            }
+            return Recv(tyNonNull(ot), true)
+        }
+        if (tyIsNullable(ot) and ot.kind != "Any") {
+            val note = if (hint == "") { "use `?.`, `!!`, or check for null first" } else { hint }
+            this.errorNote(
+                e.file, e.line, e.col,
+                "`${tyShow(ot)}` may be null, so `.${member}` is not allowed",
+                note
+            )
+            return Recv(null, false)
+        }
+        return Recv(ot, false)
+    }
+
+    fun fieldType(base: Ty, name: String, e: Ex): Ty {
+        val prop = propertySig(base, name)
+        if (prop != null) { return prop }
+        if (base.kind == "Class") {
+            val cls = base.name
+            val subst = this.classSubst(cls, base.args)
+            val info = this.classes[cls]
+            if (info != null) {
+                for (f in info.fields) {
+                    if (f.name == name) { return substitute(f.ty, subst) }
+                }
+                val m = info.methods[name]
+                if (m != null) {
+                    if (m.typeParams.size > 0) {
+                        var listed = ""
+                        var first = true
+                        for (p in m.typeParams) {
+                            unless (first) { listed += ", " }
+                            listed += p.name
+                            first = false
+                        }
+                        this.errorNote(
+                            e.file, e.line, e.col,
+                            "`${cls}.${name}` is generic over ${listed} and cannot be used as a value",
+                            "call it instead; a generic function has no single compiled form"
+                        )
+                        return Ty("Error")
+                    }
+                    return substituteFun(m.sig, subst)
+                }
+            }
+            this.error(e.file, e.line, e.col, "`${cls}` has no field or method `${name}`")
+            return Ty("Error")
+        }
+        if (base.kind == "Error") { return Ty("Error") }
+        this.error(e.file, e.line, e.col, "`${tyShow(base)}` has no property `${name}`")
+        return Ty("Error")
+    }
+
+    fun methodCall(base: Ty, name: String, args: List<ArgN>, e: Ex, expected: Ty?): Ty {
+        if (base.kind == "Error") {
+            for (a in args) {
+                this.checkExpr(a.value, null)
+            }
+            return Ty("Error")
+        }
+
+        // A value whose type is a parameter can only be used through the
+        // traits that parameter is bounded by.
+        if (base.kind == "Param") {
+            val m = this.boundMethod(base.name, name)
+            if (m != null) {
+                val sig = substituteFun(m.sig, selfSubst(base))
+                return this.checkArgs(sig, m.typeParams, args, e, "method `${name}`", expected)
+            }
+            for (a in args) {
+                this.checkExpr(a.value, null)
+            }
+            var bounds: List<String> = []
+            val def = this.findParam(base.name)
+            if (def != null) { bounds = def.bounds }
+            val note = if (bounds.size == 0) {
+                "`${base.name}` has no bounds, so nothing is known about it; add one, e.g. `<${base.name}: SomeTrait>`"
+            } else {
+                var listed = ""
+                var first = true
+                for (b in bounds) {
+                    unless (first) { listed += ", " }
+                    listed += "`${b}`"
+                    first = false
+                }
+                "`${base.name}` is only known to implement ${listed}"
+            }
+            this.errorNote(e.file, e.line, e.col, "`${base.name}` has no method `${name}`", note)
+            return Ty("Error")
+        }
+
+        // User-declared methods take priority over the built-in table.
+        if (base.kind == "Class") {
+            val cls = base.name
+            val subst = this.classSubst(cls, base.args)
+            val info = this.classes[cls]
+            var found0: MInfo? = null
+            if (info != null) { found0 = info.methods[name] }
+            val found = found0
+            if (found != null) {
+                val sig = substituteFun(found.sig, subst)
+                return this.checkArgs(sig, found.typeParams, args, e, "method `${name}`", expected)
+            }
+            var isField = false
+            if (info != null) {
+                for (f in info.fields) {
+                    if (f.name == name) { isField = true }
+                }
+            }
+            if (isField) {
+                // A function-typed field can still be called.
+                val ft = this.fieldType(base, name, e)
+                return this.callFunType(ft, args, e, "field `${name}`")
+            }
+            // Fall through to the universal methods, such as `toString`.
+            val unknowns: List<Ty?> = []
+            for (a in args) { unknowns.add(null) }
+            val uft = methodSig(base, name, unknowns)
+            if (uft != null) {
+                return this.checkArgs(uft, [], args, e, "method `${name}`", expected)
+            }
+            for (a in args) {
+                this.checkExpr(a.value, null)
+            }
+            this.error(e.file, e.line, e.col, "`${cls}` has no method `${name}`")
+            return Ty("Error")
+        }
+
+        val unknowns: List<Ty?> = []
+        for (a in args) { unknowns.add(null) }
+        if (methodSig(base, name, unknowns) == null) {
+            for (a in args) {
+                this.checkExpr(a.value, null)
+            }
+            this.error(e.file, e.line, e.col, "`${tyShow(base)}` has no method `${name}`")
+            return Ty("Error")
+        }
+
+        for (a in args) {
+            unless (a.name == "") {
+                this.errorNote(
+                    a.value.file, a.value.line, a.value.col,
+                    "named arguments are not supported on built-in methods",
+                    "pass the arguments positionally"
+                )
+                break
+            }
+        }
+
+        // Re-derive the signature after each argument, so later parameter
+        // types can depend on earlier ones (this is what makes `fold` work).
+        val known: List<Ty?> = []
+        for (a in args) { known.add(null) }
+        var i = 0
+        while (i < args.size) {
+            var hint0: Ty? = null
+            val ft0 = methodSig(base, name, known)
+            if (ft0 != null and i < ft0.params.size) { hint0 = ft0.params[i].ty }
+            val hint = hint0
+            val t = if (hint != null) {
+                this.checkCoerced(args[i].value, hint)
+            } else {
+                this.checkExpr(args[i].value, null)
+            }
+            known[i] = t
+            i += 1
+        }
+
+        val ft = methodSig(base, name, known)!!
+        var required = 0
+        for (p in ft.params) {
+            unless (p.hasDefault) { required += 1 }
+        }
+        if (args.size < required or args.size > ft.params.size) {
+            this.error(
+                e.file, e.line, e.col,
+                "`${tyShow(base)}.${name}` takes ${describeArity(required, ft.params.size)} argument(s), but ${args.size} were given"
+            )
+            return ft.ret!!
+        }
+        i = 0
+        while (i < args.size) {
+            val want = ft.params[i].ty
+            val got = known[i] ?: Ty("Error")
+            val av = args[i].value
+            this.expectAssignable(got, want, av.file, av.line, av.col, "argument `${ft.params[i].name}`")
+            i += 1
+        }
+        return ft.ret!!
+    }
+
+    fun checkCall(e: Ex, expected: Ty?): Ty {
+        val callee = e.kids[0]
+        val args = e.args
+        // Constructor call, or a call to a built-in global.
+        if (callee.kind == "ident") {
+            val name = callee.text
+            if (this.lookup(name) == null) {
+                val info = this.classes[name]
+                if (info != null) {
+                    return this.checkArgs(
+                        info.ctor, info.typeParams, args, e,
+                        "constructor `${name}`", expected
+                    )
+                }
+                val two: List<Ty?> = [null, null]
+                if (globalSig(name, two) != null) {
+                    return this.checkGlobalCall(name, args, e)
+                }
+                this.error(e.file, e.line, e.col, "cannot find `${name}` in this scope")
+                for (a in args) {
+                    this.checkExpr(a.value, null)
+                }
+                return Ty("Error")
+            }
+        }
+        val what = when (callee.kind) {
+            "ident" -> "`${callee.text}`"
+            "field" -> "`${callee.text}`"
+            else -> "this expression"
+        }
+        // A generic function is resolved here rather than through
+        // `checkExpr`, which would reject it as an un-instantiated value.
+        if (callee.kind == "ident") {
+            val b = this.lookup(callee.text)
+            if (b != null and b.typeParams.size > 0 and b.ty.kind == "Fun") {
+                return this.checkArgs(b.ty, b.typeParams, args, e, what, expected)
+            }
+        }
+        val ct = this.checkExpr(callee, null)
+        return this.callFunType(ct, args, e, what)
+    }
+
+    fun callFunType(ct: Ty, args: List<ArgN>, e: Ex, what: String): Ty {
+        if (ct.kind == "Fun") {
+            return this.checkArgs(ct, [], args, e, what, null)
+        }
+        if (ct.kind == "Error") {
+            for (a in args) {
+                this.checkExpr(a.value, null)
+            }
+            return Ty("Error")
+        }
+        for (a in args) {
+            this.checkExpr(a.value, null)
+        }
+        this.error(e.file, e.line, e.col, "${what} has type `${tyShow(ct)}` and is not callable")
+        return Ty("Error")
+    }
+
+    fun checkGlobalCall(name: String, args: List<ArgN>, e: Ex): Ty {
+        for (a in args) {
+            unless (a.name == "") {
+                this.errorNote(
+                    a.value.file, a.value.line, a.value.col,
+                    "named arguments are not supported on built-in functions",
+                    "pass the arguments positionally"
+                )
+                break
+            }
+        }
+        val known: List<Ty?> = []
+        for (a in args) { known.add(null) }
+        var i = 0
+        while (i < args.size) {
+            var hint0: Ty? = null
+            val ft0 = globalSig(name, known)
+            if (ft0 != null and i < ft0.params.size) { hint0 = ft0.params[i].ty }
+            val hint = hint0
+            val t = if (hint != null) {
+                this.checkCoerced(args[i].value, hint)
+            } else {
+                this.checkExpr(args[i].value, null)
+            }
+            known[i] = t
+            i += 1
+        }
+        val ft = globalSig(name, known)!!
+        var required = 0
+        for (p in ft.params) {
+            unless (p.hasDefault) { required += 1 }
+        }
+        if (args.size < required or args.size > ft.params.size) {
+            this.error(
+                e.file, e.line, e.col,
+                "`${name}` takes ${describeArity(required, ft.params.size)} argument(s), but ${args.size} were given"
+            )
+            return ft.ret!!
+        }
+        i = 0
+        while (i < args.size) {
+            val got = known[i] ?: Ty("Error")
+            val av = args[i].value
+            this.expectAssignable(got, ft.params[i].ty, av.file, av.line, av.col, "argument `${ft.params[i].name}`")
+            i += 1
+        }
+        return ft.ret!!
+    }
+
+    /// Matches call arguments (positional and named) against a signature,
+    /// solving `typeParams` as it goes. Each argument is checked against the
+    /// parameter type with whatever has been solved so far substituted in,
+    /// then contributes what it proves back to the solution.
+    fun checkArgs(ft: Ty, typeParams: List<PDef>, args: List<ArgN>, e: Ex, what: String, expected: Ty?): Ty {
+        val subst: Map<String, Ty> = {}
+        val filled: List<Bool> = []
+        for (p in ft.params) { filled.add(false) }
+        var nextPositional = 0
+        var seenNamed = false
+
+        for (arg in args) {
+            var slot = -1
+            unless (arg.name == "") {
+                seenNamed = true
+                var found = -1
+                var i = 0
+                while (i < ft.params.size) {
+                    if (ft.params[i].name == arg.name) { found = i }
+                    i += 1
+                }
+                if (found >= 0) {
+                    slot = found
+                } else {
+                    this.error(
+                        arg.value.file, arg.value.line, arg.value.col,
+                        "${what} has no parameter named `${arg.name}`"
+                    )
+                }
+            } else {
+                if (seenNamed) {
+                    this.error(
+                        arg.value.file, arg.value.line, arg.value.col,
+                        "positional arguments cannot follow named ones"
+                    )
+                }
+                val i = nextPositional
+                nextPositional += 1
+                if (i < ft.params.size) { slot = i }
+            }
+
+            if (slot >= 0) {
+                if (filled[slot]) {
+                    this.error(
+                        arg.value.file, arg.value.line, arg.value.col,
+                        "parameter `${ft.params[slot].name}` is given more than once"
+                    )
+                }
+                filled[slot] = true
+                val declared = ft.params[slot].ty
+                val hint = substitute(declared, subst)
+                val got = this.checkCoerced(arg.value, hint)
+                unify(declared, got, subst)
+                // Re-substitute: this argument may have solved the very
+                // parameter its own type is expressed in terms of.
+                val want = substitute(declared, subst)
+                this.expectAssignable(
+                    got, want,
+                    arg.value.file, arg.value.line, arg.value.col,
+                    "argument `${ft.params[slot].name}`"
+                )
+            } else {
+                this.checkExpr(arg.value, null)
+            }
+        }
+
+        if (nextPositional > ft.params.size) {
+            this.error(
+                e.file, e.line, e.col,
+                "${what} takes ${ft.params.size} argument(s), but ${args.size} were given"
+            )
+        }
+        var missing = ""
+        var missingAny = false
+        var i = 0
+        while (i < ft.params.size) {
+            if (not filled[i] and not ft.params[i].hasDefault) {
+                if (missingAny) { missing += ", " }
+                missing += "`${ft.params[i].name}`"
+                missingAny = true
+            }
+            i += 1
+        }
+        if (missingAny) {
+            this.error(e.file, e.line, e.col, "${what} is missing argument(s): ${missing}")
+        }
+        if (typeParams.size == 0) {
+            this.lastInst = null
+            return ft.ret!!
+        }
+        val ret = this.finishInference(ft, typeParams, subst, expected, e, what)
+        // What monomorphisation will need: the solution, in declaration
+        // order. Deposited for `checkExpr` to attach to the call node, and
+        // always written so a nested call's answer cannot leak upward.
+        var complete = true
+        val solution: List<Ty> = []
+        for (p in typeParams) {
+            val s = subst[p.name]
+            if (s == null) {
+                complete = false
+            } else {
+                solution.add(s)
+            }
+        }
+        this.lastInst = if (complete) { solution } else { null }
+        return ret
+    }
+
+    /// Returns the target's type plus, when it cannot be assigned, what the
+    /// target is and why. The target's type is recorded on its node — a
+    /// backend needs it to know what a compound assignment means.
+    fun checkAssignTarget(target: Ex): (Ty, String, String) {
+        val (t, what, why) = this.assignTargetInner(target)
+        target.ty = t
+        return t, what, why
+    }
+
+    fun assignTargetInner(target: Ex): (Ty, String, String) {
+        if (target.kind == "ident") {
+            val name = target.text
+            val b = this.lookup(name)
+            if (b == null) {
+                this.error(target.file, target.line, target.col, "cannot find `${name}` in this scope")
+                return Ty("Error"), "", ""
+            }
+            if (b.kind == "var") { return b.ty, "", "" }
+            return b.ty, "`${name}`", whyImmutable(b.kind)
+        }
+        if (target.kind == "field") {
+            val obj = target.kids[0]
+            val name = target.text
+            if (target.safe) {
+                this.error(
+                    target.file, target.line, target.col,
+                    "`?.` cannot be used on the left of an assignment"
+                )
+            }
+            val ot = this.checkExpr(obj, null)
+            if (ot.kind == "Class") {
+                val cls = ot.name
+                val subst = this.classSubst(cls, ot.args)
+                val info = this.classes[cls]
+                if (info != null) {
+                    for (f in info.fields) {
+                        if (f.name == name) {
+                            val fty = substitute(f.ty, subst)
+                            if (f.mutable) { return fty, "", "" }
+                            val why = if (info.isRecord) {
+                                "a record's fields are immutable; build a new one instead"
+                            } else {
+                                "it is declared with `val`; use `var` to make it mutable"
+                            }
+                            return fty, "field `${cls}.${name}`", why
+                        }
+                    }
+                }
+                this.error(target.file, target.line, target.col, "`${cls}` has no field `${name}`")
+                return Ty("Error"), "", ""
+            }
+            if (ot.kind != "Error") {
+                this.error(
+                    target.file, target.line, target.col,
+                    "`${tyShow(ot)}` has no assignable field `${name}`"
+                )
+            }
+            return Ty("Error"), "", ""
+        }
+        if (target.kind == "index") {
+            val obj = target.kids[0]
+            val index = target.kids[1]
+            val ot = this.checkExpr(obj, null)
+            val res = indexAssignType(ot)
+            if (res != null) {
+                val (kt, vt) = res
+                val it = this.checkCoerced(index, kt)
+                this.expectAssignable(it, kt, index.file, index.line, index.col, "index")
+                return vt, "", ""
+            }
+            if (ot.kind != "Error") {
+                this.error(
+                    target.file, target.line, target.col,
+                    "cannot assign into a value of type `${tyShow(ot)}`"
+                )
+            }
+            this.checkExpr(index, null)
+            return Ty("Error"), "", ""
+        }
+        this.error(target.file, target.line, target.col, "this expression cannot be assigned to")
+        return Ty("Error"), "", ""
+    }
+
+    /// Types a binary operator, rewriting it into a trait method call when
+    /// the left operand is a user type or a bounded type parameter. The
+    /// right operand is deliberately not checked before that decision, so
+    /// whichever path is taken checks it exactly once.
+    fun checkBinary(e: Ex): Ty {
+        val op = e.text
+        val lt = this.checkExpr(e.kids[0], null)
+
+        if (overloadable(lt)) {
+            val (traitName, method) = operatorTrait(op)
+            val equality = op == "==" or op == "!="
+            if (this.implements(lt, traitName)) {
+                return this.rewriteOperator(e, lt, op, method)
+            }
+            // Every type already has identity equality; a class only gains
+            // structural equality by implementing `Eq`.
+            unless (equality) {
+                this.checkExpr(e.kids[1], null)
+                if (lt.kind != "Error") {
+                    this.errorNote(
+                        e.file, e.line, e.col,
+                        "`${tyShow(lt)}` cannot be used with `${op}`: it does not implement `${traitName}`",
+                        "declare it with `class ${tyShow(lt)} : ${traitName}` and define `${method}`"
+                    )
+                }
+                return Ty("Error")
+            }
+        }
+
+        var lt2 = lt
+        var rt = this.checkExpr(e.kids[1], null)
+        // Mixed Int/Float is fine as long as the Int side is literal.
+        if (lt2.kind == "Float" and rt.kind == "Int" and canWiden(e.kids[1])) {
+            widen(e.kids[1])
+            rt = Ty("Float")
+        } else if (rt.kind == "Float" and lt2.kind == "Int" and canWiden(e.kids[0])) {
+            widen(e.kids[0])
+            lt2 = Ty("Float")
+        }
+        return this.binaryResult(op, lt2, rt, e.file, e.line, e.col)
+    }
+
+    /// Replaces `a OP b` with the call the operator stands for.
+    fun rewriteOperator(e: Ex, lt: Ty, op: String, method: String): Ty {
+        val lhs = e.kids[0]
+        val rhs = e.kids[1]
+        val args: List<ArgN> = [ArgN("", rhs)]
+        // This is where the right operand is checked, and where a mismatch
+        // is reported against the trait method's signature.
+        val result = this.methodCall(lt, method, args, e, null)
+
+        if (op == "+" or op == "-" or op == "*" or op == "/" or op == "%") {
+            e.kind = "method"
+            e.text = method
+            e.kids = [lhs]
+            e.args = args
+            return result
+        }
+        if (op == "==") {
+            e.kind = "method"
+            e.text = method
+            e.kids = [lhs]
+            e.args = args
+            return Ty("Bool")
+        }
+        if (op == "!=") {
+            val call = Ex("method", e.line, e.col)
+            call.file = e.file
+            call.text = method
+            call.kids = [lhs]
+            call.args = args
+            e.kind = "unary"
+            e.text = "not"
+            e.kids = [call]
+            e.args = []
+            return Ty("Bool")
+        }
+        // `a < b` becomes `a.compareTo(b) < 0`.
+        val call = Ex("method", e.line, e.col)
+        call.file = e.file
+        call.text = method
+        call.kids = [lhs]
+        call.args = args
+        val zero = Ex("int", e.line, e.col)
+        zero.file = e.file
+        e.kind = "binary"
+        e.text = op
+        e.kids = [call, zero]
+        e.args = []
+        if (result.kind != "Int" and result.kind != "Error") {
+            this.error(
+                e.file, e.line, e.col,
+                "`compareTo` must return `Int`, but returns `${tyShow(result)}`"
+            )
+        }
+        return Ty("Bool")
+    }
+
+    fun rewriteUnaryNeg(e: Ex, t: Ty): Ty {
+        unless (this.implements(t, "Neg")) {
+            if (t.kind != "Error") {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "`${tyShow(t)}` cannot be negated: it does not implement `Neg`",
+                    "declare it with `class ${tyShow(t)} : Neg` and define `negate`"
+                )
+            }
+            return Ty("Error")
+        }
+        val rhs = e.kids[0]
+        val args: List<ArgN> = []
+        val result = this.methodCall(t, "negate", args, e, null)
+        e.kind = "method"
+        e.text = "negate"
+        e.kids = [rhs]
+        e.args = args
+        return result
+    }
+
+    fun binaryResult(op: String, lt: Ty, rt: Ty, file: Int, line: Int, col: Int): Ty {
+        if (lt.kind == "Error" or rt.kind == "Error") { return Ty("Error") }
+        if (op == "==" or op == "!=") {
+            val comparable = assignableTo(lt, rt) or assignableTo(rt, lt) or tyEq(tyNonNull(lt), tyNonNull(rt))
+            unless (comparable) {
+                this.error(file, line, col, "`${tyShow(lt)}` and `${tyShow(rt)}` can never be equal")
+            }
+            return Ty("Bool")
+        }
+        if (op == "<" or op == "<=" or op == ">" or op == ">=") {
+            val ok = tyEq(lt, rt) and (lt.kind == "Int" or lt.kind == "Float" or lt.kind == "Str")
+            unless (ok) {
+                this.error(
+                    file, line, col,
+                    "`${op}` cannot be applied to `${tyShow(lt)}` and `${tyShow(rt)}`"
+                )
+            }
+            return Ty("Bool")
+        }
+        if (op == "+" and lt.kind == "Str") {
+            if (rt.kind == "Unit") {
+                this.error(file, line, col, "cannot append a value with no type to a String")
+            }
+            return Ty("Str")
+        }
+        // + - * / %
+        if (tyEq(lt, rt) and tyIsNumeric(lt)) { return lt }
+        val d = DiagN(
+            file, line, col,
+            "`${op}` cannot be applied to `${tyShow(lt)}` and `${tyShow(rt)}`"
+        )
+        if (tyIsNumeric(lt) and tyIsNumeric(rt)) {
+            d.note = "Keal has no implicit numeric conversion; use `.toFloat()` or `.toInt()`"
+        } else if (op == "+" and rt.kind == "Str") {
+            d.note = "to build a string, use interpolation: \"${"$"}{a}${"$"}{b}\""
+        }
+        this.errors.add(d)
+        return Ty("Error")
+    }
+
+    fun checkWhen(e: Ex, expected: Ty?): Ty {
+        val subject = e.subject
+        var subjectTy: Ty? = null
+        if (subject != null) {
+            subjectTy = this.checkExpr(subject, null)
+        }
+        var subjectName = ""
+        if (subject != null and subject.kind == "ident") {
+            subjectName = subject.text
+        }
+
+        var result = Ty("Never")
+        var hasElse = false
+        // Reaching an arm means every earlier arm failed to match: after
+        // `x == null -> ...`, the arms below can treat `x` as non-null.
+        val ruledOut: List<Fact> = []
+
+        for (arm in e.arms) {
+            this.pushScope()
+            val carried: List<Fact> = []
+            for (f in ruledOut) { carried.add(f) }
+            this.apply(carried)
+
+            // Facts that hold only inside this arm's body, and facts that
+            // hold for every arm below this one.
+            var inArm: List<Fact> = []
+            val below: List<Fact> = []
+
+            if (arm.patternKind == "else") {
+                if (arm.guard == null) { hasElse = true }
+            } else if (arm.patternKind == "values") {
+                val st = subjectTy
+                if (st != null) {
+                    var matchesNull = false
+                    for (v in arm.values) {
+                        if (v.kind == "null") { matchesNull = true }
+                        val vt = this.checkCoerced(v, st)
+                        if (not assignableTo(vt, st) and not assignableTo(st, vt)) {
+                            this.error(
+                                v.file, v.line, v.col,
+                                "`${tyShow(vt)}` can never equal the subject of type `${tyShow(st)}`"
+                            )
+                        }
+                    }
+                    // Having ruled out `null`, later arms see a plain `T`.
+                    if (matchesNull and subjectName != "") {
+                        val b = this.lookup(subjectName)
+                        if (b != null) {
+                            if (b.kind != "var" and tyIsNullable(b.ty)) {
+                                below.add(Fact(subjectName, tyNonNull(b.ty)))
+                            }
+                        }
+                    }
+                } else {
+                    for (v in arm.values) {
+                        val vt = this.checkExpr(v, Ty("Bool"))
+                        this.expectAssignable(vt, Ty("Bool"), v.file, v.line, v.col, "`when` condition")
+                    }
+                    // A single condition tells us something either way; a
+                    // comma-separated list only says all were false below.
+                    if (arm.values.size == 1) {
+                        inArm = this.narrowings(arm.values[0], true)
+                    }
+                    for (v in arm.values) {
+                        for (f in this.narrowings(v, false)) { below.add(f) }
+                    }
+                }
+            } else if (arm.patternKind == "is") {
+                val target = this.resolveIsType(arm.patTyEx!!)
+                if (subjectTy == null) {
+                    this.error(arm.file, arm.line, arm.col, "`is` needs a `when` subject")
+                }
+                unless (arm.patNegated) {
+                    if (subjectName != "") {
+                        val b = this.lookup(subjectName)
+                        var immutable = false
+                        if (b != null) { immutable = b.kind != "var" }
+                        if (immutable) {
+                            inArm.add(Fact(subjectName, target))
+                        }
+                    }
+                }
+                val d = arm.binds
+                if (d != null) {
+                    // The test has established the type, so the fields are
+                    // read at the pattern's own class.
+                    val tys = this.destructureFields(d, target)
+                    var i = 0
+                    while (i < d.binds.size and i < tys.size) {
+                        unless (d.binds[i] == "_") {
+                            inArm.add(Fact(d.binds[i], tys[i]))
+                        }
+                        i += 1
+                    }
+                }
+            } else {
+                // in / !in
+                val range = arm.values[0]
+                val rt = this.checkExpr(range, null)
+                val one: List<Ty?> = [null]
+                if (methodSig(rt, "contains", one) == null) {
+                    this.error(range.file, range.line, range.col, "`in` is not supported for `${tyShow(rt)}`")
+                }
+            }
+
+            this.apply(inArm)
+            val guard = arm.guard
+            if (guard != null) {
+                val gt = this.checkExpr(guard, Ty("Bool"))
+                this.expectAssignable(gt, Ty("Bool"), guard.file, guard.line, guard.col, "`when` guard")
+            }
+            val t = this.checkBlock(arm.body)
+            this.popScope()
+            result = tyJoin(result, t)
+            // A guarded arm may not fire, so what it rules out is not
+            // established for the arms below it.
+            if (arm.guard == null) {
+                for (f in below) { ruledOut.add(f) }
+            }
+        }
+
+        unless (hasElse) {
+            val producesValue = result.kind != "Unit" and result.kind != "Never" and result.kind != "Error"
+            if (producesValue or expected != null) {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "this `when` can produce a value but has no `else` branch",
+                    "add `else -> ...` so every input is covered"
+                )
+            }
+            unless (producesValue) { return Ty("Unit") }
+        }
+        return result
+    }
+
+    // ---- smart casts ---------------------------------------------------
+
+    /// Facts proved about simple variables when `cond` evaluates to
+    /// `positive`. Only immutable bindings are narrowed, so nothing can
+    /// invalidate the fact inside the guarded block.
+    fun narrowings(cond: Ex, positive: Bool): List<Fact> {
+        val out: List<Fact> = []
+        this.collectNarrowings(cond, positive, out)
+        return out
+    }
+
+    proc collectNarrowings(cond: Ex, positive: Bool, out: List<Fact>) {
+        if (cond.kind == "unary" and cond.text == "not") {
+            this.collectNarrowings(cond.kids[0], not positive, out)
+            return
+        }
+        if (cond.kind == "logical") {
+            // Some outcomes pin both operands down: `a && b` being true
+            // means each is true. Only then does the fact carry down.
+            val imp = impliedOperands(cond.text, positive)
+            if (imp != null and imp == positive) {
+                this.collectNarrowings(cond.kids[0], positive, out)
+                this.collectNarrowings(cond.kids[1], positive, out)
+            }
+            return
+        }
+        if (cond.kind == "binary" and (cond.text == "==" or cond.text == "!=")) {
+            val lhs = cond.kids[0]
+            val rhs = cond.kids[1]
+            val isNullCheck = rhs.kind == "null"
+            val varSide = if (isNullCheck) { lhs } else { rhs }
+            val otherSide = if (isNullCheck) { rhs } else { lhs }
+            unless (otherSide.kind == "null") { return }
+            unless (varSide.kind == "ident") { return }
+            val nonNullBranch = (cond.text == "!=") == positive
+            unless (nonNullBranch) { return }
+            val b = this.lookup(varSide.text)
+            if (b != null) {
+                if (b.kind != "var" and tyIsNullable(b.ty)) {
+                    out.add(Fact(varSide.text, tyNonNull(b.ty)))
+                }
+            }
+            return
+        }
+        if (cond.kind == "is") {
+            if (cond.negated == positive) { return }
+            val value = cond.kids[0]
+            unless (value.kind == "ident") { return }
+            val target = this.resolveIsQuiet(cond.tyEx!!)
+            if (target == null) { return }
+            val b = this.lookup(value.text)
+            if (b != null) {
+                if (b.kind != "var") {
+                    out.add(Fact(value.text, target))
+                }
+            }
+        }
+    }
+
+    proc apply(narrowed: List<Fact>) {
+        for (f in narrowed) {
+            var kind = "val"
+            val b = this.lookup(f.name)
+            if (b != null) { kind = b.kind }
+            this.declare(f.name, f.ty, kind)
+        }
+    }
+
+    /// Solves a call's type parameters and reports any that stayed unknown.
+    /// Every parameter must come out concrete: a monomorphising backend has
+    /// no boxed representation to fall back on.
+    fun finishInference(ft: Ty, typeParams: List<PDef>, subst: Map<String, Ty>, expected: Ty?, e: Ex, what: String): Ty {
+        var ret = substitute(ft.ret!!, subst)
+        // A parameter that appears only in the return type can still be
+        // pinned down by the context the call sits in. The test is whether
+        // a *declared* parameter is still unsolved, not whether the result
+        // mentions any parameter at all.
+        var unsolved = false
+        for (p in typeParams) {
+            unless (subst.contains(p.name)) { unsolved = true }
+        }
+        if (unsolved and expected != null) {
+            unify(ret, expected, subst)
+            ret = substitute(ft.ret!!, subst)
+        }
+        var listed = ""
+        var any = false
+        for (p in typeParams) {
+            unless (subst.contains(p.name)) {
+                if (any) { listed += ", " }
+                listed += "`${p.name}`"
+                any = true
+            }
+        }
+        if (any) {
+            this.errorNote(
+                e.file, e.line, e.col,
+                "cannot infer type parameter(s) ${listed} for ${what}",
+                "annotate the result, e.g. `val xs: List<Int> = ...`"
+            )
+            return Ty("Error")
+        }
+        // Now that every parameter is concrete, its bounds can be checked.
+        for (p in typeParams) {
+            val actual = subst[p.name]
+            if (actual == null) { continue }
+            for (bound in p.bounds) {
+                unless (this.implements(actual, bound)) {
+                    this.errorNote(
+                        e.file, e.line, e.col,
+                        "`${tyShow(actual)}` does not implement `${bound}`, required by `${p.name}` of ${what}",
+                        "declare it with `class ${tyShow(actual)} : ${bound}`"
+                    )
+                }
+            }
+        }
+        return ret
+    }
+}
+
+/// Builds `fun equals(other: R): Bool { this.a == other.a and ... }` for a
+/// record, spelled exactly as a user would have written it.
+fun synthRecordEquals(c: ClassN): FunN {
+    val selfTy = TypeEx("named", c.line, c.col)
+    selfTy.file = c.file
+    selfTy.name = c.name
+    for (p in c.typeParams) {
+        val a = TypeEx("named", c.line, c.col)
+        a.file = c.file
+        a.name = p.name
+        selfTy.args.add(a)
+    }
+
+    val fieldNames: List<String> = []
+    for (p in c.ctor) {
+        unless (p.fieldKind == "") { fieldNames.add(p.name) }
+    }
+    for (f in c.fields) { fieldNames.add(f.name) }
+
+    // A record with no fields has only one value, so any two are equal.
+    var body: Ex? = null
+    for (n in fieldNames) {
+        val thisSide = Ex("field", c.line, c.col)
+        thisSide.file = c.file
+        thisSide.text = n
+        val thisEx = Ex("this", c.line, c.col)
+        thisEx.file = c.file
+        thisSide.kids = [thisEx]
+        val otherSide = Ex("field", c.line, c.col)
+        otherSide.file = c.file
+        otherSide.text = n
+        val otherEx = Ex("ident", c.line, c.col)
+        otherEx.file = c.file
+        otherEx.text = "other"
+        otherSide.kids = [otherEx]
+        val cmp = Ex("binary", c.line, c.col)
+        cmp.file = c.file
+        cmp.text = "=="
+        cmp.kids = [thisSide, otherSide]
+        val acc = body
+        if (acc == null) {
+            body = cmp
+        } else {
+            val andEx = Ex("logical", c.line, c.col)
+            andEx.file = c.file
+            andEx.text = "and"
+            andEx.kids = [acc, cmp]
+            body = andEx
+        }
+    }
+    var bodyEx = body
+    if (bodyEx == null) {
+        val t = Ex("bool", c.line, c.col)
+        t.file = c.file
+        t.text = "true"
+        bodyEx = t
+    }
+
+    val f = FunN("equals", c.line, c.col)
+    f.file = c.file
+    val other = ParamN("other", c.line, c.col)
+    other.file = c.file
+    other.tyEx = selfTy
+    f.params = [other]
+    val boolTe = TypeEx("named", c.line, c.col)
+    boolTe.file = c.file
+    boolTe.name = "Bool"
+    f.ret = boolTe
+    val s = StmtN("expr", c.line, c.col)
+    s.file = c.file
+    s.ex = bodyEx
+    val b = BlockN()
+    b.stmts = [s]
+    f.body = b
+    return f
+}
+
+// ---- driver -------------------------------------------------------------
+
+val argv = args()
+if (argv.size != 1) {
+    println("usage: keal selfhost/checker.keal <file.keal>")
+    exit(2)
+}
+val loaded = Loader().load(argv[0])
+val checker = Checker()
+checker.checkProgram(loaded.program)
+
+if (checker.errors.size > 0) {
+    // The phases visit declarations before bodies; sort back into source
+    // order. The sort is stable, keeping ties in the order found.
+    val sorted = checker.errors.sortedBy({ d ->
+        (d.file * 1048576 + d.line) * 1048576 + d.col
+    })
+    for (d in sorted) {
+        var line = "error ${loaded.paths[d.file]}:${d.line}:${d.col} ${d.msg}"
+        unless (d.note == "") { line += " -- ${d.note}" }
+        println(line)
+    }
+    exit(1)
+}
+
+typedDump = true
+val shown = ProgramN()
+for (i in loaded.program.items) {
+    unless (i.file == 0) { shown.items.add(i) }
+}
+println(printProgram(shown))

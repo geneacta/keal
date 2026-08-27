@@ -1,0 +1,4 @@
+proc p() { }
+val s = "${p()}"
+val x = p()
+val n = null
