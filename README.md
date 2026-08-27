@@ -392,7 +392,24 @@ extern fun shout(s: borrow String): own String
 
 Misuse is a checked error with the fix in the note: a bare `String` at the
 boundary says *"write `borrow String`: C reads the bytes and must not keep
-them."* The staged path onward — Rust, Go, Java, Kotlin — is
+them."*
+
+**And Rust works today, in four commands.** `keal build` takes link inputs
+(`.a`/`.so`/`.o`, `-l`, `-L`) and compile flags (`-I`, `-D`), and
+`keal bindgen header.h` turns a C header into `extern fun` declarations —
+binding exactly what crosses and skipping the rest *with the reason
+printed*. A Rust staticlib's `cbindgen` header, a Go `c-archive` header, or
+sqlite's own: same tool.
+
+```sh
+cargo build --release                      # Rust staticlib, extern "C" exports
+cbindgen --lang c --output demo.h
+keal bindgen demo.h > bindings.keal
+keal build main.keal target/release/libdemo.a -I.
+```
+
+The verified demo lives in [`examples/interop/rust/`](examples/interop/rust/);
+the staged path onward — Go, Java, Kotlin — is
 [`docs/interop.md`](docs/interop.md).
 
 **The backend covers most of the language.** Functions, control flow, `Int`,
@@ -466,12 +483,13 @@ The honest list, in rough order of intent:
 * **Actors on real threads** — the model ships and is deterministic today;
   the threaded scheduler (one heap per actor, counts stay non-atomic, exactly
   as the memory model planned) is the next runtime project. No API changes.
-* **Foreign languages** — C and C++ work today, with `borrow`/`own`
-  strings, by-value records and `keal emit-header` shipped (interop tier 1).
-  The staged path onward — link inputs, `keal bindgen` for C headers (which
-  carries **Rust** via cbindgen and **Go** via c-archive), a JNI gateway and
-  `keal jbind` for typed **Java/Kotlin** imports — is laid out in
-  [`docs/interop.md`](docs/interop.md).
+* **Foreign languages** — C, C++ and **Rust** work today: `borrow`/`own`
+  strings, by-value records, `keal emit-header`, link inputs and
+  `keal bindgen` are all shipped, with a verified Rust demo in
+  [`examples/interop/rust/`](examples/interop/rust/). **Go** rides the same
+  two tools (`c-archive` headers bind the same way); what remains is the
+  JNI gateway and `keal jbind` for typed **Java/Kotlin** imports —
+  [`docs/interop.md`](docs/interop.md) has the plan.
 * **Cycle handling** — reference counting leaks cycles; the three candidate
   answers (documented leak, weak references, cycle collector) are weighed in
   [`docs/memory.md`](docs/memory.md) §5 and not yet chosen.

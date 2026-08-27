@@ -4095,7 +4095,10 @@ impl CBackend {
 /// `keal emit-header`, so both translation units spell the contract
 /// identically.
 pub fn mirror_struct_c(name: &str, fields: &[(String, Type)]) -> String {
-    let mut out = format!("typedef struct Keal_{} {{\n", name);
+    let mut out = format!(
+        "#ifndef KEAL_MIRROR_{n}\n#define KEAL_MIRROR_{n}\ntypedef struct Keal_{n} {{\n",
+        n = name
+    );
     for (fname, ty) in fields {
         let ct = match ty {
             Type::Int => "int64_t",
@@ -4105,7 +4108,7 @@ pub fn mirror_struct_c(name: &str, fields: &[(String, Type)]) -> String {
         };
         out.push_str(&format!("    {} {};\n", ct, fname));
     }
-    out.push_str(&format!("}} Keal_{};\n", name));
+    out.push_str(&format!("}} Keal_{n};\n#endif\n", n = name));
     out
 }
 

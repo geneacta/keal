@@ -26,7 +26,7 @@ fun structName(class_: String): String { "K_" + class_ }
 /// The `Keal_Name` mirror struct's exact text — the by-value contract a
 /// record shares with C across an extern boundary.
 fun mirrorStructC(name: String, fields: List<SField>): String {
-    var out = "typedef struct Keal_${name} {\n"
+    var out = "#ifndef KEAL_MIRROR_${name}\n#define KEAL_MIRROR_${name}\ntypedef struct Keal_${name} {\n"
     for (f in fields) {
         val ct = when (f.ty.kind) {
             "Int" -> "int64_t"
@@ -38,7 +38,7 @@ fun mirrorStructC(name: String, fields: List<SField>): String {
             out += "    ${ct} ${f.name};\n"
         }
     }
-    out += "} Keal_${name};\n"
+    out += "} Keal_${name};\n#endif\n"
     return out
 }
 

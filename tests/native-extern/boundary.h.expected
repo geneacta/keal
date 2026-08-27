@@ -8,10 +8,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifndef KEAL_MIRROR_Vec2
+#define KEAL_MIRROR_Vec2
 typedef struct Keal_Vec2 {
     double x;
     double y;
 } Keal_Vec2;
+#endif
 
 int64_t k_bonus(int64_t n);
 

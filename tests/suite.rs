@@ -500,6 +500,138 @@ fn emit_header_matches_snapshot() {
     assert_eq!(expected, out.stdout, "the generated header changed");
 }
 
+/// `keal bindgen` turns a C header into extern declarations, binding only
+/// what crosses the boundary exactly and skipping the rest with a reason.
+#[test]
+fn bindgen_matches_snapshot() {
+    let out = keal(&["bindgen", "tests/bindgen/sample.h"]);
+    assert!(out.success, "bindgen failed:\n{}", out.stderr);
+    let expected_path = root().join("tests/bindgen/sample.h.expected");
+    if std::env::var_os("UPDATE_EXPECT").is_some() {
+        std::fs::write(&expected_path, &out.stdout).expect("cannot write snapshot");
+        return;
+    }
+    let expected = std::fs::read_to_string(&expected_path)
+        .expect("missing snapshot; run UPDATE_EXPECT=1 cargo test");
+    assert_eq!(expected, out.stdout, "the generated bindings changed");
+}
+
+/// The whole Rust/Go-shaped path in miniature: `bindgen` a header, implement
+/// it in a **static library**, and `keal build prog.keal libsample.a -I...`
+/// links it in. Everything the generated bindings promise must run.
+#[test]
+fn bindgen_and_link_inputs_work_end_to_end() {
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let ar = std::env::var("AR").unwrap_or_else(|_| "ar".to_string());
+    if Command::new(&ar).arg("--version").output().is_err() {
+        eprintln!("skipping: no archiver found as `{}`", ar);
+        return;
+    }
+
+    let dir = root().join("target").join("bindgen-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot create the bindgen test dir");
+
+    // The implementation of the clean half of tests/bindgen/sample.h.
+    std::fs::write(
+        dir.join("sample.c"),
+        r#"#include "tests/bindgen/sample.h"
+#include <ctype.h>
+#include <stdlib.h>
+#include <string.h>
+int64_t add64(int64_t a, int64_t b) { return a + b; }
+long long triple(long long n) { return n * 3; }
+double scale(double x, double factor) { return x * factor; }
+bool flag_of(int64_t n) { return n % 2 == 0; }
+int64_t count_vowels(const char *text) {
+    int64_t n = 0;
+    for (; *text; text++) {
+        char c = (char)tolower((unsigned char)*text);
+        if (c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u') { n++; }
+    }
+    return n;
+}
+char *shout(const char *text) {
+    size_t n = strlen(text);
+    char *out = (char *)malloc(n + 2);
+    for (size_t i = 0; i < n; i++) { out[i] = (char)toupper((unsigned char)text[i]); }
+    out[n] = '!';
+    out[n + 1] = ' ';
+    return out;
+}
+void reset(void) {}
+void tick() {}
+double vec2_dot(Keal_Vec2 a, Keal_Vec2 b) { return a.x * b.x + a.y * b.y; }
+Keal_Vec2 vec2_scale(Keal_Vec2 v, double k) { return (Keal_Vec2){ v.x * k, v.y * k }; }
+int64_t unnamed_params(int64_t a, double b) { return a + (int64_t)b; }
+"#,
+    )
+    .expect("cannot write sample.c");
+
+    let compiled = Command::new(&cc)
+        .current_dir(&dir)
+        .args(["-O2", "-std=c11", "-c", "-o", "sample.o", "sample.c"])
+        .arg(format!("-I{}", root().display()))
+        .status()
+        .expect("cannot run cc");
+    assert!(compiled.success(), "sample.c did not compile");
+    let archived = Command::new(&ar)
+        .current_dir(&dir)
+        .args(["rcs", "libsample.a", "sample.o"])
+        .status()
+        .expect("cannot run ar");
+    assert!(archived.success(), "libsample.a was not created");
+
+    // The bindings module comes straight from bindgen.
+    let bindings = keal(&["bindgen", "tests/bindgen/sample.h"]);
+    assert!(bindings.success);
+    std::fs::write(dir.join("bindings.keal"), &bindings.stdout)
+        .expect("cannot write bindings.keal");
+
+    // But Vec2 is Keal's to declare: the record the mirror struct reflects.
+    std::fs::write(
+        dir.join("prog.keal"),
+        r#"record Vec2(val x: Float, val y: Float)
+import "./bindings.keal"
+println(add64(40, triple(1)))
+println(scale(2.5, 4.0))
+println(flag_of(8))
+println(count_vowels("static library"))
+println(shout("linked"))
+reset()
+tick()
+val v = vec2_scale(Vec2(3.0, 4.0), 2.0)
+println(v)
+println(vec2_dot(v, Vec2(0.5, 0.25)))
+println(unnamed_params(40, 2.9))
+"#,
+    )
+    .expect("cannot write prog.keal");
+
+    let built = Command::new(BIN)
+        .current_dir(&dir)
+        .args(["build", "prog.keal", "libsample.a"])
+        .arg(format!("-I{}", root().display()))
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "keal build with link inputs failed:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let ran = Command::new(dir.join("prog")).output().expect("cannot run the binary");
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        "43\n10.0\ntrue\n4\nLINKED!\nVec2(x=6.0, y=8.0)\n5.0\n42\n",
+        "the linked program printed the wrong thing"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn cli_reports_missing_files() {
     let out = keal(&["run", "does/not/exist.keal"]);

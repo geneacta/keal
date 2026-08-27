@@ -100,24 +100,41 @@ boundary test with `leaks` clean, and the bootstrap fixed point re-proven.*
 
 ---
 
-## Tier 2 — Rust (near-free once tier 1 lands)
+## Tier 2 — Rust — SHIPPED
 
-Rust exports the C ABI natively: `#[no_mangle] extern "C" fn` on their side,
-`extern fun` on ours, `keal build prog.keal --lib target/release/libx.a`
-on the command line. Two additions carry it:
+Rust exports the C ABI natively, and both tools it needed exist now:
 
-* **Link inputs**: let `keal build` accept `.a`/`.so`/`.dylib` and
-  `-l`/`-L` flags, passed through to the linker. Trivial.
-* **`keal bindgen header.h`**: a generator that reads a C header and writes
-  the `extern fun` declarations — mechanical once tier 1 fixes the type
-  mapping. Rust crates expose headers via `cbindgen`, so the chain is:
-  `cbindgen` → `.h` → `keal bindgen` → `.keal` declarations. The same tool
-  serves plain C libraries (sqlite, curl, ...), which makes it the highest
-  -leverage item in this whole document.
+* **Link inputs — shipped.** `keal build prog.keal libx.a -lm -L/opt/lib`
+  passes `.a`/`.so`/`.dylib`/`.o` files and `-l`/`-L` flags to the link
+  step, and `-I`/`-D` to the compile steps.
+* **`keal bindgen header.h` — shipped.** Reads a C header, writes the
+  `extern fun` declarations. It binds only what crosses exactly —
+  `int64_t`/`long long`, `double`, `bool`, `const char*` as `borrow
+  String`, a returned `char*` as `own String`, `Keal_Name` mirrors as
+  records — and **skips everything else with the reason printed**: a
+  32-bit `int`, a borrowed `const char*` return, a variadic, a
+  function-pointer parameter. A guessed binding is a crash with a delay;
+  a skipped one is a wrapper the C author writes in five lines.
 
-*Rust's ownership marries cleanly with tier 1a: `borrow` ↔ `&str`/`&[u8]`,
-`own` ↔ `Box`/`CString::into_raw`. No runtime is embedded; the cost is one
-static library in the link line.*
+The chain is four commands, demonstrated and verified in
+[`examples/interop/rust/`](../examples/interop/rust/):
+
+```sh
+cargo build --release                      # staticlib with extern "C" exports
+cbindgen --lang c --output kealdemo.h      # its header
+keal bindgen kealdemo.h > bindings.keal    # its Keal face
+keal build main.keal target/release/libkealdemo.a -I.
+```
+
+Rust's ownership marries tier 1a exactly: `&CStr` ↔ `borrow String`,
+`CString::into_raw` ↔ `own String` (Keal frees it). No runtime is
+embedded. The same two tools serve plain C libraries — sqlite, curl —
+and headers from `go build -buildmode=c-archive`, which is why tier 3
+needs no new machinery.
+
+A convention worth knowing: a hand-written header that defines a mirror
+struct should guard it with `#ifndef KEAL_MIRROR_Name`, the same guard the
+generated C and `keal emit-header` emit, so the two definitions coexist.
 
 ---
 
@@ -215,10 +232,10 @@ story of the test suite stops at the boundary — JVM output is the JVM's.*
 |---|------|---------|--------|
 | 1 | Tier 1a strings + 1b structs | everything | **shipped** |
 | 2 | Tier 1c `emit-header` | Keal as a library; Go/JVM callbacks | **shipped** |
-| 3 | Link inputs (`.a`, `-l`) | Rust, Go, C libraries | next |
-| 4 | `keal bindgen` for C headers | sqlite/curl/every C lib, Rust via cbindgen, Go via c-archive | |
+| 3 | Link inputs (`.a`, `-l`, `-L`, `-I`, `-D`) | Rust, Go, C libraries | **shipped** |
+| 4 | `keal bindgen` for C headers | sqlite/curl/every C lib, Rust via cbindgen, Go via c-archive | **shipped, with a verified Rust demo** |
 | 5 | Closure callbacks (1d) | C APIs that take function pointers | waits for a consumer |
-| 6 | JVM host module (4a) | Java + Kotlin | |
+| 6 | JVM host module (4a) | Java + Kotlin | next |
 | 7 | `keal jbind` (4b) | typed Java/Kotlin imports | |
 
 Each row is independently shippable and independently testable; nothing in a

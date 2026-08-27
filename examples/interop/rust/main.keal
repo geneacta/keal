@@ -1,0 +1,5 @@
+// After `cargo build --release` and `keal bindgen kealdemo.h > bindings.keal`:
+import "./bindings.keal"
+
+println(rust_fib(20))
+println(rust_greet("Keal"))

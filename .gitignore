@@ -4,3 +4,5 @@ cbackend
 cbackend.c
 cbackend.o
 .bootstrap-check.c
+examples/interop/rust/target/
+examples/interop/rust/Cargo.lock

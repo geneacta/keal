@@ -52,10 +52,17 @@ pub fn emit_only(path: &str) -> ExitCode {
     }
 }
 
-/// Builds an executable. `extras` are C or C++ sources compiled alongside —
-/// where the implementations behind `extern fun` live when a `native` block
-/// is not enough. Any C++ among them makes `c++` the linker, so its runtime
-/// is present; the generated core stays C either way.
+/// Builds an executable. `extras` fall into three kinds:
+///
+/// * **sources** (`.c`, `.cpp`, `.cc`, `.cxx`, `.C`) — compiled alongside,
+///   where the implementations behind `extern fun` live when a `native`
+///   block is not enough. Any C++ among them makes `c++` the linker.
+/// * **link inputs** (`.a`, `.so`, `.dylib`, `.o`, `-l...`, `-L...`) —
+///   handed to the link step untouched. This is how a Rust `staticlib`, a
+///   Go `c-archive`, or any prebuilt C library joins the program.
+/// * **compile flags** (`-I...`, `-D...`) — applied when compiling the
+///   generated C and the extra sources, and passed to the link line too,
+///   where the sources are actually built.
 pub fn build(path: &str, extras: &[String]) -> ExitCode {
     let c = match compile(path) {
         Ok(c) => c,
@@ -78,6 +85,14 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
             .unwrap_or(false)
     };
     let any_cpp = extras.iter().any(|p| is_cpp(p));
+    let compile_flags: Vec<&String> = extras
+        .iter()
+        .filter(|a| a.starts_with("-I") || a.starts_with("-D"))
+        .collect();
+    let link_line: Vec<&String> = extras
+        .iter()
+        .filter(|a| !(a.starts_with("-I") || a.starts_with("-D")))
+        .collect();
 
     let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
     let cxx = std::env::var("CXX").unwrap_or_else(|_| "c++".to_string());
@@ -86,9 +101,12 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
     // would reject its compound literals, so it is compiled to an object
     // first and only the link is shared.
     let obj = format!("{}.o", out);
-    let compiled = Command::new(&cc)
-        .args(["-O2", "-std=c11", "-c", "-o", &obj, &csrc])
-        .status();
+    let mut compile_cmd = Command::new(&cc);
+    compile_cmd.args(["-O2", "-std=c11"]);
+    for f in &compile_flags {
+        compile_cmd.arg(f);
+    }
+    let compiled = compile_cmd.args(["-c", "-o", &obj, &csrc]).status();
     match compiled {
         Ok(s) if s.success() => {}
         Ok(_) => {
@@ -108,7 +126,10 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
     let linker = if any_cpp { &cxx } else { &cc };
     let mut cmd = Command::new(linker);
     cmd.args(["-O2", "-o", &out, &obj]);
-    for extra in extras {
+    for f in &compile_flags {
+        cmd.arg(f);
+    }
+    for extra in link_line {
         cmd.arg(extra);
     }
     match cmd.status() {

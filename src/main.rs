@@ -2,6 +2,7 @@
 
 mod ast;
 mod astdump;
+mod bindgen;
 mod builtins;
 mod bytecode;
 mod cbackend;
@@ -41,9 +42,11 @@ usage:
     keal cgen <file.keal>     emit C with compact refusals (likewise)
     keal emit-header <f.keal>  print a C header for the program's boundary
     keal emit-c <file.keal>   print the C a native build would compile
-    keal build <file.keal> [more.c more.cpp ...]
-                              compile to a native executable, together with
-                              any C or C++ sources the externs need
+    keal bindgen <header.h>   turn a C header into extern declarations
+    keal build <file.keal> [sources... libs... flags...]
+                              compile to a native executable; extras may be
+                              C/C++ sources, .a/.so/.o link inputs, -l/-L
+                              linker flags and -I/-D compile flags
     keal repl                 start an interactive session
     keal version              print the version
 ";
@@ -98,6 +101,7 @@ fn real_main() -> ExitCode {
                     one.as_str(),
                     "run" | "check" | "layout" | "emit-c" | "build" | "repl" | "version"
                         | "help" | "tokens" | "ast" | "types" | "cgen" | "emit-header"
+                        | "bindgen"
                 ) =>
         {
             ("run", Some(one.clone()))
@@ -106,7 +110,7 @@ fn real_main() -> ExitCode {
             if matches!(
                 cmd.as_str(),
                 "run" | "check" | "layout" | "emit-c" | "build" | "tokens" | "ast" | "types"
-                    | "cgen" | "emit-header"
+                    | "cgen" | "emit-header" | "bindgen"
             ) =>
         {
             (
@@ -120,6 +124,7 @@ fn real_main() -> ExitCode {
                     "types" => "types",
                     "cgen" => "cgen",
                     "emit-header" => "emit-header",
+                    "bindgen" => "bindgen",
                     _ => "build",
                 },
                 Some(file.clone()),
@@ -144,6 +149,7 @@ fn real_main() -> ExitCode {
         "types" => dump_types(&target.unwrap()),
         "cgen" => dump_cgen(&target.unwrap()),
         "emit-header" => emit_header(&target.unwrap()),
+        "bindgen" => bindgen::run(&target.unwrap()),
         "emit-c" => nativebuild::emit_only(&target.unwrap()),
         "build" => {
             // Anything after the program is a C or C++ source built with it.
