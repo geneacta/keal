@@ -79,11 +79,13 @@ fn declarations(text: &str) -> Vec<String> {
         out
     };
 
+    let unwrapped = unwrap_extern_c(&no_pp);
+
     let mut decls = Vec::new();
     let mut buf = String::new();
     let mut depth = 0usize;
     let mut had_body = false;
-    for c in no_pp.chars() {
+    for c in unwrapped.chars() {
         match c {
             '{' => {
                 depth += 1;
@@ -109,6 +111,63 @@ fn declarations(text: &str) -> Vec<String> {
         }
     }
     decls
+}
+
+/// Removes `extern "C"` linkage markers: a brace group loses its braces so
+/// the prototypes inside read as top level (they are, to a C consumer), and
+/// the single-declaration form loses just the marker.
+fn unwrap_extern_c(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    // One entry per open brace: `true` marks a brace this pass swallowed,
+    // so its closer is swallowed too.
+    let mut stack: Vec<bool> = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '{' => {
+                stack.push(false);
+                out.push('{');
+                i += 1;
+            }
+            '}' => {
+                if stack.pop() != Some(true) {
+                    out.push('}');
+                }
+                i += 1;
+            }
+            'e' if chars[i..].starts_with(&['e', 'x', 't', 'e', 'r', 'n'])
+                && (i == 0 || !(chars[i - 1].is_alphanumeric() || chars[i - 1] == '_')) =>
+            {
+                let mut j = i + 6;
+                while j < chars.len() && chars[j].is_whitespace() {
+                    j += 1;
+                }
+                // `strip_comments` empties string contents, so the marker
+                // reads `""` by the time it gets here.
+                if j + 1 < chars.len() && chars[j] == '"' && chars[j + 1] == '"' {
+                    let mut k = j + 2;
+                    while k < chars.len() && chars[k].is_whitespace() {
+                        k += 1;
+                    }
+                    if k < chars.len() && chars[k] == '{' {
+                        stack.push(true);
+                        i = k + 1;
+                    } else {
+                        i = j + 2;
+                    }
+                } else {
+                    out.push_str("extern");
+                    i += 6;
+                }
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 fn strip_comments(text: &str) -> String {

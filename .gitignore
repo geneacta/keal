@@ -10,3 +10,7 @@ examples/interop/go/libgodemo.a
 examples/interop/go/libgodemo.h
 examples/interop/go/bindings.keal
 examples/interop/go/main
+examples/interop/polyglot/bindings.keal
+examples/interop/polyglot/main
+examples/interop/polyglot/kotlin/greeter.jar
+examples/interop/polyglot/.jbind/

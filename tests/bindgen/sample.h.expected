@@ -42,3 +42,5 @@ extern fun unnamed_params(arg0: Int, arg1: Float): Int
 // skipped hidden: static or inline, so there is no symbol to link
 
 // skipped mask: `unsigned int` is not exactly an `int64_t`; wrap it in a function that takes and returns int64_t
+
+extern fun guarded_add(a: Int, b: Int): Int

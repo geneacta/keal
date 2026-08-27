@@ -41,3 +41,13 @@ extern int64_t some_global;
 struct Opaque;
 
 #endif
+
+/* A C header consumed from C++ wraps itself in a linkage guard; the
+ * prototypes inside are top-level declarations all the same. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+int64_t guarded_add(int64_t a, int64_t b);
+#ifdef __cplusplus
+}
+#endif

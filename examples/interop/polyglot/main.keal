@@ -1,0 +1,24 @@
+// Six languages, one file. C and C++ are sources handed to `keal build`;
+// Rust and Go are static archives; Java is the JDK itself; Kotlin is a
+// compiled class on the classpath. See run.sh for the six build lines.
+import "./bindings.keal"
+import java.util.UUID
+import GreeterKt
+
+// C, C++, Rust, Go: the C ABI, bound by `keal bindgen poly.h`.
+println(c_add(40, 2))
+println(cpp_shout("c plus plus"))
+println(rust_fib(20))
+println(rust_greet("Keal"))
+println(go_hypot(3.0, 4.0))
+println(go_shout("go"))
+
+// Java and Kotlin: the JVM gateway, wrapped by `keal jbind` behind the
+// no-path imports above.
+jvmStart("-Djava.class.path=kotlin/greeter.jar")
+val id = uuidFromString("123e4567-e89b-12d3-a456-426614174000")
+println(id.toString())
+println(id.version())
+println(greeterKtShout("kotlin"))
+println(greeterKtFib(20))
+id.free()

@@ -123,19 +123,62 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
         }
     }
 
+    // Extra sources each get their own object under their own compiler:
+    // C stays C11 under `cc`, C++ goes to `c++` — mixing them on one
+    // driver line only earns warnings.
+    let mut objs = vec![obj.clone()];
+    let mut rest: Vec<&String> = Vec::new();
+    for (i, extra) in link_line.into_iter().enumerate() {
+        let is_source = Path::new(extra)
+            .extension()
+            .map(|e| matches!(e.to_str(), Some("c" | "cpp" | "cc" | "cxx" | "C")))
+            .unwrap_or(false);
+        if !is_source {
+            rest.push(extra);
+            continue;
+        }
+        let sobj = format!("{}-x{}.o", out, i);
+        let driver = if is_cpp(extra) { &cxx } else { &cc };
+        let mut sc = Command::new(driver);
+        sc.arg("-O2");
+        if !is_cpp(extra) {
+            sc.arg("-std=c11");
+        }
+        for f in &compile_flags {
+            sc.arg(f);
+        }
+        let ok = sc.args(["-c", "-o", &sobj, extra]).status();
+        match ok {
+            Ok(s) if s.success() => objs.push(sobj),
+            Ok(_) => {
+                eprintln!("error: `{}` failed compiling `{}`", driver, extra);
+                return ExitCode::FAILURE;
+            }
+            Err(e) => {
+                eprintln!("error: cannot run `{}`: {}", driver, e);
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+
     let linker = if any_cpp { &cxx } else { &cc };
     let mut cmd = Command::new(linker);
-    cmd.args(["-O2", "-o", &out, &obj]);
+    cmd.args(["-O2", "-o", &out]);
+    for o in &objs {
+        cmd.arg(o);
+    }
     for f in &compile_flags {
         cmd.arg(f);
     }
-    for extra in link_line {
+    for extra in rest {
         cmd.arg(extra);
     }
     match cmd.status() {
         Ok(s) if s.success() => {
             let _ = std::fs::remove_file(&csrc);
-            let _ = std::fs::remove_file(&obj);
+            for o in &objs {
+                let _ = std::fs::remove_file(o);
+            }
             println!("{}", out);
             ExitCode::SUCCESS
         }

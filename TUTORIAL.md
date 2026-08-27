@@ -675,6 +675,38 @@ try {
 panics are caught. (The native backend refuses `try` for now and says so
 by name; caught panics run on the VM.)
 
+## One file, six languages
+
+Everything the interop chapters promise, in one program
+([`examples/interop/polyglot/`](examples/interop/polyglot/), run
+`./run.sh` there):
+
+```keal
+import "./bindings.keal"     // C + C++ + Rust + Go: one bindgen header
+import java.util.UUID        // Java: generated wrappers, no path
+import GreeterKt             // Kotlin: same JVM road
+
+println(c_add(40, 2))                  // C, a source file on the build line
+println(cpp_shout("c plus plus"))      // C++ behind extern "C"
+println(rust_fib(20))                  // Rust, a staticlib
+println(rust_greet("Keal"))
+println(go_hypot(3.0, 4.0))            // Go, a c-archive
+println(go_shout("go"))
+
+jvmStart("-Djava.class.path=kotlin/greeter.jar")
+val id = uuidFromString("123e4567-e89b-12d3-a456-426614174000")
+println(id.toString())                 // Java, wrapped by `keal jbind`
+println(id.version())
+println(greeterKtShout("kotlin"))      // Kotlin, plain JVM classes
+println(greeterKtFib(20))
+id.free()
+```
+
+The native four meet Keal at the C ABI its binaries already speak — no
+runtime, no marshalling layer — and the JVM two go through one gateway
+module written in Keal itself. (This section has no mirrored test:
+it needs six toolchains. The example directory is the proof.)
+
 ## Lazy sequences
 
 The prelude carries a pull-based pipeline — Keal's `Stream`/`Sequence` —
