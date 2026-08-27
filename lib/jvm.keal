@@ -214,6 +214,26 @@ static void keal_jvm_static_void_impl(int64_t cls, const char* name, const char*
     keal_jvm_check(name);
 }
 
+static int64_t keal_jvm_new_impl(int64_t cls, const char* sig) {
+    keal_jvm_need();
+    jclass c = (jclass)(intptr_t)cls;
+    jmethodID mid = keal_jvm_method(c, "<init>", sig, 0);
+    jobject r = (*keal_jvm_env)->NewObjectA(keal_jvm_env, c, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check("<init>");
+    return keal_jvm_keep(r);
+}
+
+static int64_t keal_jvm_static_int_impl(int64_t cls, const char* name, const char* sig) {
+    keal_jvm_need();
+    jclass c = (jclass)(intptr_t)cls;
+    jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    jint r = (*keal_jvm_env)->CallStaticIntMethodA(keal_jvm_env, c, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return (int64_t)r;
+}
+
 static jclass keal_jvm_class_of(jobject obj) {
     return (*keal_jvm_env)->GetObjectClass(keal_jvm_env, obj);
 }
@@ -226,6 +246,16 @@ static int64_t keal_jvm_call_obj_impl(int64_t obj, const char* name, const char*
     keal_jvm_argc = 0;
     keal_jvm_check(name);
     return keal_jvm_keep(r);
+}
+
+static int64_t keal_jvm_call_int_impl(int64_t obj, const char* name, const char* sig) {
+    keal_jvm_need();
+    jobject o = (jobject)(intptr_t)obj;
+    jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    jint r = (*keal_jvm_env)->CallIntMethodA(keal_jvm_env, o, mid, keal_jvm_args);
+    keal_jvm_argc = 0;
+    keal_jvm_check(name);
+    return (int64_t)r;
 }
 
 static int64_t keal_jvm_call_long_impl(int64_t obj, const char* name, const char* sig) {
@@ -314,7 +344,16 @@ extern fun jvmArgBool(v: Bool): Unit = "keal_jvm_arg_bool_impl"
 extern fun jvmArgStr(s: borrow String): Unit = "keal_jvm_arg_str_impl"
 extern fun jvmArgObj(h: Int): Unit = "keal_jvm_arg_obj_impl"
 
+/// Constructs an instance: pushed arguments, then the constructor's JNI
+/// signature (always `(...)V`). Returns a new handle. `keal jbind` calls
+/// this for `public` constructors; JNI names them `<init>`.
+extern fun jvmNew(cls: Int, sig: borrow String): Int = "keal_jvm_new_impl"
+
 // Static calls, by JNI signature; the pushed arguments are consumed.
+// `Int` and `Long` are separate calls because JNI requires the call to
+// match the method's exact return type — a Java `int` must come back
+// through `CallStaticIntMethodA`, never the long one.
+extern fun jvmStaticInt(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_int_impl"
 extern fun jvmStaticObj(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_obj_impl"
 extern fun jvmStaticLong(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_long_impl"
 extern fun jvmStaticDouble(cls: Int, method: borrow String, sig: borrow String): Float = "keal_jvm_static_double_impl"
@@ -322,6 +361,7 @@ extern fun jvmStaticBool(cls: Int, method: borrow String, sig: borrow String): B
 extern fun jvmStaticVoid(cls: Int, method: borrow String, sig: borrow String): Unit = "keal_jvm_static_void_impl"
 
 // Instance calls on an object handle.
+extern fun jvmCallInt(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_int_impl"
 extern fun jvmCallObj(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_obj_impl"
 extern fun jvmCallLong(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_long_impl"
 extern fun jvmCallDouble(obj: Int, method: borrow String, sig: borrow String): Float = "keal_jvm_call_double_impl"

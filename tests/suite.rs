@@ -638,6 +638,110 @@ println(unnamed_params(40, 2.9))
 
 /// The JVM gateway: `java.time.LocalDate` driven from a natively compiled
 /// Keal program through lib/jvm.keal. Skipped when no JDK is around.
+/// `keal jbind` on saved `javap` output: deterministic, JDK-free, and the
+/// generated module must satisfy the type checker as written.
+#[test]
+fn jbind_matches_snapshot_and_typechecks() {
+    let out = keal(&[
+        "jbind",
+        "--jvm",
+        "../../lib/jvm.keal",
+        "tests/jbind/localdate.javap",
+        "tests/jbind/uuid.javap",
+    ]);
+    assert!(out.success, "jbind failed:\n{}", out.stderr);
+    let expected_path = root().join("tests/jbind/expected.keal");
+    if std::env::var_os("UPDATE_EXPECT").is_some() {
+        std::fs::write(&expected_path, &out.stdout).expect("cannot write snapshot");
+    } else {
+        let expected = std::fs::read_to_string(&expected_path)
+            .expect("missing snapshot; run UPDATE_EXPECT=1 cargo test");
+        assert_eq!(expected, out.stdout, "the generated wrappers changed");
+    }
+    let checked = keal(&["check", "tests/jbind/expected.keal"]);
+    assert!(
+        checked.status_success(),
+        "the generated wrappers do not type-check:\n{}",
+        checked.stderr
+    );
+}
+
+/// The full jbind road under a real JDK: generate `java.time` wrappers with
+/// live `javap`, build a native program against them, and run it.
+#[test]
+fn jbind_works_end_to_end() {
+    let Ok(out) = Command::new("/usr/libexec/java_home").output() else {
+        eprintln!("skipping: no java_home helper");
+        return;
+    };
+    if !out.status.success() {
+        eprintln!("skipping: no JDK installed");
+        return;
+    }
+    let jh = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !Path::new(&jh).join("include/jni.h").exists() {
+        eprintln!("skipping: JDK without JNI headers");
+        return;
+    }
+
+    let dir = root().join("target").join("jbind-e2e");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot create the jbind test dir");
+
+    let generated = keal(&[
+        "jbind",
+        "--jvm",
+        root().join("lib/jvm.keal").to_str().unwrap(),
+        "java.time.LocalDate",
+        "java.time.DayOfWeek",
+    ]);
+    assert!(generated.success, "jbind failed under a live JDK:\n{}", generated.stderr);
+    std::fs::write(dir.join("timegen.keal"), &generated.stdout).expect("cannot write the module");
+    std::fs::write(
+        dir.join("main.keal"),
+        r#"import "timegen.keal"
+jvmStart("")
+val d = localDateOf(2026, 1, 1)
+val later = d.plusDays(58)
+println(later.toString())
+val dow = later.getDayOfWeek()
+println(dow.toString())
+println(later.isLeapYear().toString())
+println(later.getYear().toString())
+println(later.lengthOfMonth().toString())
+dow.free()
+later.free()
+d.free()
+"#,
+    )
+    .expect("cannot write the program");
+
+    let built = Command::new(BIN)
+        .current_dir(&dir)
+        .arg("build")
+        .arg("main.keal")
+        .arg(format!("-I{}/include", jh))
+        .arg(format!("-I{}/include/darwin", jh))
+        .arg(format!("-L{}/lib/server", jh))
+        .arg("-ljvm")
+        .arg(format!("-Wl,-rpath,{}/lib/server", jh))
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the jbind wrappers did not build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let ran = Command::new(dir.join("main")).output().expect("cannot run the binary");
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        "2026-02-28\nSATURDAY\nfalse\n2026\n28\n",
+        "the jbind wrappers printed the wrong thing:\n{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn jvm_gateway_works_end_to_end() {
     let Ok(out) = Command::new("/usr/libexec/java_home").output() else {

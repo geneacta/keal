@@ -56,8 +56,9 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
-Nothing — the operator/Comp/guarded-return work below is **DONE and
-pushed**. Next up is `keal jbind` (see NEXT).
+Nothing — operators/Comp/guarded-return AND `keal jbind` are **DONE and
+pushed**. Next up is the loader sugar `import java.time.LocalDate`
+(see NEXT).
 
 ## Recently landed (kept for context)
 
@@ -128,11 +129,17 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
 
 ## NEXT after the in-flight work (user-agreed roadmap)
 
-1. **`keal jbind`** (interop 4b): `javap`-driven generator producing typed
-   Keal wrappers over `lib/jvm.keal` calls (handles inside counted classes
-   whose release calls `jvmFree`). Then **loader sugar**: a non-path
-   `import java.time.LocalDate` invokes jbind and caches the module —
-   the endpoint the user confirmed. Go demo (c-archive) worth adding.
+1. **`keal jbind` — DONE** (src/jbind.rs; `keal jbind [--jvm <path>]
+   <java.Class|saved.javap>...`; gateway gained `jvmNew`/`jvmCallInt`/
+   `jvmStaticInt` because JNI requires exact-return-type calls; wrappers
+   hold `val handle: Int` + `free()`, a representable `compareTo(Self)`
+   makes the class `Ord`; snapshot test `tests/jbind/` is JDK-free, the
+   E2E test generates live and builds native). Next: **loader sugar** — a
+   non-path `import java.time.LocalDate` invokes jbind and caches the
+   module — the endpoint the user confirmed. Note: wrappers need manual
+   `free()`; an on-release drop hook is a language feature to design
+   (interp/VM would have to call user code at refcount zero — decide
+   carefully). Go demo (c-archive) worth adding.
 2. Closure callbacks at the C boundary (interop 1d) once a consumer fixes
    the `userdata` convention.
 3. Threaded actors (same API, one heap per actor); `Any` natively (RTTI);

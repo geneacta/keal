@@ -2417,7 +2417,7 @@ impl CBackend {
         }
     }
 
-    fn float_builtin(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> Option<String> {
+    fn float_builtin(&mut self, _e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> Option<String> {
         match (name, args.len()) {
             ("toInt", 0) | ("floor", 0) | ("ceil", 0) | ("round", 0) => {
                 let v = self.expr(obj);

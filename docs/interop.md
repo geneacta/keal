@@ -198,29 +198,41 @@ Java parameter type; calls take JNI signatures verbatim; a Java exception
 becomes a Keal panic carrying the throwable's `toString`. The worked
 example is [`examples/interop/java/`](../examples/interop/java/).
 
-**4b. `keal jbind`** — the wrapper generator, and the road to
-`import java.time.LocalDate`. It reads a class (via `javap` or the class
-file) and emits a typed Keal module over exactly the 4a calls:
+**4b. `keal jbind` — shipped.** The wrapper generator, and the road to
+`import java.time.LocalDate`. `keal jbind java.time.LocalDate
+java.time.DayOfWeek` reads each class through `javap -public` and prints
+one typed Keal module over exactly the 4a calls:
 
 ```keal
 // generated
-class JUuid(val handle: JvmRef) {
+class UUID(val handle: Int) : Ord {
     fun toString(): String { return jvmToString(this.handle) }
+    proc free() { jvmFree(this.handle) }
+    fun compareTo(a0: UUID): Int { ... }
 }
-fun uuidRandom(): JUuid { ... }
+fun uuidRandomUUID(): UUID { ... }
 ```
 
-so user code never touches JNI signatures — handles live inside counted
-Keal classes whose release frees the global ref, and Java exceptions keep
-arriving as panics. Kotlin classes are plain JVM classes: same generator,
-Kotlin's stdlib on the classpath.
+so user code never touches JNI signatures. The bindgen rule holds: only
+members whose types cross exactly are bound — `int`, `long`, `double`,
+`boolean`, `String`, and any class bound in the same run (bind `DayOfWeek`
+alongside `LocalDate` and `getDayOfWeek()` comes typed) — everything else
+is skipped with the reason printed. Statics and constructors become free
+functions (`localDateOf`, `uuidNew`); a representable Java `compareTo`
+makes the wrapper `Ord`, so prelude `compare` and `<` reach across the
+JVM; `free()` releases the global ref (`handle` stays visible for calls
+jbind could not type). `--jvm <path>` sets the emitted import path, and an
+argument naming a file is read as saved `javap` output — which keeps the
+snapshot test (`tests/jbind/`) JDK-free; the end-to-end test builds a
+native binary against live-generated `java.time` wrappers. Kotlin classes
+are plain JVM classes: same generator, Kotlin's stdlib on the classpath.
 
 The endpoint, in three steps that stack: **(1)** 4a, shipped — you write
-signatures; **(2)** `jbind`, next — a generated `LocalDate.keal` you
-import by path; **(3)** loader sugar — `import java.time.LocalDate`
+signatures; **(2)** `jbind`, shipped — a generated `LocalDate.keal` you
+import by path; **(3)** loader sugar, next — `import java.time.LocalDate`
 becomes a recognised import form: a non-path import asks jbind to generate
 (and cache) the module on the spot. Step 3 is a small loader extension;
-step 2 is the machinery.
+step 2 was the machinery.
 
 **4c. Later, if wanted:** GraalVM `native-image --shared` turns a JVM
 library into a plain C shared library with its own header — then the JVM
