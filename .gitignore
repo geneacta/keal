@@ -6,3 +6,7 @@ cbackend.o
 .bootstrap-check.c
 examples/interop/rust/target/
 examples/interop/rust/Cargo.lock
+examples/interop/go/libgodemo.a
+examples/interop/go/libgodemo.h
+examples/interop/go/bindings.keal
+examples/interop/go/main

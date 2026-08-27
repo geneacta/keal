@@ -1,0 +1,9 @@
+// After `go build -buildmode=c-archive -o libgodemo.a godemo.go` and
+// `keal bindgen godemo.h > bindings.keal`:
+import "./bindings.keal"
+
+println(go_fib(20))
+println(go_hypot(3.0, 4.0))
+println(go_even(20))
+println(go_banner())
+println(go_shout("keal calls go"))

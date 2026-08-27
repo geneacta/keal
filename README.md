@@ -500,10 +500,13 @@ The honest list, in rough order of intent:
 * **Foreign languages** — C, C++, **Rust** and **Java/Kotlin** work today:
   `borrow`/`own` strings, by-value records, `keal emit-header`, link
   inputs, `keal bindgen` (verified Rust demo in
-  [`examples/interop/rust/`](examples/interop/rust/)) and the JVM gateway
+  [`examples/interop/rust/`](examples/interop/rust/), verified **Go**
+  c-archive demo in [`examples/interop/go/`](examples/interop/go/)) and
+  the JVM gateway
   [`lib/jvm.keal`](lib/jvm.keal) — `java.time.LocalDate` driven from a
   native Keal binary in [`examples/interop/java/`](examples/interop/java/).
-  **Go** rides the same tools as Rust. And the endpoint is in:
+  **Go** rides the same tools as Rust — and now provably does. And the
+  endpoint is in:
   `import java.time.LocalDate, java.time.DayOfWeek` — no path — generates
   `javap`-driven typed wrappers into a `.jbind/` cache on the next
   `run`/`build` (a Java `compareTo` even makes the class `Ord`).
