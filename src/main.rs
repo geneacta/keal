@@ -38,6 +38,7 @@ usage:
     keal tokens <file.keal>   dump the token stream (the self-hosting oracle)
     keal ast <file.keal>      dump the parse tree (likewise)
     keal types <file.keal>    dump the checked, typed tree (likewise)
+    keal cgen <file.keal>     emit C with compact refusals (likewise)
     keal emit-c <file.keal>   print the C a native build would compile
     keal build <file.keal> [more.c more.cpp ...]
                               compile to a native executable, together with
@@ -95,7 +96,7 @@ fn real_main() -> ExitCode {
                 && !matches!(
                     one.as_str(),
                     "run" | "check" | "layout" | "emit-c" | "build" | "repl" | "version"
-                        | "help" | "tokens" | "ast" | "types"
+                        | "help" | "tokens" | "ast" | "types" | "cgen"
                 ) =>
         {
             ("run", Some(one.clone()))
@@ -104,6 +105,7 @@ fn real_main() -> ExitCode {
             if matches!(
                 cmd.as_str(),
                 "run" | "check" | "layout" | "emit-c" | "build" | "tokens" | "ast" | "types"
+                    | "cgen"
             ) =>
         {
             (
@@ -115,6 +117,7 @@ fn real_main() -> ExitCode {
                     "tokens" => "tokens",
                     "ast" => "ast",
                     "types" => "types",
+                    "cgen" => "cgen",
                     _ => "build",
                 },
                 Some(file.clone()),
@@ -137,6 +140,7 @@ fn real_main() -> ExitCode {
         "tokens" => dump_tokens(&target.unwrap()),
         "ast" => dump_ast(&target.unwrap()),
         "types" => dump_types(&target.unwrap()),
+        "cgen" => dump_cgen(&target.unwrap()),
         "emit-c" => nativebuild::emit_only(&target.unwrap()),
         "build" => {
             // Anything after the program is a C or C++ source built with it.
@@ -383,13 +387,17 @@ fn dump_types(path: &str) -> ExitCode {
     let mut program = match loader::load(path, &mut sources) {
         Ok(p) => p,
         Err(d) => {
-            println!(
+            let mut line = format!(
                 "error {}:{}:{} {}",
                 sources.path(d.span.file),
                 d.span.line,
                 d.span.col,
                 d.msg
             );
+            if let Some(note) = &d.note {
+                line.push_str(&format!(" -- {}", note));
+            }
+            println!("{}", line);
             return ExitCode::FAILURE;
         }
     };
@@ -415,6 +423,55 @@ fn dump_types(path: &str) -> ExitCode {
         .collect();
     print!("{}", astdump::dump_typed(&program, |file| !prelude.contains(&file)));
     ExitCode::SUCCESS
+}
+
+/// The generated C on stdout, or — for anything the backend refuses, and for
+/// load or check errors — compact one-per-line diagnostics, also on stdout.
+/// This is the oracle the self-hosted emitter is held to; `keal emit-c`
+/// keeps the human-friendly rendering.
+fn dump_cgen(path: &str) -> ExitCode {
+    let compact = |sources: &Sources, d: &span::Diag| {
+        let mut line = format!(
+            "error {}:{}:{} {}",
+            sources.path(d.span.file),
+            d.span.line,
+            d.span.col,
+            d.msg
+        );
+        if let Some(note) = &d.note {
+            line.push_str(&format!(" -- {}", note));
+        }
+        line
+    };
+
+    let mut sources = Sources::new();
+    let mut program = match loader::load(path, &mut sources) {
+        Ok(p) => p,
+        Err(d) => {
+            println!("{}", compact(&sources, &d));
+            return ExitCode::FAILURE;
+        }
+    };
+    let mut checker = checker::Checker::new();
+    let (errors, _) = checker.check_program(&mut program);
+    if !errors.is_empty() {
+        for d in &errors {
+            println!("{}", compact(&sources, d));
+        }
+        return ExitCode::FAILURE;
+    }
+    match cbackend::emit(&program, &checker.class_shapes()) {
+        Ok(c) => {
+            print!("{}", c);
+            ExitCode::SUCCESS
+        }
+        Err(diags) => {
+            for d in &diags {
+                println!("{}", compact(&sources, d));
+            }
+            ExitCode::FAILURE
+        }
+    }
 }
 
 fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {

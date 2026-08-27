@@ -362,20 +362,24 @@ what found the first two bugs in this backend.
 
 ## Decided, waiting their turn
 
-* **Self-hosting is the destination**, and three planks are laid:
+* **Self-hosting is the destination, and the whole pipeline is laid**:
   [`selfhost/lexer.keal`](selfhost/lexer.keal) is the Keal lexer written in
-  Keal, [`selfhost/parser.keal`](selfhost/parser.keal) is the parser — the
-  full grammar, building a real tree — and
-  [`selfhost/checker.keal`](selfhost/checker.keal) is the type checker:
-  scopes, inference, generics solved per call site, traits, smart casts,
-  operator rewrites, null safety, its own module loader and embedded
-  prelude. The suite holds all three to *byte-for-byte agreement* with the
-  Rust ones — every file in the repository, every way each stage can fail,
-  spans, messages, notes and exit codes included, themselves included: the
-  corpus contains the checker type-checking its own eight-module program.
-  `keal tokens`, `keal ast` and `keal types` print the oracles. What
-  remains of the front end is nothing; next comes emitting code from the
-  tree the Keal compiler now builds and types itself.
+  Keal, [`selfhost/parser.keal`](selfhost/parser.keal) the parser building a
+  real tree, [`selfhost/checker.keal`](selfhost/checker.keal) the type
+  checker — scopes, inference, generics solved per call site, traits, smart
+  casts, operator rewrites, null safety, its own module loader and embedded
+  prelude — and [`selfhost/cbackend.keal`](selfhost/cbackend.keal) the C
+  emitter: monomorphisation, ownership scopes, closures, niche-optimised
+  nullables, the same named refusals. **A native compiler written in the
+  language it compiles.** The suite holds all four to *byte-for-byte
+  agreement* with the Rust ones — every file in the repository, every way
+  each stage can fail, spans, messages, notes and exit codes included,
+  themselves included: the corpus contains the checker type-checking its
+  own program and the emitter refusing its own (by name, as designed).
+  `keal tokens`, `keal ast`, `keal types` and `keal cgen` print the
+  oracles. What remains is closing the loop: teaching the C backend the
+  handful of string and list methods the selfhost tools use, so the Keal
+  compiler can compile itself to native.
 
 * **Lazy sequences**, the equivalent of Java's `Stream` / Kotlin's `Sequence`:
   pull-based, fusing, with infinite sources. The eager `map`/`filter`/`fold`

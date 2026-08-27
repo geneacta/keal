@@ -79,6 +79,10 @@ fun assignOpName(kind: String): String {
     }
 }
 
+/// Whether parse errors carry their notes (` -- note`). The `ast` dump
+/// oracle prints them bare; the checker and emitter oracles print the note.
+var parseNoteMode = false
+
 class Parser(val toks: List<Token>) {
     var pos: Int = 0
     var quiet: Int = 0
@@ -112,11 +116,17 @@ class Parser(val toks: List<Token>) {
     }
 
     proc fail(atLine: Int, atCol: Int, msg: String) {
+        this.failNote(atLine, atCol, msg, "")
+    }
+
+    proc failNote(atLine: Int, atCol: Int, msg: String, note: String) {
         if (this.quiet > 0) {
             this.failed = true
             return
         }
-        println("error ${this.errorPrefix}${atLine}:${atCol} ${msg}")
+        var out = "error ${this.errorPrefix}${atLine}:${atCol} ${msg}"
+        if (parseNoteMode and note != "") { out += " -- ${note}" }
+        println(out)
         exit(1)
     }
 
@@ -194,7 +204,10 @@ class Parser(val toks: List<Token>) {
                 i.text = strTok.parts[0].text
                 return i
             }
-            this.fail(t.line, t.col, "a `native` block cannot interpolate")
+            this.failNote(
+                t.line, t.col, "a `native` block cannot interpolate",
+                "it is passed to the C compiler verbatim"
+            )
             return ItemN("native", t.line, t.col)
         }
         if (t.kind == "ident" and t.text == "extern" and this.peekAt(1).kind == "fun") {
@@ -245,12 +258,20 @@ class Parser(val toks: List<Token>) {
     fun returnType(isFun: Bool, name: String): TypeEx? {
         unless (isFun) {
             if (this.at(":")) {
-                this.failHere("`proc ${name}` cannot declare a return type")
+                val t = this.peek()
+                this.failNote(
+                    t.line, t.col, "`proc ${name}` cannot declare a return type",
+                    "a `proc` returns nothing; use `fun` if it produces a value"
+                )
             }
             return null
         }
         unless (this.at(":")) {
-            this.failHere("`fun ${name}` must declare what it returns")
+            val t = this.peek()
+            this.failNote(
+                t.line, t.col, "`fun ${name}` must declare what it returns",
+                "write `: Type`, or declare it with `proc` if it returns nothing"
+            )
             return null
         }
         this.advance()
@@ -318,7 +339,11 @@ class Parser(val toks: List<Token>) {
                     kw = "val"
                 } else if (this.at("var")) {
                     if (isRecord) {
-                        this.failHere("a record's fields cannot be `var`")
+                        val t = this.peek()
+                        this.failNote(
+                            t.line, t.col, "a record's fields cannot be `var`",
+                            "records are immutable; declare it as a `class` if it must change"
+                        )
                     }
                     this.advance()
                     kw = "var"
@@ -360,7 +385,10 @@ class Parser(val toks: List<Token>) {
             } else if (m.kind == "val" or m.kind == "var") {
                 val mutable = this.advance().kind == "var"
                 if (mutable and isRecord) {
-                    this.fail(m.line, m.col, "a record's fields cannot be `var`")
+                    this.failNote(
+                        m.line, m.col, "a record's fields cannot be `var`",
+                        "records are immutable; use a `class` instead"
+                    )
                 }
                 val fname = this.expectIdent("a field name")
                 val fd = FieldN(fname, m.line, m.col)
@@ -580,10 +608,10 @@ class Parser(val toks: List<Token>) {
         }
         this.advance()
         unless (target.kind == "ident" or target.kind == "field" or target.kind == "index") {
-            this.fail(
-                opTok.line,
-                opTok.col,
-                "left side of an assignment is not assignable"
+            this.failNote(
+                opTok.line, opTok.col,
+                "left side of an assignment is not assignable",
+                "only variables, fields and indexed elements can be assigned"
             )
         }
         val assign = Ex("assign", t.line, t.col)
@@ -602,7 +630,11 @@ class Parser(val toks: List<Token>) {
         val out: List<String> = []
         while (not this.at(")")) {
             if (this.at("(")) {
-                this.failHere("a pattern cannot nest inside another")
+                val t = this.peek()
+                this.failNote(
+                    t.line, t.col, "a pattern cannot nest inside another",
+                    "bind the inner value first, then destructure it"
+                )
             }
             val name = this.expectIdent("a field name, or `_` to skip one")
             out.add(name)
@@ -610,7 +642,10 @@ class Parser(val toks: List<Token>) {
         }
         this.expect(")", "to close the destructuring pattern")
         if (out.size == 0) {
-            this.fail(atLine, atCol, "a destructuring pattern needs at least one name")
+            this.failNote(
+                atLine, atCol, "a destructuring pattern needs at least one name",
+                "to test the type alone, write `is Name` without parentheses"
+            )
         }
         return out
     }
@@ -639,13 +674,16 @@ class Parser(val toks: List<Token>) {
                 unless (next == "") {
                     val repeats = next == logical and (logical == "and" or logical == "or" or logical == "xor" or logical == "xnor")
                     unless (repeats) {
-                        if (next == logical) {
-                            this.failHere("`${logical}` does not chain")
+                        val what = if (next == logical) {
+                            "`${logical}` does not chain"
                         } else {
-                            this.failHere(
-                                "`${logical}` and `${next}` need parentheses to say which applies first"
-                            )
+                            "`${logical}` and `${next}` need parentheses to say which applies first"
                         }
+                        val at = this.peek()
+                        this.failNote(
+                            at.line, at.col, what,
+                            "logical operators have no relative precedence in Keal; write `(a ${logical} b) ${next} c` or `a ${logical} (b ${next} c)`"
+                        )
                     }
                 }
                 continue
@@ -803,10 +841,10 @@ class Parser(val toks: List<Token>) {
 
     fun tuple(items: List<Ex>, t: Token): Ex {
         if (items.size < 2 or items.size > 5) {
-            this.fail(
-                t.line,
-                t.col,
-                "a tuple holds between 2 and 5 values, not ${items.size}"
+            this.failNote(
+                t.line, t.col,
+                "a tuple holds between 2 and 5 values, not ${items.size}",
+                "for more, declare a record: named fields read better than positions"
             )
         }
         val callee = Ex("ident", t.line, t.col)
@@ -1027,7 +1065,11 @@ class Parser(val toks: List<Token>) {
 
         if (this.at("if")) {
             if (arm.patternKind == "else") {
-                this.failHere("`else` cannot have a guard")
+                val t = this.peek()
+                this.failNote(
+                    t.line, t.col, "`else` cannot have a guard",
+                    "write the condition as its own arm above the `else`"
+                )
             }
             this.advance()
             this.expect("(", "after `if` in a guard")
@@ -1173,10 +1215,10 @@ class Parser(val toks: List<Token>) {
             // `(A, B) -> C` is a function; `(A, B)` alone is a tuple.
             unless (this.at("->")) {
                 if (params.size < 2 or params.size > 5) {
-                    this.fail(
-                        t.line,
-                        t.col,
-                        "a tuple type holds between 2 and 5 types, not ${params.size}"
+                    this.failNote(
+                        t.line, t.col,
+                        "a tuple type holds between 2 and 5 types, not ${params.size}",
+                        "a function type needs its `->` and a result"
                     )
                 }
                 out.name = "Tuple${params.size}"

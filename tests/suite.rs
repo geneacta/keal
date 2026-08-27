@@ -392,6 +392,40 @@ fn selfhosted_checker_agrees_with_the_oracle() {
     }
 }
 
+/// The self-hosted C emitter must produce exactly the C the Rust backend
+/// produces — mangled names, temp numbering, ownership releases, refusal
+/// diagnostics and exit codes included. Fourth plank of self-hosting: a
+/// native compiler written in the language it compiles.
+#[test]
+fn selfhosted_emitter_agrees_with_the_oracle() {
+    let mut files = keal_files("tests/programs");
+    files.extend(keal_files("examples"));
+    files.extend(keal_files("tests/native"));
+    files.extend(keal_files("tests/selfhost"));
+    files.extend(keal_files("tests/selfhost/errors"));
+    files.extend(keal_files("tests/selfhost/parse-errors"));
+    files.extend(keal_files("tests/selfhost/type-errors"));
+    files.push(root().join("selfhost/cbackend.keal"));
+    files.push(root().join("src/prelude.keal"));
+
+    for file in files {
+        let path = relative(&file);
+        let oracle = keal(&["cgen", &path]);
+        let mine = keal(&["--vm", "selfhost/cbackend.keal", &path]);
+        assert_eq!(
+            oracle.stdout, mine.stdout,
+            "the emitters disagree on {}",
+            path
+        );
+        assert_eq!(
+            oracle.status_success(),
+            mine.status_success(),
+            "the emitters disagree on whether {} compiles",
+            path
+        );
+    }
+}
+
 #[test]
 fn cli_reports_missing_files() {
     let out = keal(&["run", "does/not/exist.keal"]);
