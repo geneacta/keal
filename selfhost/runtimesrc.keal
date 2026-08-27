@@ -144,16 +144,25 @@ KEAL_FN KealStr* keal_str_from_int(int64_t n) {
     return keal_str_from_bytes(buf, len);
 }
 
-/* Matches how the other two engines render a float: a whole number keeps one
- * decimal place, so `1.0` does not print as `1`. */
+/* Matches how the other two engines render a float: a whole number keeps
+ * one decimal place, so `1.0` does not print as `1`, and everything else
+ * prints the SHORTEST decimal that reads back as exactly the same value —
+ * the same answer Rust's formatter gives, found here by widening the
+ * precision until the round-trip closes. */
 KEAL_FN KealStr* keal_str_from_float(double d) {
     char buf[512];
     int len;
     if (d == (double)(int64_t)d && d < 1e15 && d > -1e15) {
         len = snprintf(buf, sizeof buf, "%.1f", d);
-    } else {
-        len = snprintf(buf, sizeof buf, "%g", d);
+        return keal_str_from_bytes(buf, len);
     }
+    for (int prec = 1; prec <= 17; prec++) {
+        len = snprintf(buf, sizeof buf, "%.*g", prec, d);
+        if (strtod(buf, NULL) == d) {
+            return keal_str_from_bytes(buf, len);
+        }
+    }
+    len = snprintf(buf, sizeof buf, "%.17g", d);
     return keal_str_from_bytes(buf, len);
 }
 
@@ -419,6 +428,64 @@ KEAL_FN int64_t keal_int_pow(int64_t n, int64_t e, int64_t line) {
         }
     }
     return r;
+}
+
+/* The integer d-th root: the largest r >= 0 with r**d <= n — the inverse
+ * of `**` on the whole numbers, shared by `^/`, `^/=` and `Int.root`. */
+KEAL_FN int64_t keal_int_root(int64_t n, int64_t d, int64_t line) {
+    if (d <= 0) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "`root` needs a positive degree, got %" PRId64, d);
+        keal_panic(msg, line);
+    }
+    if (n < 0) {
+        keal_panic("cannot take the root of a negative number", line);
+    }
+    if (n == 0) {
+        return 0;
+    }
+    int64_t r = (int64_t)floor(pow((double)n, 1.0 / (double)d));
+    if (r < 1) {
+        r = 1;
+    }
+    /* Exact fixup: r**d computed with overflow watched, so the float
+     * estimate can neither over- nor under-shoot the answer. */
+    for (;;) {
+        int64_t c = r + 1;
+        int64_t acc = 1;
+        bool over = false;
+        for (int64_t i = 0; i < d; i++) {
+            if (__builtin_mul_overflow(acc, c, &acc) || acc > n) {
+                over = true;
+                break;
+            }
+        }
+        if (over) {
+            break;
+        }
+        r = c;
+    }
+    for (;;) {
+        int64_t acc = 1;
+        bool over = false;
+        for (int64_t i = 0; i < d; i++) {
+            if (__builtin_mul_overflow(acc, r, &acc) || acc > n) {
+                over = true;
+                break;
+            }
+        }
+        if (!over) {
+            break;
+        }
+        r -= 1;
+    }
+    return r;
+}
+
+/* The d-th root of a float: IEEE all the way — a negative base is NaN, not
+ * a panic, exactly as `**` with a fractional exponent would be. */
+KEAL_FN double keal_f_root(double x, double d) {
+    return pow(x, 1.0 / d);
 }
 
 KEAL_FN int64_t keal_int_min(int64_t a, int64_t b) { return a < b ? a : b; }

@@ -2515,6 +2515,14 @@ impl Checker {
             }
         }
 
+        // `**` and `^/` are method calls in disguise everywhere: on a
+        // numeric left side too, they rewrite to `.pow(..)` / `.root(..)`,
+        // so all three engines run the single implementation each type has.
+        if matches!(op, BinOp::Pow | BinOp::Root) && lt.is_numeric() {
+            let (_, method) = operator_trait(op);
+            return self.rewrite_operator(e, &lt.clone(), op, method, span);
+        }
+
         let mut lt = lt;
         let mut rt = match &mut e.kind {
             ExprKind::Binary { rhs, .. } => self.check_expr(rhs, None),
@@ -2562,7 +2570,8 @@ impl Checker {
         };
 
         match op {
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Pow
+            | BinOp::Root => {
                 e.kind = call.kind;
                 result
             }
@@ -2657,7 +2666,7 @@ impl Checker {
                 }
                 Type::Str
             }
-            Add | Sub | Mul | Div | Rem => {
+            Add | Sub | Mul | Div | Rem | Pow | Root => {
                 if lt == rt && lt.is_numeric() {
                     return lt.clone();
                 }
@@ -3022,6 +3031,8 @@ fn operator_trait(op: BinOp) -> (&'static str, &'static str) {
         BinOp::Mul => ("Mul", "times"),
         BinOp::Div => ("Div", "div"),
         BinOp::Rem => ("Rem", "rem"),
+        BinOp::Pow => ("Pow", "pow"),
+        BinOp::Root => ("Root", "root"),
         BinOp::Eq | BinOp::Ne => ("Eq", "equals"),
         BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => ("Ord", "compareTo"),
     }
@@ -3036,7 +3047,7 @@ fn builtin_implements(ty: &Type, trait_name: &str) -> bool {
     match ty {
         Type::Int | Type::Float => matches!(
             trait_name,
-            "Add" | "Sub" | "Mul" | "Div" | "Rem" | "Neg" | "Eq" | "Ord"
+            "Add" | "Sub" | "Mul" | "Div" | "Rem" | "Pow" | "Root" | "Neg" | "Eq" | "Ord"
         ),
         Type::Str => matches!(trait_name, "Add" | "Eq" | "Ord"),
         Type::Bool => matches!(trait_name, "Eq"),

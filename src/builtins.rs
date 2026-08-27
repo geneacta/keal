@@ -125,6 +125,7 @@ fn int_sig(name: &str, _args: &[Option<Type>]) -> Option<FunType> {
         "abs" => sig(vec![], Type::Int),
         "min" | "max" => sig(vec![p("other", Type::Int)], Type::Int),
         "pow" => sig(vec![p("exponent", Type::Int)], Type::Int),
+        "root" => sig(vec![p("degree", Type::Int)], Type::Int),
         "toChar" => sig(vec![], Type::Str),
         _ => None,
     }
@@ -139,6 +140,7 @@ fn float_sig(name: &str, _args: &[Option<Type>]) -> Option<FunType> {
         "abs" | "sqrt" => sig(vec![], Type::Float),
         "min" | "max" => sig(vec![p("other", Type::Float)], Type::Float),
         "pow" => sig(vec![p("exponent", Type::Float)], Type::Float),
+        "root" => sig(vec![p("degree", Type::Float)], Type::Float),
         "isNaN" => sig(vec![], Type::Bool),
         _ => None,
     }

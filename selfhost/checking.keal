@@ -74,6 +74,8 @@ fun operatorTrait(op: String): (String, String) {
         "*" -> ("Mul", "times")
         "/" -> ("Div", "div")
         "%" -> ("Rem", "rem")
+        "**" -> ("Pow", "pow")
+        "^/" -> ("Root", "root")
         "==", "!=" -> ("Eq", "equals")
         else -> ("Ord", "compareTo")
     }
@@ -83,7 +85,7 @@ fun operatorTrait(op: String): (String, String) {
 fun builtinImplements(t: Ty, traitName: String): Bool {
     if (t.kind == "Int" or t.kind == "Float") {
         return when (traitName) {
-            "Add", "Sub", "Mul", "Div", "Rem", "Neg", "Eq", "Ord" -> true
+            "Add", "Sub", "Mul", "Div", "Rem", "Pow", "Root", "Neg", "Eq", "Ord" -> true
             else -> false
         }
     }
@@ -2539,6 +2541,14 @@ class Checker() {
             }
         }
 
+        // `**` and `^/` are method calls in disguise everywhere: on a
+        // numeric left side too, they rewrite to `.pow(..)` / `.root(..)`,
+        // so all three engines run the single implementation each type has.
+        if ((op == "**" or op == "^/") and tyIsNumeric(lt)) {
+            val (_, method) = operatorTrait(op)
+            return this.rewriteOperator(e, lt, op, method)
+        }
+
         var lt2 = lt
         var rt = this.checkExpr(e.kids[1], null)
         // Mixed Int/Float is fine as long as the Int side is literal.
@@ -2561,7 +2571,7 @@ class Checker() {
         // is reported against the trait method's signature.
         val result = this.methodCall(lt, method, args, e, null)
 
-        if (op == "+" or op == "-" or op == "*" or op == "/" or op == "%") {
+        if (op == "+" or op == "-" or op == "*" or op == "/" or op == "%" or op == "**" or op == "^/") {
             e.kind = "method"
             e.text = method
             e.kids = [lhs]
@@ -2654,7 +2664,7 @@ class Checker() {
             }
             return Ty("Str")
         }
-        // + - * / %
+        // + - * / % ** ^/
         if (tyEq(lt, rt) and tyIsNumeric(lt)) { return lt }
         val d = DiagN(
             file, line, col,

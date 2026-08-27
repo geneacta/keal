@@ -371,20 +371,8 @@ fn int_method(n: i64, name: &str, args: &[Value], span: Span) -> R<Value> {
         "abs" => Value::Int(n.abs()),
         "min" => Value::Int(n.min(int(&args[0], span)?)),
         "max" => Value::Int(n.max(int(&args[0], span)?)),
-        "pow" => {
-            let e = int(&args[0], span)?;
-            if e < 0 {
-                return err_note(
-                    span,
-                    format!("`Int.pow` needs a non-negative exponent, got {}", e),
-                    "use `toFloat().pow(...)` for negative exponents",
-                );
-            }
-            match n.checked_pow(e.min(u32::MAX as i64) as u32) {
-                Some(v) => Value::Int(v),
-                None => return err(span, format!("integer overflow in {}.pow({})", n, e)),
-            }
-        }
+        "pow" => Value::Int(runtime::int_pow(n, int(&args[0], span)?, span)?),
+        "root" => Value::Int(runtime::int_root(n, int(&args[0], span)?, span)?),
         "toChar" => match u32::try_from(n).ok().and_then(char::from_u32) {
             Some(c) => Value::str(c.to_string()),
             None => return err(span, format!("{} is not a valid character code", n)),
@@ -404,6 +392,7 @@ fn float_method(f: f64, name: &str, args: &[Value], span: Span) -> R<Value> {
         "min" => Value::Float(f.min(float(&args[0], span)?)),
         "max" => Value::Float(f.max(float(&args[0], span)?)),
         "pow" => Value::Float(f.powf(float(&args[0], span)?)),
+        "root" => Value::Float(runtime::float_root(f, float(&args[0], span)?)),
         "isNaN" => Value::Bool(f.is_nan()),
         other => return err(span, format!("`Float` has no method `{}`", other)),
     })

@@ -2115,6 +2115,12 @@ impl CBackend {
         if name == "toString" && args.is_empty() {
             return Some(self.to_string_value(obj));
         }
+        // The operator methods the built-in types carry for generic code:
+        // a bound like `<T: Ord>` rewrites `a < b` into `a.compareTo(b)`,
+        // and at `T = Int` that call must land somewhere real.
+        if let Some(v) = self.builtin_operator_method(e, obj, name, args, receiver_ty) {
+            return Some(v);
+        }
         match receiver_ty {
             Some(Type::Str) => self.string_builtin(e, obj, name, args),
             Some(Type::Int) => self.int_builtin(e, obj, name, args),
@@ -2123,6 +2129,153 @@ impl CBackend {
                 let elem = (**elem).clone();
                 self.list_builtin(e, obj, name, args, &elem)
             }
+            _ => None,
+        }
+    }
+
+    fn builtin_operator_method(
+        &mut self,
+        e: &Expr,
+        obj: &Expr,
+        name: &str,
+        args: &[Arg],
+        receiver_ty: &Option<Type>,
+    ) -> Option<String> {
+        match receiver_ty {
+            Some(Type::Int) => match (name, args.len()) {
+                ("plus", 1) | ("minus", 1) | ("times", 1) | ("div", 1) | ("rem", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    let f = match name {
+                        "plus" => "keal_add",
+                        "minus" => "keal_sub",
+                        "times" => "keal_mul",
+                        "div" => "keal_div",
+                        _ => "keal_rem",
+                    };
+                    let t = self.temp();
+                    self.line(format!(
+                        "const int64_t {} = {}({}, {}, {});",
+                        t, f, a, b, e.span.line
+                    ));
+                    Some(t)
+                }
+                ("negate", 0) => {
+                    let a = self.expr(obj);
+                    let t = self.temp();
+                    self.line(format!(
+                        "const int64_t {} = keal_sub(INT64_C(0), {}, {});",
+                        t, a, e.span.line
+                    ));
+                    Some(t)
+                }
+                ("equals", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    let t = self.temp();
+                    self.line(format!("const bool {} = ({} == {});", t, a, b));
+                    Some(t)
+                }
+                ("compareTo", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    let t = self.temp();
+                    self.line(format!(
+                        "const int64_t {t} = {a} < {b} ? INT64_C(-1) : ({a} > {b} ? INT64_C(1) : INT64_C(0));",
+                        t = t,
+                        a = a,
+                        b = b
+                    ));
+                    Some(t)
+                }
+                _ => None,
+            },
+            Some(Type::Float) => match (name, args.len()) {
+                ("plus", 1) | ("minus", 1) | ("times", 1) | ("div", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    let c = match name {
+                        "plus" => "+",
+                        "minus" => "-",
+                        "times" => "*",
+                        _ => "/",
+                    };
+                    let t = self.temp();
+                    self.line(format!("const double {} = ({} {} {});", t, a, c, b));
+                    Some(t)
+                }
+                ("rem", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    let t = self.temp();
+                    self.line(format!("const double {} = fmod({}, {});", t, a, b));
+                    Some(t)
+                }
+                ("negate", 0) => {
+                    let a = self.expr(obj);
+                    let t = self.temp();
+                    self.line(format!("const double {} = (-({}));", t, a));
+                    Some(t)
+                }
+                ("equals", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    let t = self.temp();
+                    self.line(format!("const bool {} = ({} == {});", t, a, b));
+                    Some(t)
+                }
+                ("compareTo", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    let t = self.temp();
+                    self.line(format!(
+                        "const int64_t {t} = {a} < {b} ? INT64_C(-1) : ({a} > {b} ? INT64_C(1) : INT64_C(0));",
+                        t = t,
+                        a = a,
+                        b = b
+                    ));
+                    Some(t)
+                }
+                _ => None,
+            },
+            Some(Type::Str) => match (name, args.len()) {
+                ("plus", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    Some(self.own_temp(format!("keal_concat({}, {})", a, b)))
+                }
+                ("equals", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    let t = self.temp();
+                    self.line(format!("const bool {} = (keal_str_cmp({}, {}) == 0);", t, a, b));
+                    Some(t)
+                }
+                ("compareTo", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    let c = self.temp();
+                    self.line(format!("const int {} = keal_str_cmp({}, {});", c, a, b));
+                    let t = self.temp();
+                    self.line(format!(
+                        "const int64_t {t} = {c} < 0 ? INT64_C(-1) : ({c} > 0 ? INT64_C(1) : INT64_C(0));",
+                        t = t,
+                        c = c
+                    ));
+                    Some(t)
+                }
+                _ => None,
+            },
+            Some(Type::Bool) => match (name, args.len()) {
+                ("equals", 1) => {
+                    let a = self.expr(obj);
+                    let b = self.expr(&args[0].value);
+                    let t = self.temp();
+                    self.line(format!("const bool {} = ({} == {});", t, a, b));
+                    Some(t)
+                }
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -2249,13 +2402,14 @@ impl CBackend {
                 self.line(format!("const int64_t {} = keal_int_abs({});", t, v));
                 Some(t)
             }
-            ("pow", 1) => {
+            ("pow", 1) | ("root", 1) => {
                 let a = self.expr(obj);
                 let b = self.expr(&args[0].value);
+                let f = if name == "pow" { "keal_int_pow" } else { "keal_int_root" };
                 let t = self.temp();
                 self.line(format!(
-                    "const int64_t {} = keal_int_pow({}, {}, {});",
-                    t, a, b, e.span.line
+                    "const int64_t {} = {}({}, {}, {});",
+                    t, f, a, b, e.span.line
                 ));
                 Some(t)
             }
@@ -2284,12 +2438,13 @@ impl CBackend {
                 self.line(format!("const double {} = {}({});", t, f, v));
                 Some(t)
             }
-            ("min", 1) | ("max", 1) | ("pow", 1) => {
+            ("min", 1) | ("max", 1) | ("pow", 1) | ("root", 1) => {
                 let a = self.expr(obj);
                 let b = self.expr(&args[0].value);
                 let f = match name {
                     "min" => "fmin",
                     "max" => "fmax",
+                    "root" => "keal_f_root",
                     _ => "pow",
                 };
                 let t = self.temp();
@@ -3194,7 +3349,11 @@ impl CBackend {
         // Integer arithmetic is checked, matching what the other two engines
         // do rather than quietly wrapping.
         if matches!(lty, Some(Type::Int))
-            && matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem)
+            && matches!(
+                op,
+                BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Pow
+                    | BinOp::Root
+            )
         {
             let t = self.temp();
             let helper = match op {
@@ -3202,6 +3361,8 @@ impl CBackend {
                 BinOp::Sub => "keal_sub",
                 BinOp::Mul => "keal_mul",
                 BinOp::Div => "keal_div",
+                BinOp::Pow => "keal_int_pow",
+                BinOp::Root => "keal_int_root",
                 _ => "keal_rem",
             };
             self.line(format!(
@@ -3307,9 +3468,15 @@ impl CBackend {
             return t;
         }
         // C's `%` is integer-only; the float remainder is `fmod`, which is
-        // also what Rust's `%` on f64 computes.
+        // also what Rust's `%` on f64 computes. Power and root are calls too.
         if op == BinOp::Rem && matches!(lty, Some(Type::Float)) {
             return format!("fmod({}, {})", a, b);
+        }
+        if op == BinOp::Pow && matches!(lty, Some(Type::Float)) {
+            return format!("pow({}, {})", a, b);
+        }
+        if op == BinOp::Root && matches!(lty, Some(Type::Float)) {
+            return format!("keal_f_root({}, {})", a, b);
         }
         format!("({} {} {})", a, c_operator(op), b)
     }
@@ -4547,6 +4714,10 @@ fn c_operator(op: BinOp) -> &'static str {
         BinOp::Mul => "*",
         BinOp::Div => "/",
         BinOp::Rem => "%",
+        // Power and root are never C operators: the checker rewrites them to
+        // method calls, and the compound path below spells the runtime call.
+        BinOp::Pow => "**",
+        BinOp::Root => "^/",
         BinOp::Eq => "==",
         BinOp::Ne => "!=",
         BinOp::Lt => "<",

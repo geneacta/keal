@@ -30,7 +30,7 @@ fun describeKind(kind: String): String {
 /// The word an operator token contributes to a `binary` node.
 fun binaryOpOf(kind: String): String {
     return when (kind) {
-        "==", "!=", "<", "<=", ">", ">=", "+", "-", "*", "/", "%" -> kind
+        "==", "!=", "<", "<=", ">", ">=", "+", "-", "*", "/", "%", "**", "^/" -> kind
         else -> ""
     }
 }
@@ -41,6 +41,7 @@ fun binaryPowerOf(kind: String): Int {
         "<", "<=", ">", ">=" -> 3
         "+", "-" -> 6
         "*", "/", "%" -> 7
+        "**", "^/" -> 8
         else -> 0
     }
 }
@@ -61,7 +62,7 @@ fun logicalOpOf(kind: String): String {
 
 fun isAssignOp(kind: String): Bool {
     return when (kind) {
-        "=", "+=", "-=", "*=", "/=", "%=" -> true
+        "=", "+=", "-=", "*=", "/=", "%=", "**=", "^/=" -> true
         else -> false
     }
 }
@@ -75,6 +76,8 @@ fun assignOpName(kind: String): String {
         "*=" -> "*"
         "/=" -> "/"
         "%=" -> "%"
+        "**=" -> "**"
+        "^/=" -> "^/"
         else -> "="
     }
 }
@@ -540,6 +543,45 @@ class Parser(val toks: List<Token>) {
         }
         if (t.kind == "return") {
             this.advance()
+            // `return if (cond) v` is a guarded return — sugar for
+            // `if (cond) { return v }`, and the code below it still runs
+            // when the guard fails. `return if (cond) { .. }` keeps its
+            // old meaning, told apart by the `{` after the condition.
+            if (this.guardedReturnAhead()) {
+                val negated = this.at("unless")
+                val word = if (negated) { "unless" } else { "if" }
+                val ifTok = this.peek()
+                this.advance()
+                this.expect("(", "after `${word}`")
+                var cond = this.expr()
+                this.expect(")", "after the `${word}` condition")
+                if (negated) {
+                    val neg = Ex("unary", cond.line, cond.col)
+                    neg.text = "not"
+                    neg.kids = [cond]
+                    cond = neg
+                }
+                val ret = StmtN("return", t.line, t.col)
+                unless (this.at(";") or this.at("}") or this.at("eof")) {
+                    var value = this.expr()
+                    if (this.at(",")) {
+                        val items: List<Ex> = [value]
+                        while (this.eat(",")) {
+                            items.add(this.expr())
+                        }
+                        value = this.tuple(items, t)
+                    }
+                    ret.ex = value
+                }
+                val guard = Ex("if", ifTok.line, ifTok.col)
+                guard.kids = [cond]
+                val b = BlockN()
+                b.stmts = [ret]
+                guard.body = b
+                val s = StmtN("expr", t.line, t.col)
+                s.ex = guard
+                return s
+            }
             val s = StmtN("return", t.line, t.col)
             if (this.at(";") or this.at("}") or this.at("eof")) {
                 return s
@@ -600,6 +642,28 @@ class Parser(val toks: List<Token>) {
         }
 
         val target = this.expr()
+        // `x++` and `x--` are statements, as Go has them: sugar for
+        // `x += 1`, never expressions — no pre/post distinction to
+        // mislearn.
+        if (this.at("++") or this.at("--")) {
+            val incTok = this.advance()
+            unless (target.kind == "ident" or target.kind == "field"
+                or target.kind == "index") {
+                this.failNote(
+                    incTok.line, incTok.col,
+                    "left side of an assignment is not assignable",
+                    "only variables, fields and indexed elements can be assigned"
+                )
+            }
+            val one = Ex("int", incTok.line, incTok.col)
+            one.iVal = 1
+            val inc = Ex("assign", t.line, t.col)
+            inc.assignOp = if (incTok.kind == "++") { "+" } else { "-" }
+            inc.kids = [target, one]
+            val s = StmtN("expr", t.line, t.col)
+            s.ex = inc
+            return s
+        }
         val opTok = this.peek()
         unless (isAssignOp(opTok.kind)) {
             val s = StmtN("expr", t.line, t.col)
@@ -620,6 +684,31 @@ class Parser(val toks: List<Token>) {
         val s = StmtN("expr", t.line, t.col)
         s.ex = assign
         return s
+    }
+
+    /// True when the tokens ahead read `if (cond) X` or `unless (cond) X`
+    /// with `X` not `{` — the guarded-return form. A `{` there means the
+    /// old return-an-if-expression, which keeps its meaning.
+    fun guardedReturnAhead(): Bool {
+        unless (this.at("if") or this.at("unless")) { return false }
+        unless (this.peekAt(1).kind == "(") { return false }
+        var depth = 0
+        var i = 1
+        while (true) {
+            val k = this.peekAt(i).kind
+            if (k == "(") {
+                depth += 1
+            } else if (k == ")") {
+                depth -= 1
+                if (depth == 0) {
+                    return this.peekAt(i + 1).kind != "{"
+                }
+            } else if (k == "eof") {
+                return false
+            }
+            i += 1
+        }
+        return false
     }
 
     /// `(a, _, c)` — the shared half of every destructuring form. An empty
@@ -751,9 +840,12 @@ class Parser(val toks: List<Token>) {
             val bp = binaryPowerOf(t.kind)
             if (bp < minBp) { return lhs }
             this.advance()
+            // `**` and `^/` associate to the right, as powers do everywhere:
+            // `2 ** 3 ** 2` is `2 ** (3 ** 2)`.
+            val nextBp = if (op == "**" or op == "^/") { bp } else { bp + 1 }
             val node = Ex("binary", t.line, t.col)
             node.text = op
-            node.kids = [lhs, this.binary(bp + 1)]
+            node.kids = [lhs, this.binary(nextBp)]
             lhs = node
         }
         return lhs

@@ -253,3 +253,18 @@ val tutCounter = tutTallySys.spawn({ self, n ->
 tutCounter.send(8)
 tutTallySys.run()
 assert(tutTotal == 15, "8 + 4 + 2 + 1, delivered one message per pass")
+
+// ---- power, root, Comp, guarded returns (TUTORIAL.md) --------------------
+
+assert(2 ** 3 ** 2 == 512, "powers associate to the right")
+assert(26 ^/ 3 == 2, "integer roots floor")
+var tutAcc = 3
+tutAcc **= 2
+tutAcc++
+assert(tutAcc == 10, "compounds and increments")
+
+fun tutCheapest<T: Ord>(a: T, b: T): T {
+    return if (compare(a, b).isAtMost()) a
+    return b
+}
+assert(tutCheapest(4, 9) == 4, "guarded return, spoken comparison")

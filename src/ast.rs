@@ -345,6 +345,12 @@ pub enum BinOp {
     Mul,
     Div,
     Rem,
+    /// `a ** b` — power. Right-associative, binds tighter than `*`.
+    Pow,
+    /// `a ^/ b` — the b-th root of a, the inverse of `**`. (`//` would read
+    /// naturally, but it is the line comment; every trailing comment in
+    /// existing code would silently become a root.)
+    Root,
     Eq,
     Ne,
     Lt,
@@ -361,6 +367,8 @@ impl BinOp {
             BinOp::Mul => "*",
             BinOp::Div => "/",
             BinOp::Rem => "%",
+            BinOp::Pow => "**",
+            BinOp::Root => "^/",
             BinOp::Eq => "==",
             BinOp::Ne => "!=",
             BinOp::Lt => "<",

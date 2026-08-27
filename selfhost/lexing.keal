@@ -55,7 +55,8 @@ fun keywordOf(w: String): String {
 fun endsStatement(kind: String): Bool {
     return when (kind) {
         "int", "float", "str", "ident", "return", "break", "continue",
-        "null", "true", "false", "this", ")", "}", "]", "?", "!!" -> true
+        "null", "true", "false", "this", ")", "}", "]", "?", "!!",
+        "++", "--" -> true
         else -> false
     }
 }
@@ -215,13 +216,24 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
     proc operator(tokLine: Int, tokCol: Int) {
         val c = this.bump()
         val kind = when (c) {
-            "+" -> this.pick("=", "+=", "+")
+            "+" -> {
+                if (this.peek() == "+") { this.bump(); "++" }
+                else { this.pick("=", "+=", "+") }
+            }
             "-" -> {
                 if (this.peek() == "=") { this.bump(); "-=" }
                 else if (this.peek() == ">") { this.bump(); "->" }
+                else if (this.peek() == "-") { this.bump(); "--" }
                 else { "-" }
             }
-            "*" -> this.pick("=", "*=", "*")
+            "*" -> {
+                if (this.peek() == "*") {
+                    this.bump()
+                    this.pick("=", "**=", "**")
+                } else {
+                    this.pick("=", "*=", "*")
+                }
+            }
             "/" -> this.pick("=", "/=", "/")
             "%" -> this.pick("=", "%=", "%")
             "=" -> this.pick("=", "==", "=")
@@ -246,7 +258,14 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
                 this.bump()
                 "||"
             }
-            "^" -> "^"
+            "^" -> {
+                if (this.peek() == "/") {
+                    this.bump()
+                    this.pick("=", "^/=", "^/")
+                } else {
+                    "^"
+                }
+            }
             "?" -> {
                 if (this.peek() == ".") { this.bump(); "?." }
                 else if (this.peek() == ":") { this.bump(); "?:" }

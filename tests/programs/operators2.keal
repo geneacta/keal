@@ -1,0 +1,76 @@
+// The new operators: ++/-- statements, ** power, ^/ root, their compound
+// forms, and the Comp comparison type.
+
+var x = 5
+x++
+x++
+x--
+assert(x == 6, "++/-- on a variable")
+
+class Counter(var n: Int)
+val c = Counter(0)
+c.n++
+c.n++
+assert(c.n == 2, "++ on a field")
+
+val xs = [10, 20]
+xs[1]++
+assert(xs[1] == 21, "++ on an element")
+
+// Power: right-associative, tighter than `*`.
+assert(2 ** 10 == 1024, "integer power")
+assert(2 ** 3 ** 2 == 512, "** associates right")
+assert(3 * 2 ** 3 == 24, "** binds tighter than *")
+assert(-2 ** 2 == -4, "unary minus is outside the power")
+assert(2.0 ** 3.0 == 8.0, "float power")
+val r2 = 2.0 ** 0.5
+assert(r2 > 1.41421356 and r2 < 1.41421357, "fractional exponents")
+
+// Root: the inverse of `**`. (`//` is the line comment, so root is `^/`.)
+assert(27 ^/ 3 == 3, "integer cube root")
+assert(26 ^/ 3 == 2, "integer root floors")
+assert(1000000 ^/ 2 == 1000, "integer square root")
+assert(0 ^/ 5 == 0, "root of zero")
+assert(16.0 ^/ 2.0 == 4.0, "float root")
+assert(2 ** 62 ^/ 62 == 2, "root undoes power near the top of Int")
+
+// Compounds.
+var p = 3
+p **= 2
+p **= 2
+assert(p == 81, "**=")
+var q = 6561
+q ^/= 2
+q ^/= 2
+assert(q == 9, "^/=")
+var f = 2.0
+f **= 10.0
+assert(f == 1024.0, "**= on Float")
+
+// Literal widening reaches the new operators too.
+val base = 9.0
+assert(base ** 2 == 81.0, "Float ** with an Int literal")
+assert(base ^/ 2 == 3.0, "Float ^/ with an Int literal")
+
+// Overloading: a class with Pow gets `**` through `pow`.
+class Poly(val degree: Int) : Pow {
+    fun pow(other: Poly): Poly { return Poly(this.degree * other.degree) }
+}
+assert((Poly(3) ** Poly(4)).degree == 12, "`**` through the Pow trait")
+
+// Comp: the three-valued answer over compareTo.
+assert(compare(3, 7).isLess(), "less")
+assert(compare(7, 3).isGreater(), "greater")
+assert(compare(5, 5).isEqual(), "equal")
+assert(compare(3, 7).isAtMost(), "at most")
+assert(compare(5, 5).isAtLeast(), "at least")
+assert("${compare(1, 2)}" == "less", "Comp renders as words")
+assert("${compare(2, 1)}" == "greater", "Comp renders as words")
+assert(compare("b", "a").isGreater(), "compare on strings")
+assert(compare(2.5, 2.5).isEqual(), "compare on floats")
+assert(compare(1, 2) == Comp(-1), "Comp is a record: value equality")
+
+class Version(val major: Int) : Ord {
+    fun compareTo(other: Version): Int { return this.major - other.major }
+}
+assert(compare(Version(3), Version(1)).isGreater(), "compare on an Ord class")

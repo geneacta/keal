@@ -1,0 +1,7 @@
+val a = "s" ** 2
+val b = true ^/ 2
+class NoPow(val n: Int)
+val c = NoPow(1) ** NoPow(2)
+val d = 2 ** 1.5
+var e = "x"
+e **= 2

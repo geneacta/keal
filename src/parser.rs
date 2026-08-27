@@ -42,6 +42,8 @@ fn binary_power(tok: &Tok) -> Option<(u8, BinOp)> {
         Tok::Star => (7, BinOp::Mul),
         Tok::Slash => (7, BinOp::Div),
         Tok::Percent => (7, BinOp::Rem),
+        Tok::StarStar => (8, BinOp::Pow),
+        Tok::RootOp => (8, BinOp::Root),
         _ => return None,
     })
 }
@@ -598,6 +600,54 @@ impl Parser {
             }
             Tok::Return => {
                 self.advance();
+                // `return if (cond) v` is a guarded return — sugar for
+                // `if (cond) { return v }`, and the code below it still
+                // runs when the guard fails. `return if (cond) { .. }`
+                // keeps its old meaning (returning an if-expression), told
+                // apart by the `{` after the condition.
+                if self.guarded_return_ahead() {
+                    let negated = self.at(&Tok::Unless);
+                    let word = if negated { "unless" } else { "if" };
+                    let if_span = self.span();
+                    self.advance();
+                    self.expect(Tok::LParen, &format!("after `{}`", word))?;
+                    let cond = self.expr()?;
+                    self.expect(Tok::RParen, &format!("after the `{}` condition", word))?;
+                    let cond = if negated {
+                        Expr { ty: None, inst: None, span: cond.span, kind: ExprKind::Unary {
+                                op: UnOp::Not,
+                                rhs: Box::new(cond),
+                            },
+                        }
+                    } else {
+                        cond
+                    };
+                    let value =
+                        if self.at(&Tok::Semi) || self.at(&Tok::RBrace) || self.at(&Tok::Eof) {
+                            None
+                        } else {
+                            let first = self.expr()?;
+                            if self.at(&Tok::Comma) {
+                                let mut items = vec![first];
+                                while self.eat(&Tok::Comma) {
+                                    items.push(self.expr()?);
+                                }
+                                Some(self.tuple(items, span)?)
+                            } else {
+                                Some(first)
+                            }
+                        };
+                    let then = Block {
+                        stmts: vec![Stmt { kind: StmtKind::Return(value), span }],
+                    };
+                    return Ok(Stmt { span, kind: StmtKind::Expr(Expr {
+                            ty: None,
+                            inst: None,
+                            span: if_span,
+                            kind: ExprKind::If { cond: Box::new(cond), then, els: None },
+                        }),
+                    });
+                }
                 let value = if self.at(&Tok::Semi) || self.at(&Tok::RBrace) || self.at(&Tok::Eof) {
                     None
                 } else {
@@ -646,6 +696,40 @@ impl Parser {
             Tok::Class => StmtKind::Class(self.class_decl(false)?),
             _ => {
                 let target = self.expr()?;
+                // `x++` and `x--` are statements, as Go has them: sugar for
+                // `x += 1`, never expressions — no pre/post distinction to
+                // mislearn.
+                if matches!(self.peek(), Tok::PlusPlus | Tok::MinusMinus) {
+                    let op_span = self.span();
+                    let op = if matches!(self.peek(), Tok::PlusPlus) {
+                        BinOp::Add
+                    } else {
+                        BinOp::Sub
+                    };
+                    self.advance();
+                    if !matches!(
+                        target.kind,
+                        ExprKind::Ident(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
+                    ) {
+                        return Err(Diag::new(
+                            op_span,
+                            "left side of an assignment is not assignable",
+                        )
+                        .with_note("only variables, fields and indexed elements can be assigned"));
+                    }
+                    let one = Expr { ty: None, inst: None, span: op_span, kind: ExprKind::Int(1) };
+                    return Ok(Stmt { span, kind: StmtKind::Expr(Expr {
+                            ty: None,
+                            inst: None,
+                            span,
+                            kind: ExprKind::Assign {
+                                target: Box::new(target),
+                                op: Some(op),
+                                value: Box::new(one),
+                            },
+                        }),
+                    });
+                }
                 let op = match self.peek() {
                     Tok::Assign => None,
                     Tok::PlusEq => Some(BinOp::Add),
@@ -653,6 +737,8 @@ impl Parser {
                     Tok::StarEq => Some(BinOp::Mul),
                     Tok::SlashEq => Some(BinOp::Div),
                     Tok::PercentEq => Some(BinOp::Rem),
+                    Tok::StarStarEq => Some(BinOp::Pow),
+                    Tok::RootEq => Some(BinOp::Root),
                     _ => return Ok(Stmt { kind: StmtKind::Expr(target), span }),
                 };
                 let op_span = self.span();
@@ -674,6 +760,34 @@ impl Parser {
             }
         };
         Ok(Stmt { kind, span })
+    }
+
+    /// True when the tokens ahead read `if (cond) X` or `unless (cond) X`
+    /// with `X` not `{` — the guarded-return form. A `{` there means the
+    /// old return-an-if-expression, which keeps its meaning.
+    fn guarded_return_ahead(&self) -> bool {
+        if !matches!(self.peek(), Tok::If | Tok::Unless) {
+            return false;
+        }
+        if !matches!(self.peek_at(1), Tok::LParen) {
+            return false;
+        }
+        let mut depth = 0usize;
+        let mut i = 1usize;
+        loop {
+            match self.peek_at(i) {
+                Tok::LParen => depth += 1,
+                Tok::RParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return !matches!(self.peek_at(i + 1), Tok::LBrace);
+                    }
+                }
+                Tok::Eof => return false,
+                _ => {}
+            }
+            i += 1;
+        }
     }
 
     // ---- expressions ---------------------------------------------------
@@ -794,7 +908,10 @@ impl Parser {
                 break;
             }
             self.advance();
-            let rhs = self.binary(bp + 1)?;
+            // `**` and `^/` associate to the right, as powers do everywhere:
+            // `2 ** 3 ** 2` is `2 ** (3 ** 2)`.
+            let right_assoc = matches!(op, BinOp::Pow | BinOp::Root);
+            let rhs = self.binary(if right_assoc { bp } else { bp + 1 })?;
             lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
             };
         }

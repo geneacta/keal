@@ -45,6 +45,17 @@ trait Neg {
     fun negate(): Self
 }
 
+/// `a ** b` is `a.pow(b)` — power, right-associative, tighter than `*`.
+trait Pow {
+    fun pow(other: Self): Self
+}
+
+/// `a ^/ b` is `a.root(b)` — the b-th root, the inverse of `**`. (`//`
+/// belongs to comments, so the root wears the power's hat.)
+trait Root {
+    fun root(other: Self): Self
+}
+
 /// Structural equality. Without it, `==` on two instances compares identity,
 /// so two separately built values are never equal.
 trait Eq {
@@ -56,6 +67,36 @@ trait Eq {
 /// `other` — the same convention as `Int.compareTo`.
 trait Ord {
     fun compareTo(other: Self): Int
+}
+
+// ---- ordering, spoken plainly -------------------------------------------
+//
+// `compareTo` answers with an Int — negative, zero, positive — because that
+// is the protocol operators rewrite to. `Comp` is the readable face over
+// it: a three-valued answer, the way Bool is a two-valued one.
+
+/// The outcome of a comparison: less, equal or greater — exactly one.
+record Comp(val sign: Int) {
+    fun isLess(): Bool { return this.sign < 0 }
+    fun isEqual(): Bool { return this.sign == 0 }
+    fun isGreater(): Bool { return this.sign > 0 }
+    fun isAtMost(): Bool { return this.sign <= 0 }
+    fun isAtLeast(): Bool { return this.sign >= 0 }
+
+    fun toString(): String {
+        if (this.sign < 0) { return "less" }
+        if (this.sign > 0) { return "greater" }
+        return "equal"
+    }
+}
+
+/// Compares two values of any ordered type — `Int`, `Float`, `String`, or
+/// your own `: Ord` class — as a `Comp`.
+fun compare<T: Ord>(a: T, b: T): Comp {
+    val sign = a.compareTo(b)
+    if (sign < 0) { return Comp(-1) }
+    if (sign > 0) { return Comp(1) }
+    return Comp(0)
 }
 
 // ---- tuples ------------------------------------------------------------

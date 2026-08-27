@@ -758,6 +758,8 @@ impl Vm {
                         }
                         x.checked_rem(y)
                     }
+                    Arith::Pow => Some(runtime::int_pow(x, y, span)?),
+                    Arith::Root => Some(runtime::int_root(x, y, span)?),
                 };
                 match r {
                     Some(v) => Ok(Value::Int(v)),
@@ -772,6 +774,8 @@ impl Vm {
                     Arith::Mul => x * y,
                     Arith::Div => x / y,
                     Arith::Rem => x % y,
+                    Arith::Pow => x.powf(y),
+                    Arith::Root => runtime::float_root(x, y),
                 }))
             }
             _ => err(
@@ -872,6 +876,8 @@ fn arith_symbol(kind: Arith) -> &'static str {
         Arith::Mul => "*",
         Arith::Div => "/",
         Arith::Rem => "%",
+        Arith::Pow => "**",
+        Arith::Root => "^/",
     }
 }
 

@@ -104,6 +104,7 @@ fun intSig(name: String): Ty? {
         "abs" -> tyFun([], Ty("Int"))
         "min", "max" -> tyFun([bp("other", Ty("Int"))], Ty("Int"))
         "pow" -> tyFun([bp("exponent", Ty("Int"))], Ty("Int"))
+        "root" -> tyFun([bp("degree", Ty("Int"))], Ty("Int"))
         "toChar" -> tyFun([], Ty("Str"))
         else -> null
     }
@@ -117,6 +118,7 @@ fun floatSig(name: String): Ty? {
         "abs", "sqrt" -> tyFun([], Ty("Float"))
         "min", "max" -> tyFun([bp("other", Ty("Float"))], Ty("Float"))
         "pow" -> tyFun([bp("exponent", Ty("Float"))], Ty("Float"))
+        "root" -> tyFun([bp("degree", Ty("Float"))], Ty("Float"))
         "isNaN" -> tyFun([], Ty("Bool"))
         else -> null
     }

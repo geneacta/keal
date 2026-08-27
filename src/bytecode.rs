@@ -36,6 +36,8 @@ pub enum Arith {
     Mul,
     Div,
     Rem,
+    Pow,
+    Root,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

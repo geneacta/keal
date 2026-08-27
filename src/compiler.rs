@@ -1156,6 +1156,8 @@ fn binary_op(op: BinOp) -> Op {
         BinOp::Mul => Op::Arith(Arith::Mul),
         BinOp::Div => Op::Arith(Arith::Div),
         BinOp::Rem => Op::Arith(Arith::Rem),
+        BinOp::Pow => Op::Arith(Arith::Pow),
+        BinOp::Root => Op::Arith(Arith::Root),
         BinOp::Eq => Op::Eq,
         BinOp::Ne => Op::Ne,
         BinOp::Lt => Op::Compare(Compare::Lt),

@@ -613,6 +613,34 @@ needs to call back in.
 
 ---
 
+## Power, root, and spoken comparisons
+
+`**` is power (right-associative, checked on `Int`), and `^/` is its
+inverse, the root — `//` was taken by comments, so the root wears the
+power's hat: `27 ^/ 3` is 3, `x ^/= 2` takes a square root in place.
+`x++` and `x--` are statements, sugar for `x += 1` and `x -= 1`.
+
+```keal
+assert(2 ** 3 ** 2 == 512, "powers associate to the right")
+assert(26 ^/ 3 == 2, "integer roots floor")
+var acc = 3
+acc **= 2
+acc++
+assert(acc == 10, "compounds and increments")
+```
+
+Comparisons can speak, too: `compare(a, b)` works on any `Ord` type and
+answers a `Comp` — `less`, `equal` or `greater`, three-valued the way
+`Bool` is two-valued. And a `return` can carry its own guard:
+
+```keal
+fun cheapest<T: Ord>(a: T, b: T): T {
+    return if (compare(a, b).isAtMost()) a
+    return b
+}
+assert(cheapest(4, 9) == 4, "guarded return, spoken comparison")
+```
+
 ## Lazy sequences
 
 The prelude carries a pull-based pipeline — Keal's `Stream`/`Sequence` —

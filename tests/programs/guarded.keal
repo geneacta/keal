@@ -1,0 +1,41 @@
+// Guarded returns: `return if (cond) v` returns only when the guard holds,
+// and the statements after it still run when it does not.
+
+fun best(a: Int, b: Int): Int {
+    return if (a > b) a
+    return b
+}
+assert(best(9, 4) == 9, "guard taken")
+assert(best(2, 8) == 8, "guard skipped, fall through")
+
+fun label(s: String?): String {
+    return unless (s == null) s
+    return "-"
+}
+assert(label("x") == "x", "unless-guard narrows the nullable")
+assert(label(null) == "-", "unless-guard falls through on null")
+
+fun twice(n: Int): (Int, Int) {
+    return if (n > 0) n, n * 2
+    return 0, 0
+}
+val (a, b) = twice(3)
+assert(a == 3 and b == 6, "guarded tuple return")
+val (z1, z2) = twice(-1)
+assert(z1 == 0 and z2 == 0, "guarded tuple falls through")
+
+var stopped = false
+proc step(n: Int) {
+    return if (n == 0)
+    stopped = true
+}
+step(0)
+assert(not stopped, "valueless guard returns early")
+step(1)
+assert(stopped, "valueless guard falls through")
+
+// The old form is untouched: returning an if-expression needs its braces.
+fun pick(c: Bool): Int {
+    return if (c) { 1 } else { 2 }
+}
+assert(pick(true) == 1 and pick(false) == 2, "return of an if-expression")

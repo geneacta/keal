@@ -128,6 +128,65 @@ fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool) -> R<String>
     })
 }
 
+/// `Int ** e`, checked: a negative exponent and an overflow both stop the
+/// program. One implementation, used by `**`, `**=`, and `Int.pow` on every
+/// engine.
+pub fn int_pow(n: i64, e: i64, span: Span) -> R<i64> {
+    if e < 0 {
+        return err_note(
+            span,
+            format!("`Int.pow` needs a non-negative exponent, got {}", e),
+            "use `toFloat().pow(...)` for negative exponents",
+        );
+    }
+    match n.checked_pow(e.min(u32::MAX as i64) as u32) {
+        Some(v) => Ok(v),
+        None => err(span, format!("integer overflow in {}.pow({})", n, e)),
+    }
+}
+
+/// The integer d-th root: the largest r >= 0 with r**d <= n. The inverse of
+/// `**` on the whole numbers; `^/`, `^/=` and `Int.root` all run this.
+pub fn int_root(n: i64, d: i64, span: Span) -> R<i64> {
+    if d <= 0 {
+        return err(span, format!("`root` needs a positive degree, got {}", d));
+    }
+    if n < 0 {
+        return err(span, "cannot take the root of a negative number");
+    }
+    if n == 0 {
+        return Ok(0);
+    }
+    // A floating estimate, then an exact fixup in wide arithmetic.
+    let mut r = (n as f64).powf(1.0 / d as f64).floor() as i64;
+    if r < 1 {
+        r = 1;
+    }
+    let fits = |r: i64| -> bool {
+        let mut acc: i128 = 1;
+        for _ in 0..d {
+            acc *= r as i128;
+            if acc > n as i128 {
+                return false;
+            }
+        }
+        acc <= n as i128
+    };
+    while fits(r + 1) {
+        r += 1;
+    }
+    while r > 0 && !fits(r) {
+        r -= 1;
+    }
+    Ok(r)
+}
+
+/// The d-th root of a float: IEEE all the way, so a negative base gives NaN
+/// rather than a panic, exactly as `**` with a fractional exponent would.
+pub fn float_root(x: f64, d: f64) -> f64 {
+    x.powf(1.0 / d)
+}
+
 pub fn format_float(f: f64) -> String {
     if f.is_finite() && f.fract() == 0.0 && f.abs() < 1e15 {
         format!("{:.1}", f)

@@ -75,6 +75,14 @@ pub enum Tok {
     StarEq,
     SlashEq,
     PercentEq,
+    /// `++` and `--`, the statement-level increment and decrement.
+    PlusPlus,
+    MinusMinus,
+    /// `**` — power — and `^/` — root — with their compound assignments.
+    StarStar,
+    StarStarEq,
+    RootOp,
+    RootEq,
     Dot,
     SafeDot,
     Elvis,
@@ -129,6 +137,8 @@ impl Tok {
                 | Tok::RBracket
                 | Tok::Question
                 | Tok::BangBang
+                | Tok::PlusPlus
+                | Tok::MinusMinus
         )
     }
 
@@ -193,6 +203,12 @@ impl Tok {
             Tok::OrOr => "||",
             Tok::Caret => "^",
             Tok::PlusEq => "+=",
+            Tok::PlusPlus => "++",
+            Tok::MinusMinus => "--",
+            Tok::StarStar => "**",
+            Tok::StarStarEq => "**=",
+            Tok::RootOp => "^/",
+            Tok::RootEq => "^/=",
             Tok::MinusEq => "-=",
             Tok::StarEq => "*=",
             Tok::SlashEq => "/=",
@@ -396,7 +412,14 @@ impl<'a> Lexer<'a> {
 
             self.bump();
             let tok = match c {
-                b'+' => self.pick(b'=', Tok::PlusEq, Tok::Plus),
+                b'+' => {
+                    if self.peek() == b'+' {
+                        self.bump();
+                        Tok::PlusPlus
+                    } else {
+                        self.pick(b'=', Tok::PlusEq, Tok::Plus)
+                    }
+                }
                 b'-' => {
                     if self.peek() == b'=' {
                         self.bump();
@@ -404,11 +427,21 @@ impl<'a> Lexer<'a> {
                     } else if self.peek() == b'>' {
                         self.bump();
                         Tok::Arrow
+                    } else if self.peek() == b'-' {
+                        self.bump();
+                        Tok::MinusMinus
                     } else {
                         Tok::Minus
                     }
                 }
-                b'*' => self.pick(b'=', Tok::StarEq, Tok::Star),
+                b'*' => {
+                    if self.peek() == b'*' {
+                        self.bump();
+                        self.pick(b'=', Tok::StarStarEq, Tok::StarStar)
+                    } else {
+                        self.pick(b'=', Tok::StarEq, Tok::Star)
+                    }
+                }
                 b'/' => self.pick(b'=', Tok::SlashEq, Tok::Slash),
                 b'%' => self.pick(b'=', Tok::PercentEq, Tok::Percent),
                 b'=' => self.pick(b'=', Tok::EqEq, Tok::Assign),
@@ -452,7 +485,14 @@ impl<'a> Lexer<'a> {
                         Tok::Question
                     }
                 }
-                b'^' => Tok::Caret,
+                b'^' => {
+                    if self.peek() == b'/' {
+                        self.bump();
+                        self.pick(b'=', Tok::RootEq, Tok::RootOp)
+                    } else {
+                        Tok::Caret
+                    }
+                }
                 b'.' => self.pick(b'.', Tok::DotDot, Tok::Dot),
                 b',' => Tok::Comma,
                 b':' => Tok::Colon,

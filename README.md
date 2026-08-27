@@ -1,5 +1,7 @@
 # Keal — a small, statically typed, self-hosting programming language
 
+**Version 0.5.0** · `keal version` prints the toolchain's own.
+
 **Keal** is a statically typed programming language that **compiles itself**:
 the compiler is written in Keal, compiles to native code through C, and
 reproduces its own source byte for byte — a bootstrap fixed point the test
@@ -145,10 +147,22 @@ engines, which must agree on every byte they print.
 - **`fun` and `proc`.** A `fun` must declare what it returns; a `proc` returns
   nothing. The split means `Unit` and `void` are never written by hand, and
   using a `proc`'s result is an error rather than a silent no-op.
-- **Operator overloading through traits.** `+`, `-`, `*`, `/`, `%`, unary `-`,
-  `==` and the four comparisons are wired to prelude traits (`Add`, `Ord`, …).
-  The built-in types implement them too, so `fun total<T: Add>(...)` accepts
-  `Int` and your own type alike.
+- **Operator overloading through traits.** `+`, `-`, `*`, `/`, `%`, `**`
+  (power, right-associative), `^/` (root — the inverse of `**`; `//` belongs
+  to comments), unary `-`, `==` and the four comparisons are wired to
+  prelude traits (`Add`, `Pow`, `Root`, `Ord`, …). The built-in types
+  implement them too, so `fun total<T: Add>(...)` accepts `Int` and your own
+  type alike. Compound forms (`+=` … `**=`, `^/=`) and the statement
+  increments `x++` / `x--` come along. Integer arithmetic is **checked** —
+  overflow, division by zero and `Int.pow`'s negative exponent panic instead
+  of wrapping — while `Float` follows IEEE 754 (`inf`, `NaN`, no panics).
+- **`Comp`, the three-valued comparison.** `compare(a, b)` works on any
+  `Ord` type and answers `less`, `equal` or `greater` — `Comp` is to
+  ordering what `Bool` is to truth, with `compareTo: Int` remaining the
+  overload protocol underneath.
+- **Guarded returns.** `return if (a > b) a` returns only when the guard
+  holds and falls through otherwise — and the guard narrows, so
+  `return unless (s == null) s` hands back a plain `String`.
 - **Generics and traits.** `fun first<T>(...)`, `class Box<T>`, inferred one
   argument at a time so a later lambda knows what an earlier argument fixed.
   Traits carry required and default methods, `Self`, and bounds (`<T: Show +

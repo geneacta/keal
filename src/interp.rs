@@ -462,6 +462,8 @@ impl Interp {
                         }
                         Value::Int(checked(x.checked_rem(y), span, "%")?)
                     }
+                    Pow => Value::Int(runtime::int_pow(x, y, span)?),
+                    Root => Value::Int(runtime::int_root(x, y, span)?),
                     Lt => Value::Bool(x < y),
                     Le => Value::Bool(x <= y),
                     Gt => Value::Bool(x > y),
@@ -477,6 +479,8 @@ impl Interp {
                     Mul => Value::Float(x * y),
                     Div => Value::Float(x / y),
                     Rem => Value::Float(x % y),
+                    Pow => Value::Float(x.powf(y)),
+                    Root => Value::Float(runtime::float_root(x, y)),
                     Lt => Value::Bool(x < y),
                     Le => Value::Bool(x <= y),
                     Gt => Value::Bool(x > y),

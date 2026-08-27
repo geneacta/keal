@@ -2463,6 +2463,125 @@ class CBackend() {
 
     /// The string methods the self-hosted compiler uses, each backed by a
     /// runtime function mirroring the interpreters' semantics.
+    fun builtinOperatorMethod(e: Ex, obj: Ex, name: String, receiverTy: Ty): String? {
+        val n = e.args.size
+        if (receiverTy.kind == "Int") {
+            if ((name == "plus" or name == "minus" or name == "times" or name == "div" or name == "rem") and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                val f = when (name) {
+                    "plus" -> "keal_add"
+                    "minus" -> "keal_sub"
+                    "times" -> "keal_mul"
+                    "div" -> "keal_div"
+                    else -> "keal_rem"
+                }
+                val t = this.temp()
+                this.line("const int64_t ${t} = ${f}(${a}, ${b}, ${e.line});")
+                return t
+            }
+            if (name == "negate" and n == 0) {
+                val a = this.expr(obj)
+                val t = this.temp()
+                this.line("const int64_t ${t} = keal_sub(INT64_C(0), ${a}, ${e.line});")
+                return t
+            }
+            if (name == "equals" and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                val t = this.temp()
+                this.line("const bool ${t} = (${a} == ${b});")
+                return t
+            }
+            if (name == "compareTo" and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                val t = this.temp()
+                this.line("const int64_t ${t} = ${a} < ${b} ? INT64_C(-1) : (${a} > ${b} ? INT64_C(1) : INT64_C(0));")
+                return t
+            }
+            return null
+        }
+        if (receiverTy.kind == "Float") {
+            if ((name == "plus" or name == "minus" or name == "times" or name == "div") and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                val c = when (name) {
+                    "plus" -> "+"
+                    "minus" -> "-"
+                    "times" -> "*"
+                    else -> "/"
+                }
+                val t = this.temp()
+                this.line("const double ${t} = (${a} ${c} ${b});")
+                return t
+            }
+            if (name == "rem" and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                val t = this.temp()
+                this.line("const double ${t} = fmod(${a}, ${b});")
+                return t
+            }
+            if (name == "negate" and n == 0) {
+                val a = this.expr(obj)
+                val t = this.temp()
+                this.line("const double ${t} = (-(${a}));")
+                return t
+            }
+            if (name == "equals" and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                val t = this.temp()
+                this.line("const bool ${t} = (${a} == ${b});")
+                return t
+            }
+            if (name == "compareTo" and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                val t = this.temp()
+                this.line("const int64_t ${t} = ${a} < ${b} ? INT64_C(-1) : (${a} > ${b} ? INT64_C(1) : INT64_C(0));")
+                return t
+            }
+            return null
+        }
+        if (receiverTy.kind == "Str") {
+            if (name == "plus" and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                return this.ownTemp("keal_concat(${a}, ${b})")
+            }
+            if (name == "equals" and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                val t = this.temp()
+                this.line("const bool ${t} = (keal_str_cmp(${a}, ${b}) == 0);")
+                return t
+            }
+            if (name == "compareTo" and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                val c = this.temp()
+                this.line("const int ${c} = keal_str_cmp(${a}, ${b});")
+                val t = this.temp()
+                this.line("const int64_t ${t} = ${c} < 0 ? INT64_C(-1) : (${c} > 0 ? INT64_C(1) : INT64_C(0));")
+                return t
+            }
+            return null
+        }
+        if (receiverTy.kind == "Bool") {
+            if (name == "equals" and n == 1) {
+                val a = this.expr(obj)
+                val b = this.expr(e.args[0].value)
+                val t = this.temp()
+                this.line("const bool ${t} = (${a} == ${b});")
+                return t
+            }
+            return null
+        }
+        return null
+    }
+
     fun stringBuiltin(e: Ex, obj: Ex, name: String): String? {
         val n = e.args.size
         if (name == "substring" and n == 2) {
@@ -2575,11 +2694,12 @@ class CBackend() {
             this.line("const int64_t ${t} = keal_int_abs(${v});")
             return t
         }
-        if (name == "pow" and n == 1) {
+        if ((name == "pow" or name == "root") and n == 1) {
             val a = this.expr(obj)
             val b = this.expr(e.args[0].value)
+            val f = if (name == "pow") { "keal_int_pow" } else { "keal_int_root" }
             val t = this.temp()
-            this.line("const int64_t ${t} = keal_int_pow(${a}, ${b}, ${e.line});")
+            this.line("const int64_t ${t} = ${f}(${a}, ${b}, ${e.line});")
             return t
         }
         return null
@@ -2606,12 +2726,13 @@ class CBackend() {
             this.line("const double ${t} = ${f}(${v});")
             return t
         }
-        if ((name == "min" or name == "max" or name == "pow") and n == 1) {
+        if ((name == "min" or name == "max" or name == "pow" or name == "root") and n == 1) {
             val a = this.expr(obj)
             val b = this.expr(e.args[0].value)
             val f = when (name) {
                 "min" -> "fmin"
                 "max" -> "fmax"
+                "root" -> "keal_f_root"
                 else -> "pow"
             }
             val t = this.temp()
@@ -3188,6 +3309,13 @@ class CBackend() {
         if (name == "toString" and e.args.size == 0 and receiverTy != null) {
             return this.toStringValue(obj)
         }
+        // The operator methods the built-in types carry for generic code:
+        // a bound like `<T: Ord>` rewrites `a < b` into `a.compareTo(b)`,
+        // and at `T = Int` that call must land somewhere real.
+        if (receiverTy != null) {
+            val v = this.builtinOperatorMethod(e, obj, name, receiverTy)
+            if (v != null) { return v }
+        }
         // The rest of the built-in surface the self-hosted compiler leans on.
         if (receiverTy != null) {
             if (receiverTy.kind == "Str") {
@@ -3471,13 +3599,15 @@ class CBackend() {
         val a = this.expr(lhs)
         val b = this.expr(rhs)
         // Integer arithmetic is checked, matching the other two engines.
-        if (lty != null and lty.kind == "Int" and (op == "+" or op == "-" or op == "*" or op == "/" or op == "%")) {
+        if (lty != null and lty.kind == "Int" and (op == "+" or op == "-" or op == "*" or op == "/" or op == "%" or op == "**" or op == "^/")) {
             val t = this.temp()
             val helper = when (op) {
                 "+" -> "keal_add"
                 "-" -> "keal_sub"
                 "*" -> "keal_mul"
                 "/" -> "keal_div"
+                "**" -> "keal_int_pow"
+                "^/" -> "keal_int_root"
                 else -> "keal_rem"
             }
             this.line("const int64_t ${t} = ${helper}(${a}, ${b}, ${e.line});")
@@ -3582,9 +3712,15 @@ class CBackend() {
             return t
         }
         // C's `%` is integer-only; the float remainder is `fmod`, which is
-        // also what Rust's `%` on f64 computes.
+        // also what Rust's `%` on f64 computes. Power and root are calls too.
         if (op == "%" and lty != null and lty.kind == "Float") {
             return "fmod(${a}, ${b})"
+        }
+        if (op == "**" and lty != null and lty.kind == "Float") {
+            return "pow(${a}, ${b})"
+        }
+        if (op == "^/" and lty != null and lty.kind == "Float") {
+            return "keal_f_root(${a}, ${b})"
         }
         return "(${a} ${op} ${b})"
     }
