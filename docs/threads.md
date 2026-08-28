@@ -124,9 +124,21 @@ monomorphizes and the runtime is ours.
    prints identical bytes on all three engines, leak-free. What panics
    do, `deinit` on the actor's thread, and `try { sys.run() }` are
    pinned by `tests/native/actor-panics.keal`.
-6. **Measure before optimizing** — the one lock is global and every
-   completion broadcasts; per-mailbox locks or per-actor arenas only if
-   contention shows up in real programs, and only with numbers in hand.
+6. **Measure before optimizing** — measured (Apple M4, 10 cores,
+   `-O2`; self-send chains, medians of repeated runs):
+   * *Compute-bound scaling*: 320M spins of arithmetic split over 8
+     actors ran in 0.14s wall against 0.84s on one actor — **~6×
+     faster on 8**, so the global lock does not gate handlers that do
+     real work.
+   * *Raw message cost*: 400k messages through one actor in 0.02s —
+     about **50ns a message** (copy, lock, push, broadcast, deliver).
+     The same 400k spread over eight actors took 0.07s wall with the
+     time gone to `sys` — the every-completion **broadcast wakes every
+     thread**, and that storm is the scheduler's one visible cost.
+   * Verdict: millions of messages a second and near-linear compute
+     scaling; **nothing to optimize yet**. If a real program ever
+     drowns in that sys time, the first lever is known and bounded:
+     a condvar per mailbox instead of one broadcast for all.
 
 JNI note, closed: a JNIEnv is only valid on the thread it was handed
 to, so the gateway keeps one per thread — the first JVM call an actor

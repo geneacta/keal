@@ -107,9 +107,11 @@ that detaches at thread exit (the CreateJavaVM thread is never
 detached); jvmStart on a running VM now just attaches the caller.
 examples/interop/java/actordate.keal + suite test
 jvm_calls_work_from_actor_threads (JDK-gated). 28/28. No twin work —
-the native block is verbatim data to both compilers. Still open:
-performance is stage 6 (measure first — the lock is global and every
-completion broadcasts).
+the native block is verbatim data to both compilers. Stage 6
+(measure) DONE: M4/10-core numbers in threads.md — ~6x compute scaling
+on 8 actors, ~50ns/message single-actor, broadcast storm visible only
+as sys time on the empty-handler flood; verdict recorded: nothing to
+optimize yet, first lever if ever = per-mailbox condvar.
 
 **Threads stage 3a COMPLETE — the actor ownership semantics:** spawn
 copies captures per actor (copyClosure builtin: interp rebuilds env from
@@ -325,10 +327,9 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
    `import_sugar_works_end_to_end` (JDK-gated).
 2. Closure callbacks at the C boundary (interop 1d) once a consumer fixes
    the `userdata` convention.
-3. Threaded actors — DONE (stage 5), JNI attach from actor threads —
-   DONE too. Left there: scheduler perf (measure first). Then `Any`
-   natively (RTTI); cycles decision; `constexpr`; macros last. See README
-   "What remains".
+3. Threaded actors — DONE through stage 6 (scheduler, JNI attach,
+   measurements recorded in threads.md). Then `Any` natively (RTTI);
+   cycles decision; `constexpr`; macros last. See README "What remains".
 
 ## Key file map
 
