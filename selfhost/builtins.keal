@@ -201,6 +201,10 @@ fun globalSig(name: String, args: List<Ty?>): Ty? {
         "panic" -> tyFun([bp("message", Ty("Str"))], Ty("Never"))
         "assert" -> tyFun([bp("condition", Ty("Bool")), bopt("message", Ty("Str"))], Ty("Unit"))
         "typeOf" -> tyFun([bp("value", Ty("Any"))], Ty("Str"))
+        // `copy` is generic; the checker types the direct call precisely
+        // and refuses uncopyable types there. This monomorphic signature
+        // is what `val f = copy` sees.
+        "copy" -> tyFun([bp("value", Ty("Any"))], Ty("Any"))
         "sqrt" -> tyFun([bp("x", Ty("Float"))], Ty("Float"))
         "pow" -> tyFun([bp("base", Ty("Float")), bp("exponent", Ty("Float"))], Ty("Float"))
         "floor", "ceil", "round" -> tyFun([bp("x", Ty("Float"))], Ty("Int"))

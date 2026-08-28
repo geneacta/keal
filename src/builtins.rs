@@ -234,6 +234,11 @@ pub fn global_sig(name: &str, args: &[Option<Type>]) -> Option<FunType> {
         "panic" => sig(vec![p("message", Type::Str)], Type::Never),
         "assert" => sig(vec![p("condition", Type::Bool), opt("message", Type::Str)], Type::Unit),
         "typeOf" => sig(vec![p("value", Type::Any)], Type::Str),
+        // `copy` is generic; the checker types the direct call precisely
+        // and refuses uncopyable types there. This monomorphic signature
+        // is what `val f = copy` sees — and a value smuggled through it
+        // is checked again at run time.
+        "copy" => sig(vec![p("value", Type::Any)], Type::Any),
         "sqrt" => sig(vec![p("x", Type::Float)], Type::Float),
         "pow" => sig(vec![p("base", Type::Float), p("exponent", Type::Float)], Type::Float),
         "floor" | "ceil" | "round" => sig(vec![p("x", Type::Float)], Type::Int),

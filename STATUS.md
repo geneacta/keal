@@ -62,6 +62,18 @@ Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 unwinding), the six-language polyglot demo AND the ternary family are
 **DONE and pushed**. See NEXT.
 
+**copy (threads stage 2, user-facing):** copy(value) — deep copy on
+interp+VM (shared native.rs deep_copy, 10000-depth cap with an
+identical catchable panic for cycles; a copy is a NEW object → deinit
+runs for both). Checker special arm in check_call (before the builtin
+table; copyable predicate refuses Fun/Any/Param/Self and walks class
+fields with a visited list for recursive types); builtins table carries
+the (Any)->Any signature for `val f = copy` (runtime re-checks). Native
+REFUSES copy by name until stage 3 (per-type copy fns arrive with the
+scheduler; send starts copying then, all engines at once). Twins
+mirrored (checkCall arm + copyBlocker + builtins). Tests:
+tests/programs/copy.keal, te40.
+
 **Hardening round (user-driven):** differential fuzzer
 tests/fuzz/fuzz.py (grammar generator, typed-by-construction + injected
 mistakes + clean mode; asserts checker never crashes AND accepted

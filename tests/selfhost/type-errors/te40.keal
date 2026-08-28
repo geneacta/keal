@@ -1,0 +1,4 @@
+val bad = copy({ n: Int -> n })
+val any: Any = 5
+val bad2 = copy(any)
+fun gen<T>(x: T): T { return copy(x) }

@@ -4,7 +4,7 @@
 //! `builtins.rs`, so these functions only guard against conditions the type
 //! system cannot see, such as an out-of-range index.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::cmp::Ordering;
 use std::io::Write;
 use std::rc::Rc;
@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::runtime::{self, err, err_note, Runtime, R};
 use crate::span::Span;
-use crate::value::{values_equal, MapKey, Value};
+use crate::value::{values_equal, Instance, MapData, MapKey, Value};
 
 // ---- argument helpers --------------------------------------------------
 
@@ -86,6 +86,55 @@ pub fn contains(it: &mut dyn Runtime, container: &Value, value: &Value, span: Sp
 
 // ---- globals -----------------------------------------------------------
 
+/// The recursive copy behind `copy` and, one day, actor `send`.
+pub fn deep_copy(v: &Value, span: Span, depth: usize) -> R<Value> {
+    if depth > 10000 {
+        return err(span, "`copy` went 10000 levels deep; is the value cyclic?");
+    }
+    Ok(match v {
+        Value::Unit
+        | Value::Null
+        | Value::Int(_)
+        | Value::Float(_)
+        | Value::Bool(_)
+        | Value::Range(_, _)
+        // Immutable, so sharing is indistinguishable from copying.
+        | Value::Str(_) => v.clone(),
+        Value::List(items) => {
+            let mut out = Vec::new();
+            for item in items.borrow().iter() {
+                out.push(deep_copy(item, span, depth + 1)?);
+            }
+            Value::list(out)
+        }
+        Value::Map(m) => {
+            let mut data = MapData::new();
+            for (k, val) in m.borrow().iter() {
+                let ck = deep_copy(k, span, depth + 1)?;
+                let Some(mk) = MapKey::of(&ck) else {
+                    return err(span, format!("`{}` cannot be used as a map key", ck.type_name()));
+                };
+                data.insert(mk, ck, deep_copy(val, span, depth + 1)?);
+            }
+            Value::Map(Rc::new(RefCell::new(data)))
+        }
+        Value::Instance(i) => {
+            let mut fields = Vec::new();
+            for (n, val) in i.fields.borrow().iter() {
+                fields.push((n.clone(), deep_copy(val, span, depth + 1)?));
+            }
+            Value::Instance(Rc::new(Instance {
+                class: i.class.clone(),
+                fields: RefCell::new(fields),
+                dropped: std::cell::Cell::new(false),
+            }))
+        }
+        Value::Fun(_) | Value::VmFun(_) | Value::Native(_) => {
+            return err(span, "a function is its environment, and environments do not copy");
+        }
+    })
+}
+
 pub fn call_global(it: &mut dyn Runtime, name: &str, args: Vec<Value>, span: Span) -> R<Value> {
     if let Some(sym) = name.strip_prefix("extern:") {
         let _ = &args;
@@ -96,6 +145,15 @@ pub fn call_global(it: &mut dyn Runtime, name: &str, args: Vec<Value>, span: Spa
         );
     }
     match name {
+        // `copy(value)` — data crosses, code does not; the checker holds
+        // that line, this is the muscle. Depth-capped: a cyclic value
+        // cannot be copied, and says so instead of overflowing.
+        "copy" => {
+            let Some(v) = args.first() else {
+                return err(span, "`copy` takes one value");
+            };
+            deep_copy(v, span, 0)
+        }
         "println" | "print" => {
             let text = match args.first() {
                 Some(v) => runtime::display(it, v, span)?,

@@ -60,9 +60,15 @@ monomorphizes and the runtime is ours.
 ## Staging
 
 1. **Groundwork** — thread-local runtime state. *Done.*
-2. **`copy_M` generation + message-safety check** — the checker's
-   structural "crosses threads" predicate on `M`, and the generated deep
-   copy. Testable single-threaded (copy, mutate, compare).
+2. **`copy` + the message-safety check.** *Done, as a user-facing
+   builtin:* `copy(value)` deep-copies data on both interpreters, the
+   checker refuses what cannot cross (functions, `Any`, open type
+   parameters — `copyable` in the checker, mirrored in the twin), and a
+   cyclic value is refused at run time with a depth cap rather than a
+   stack overflow. The C backend refuses `copy` by name until stage 3 —
+   the generated per-type copies arrive with the scheduler that needs
+   them, and `send` starts copying in the same change, on all three
+   engines at once, so the aliasing semantics never diverge.
 3. **The pthread scheduler behind the same `run()`** — gated like
    everything else: a program that never spawns pays nothing. Verified
    with order-insensitive programs (counters, joined sets) on all three

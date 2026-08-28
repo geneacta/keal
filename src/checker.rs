@@ -2292,6 +2292,27 @@ impl Checker {
         span: Span,
         expected: Option<&Type>,
     ) -> Type {
+        // `copy(value)` — the deep copy behind message passing: data
+        // crosses, code does not. Generic over its argument, which the
+        // monomorphic builtin table cannot express; checked here instead.
+        if let ExprKind::Ident(name) = &callee.kind {
+            if name == "copy" && self.lookup(name).is_none() && args.len() == 1 {
+                let t = self.check_expr(&mut args[0].value, None);
+                if t == Type::Error {
+                    return Type::Error;
+                }
+                let mut seen = Vec::new();
+                if let Err(reason) = self.copyable(&t, &mut seen) {
+                    self.error_note(
+                        span,
+                        format!("a value of type `{}` cannot be copied", t),
+                        reason,
+                    );
+                    return Type::Error;
+                }
+                return t;
+            }
+        }
         // Constructor call, or a call to a built-in global.
         if let ExprKind::Ident(name) = &callee.kind {
             let name = name.clone();
@@ -3007,6 +3028,61 @@ impl Checker {
     /// Facts proved about simple variables when `cond` evaluates to
     /// `positive`. Only immutable bindings are narrowed, so nothing can
     /// invalidate the fact inside the guarded block.
+    /// Whether `copy` can carry a value of this type: data does, code
+    /// does not. Recursive classes are fine as *types* (the visited list
+    /// stops the recursion); a cyclic *value* is the runtime's to refuse.
+    fn copyable(&self, t: &Type, seen: &mut Vec<String>) -> Result<(), String> {
+        match t {
+            Type::Int
+            | Type::Float
+            | Type::Bool
+            | Type::Str
+            | Type::Unit
+            | Type::Null
+            | Type::Never
+            | Type::Range
+            | Type::Error => Ok(()),
+            Type::Nullable(x) | Type::List(x) => self.copyable(x, seen),
+            Type::Map(k, v) => {
+                self.copyable(k, seen)?;
+                self.copyable(v, seen)
+            }
+            Type::Fun(_) => {
+                Err("a function is its environment, and environments do not copy".into())
+            }
+            Type::Any => Err("`Any` hides what it is; narrow it first".into()),
+            Type::Param(p) => Err(format!(
+                "whether `{}` copies depends on the caller; copy concrete values",
+                p
+            )),
+            Type::SelfTy => {
+                Err("`Self` stands for a type the trait does not know; copy concrete values".into())
+            }
+            Type::Class(name, targs) => {
+                if seen.iter().any(|s| s == &**name) {
+                    return Ok(());
+                }
+                seen.push(name.to_string());
+                let Some(info) = self.classes.get(&**name) else {
+                    return Err(format!("`{}` is not a class this program knows", name));
+                };
+                let subst: crate::types::Subst = info
+                    .type_params
+                    .iter()
+                    .zip(targs.iter())
+                    .map(|(p, a)| (p.name.clone(), a.clone()))
+                    .collect();
+                for (fname, f) in &info.fields {
+                    let ft = f.ty.substitute(&subst);
+                    self.copyable(&ft, seen).map_err(|r| {
+                        format!("field `{}` of `{}` blocks it: {}", fname, name, r)
+                    })?;
+                }
+                Ok(())
+            }
+        }
+    }
+
     fn narrowings(&mut self, cond: &Expr, positive: bool) -> Vec<(String, Type)> {
         let mut out = Vec::new();
         self.collect_narrowings(cond, positive, &mut out);

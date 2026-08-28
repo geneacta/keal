@@ -2341,6 +2341,24 @@ class Checker() {
     fun checkCall(e: Ex, expected: Ty?): Ty {
         val callee = e.kids[0]
         val args = e.args
+        // `copy(value)` — the deep copy behind message passing: data
+        // crosses, code does not. Generic over its argument, which the
+        // monomorphic builtin table cannot express; checked here instead.
+        if (callee.kind == "ident" and callee.text == "copy" and this.lookup("copy") == null and args.size == 1) {
+            val t = this.checkExpr(args[0].value, null)
+            if (t.kind == "Error") { return Ty("Error") }
+            val seenC: List<String> = []
+            val reason = this.copyBlocker(t, seenC)
+            unless (reason == "") {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "a value of type `${tyShow(t)}` cannot be copied",
+                    reason
+                )
+                return Ty("Error")
+            }
+            return t
+        }
         // Constructor call, or a call to a built-in global.
         if (callee.kind == "ident") {
             val name = callee.text
@@ -2964,6 +2982,53 @@ class Checker() {
     /// Facts proved about simple variables when `cond` evaluates to
     /// `positive`. Only immutable bindings are narrowed, so nothing can
     /// invalidate the fact inside the guarded block.
+    /// Whether `copy` can carry a value of this type: "" when it can,
+    /// the reason when it cannot. Recursive classes are fine as *types*;
+    /// a cyclic *value* is the runtime's to refuse.
+    fun copyBlocker(t: Ty, seen: List<String>): String {
+        val k = t.kind
+        if (k == "Int" or k == "Float" or k == "Bool" or k == "Str" or k == "Unit" or k == "Null" or k == "Never" or k == "Range" or k == "Error") {
+            return ""
+        }
+        if (k == "Nullable" or k == "List") { return this.copyBlocker(t.args[0], seen) }
+        if (k == "Map") {
+            val kb = this.copyBlocker(t.args[0], seen)
+            unless (kb == "") { return kb }
+            return this.copyBlocker(t.args[1], seen)
+        }
+        if (k == "Fun") {
+            return "a function is its environment, and environments do not copy"
+        }
+        if (k == "Any") { return "`Any` hides what it is; narrow it first" }
+        if (k == "Param") {
+            return "whether `${t.name}` copies depends on the caller; copy concrete values"
+        }
+        if (k == "Self") {
+            return "`Self` stands for a type the trait does not know; copy concrete values"
+        }
+        if (k == "Class") {
+            if (seen.contains(t.name)) { return "" }
+            seen.add(t.name)
+            val info = this.classes[t.name]
+            if (info == null) { return "`${t.name}` is not a class this program knows" }
+            val subst: Map<String, Ty> = {}
+            var pi = 0
+            while (pi < info.typeParams.size and pi < t.args.size) {
+                subst[info.typeParams[pi].name] = t.args[pi]
+                pi += 1
+            }
+            for (f in info.fields) {
+                val ft = substitute(f.ty, subst)
+                val r = this.copyBlocker(ft, seen)
+                unless (r == "") {
+                    return "field `${f.name}` of `${t.name}` blocks it: ${r}"
+                }
+            }
+            return ""
+        }
+        return ""
+    }
+
     fun narrowings(cond: Ex, positive: Bool): List<Fact> {
         val out: List<Fact> = []
         this.collectNarrowings(cond, positive, out)

@@ -526,9 +526,10 @@ used to live here too; all three engines catch them now.)
   the deterministic round-robin is a *legal schedule*, so the interpreters
   keep it while the native backend grows a pthread scheduler behind the
   same `run()` — one heap per actor, messages deep-copied, closure-free
-  message types enforced at compile time. Groundwork (thread-local
-  unwind and `deinit` state) is in; the scheduler is the next runtime
-  project. No API changes.
+  message types enforced at compile time. Two of four stages are in:
+  thread-local runtime state, and `copy(value)` itself — the deep copy
+  as a builtin, checker-refused for what cannot cross. The scheduler is
+  the next runtime project. No API changes.
 * **`Any` in native code** — the one construct the C backend still refuses
   (by name, as always). It needs run-time type information; the tagged
   representation is already designed in [`docs/memory.md`](docs/memory.md) §4.
