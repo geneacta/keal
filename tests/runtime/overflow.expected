@@ -1,0 +1,5 @@
+runtime error: integer overflow
+  --> tests/runtime/overflow.keal:2:13
+  |
+2 | println(big + 1)
+  |             ^

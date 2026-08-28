@@ -968,9 +968,13 @@ fn ctor_params(class: &ClassDecl) -> Vec<Param> {
 }
 
 fn checked(v: Option<i64>, span: Span, op: &str) -> R<i64> {
+    let _ = op;
     match v {
         Some(v) => Ok(v),
-        None => err(span, format!("integer overflow in `{}`", op)),
+        // The VM and the C runtime say it without the operator; the
+        // reference implementation must say exactly what they say —
+        // the differential fuzzer found the three disagreeing here.
+        None => err(span, "integer overflow"),
     }
 }
 
