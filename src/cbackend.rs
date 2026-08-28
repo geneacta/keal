@@ -603,7 +603,7 @@ impl CBackend {
         let _ = writeln!(self.types, "typedef struct {} {};", name, name);
         let mut body = String::new();
         let _ = writeln!(body, "struct {} {{", name);
-        let _ = writeln!(body, "    int64_t rc;");
+        let _ = writeln!(body, "    keal_rc_t rc;");
         if has_drop {
             // Set once the object's `drop` has been queued: the hook runs
             // exactly once, resurrection or not.
@@ -845,13 +845,13 @@ impl CBackend {
         let _ = writeln!(self.decls, "void {}_release({}* o);", name, name);
         let _ = write!(
             self.defs,
-            "\n{n}* {n}_retain({n}* o) {{\n    if (o != NULL) {{ o->rc++; }}\n    return o;\n}}\n",
+            "\n{n}* {n}_retain({n}* o) {{\n    if (o != NULL) {{ KEAL_RC_BUMP(o->rc); }}\n    return o;\n}}\n",
             n = name
         );
         let mut rel = String::new();
         let _ = write!(
             rel,
-            "\nvoid {n}_release({n}* o) {{\n    if (o == NULL) {{ return; }}\n    o->rc--;\n    if (o->rc > 0) {{ return; }}\n",
+            "\nvoid {n}_release({n}* o) {{\n    if (o == NULL) {{ return; }}\n    if (KEAL_RC_DROP(o->rc)) {{ return; }}\n",
             n = name
         );
         if Self::class_has_drop(c) {
@@ -1166,6 +1166,20 @@ impl CBackend {
         let signature = format!("{} {}({})", ret, fn_name, params.join(", "));
         let _ = writeln!(self.decls, "{};", signature);
 
+        // Under the actor machinery, the four operations through which
+        // values cross threads are not compiled from the prelude's
+        // deterministic bodies — they *are* the scheduler: `send` and
+        // `post` deep-copy outside the actor lock and enqueue under it,
+        // `drain` snapshots under it, and `run` puts every actor on its
+        // own OS thread and joins at quiescence. Everything else about
+        // the actor classes stays ordinary compiled Keal.
+        if self.actors_mode {
+            if let Some(body) = self.actor_method_body(c, &m.name, name, m.span) {
+                let _ = write!(self.defs, "\n{} {{\n{}}}\n", signature, body);
+                return;
+            }
+        }
+
         self.body.clear();
         self.indent = 1;
         self.next_temp = 0;
@@ -1189,6 +1203,194 @@ impl CBackend {
         let body = std::mem::take(&mut self.body).join("\n");
         let _ = write!(self.defs, "\n{} {{\n{}\n}}\n", signature, body);
         let _ = c;
+    }
+
+    /// The four scheduler bodies, one per monomorphized actor class. `None`
+    /// for every other method, which compiles as written. The message type
+    /// is the class's own parameter, read out of the instantiation's
+    /// substitution — the checker has already required it copyable.
+    fn actor_method_body(
+        &mut self,
+        c: &ClassDecl,
+        method: &str,
+        sn: &str,
+        span: Span,
+    ) -> Option<String> {
+        let is_op = matches!(
+            (&*c.name, method),
+            ("ActorRef", "send")
+                | ("Outbox", "post")
+                | ("Outbox", "drain")
+                | ("ActorSystem", "run")
+        );
+        if !is_op {
+            return None;
+        }
+        let m_ty = self.tsubst.get(c.type_params.first()?.name.as_str())?.clone();
+        let mc = self.ctype(&m_ty, span)?;
+        let elem = self.elem_kind(&m_ty, span)?;
+        match (&*c.name, method) {
+            // Enqueue a deep copy. The copy runs outside the lock — it only
+            // reads the sender's own values — and the mutex hand-off is what
+            // orders it before the receiver's read.
+            ("ActorRef", "send") | ("Outbox", "post") => {
+                let (field, arg) =
+                    if method == "send" { ("k_mailbox", "k_msg") } else { ("k_items", "k_v") };
+                let copied = self.copy_expr_of(&m_ty, arg, "0", span)?;
+                let mut b = String::new();
+                let _ = writeln!(b, "    {} c = {};", mc, copied);
+                if self.catch_mode {
+                    let _ = writeln!(b, "    if (keal_unwinding) {{ return; }}");
+                }
+                let _ = writeln!(b, "    keal_actor_lock();");
+                let _ = writeln!(b, "    keal_list_push(self->{}, {});", field, elem.word("c"));
+                if method == "send" {
+                    let _ = writeln!(b, "    keal_actor_signal();");
+                }
+                let _ = writeln!(b, "    keal_actor_unlock();");
+                Some(b)
+            }
+            // Snapshot under the lock, as copies — what leaves the box is
+            // the drainer's alone, whichever thread posted.
+            ("Outbox", "drain") => {
+                let thunk = self.releaser_thunk(&elem);
+                let copied = self.copy_expr_of(&m_ty, &elem.unword("w"), "0", span)?;
+                let mut b = String::new();
+                let _ = writeln!(b, "    KealList* out = keal_list_new({});", thunk);
+                let _ = writeln!(b, "    keal_actor_lock();");
+                let _ = writeln!(b, "    for (int64_t i = 0; i < self->k_items->len; i++) {{");
+                let _ = writeln!(b, "        KealWord w = self->k_items->data[i];");
+                let _ = writeln!(b, "        {} c = {};", mc, copied);
+                if self.catch_mode {
+                    let _ = writeln!(
+                        b,
+                        "        if (keal_unwinding) {{ keal_actor_unlock(); keal_list_release(out); return NULL; }}"
+                    );
+                }
+                let _ = writeln!(b, "        keal_list_push(out, {});", elem.word("c"));
+                let _ = writeln!(b, "    }}");
+                let _ = writeln!(b, "    keal_actor_unlock();");
+                let _ = writeln!(b, "    return out;");
+                Some(b)
+            }
+            // One OS thread per actor; `run` starts them, waits until every
+            // mailbox is empty with no handler in flight, and joins. A
+            // handler's panic is carried back in the run state and rethrown
+            // here, on the calling thread, where a `try` around `run` can
+            // catch it — without one, the actor thread has already ended the
+            // process at the panic site, message and line intact.
+            ("ActorSystem", "run") => {
+                let ref_sn = self.instantiate_class("ActorRef", std::slice::from_ref(&m_ty), span)?;
+                let rel_msg = Self::release_fn(&m_ty);
+                let _ = writeln!(
+                    self.types,
+                    "typedef struct {sn}_actctx {{ {sn}* sys; int64_t idx; KealRunState* st; }} {sn}_actctx;",
+                    sn = sn
+                );
+                let mut t = String::new();
+                let _ = writeln!(t, "static void* {}_actor_main(void* argp) {{", sn);
+                let _ = writeln!(t, "    {sn}_actctx* a = ({sn}_actctx*)argp;", sn = sn);
+                let _ = writeln!(t, "    KealList* box = (KealList*)a->sys->k_mailboxes->data[a->idx].p;");
+                let _ = writeln!(t, "    KealClosure* h = (KealClosure*)a->sys->k_handlers->data[a->idx].p;");
+                let _ = writeln!(t, "    keal_actor_lock();");
+                let _ = writeln!(t, "    for (;;) {{");
+                let _ = writeln!(t, "        if (a->st->stop) {{ break; }}");
+                let _ = writeln!(t, "        if (box->len > 0) {{");
+                let _ = writeln!(t, "            KealWord w = box->data[0];");
+                let _ = writeln!(t, "            box->len -= 1;");
+                let _ = writeln!(t, "            memmove(box->data, box->data + 1, (size_t)box->len * sizeof(KealWord));");
+                let _ = writeln!(t, "            a->st->workers += 1;");
+                let _ = writeln!(t, "            keal_actor_unlock();");
+                let _ = writeln!(t, "            {}* ref = {}_new(box);", ref_sn, ref_sn);
+                let _ = writeln!(t, "            {} msg = {};", mc, elem.unword("w"));
+                if self.catch_mode {
+                    let _ = writeln!(t, "            keal_try_depth += 1;");
+                }
+                let _ = writeln!(
+                    t,
+                    "            ((void (*)(KealClosure*, {}*, {}))(void*)h->fn)(h, ref, msg);",
+                    ref_sn, mc
+                );
+                if self.catch_mode {
+                    let _ = writeln!(t, "            keal_try_depth -= 1;");
+                }
+                let _ = writeln!(t, "            {}_release(ref);", ref_sn);
+                if let Some(rel) = &rel_msg {
+                    let _ = writeln!(t, "            {}(msg);", rel);
+                }
+                if self.catch_mode {
+                    // The panic is carried over and the unwind state cleared
+                    // *before* the deinit sweep below, so a queued `deinit`
+                    // runs whole instead of tripping on its own guards.
+                    let _ = writeln!(t, "            if (keal_unwinding) {{");
+                    let _ = writeln!(t, "                keal_unwinding = false;");
+                    let _ = writeln!(t, "                keal_actor_lock();");
+                    let _ = writeln!(
+                        t,
+                        "                if (!a->st->panicked) {{ a->st->panicked = 1; a->st->panic_line = keal_unwind_line; snprintf(a->st->panic_msg, sizeof a->st->panic_msg, \"%s\", keal_unwind_msg); }}"
+                    );
+                    let _ = writeln!(t, "                a->st->stop = 1;");
+                    let _ = writeln!(t, "                keal_actor_unlock();");
+                    let _ = writeln!(t, "            }}");
+                }
+                if self.drop_mode {
+                    let _ = writeln!(t, "            keal_drain_drops();");
+                }
+                let _ = writeln!(t, "            keal_actor_lock();");
+                let _ = writeln!(t, "            a->st->workers -= 1;");
+                let _ = writeln!(t, "            keal_actor_signal();");
+                let _ = writeln!(t, "            continue;");
+                let _ = writeln!(t, "        }}");
+                let _ = writeln!(t, "        keal_actor_wait();");
+                let _ = writeln!(t, "    }}");
+                let _ = writeln!(t, "    keal_actor_unlock();");
+                let _ = writeln!(t, "    return NULL;");
+                let _ = writeln!(t, "}}");
+                self.helpers.push_str(&t);
+
+                let mut b = String::new();
+                let _ = writeln!(b, "    int64_t n = self->k_handlers->len;");
+                let _ = writeln!(b, "    if (n == 0) {{ return; }}");
+                let _ = writeln!(b, "    KealRunState st;");
+                let _ = writeln!(b, "    st.workers = 0; st.stop = 0; st.panicked = 0; st.panic_line = 0; st.panic_msg[0] = '\\0';");
+                let _ = writeln!(
+                    b,
+                    "    {sn}_actctx* ctxs = ({sn}_actctx*)keal_alloc((size_t)n * sizeof({sn}_actctx));",
+                    sn = sn
+                );
+                let _ = writeln!(b, "    pthread_t* ts = (pthread_t*)keal_alloc((size_t)n * sizeof(pthread_t));");
+                let _ = writeln!(b, "    for (int64_t i = 0; i < n; i++) {{");
+                let _ = writeln!(b, "        ctxs[i].sys = self; ctxs[i].idx = i; ctxs[i].st = &st;");
+                let _ = writeln!(
+                    b,
+                    "        if (pthread_create(&ts[i], NULL, {}_actor_main, &ctxs[i]) != 0) {{ keal_fatal(\"could not start an actor thread\"); }}",
+                    sn
+                );
+                let _ = writeln!(b, "    }}");
+                let _ = writeln!(b, "    keal_actor_lock();");
+                let _ = writeln!(b, "    for (;;) {{");
+                let _ = writeln!(b, "        int64_t queued = 0;");
+                let _ = writeln!(
+                    b,
+                    "        for (int64_t i = 0; i < n; i++) {{ queued += ((KealList*)self->k_mailboxes->data[i].p)->len; }}"
+                );
+                let _ = writeln!(b, "        if (st.workers == 0 && (st.stop || queued == 0)) {{ break; }}");
+                let _ = writeln!(b, "        keal_actor_wait();");
+                let _ = writeln!(b, "    }}");
+                let _ = writeln!(b, "    st.stop = 1;");
+                let _ = writeln!(b, "    keal_actor_signal();");
+                let _ = writeln!(b, "    keal_actor_unlock();");
+                let _ = writeln!(b, "    for (int64_t i = 0; i < n; i++) {{ pthread_join(ts[i], NULL); }}");
+                let _ = writeln!(b, "    free(ctxs);");
+                let _ = writeln!(b, "    free(ts);");
+                let _ = writeln!(b, "    if (st.panicked) {{");
+                let _ = writeln!(b, "        keal_panic(st.panic_msg, st.panic_line);");
+                let _ = writeln!(b, "        return;");
+                let _ = writeln!(b, "    }}");
+                Some(b)
+            }
+            _ => None,
+        }
     }
 
     /// A function body, where the last expression is the result when the
@@ -4923,6 +5125,11 @@ impl CBackend {
     fn finish(&mut self) -> String {
         let mut out = String::new();
         out.push_str("/* Generated by the Keal compiler. Do not edit. */\n");
+        if self.actors_mode {
+            // The one switch that puts actors on real threads: under it the
+            // runtime's counts go atomic and its pthread machinery exists.
+            out.push_str("#define KEAL_ACTORS 1\n");
+        }
         out.push_str(RUNTIME);
         out.push('\n');
 

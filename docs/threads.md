@@ -1,9 +1,10 @@
-# Actors on real threads — the plan, decided
+# Actors on real threads — decided, then done
 
 The actor model shipped deterministic (prelude `ActorSystem`: mailboxes,
-`spawn`, round-robin `run`). This file decides how it reaches real
-threads without breaking the language's promises, and what each stage
-costs. The API does not change — that was the point of freezing it.
+`spawn`, round-robin `run`). This file decided how it would reach real
+threads without breaking the language's promises — and now records that
+it has: `keal build` runs every actor on its own OS thread. The API
+never changed — that was the point of freezing it.
 
 ## The load-bearing insight
 
@@ -35,22 +36,33 @@ monomorphizes and the runtime is ours.
 
 ## The native design
 
-* **One heap per actor, counts stay plain.** An object never crosses
-  threads; only *messages* do, and a message crosses by **deep copy**
-  into the receiving actor's world. The backend monomorphizes
-  `ActorSystem<M>`, so it can generate `copy_M` per message type.
+* **One heap per actor.** An object never crosses threads; only
+  *messages* do, and a message crosses by **deep copy** into the
+  receiving actor's world. The backend monomorphizes `ActorSystem<M>`,
+  so it can generate `copy_M` per message type. Counts stay plain in a
+  program without actors; with them, counts go atomic (one `#define` in
+  the generated C) — because addresses, the strings a copy shares, and
+  immutable globals *are* visible from two threads, and who-frees-last
+  needs an atomic answer. docs/memory.md states the trade.
 * **Message types must be copyable.** `M` may hold Int/Float/Bool/String,
   records, lists and maps of these — data. Closures, cells and actor
   handles inside `M` are refused **by name at compile time** (the
   match-or-refuse rule; `ActorRef` itself is the one blessed exception,
   carried as its mailbox id). This restriction is honest and permanent:
   a closure is an environment, and environments do not cross heaps.
-* **Runtime shape.** `KealActor { pthread_t, mutex, condvar, deque }`;
-  `send` locks, copies, signals; each actor thread loops on its mailbox;
-  `run` becomes the join point (start threads, wait until every mailbox
-  is empty and every actor idle, stop them). Panics in an actor carry to
-  `run` and end the program with the actor named — `try` inside a
-  handler works as anywhere (the unwind state is per-thread).
+* **Runtime shape.** The actor classes stay ordinary compiled Keal;
+  exactly four method bodies are generated instead of compiled, per
+  monomorphization — they *are* the scheduler. `send` and `post`
+  deep-copy outside the one actor lock (the copy reads only the
+  sender's values) and enqueue under it; `drain` snapshots under it,
+  as copies; `run` starts one OS thread per actor, waits on a condition
+  until every mailbox is empty with no handler in flight, and joins. A
+  handler's panic is carried back in the run state and rethrown on the
+  thread that called `run`, so `try { sys.run() }` catches it there on
+  every engine; without a `try` in the program the actor thread ends
+  the process at the panic site, message and line intact. `try` inside
+  a handler works as anywhere — the unwind state is per-thread, and so
+  is the `deinit` queue, drained on the actor's own thread.
 * **Groundwork already landed:** the unwind flags (`keal_try_depth`,
   `keal_unwinding`, message buffer) and the `deinit` queue are
   `_Thread_local`, so every thread panics, catches and deinits
@@ -89,34 +101,38 @@ monomorphizes and the runtime is ours.
    field's native list carried a NULL release thunk and leaked its
    elements. Both fixed, both pinned by tests.
 
-4. **The scheduler itself.** Building the runtime
-   exposed the real wall, and it is not the pthreads: **handler closures
-   share captured state.** Today two handlers may capture the same list
-   and both mutate it — legal and deterministic under the round-robin,
-   a data race under threads, and no lock can hide it (plain counts,
-   mutable containers). The decision, recorded now so the scheduler can
-   be built against it: **`spawn` will copy its handler's captured
-   values, per actor** — an actor's state is its own, full stop, and
-   aggregation happens the actor way, by messages (a `Report` reply, a
-   collector actor), not through a shared list. This is a semantic
-   tightening that all three engines adopt *together* — the
-   deterministic engines start copying captures in the same change as
-   the threaded native, so programs never behave differently by engine
-   — and the checker enforces that captured values satisfy the same
-   copyability rule messages do. The existing actor tests aggregate
-   through shared captures and will be rewritten to reply-patterns as
-   part of that change. Then the scheduler itself: `KealActor`
-   (pthread, mutex, condvar, deque), `send` locks-copies-signals,
-   `run` joins, TSan in the suite.
-   *Not started; every semantic it schedules is now frozen and
-   engine-verified, so it is a pure runtime project.*
-5. **Measure before optimizing** — per-actor arenas only if malloc
-   contention shows up in real programs.
+4. **The capture wall, hit early and settled.** Building toward the
+   runtime exposed the real wall, and it was not the pthreads: **handler
+   closures shared captured state.** Two handlers could capture the same
+   list and both mutate it — legal and deterministic under the
+   round-robin, a data race under threads, and no lock can hide it.
+   The decision, adopted by all three engines *together* in stage 3:
+   **`spawn` copies its handler's captured values, per actor** — an
+   actor's state is its own, full stop, and aggregation happens the
+   actor way: replies inside messages, results through an `Outbox`.
+   The checker holds captured values to the same copyability rule
+   messages obey.
+5. **The scheduler itself — SHIPPED.** As promised, a pure runtime
+   project: the semantics above needed no change. The generated C
+   defines `KEAL_ACTORS`, under which the runtime's counts go atomic
+   and one mutex/condvar pair exists; four generated method bodies
+   (`send`, `post`, `drain`, `run` — see "Runtime shape") put every
+   actor on its own OS thread with quiescence as the join. Verified the
+   way a scheduler has to be: the suite's mesh program — eight actors
+   fanning echoes at each other into one outbox — runs under
+   **ThreadSanitizer**, five times, clean, and every actor test still
+   prints identical bytes on all three engines, leak-free. What panics
+   do, `deinit` on the actor's thread, and `try { sys.run() }` are
+   pinned by `tests/native/actor-panics.keal`.
+6. **Measure before optimizing** — the one lock is global and every
+   completion broadcasts; per-mailbox locks or per-actor arenas only if
+   contention shows up in real programs, and only with numbers in hand.
 
-JNI note for later: a JVM call from an actor thread needs
+JNI note, still open: a JVM call from an actor thread needs
 `AttachCurrentThread`; the gateway will attach lazily per thread.
 
-*Cost stated plainly: stage 2 is checker + backend work of moderate
-size; stage 3 is the real project — a careful C runtime with locks,
-joins and panic paths, verified under a thread sanitizer. Nothing in
-either changes a line of user code.*
+*Cost, as it turned out: stages 1–5 changed no line of user code. The
+scheduler is four generated method bodies and one runtime section behind
+a `#define` — in a program without actors the define is absent, the
+count macros collapse to plain `++`/`--`, and no pthread is included:
+the zero-cost claim is one preprocessor pass from checkable.*

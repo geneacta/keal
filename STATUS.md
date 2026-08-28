@@ -1,6 +1,6 @@
 # STATUS — where the work stands, and how to resume it
 
-*Updated: 2026-08-27. This file is the hand-off: if a session dies, the next
+*Updated: 2026-08-28. This file is the hand-off: if a session dies, the next
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
@@ -24,7 +24,7 @@ commit that leaves work in flight.*
    included); `tests/native/*` runs on all three engines.
 5. **Verification loop** (run before every commit):
    - the four-corpora loop (see below), `cargo test --release` (currently
-     21 green incl. bootstrap fixed point), `./bootstrap.sh`.
+     27 green incl. bootstrap fixed point and the actor TSan check), `./bootstrap.sh`.
    - corpora loop, for each cmd/driver pair above:
      `for f in tests/programs/*.keal examples/*.keal tests/native/*.keal
      tests/native-extern/*.keal tests/selfhost/*.keal selfhost/*.keal
@@ -61,6 +61,49 @@ Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 (`throw` / `try`-`catch` on all three engines incl. native checked
 unwinding), the six-language polyglot demo AND the ternary family are
 **DONE and pushed**. See NEXT.
+
+**Threads stage 5 COMPLETE — the pthread scheduler. Actors run on real
+OS threads under `keal build`.** The shape that made it small: the actor
+classes stay ordinary compiled Keal; exactly FOUR method bodies are
+generated instead of compiled (cbackend `actor_method_body`, twin
+`actorMethodBody`, hook in method_named after the decl line, gated on
+actors_mode): ActorRef.send / Outbox.post (deep-copy OUTSIDE the lock,
+push + broadcast under it), Outbox.drain (snapshot under the lock, as
+copies — prelude drain now copies too, so the engines agree), and
+ActorSystem.run (per-monomorph `_actctx` typedef + `_actor_main` thread
+fn into helpers; one pthread per actor; quiescence = every mailbox empty
+AND workers==0, checked under the one global mutex `keal_actor_mu` with
+one condvar, every push/completion broadcasts; join; then rethrow). The
+runtime side (src/runtime.c, embedded for everyone): `#define
+KEAL_ACTORS` — emitted by finish() only when actors_mode — flips
+`keal_rc_t` to `_Atomic int64_t` and retain/release to
+KEAL_RC_BUMP/KEAL_RC_DROP (fetch_sub — the dec-then-test pattern
+double-frees under threads); without the define the macros are plain
+++/-- and no pthread.h is included, so non-actor programs pay nothing.
+WHY atomic at all: addresses (ActorRef/Outbox), strings shared by copy
+(immutable), and immutable globals ARE visible from two threads;
+memory.md updated honestly. Panics: a handler panic is captured per
+thread (run wraps handler calls in keal_try_depth++ ONLY in catch_mode;
+without any `try` the actor thread exits at the panic site with the
+same stderr the deterministic run printed), carried in KealRunState
+(first wins) with the NEW `keal_unwind_line` TLS, rethrown on the
+thread that called run → `try { sys.run() }` catches on every engine.
+ORDER MATTERS in _actor_main: capture panic + clear unwinding BEFORE
+keal_drain_drops, or a queued deinit trips on its own guards (found by
+tests/native/actor-panics.keal). deinit queue is thread-local → runs on
+the actor's thread. -pthread added to nativebuild.rs + suite compiles.
+Structs now say `keal_rc_t rc;` (oracle emit_struct + twin + runtime
+structs). Tests: actor-panics (try/deinit/second run), actor-mesh
+(8 actors full-mesh fan-out, order-insensitive total), suite test
+`actors_are_clean_under_thread_sanitizer` (5 sanitized runs, skips
+without cc/TSan). Verified: corpora 4-way byte-identical, 27/27,
+bootstrap fixed point, fuzz 3000 clean, leaks 0, TSan 0, 100-run
+stability. Docs: threads.md (decided→done), memory.md counts section,
+prelude actor comments, README, TUTORIAL. Embeds regenerated (both).
+Still open from the plan: JNI AttachCurrentThread for JVM calls from
+actor threads (gateway attaches on the main thread only today);
+performance is stage 6 (measure first — the lock is global and every
+completion broadcasts).
 
 **Threads stage 3a COMPLETE — the actor ownership semantics:** spawn
 copies captures per actor (copyClosure builtin: interp rebuilds env from
@@ -276,8 +319,10 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
    `import_sugar_works_end_to_end` (JDK-gated).
 2. Closure callbacks at the C boundary (interop 1d) once a consumer fixes
    the `userdata` convention.
-3. Threaded actors (same API, one heap per actor); `Any` natively (RTTI);
-   cycles decision; `constexpr`; macros last. See README "What remains".
+3. Threaded actors — DONE (stage 5, see IN FLIGHT top). Left there: JNI
+   attach from actor threads, scheduler perf (measure first). Then `Any`
+   natively (RTTI); cycles decision; `constexpr`; macros last. See README
+   "What remains".
 
 ## Key file map
 

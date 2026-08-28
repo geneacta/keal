@@ -32,11 +32,60 @@ fun runtimeSource(): String {
 #define KEAL_FN static
 #endif
 
+/* ---- what actors change ----------------------------------------------- */
+
+/* An actor program runs its actors on real OS threads (docs/threads.md);
+ * the backend defines KEAL_ACTORS above this file exactly when the program
+ * touches the actor types. Two things follow, and only then:
+ *
+ * * **Counts go atomic.** Addresses (`ActorRef`, `Outbox`), the strings
+ *   inside messages (immutable, so a copy shares them), and immutable
+ *   globals are values two threads can see at once, and a plain count
+ *   cannot say who frees last. The macros below are that one switch: a
+ *   program without actors keeps plain counts and pays nothing.
+ * * **One lock, one condition.** Every mailbox push, outbox post and
+ *   drain happens under `keal_actor_mu`; actor threads sleep on
+ *   `keal_actor_cv` until a message lands or the system stops. Message
+ *   values themselves need no lock — a message is deep-copied before the
+ *   push, and the mutex hand-off orders the copy before the read.
+ */
+#ifdef KEAL_ACTORS
+#include <pthread.h>
+#include <stdatomic.h>
+typedef _Atomic int64_t keal_rc_t;
+#define KEAL_RC_BUMP(rc) atomic_fetch_add_explicit(&(rc), 1, memory_order_relaxed)
+#define KEAL_RC_DROP(rc) (atomic_fetch_sub_explicit(&(rc), 1, memory_order_acq_rel) > 1)
+
+static pthread_mutex_t keal_actor_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t keal_actor_cv = PTHREAD_COND_INITIALIZER;
+
+KEAL_FN void keal_actor_lock(void) { pthread_mutex_lock(&keal_actor_mu); }
+KEAL_FN void keal_actor_unlock(void) { pthread_mutex_unlock(&keal_actor_mu); }
+KEAL_FN void keal_actor_signal(void) { pthread_cond_broadcast(&keal_actor_cv); }
+KEAL_FN void keal_actor_wait(void) { pthread_cond_wait(&keal_actor_cv, &keal_actor_mu); }
+
+/* What one `run` shares with its actor threads: how many handlers are in
+ * flight, the stop flag, and the first panic — carried back so it is
+ * rethrown on the caller's thread, where `try { sys.run() }` can catch
+ * it. All fields are guarded by `keal_actor_mu`. */
+typedef struct KealRunState {
+    int64_t workers;
+    int stop;
+    int panicked;
+    int64_t panic_line;
+    char panic_msg[1024];
+} KealRunState;
+#else
+typedef int64_t keal_rc_t;
+#define KEAL_RC_BUMP(rc) ((rc)++)
+#define KEAL_RC_DROP(rc) (--(rc) > 0)
+#endif
+
 /* Every heap object begins with its count. A string is that count, a length,
  * and the bytes; `static_bytes` marks a literal, whose bytes are not ours to
  * free. */
 typedef struct KealStr {
-    int64_t rc;
+    keal_rc_t rc;
     int64_t len;
     const char* bytes;
     bool static_bytes;
@@ -55,6 +104,9 @@ typedef struct KealStr {
 static _Thread_local int64_t keal_try_depth = 0;
 static _Thread_local bool keal_unwinding = false;
 static _Thread_local char keal_unwind_msg[1024];
+/* The line too, so a panic carried across threads — an actor's, rethrown
+ * on the thread that called `run` — still names its source line. */
+static _Thread_local int64_t keal_unwind_line = 0;
 
 KEAL_FN void keal_panic(const char* what, int64_t line) {
     if (keal_try_depth > 0) {
@@ -62,6 +114,7 @@ KEAL_FN void keal_panic(const char* what, int64_t line) {
         if (!keal_unwinding) {
             keal_unwinding = true;
             snprintf(keal_unwind_msg, sizeof keal_unwind_msg, "%s", what);
+            keal_unwind_line = line;
         }
         return;
     }
@@ -92,7 +145,7 @@ KEAL_FN void* keal_alloc(size_t n) {
  * lets the generated code read as expressions rather than as statements. */
 KEAL_FN KealStr* keal_str_retain(KealStr* s) {
     if (s != NULL) {
-        s->rc++;
+        KEAL_RC_BUMP(s->rc);
     }
     return s;
 }
@@ -101,8 +154,7 @@ KEAL_FN void keal_str_release(KealStr* s) {
     if (s == NULL) {
         return;
     }
-    s->rc--;
-    if (s->rc > 0) {
+    if (KEAL_RC_DROP(s->rc)) {
         return;
     }
     if (!s->static_bytes) {
@@ -607,7 +659,7 @@ typedef union KealWord {
  * present. The releaser is fixed at construction; NULL marks elements with
  * nothing to release. */
 typedef struct KealList {
-    int64_t rc;
+    keal_rc_t rc;
     int64_t len;
     int64_t cap;
     KealWord* data;
@@ -626,7 +678,7 @@ KEAL_FN KealList* keal_list_new(void (*release_elem)(void*)) {
 
 KEAL_FN KealList* keal_list_retain(KealList* l) {
     if (l != NULL) {
-        l->rc++;
+        KEAL_RC_BUMP(l->rc);
     }
     return l;
 }
@@ -635,8 +687,7 @@ KEAL_FN void keal_list_release(KealList* l) {
     if (l == NULL) {
         return;
     }
-    l->rc--;
-    if (l->rc > 0) {
+    if (KEAL_RC_DROP(l->rc)) {
         return;
     }
     if (l->release_elem != NULL) {
@@ -880,7 +931,7 @@ KEAL_FN void keal_list_sort_by_i64(KealList* items, KealList* keys) {
  * keys (Int, Bool, and Float by bit pattern, as the interpreters key them),
  * one for strings by content. */
 typedef struct KealMap {
-    int64_t rc;
+    keal_rc_t rc;
     int64_t len;
     int64_t cap;
     KealWord* data; /* [key, value, key, value, ...] */
@@ -912,7 +963,7 @@ KEAL_FN KealMap* keal_map_new(bool (*key_eq)(KealWord, KealWord),
 
 KEAL_FN KealMap* keal_map_retain(KealMap* m) {
     if (m != NULL) {
-        m->rc++;
+        KEAL_RC_BUMP(m->rc);
     }
     return m;
 }
@@ -921,8 +972,7 @@ KEAL_FN void keal_map_release(KealMap* m) {
     if (m == NULL) {
         return;
     }
-    m->rc--;
-    if (m->rc > 0) {
+    if (KEAL_RC_DROP(m->rc)) {
         return;
     }
     for (int64_t i = 0; i < m->len; i++) {
@@ -1079,7 +1129,7 @@ KEAL_FN KealStr* keal_list_join_str(KealList* l, KealStr* sep) {
 typedef void (*KealCode)(void);
 
 typedef struct KealClosure {
-    int64_t rc;
+    keal_rc_t rc;
     KealCode fn;
     void (*drop)(struct KealClosure* self);
     /* A fresh closure whose captured values are deep copies — the spawn
@@ -1098,7 +1148,7 @@ KEAL_FN KealClosure* keal_fn_copy_captures(KealClosure* c) {
 
 KEAL_FN KealClosure* keal_fn_retain(KealClosure* c) {
     if (c != NULL) {
-        c->rc++;
+        KEAL_RC_BUMP(c->rc);
     }
     return c;
 }
@@ -1107,8 +1157,7 @@ KEAL_FN void keal_fn_release(KealClosure* c) {
     if (c == NULL) {
         return;
     }
-    c->rc--;
-    if (c->rc > 0) {
+    if (KEAL_RC_DROP(c->rc)) {
         return;
     }
     c->drop(c);
@@ -1323,7 +1372,7 @@ KEAL_FN KealOptF64 keal_str_to_float(KealStr* s) {
  * share the one cell, so an assignment through any of them is seen by all —
  * the interpreters' semantics, kept rather than approximated. */
 typedef struct KealCell {
-    int64_t rc;
+    keal_rc_t rc;
     KealWord w;
     void (*release_inner)(void*);
 } KealCell;
@@ -1338,7 +1387,7 @@ KEAL_FN KealCell* keal_cell_new(void (*release_inner)(void*)) {
 
 KEAL_FN KealCell* keal_cell_retain(KealCell* c) {
     if (c != NULL) {
-        c->rc++;
+        KEAL_RC_BUMP(c->rc);
     }
     return c;
 }
@@ -1347,8 +1396,7 @@ KEAL_FN void keal_cell_release(KealCell* c) {
     if (c == NULL) {
         return;
     }
-    c->rc--;
-    if (c->rc > 0) {
+    if (KEAL_RC_DROP(c->rc)) {
         return;
     }
     if (c->release_inner != NULL) {

@@ -1094,7 +1094,7 @@ class CBackend() {
     proc emitStruct(name: String, fields: List<SField>, file: Int, atLine: Int, col: Int, hasDeinit: Bool) {
         this.typesOut += "typedef struct ${name} ${name};\n"
         var sbody = "struct ${name} {\n"
-        sbody += "    int64_t rc;\n"
+        sbody += "    keal_rc_t rc;\n"
         if (hasDeinit) {
             // Set once the object's `deinit` has been queued: the hook runs
             // exactly once, resurrection or not.
@@ -1260,7 +1260,7 @@ class CBackend() {
         this.atTopLevel = false
         val savedRet = this.currentRet
         this.currentRet = null
-        this.methodNamed(m, sn, fnName)
+        this.methodNamed(c, m, sn, fnName)
         this.currentRet = savedRet
         this.atTopLevel = savedTop
         this.celled = savedCelled
@@ -1371,8 +1371,8 @@ class CBackend() {
         // retain / release
         this.decls += "${name}* ${name}_retain(${name}* o);\n"
         this.decls += "void ${name}_release(${name}* o);\n"
-        this.defs += "\n${name}* ${name}_retain(${name}* o) {\n    if (o != NULL) { o->rc++; }\n    return o;\n}\n"
-        var rel = "\nvoid ${name}_release(${name}* o) {\n    if (o == NULL) { return; }\n    o->rc--;\n    if (o->rc > 0) { return; }\n"
+        this.defs += "\n${name}* ${name}_retain(${name}* o) {\n    if (o != NULL) { KEAL_RC_BUMP(o->rc); }\n    return o;\n}\n"
+        var rel = "\nvoid ${name}_release(${name}* o) {\n    if (o == NULL) { return; }\n    if (KEAL_RC_DROP(o->rc)) { return; }\n"
         if (classHasDeinit(c)) {
             // The first death queues the hook instead of freeing: the
             // object waits, whole and resurrected to one reference, for
@@ -1399,7 +1399,7 @@ class CBackend() {
         this.classShow(c, fields, name)
         this.constructor(c, fields, name)
         for (m in c.methods) {
-            this.method(m, name)
+            this.method(c, m, name)
         }
     }
 
@@ -1638,13 +1638,13 @@ class CBackend() {
     }
 
     /// A method is a function whose first parameter is the receiver.
-    proc method(m: FunN, name: String) {
+    proc method(c: ClassN, m: FunN, name: String) {
         // A generic method is emitted per instantiation, on demand.
         if (m.typeParams.size > 0) { return }
-        this.methodNamed(m, name, "${name}_${mangleMethod(m.name)}")
+        this.methodNamed(c, m, name, "${name}_${mangleMethod(m.name)}")
     }
 
-    proc methodNamed(m: FunN, name: String, fnName: String) {
+    proc methodNamed(c: ClassN, m: FunN, name: String, fnName: String) {
         var retTy: Ty? = null
         val rte = m.ret
         if (rte != null) {
@@ -1672,6 +1672,21 @@ class CBackend() {
         val signature = "${ret} ${fnName}(${params.join(", ")})"
         this.decls += signature + ";\n"
 
+        // Under the actor machinery, the four operations through which
+        // values cross threads are not compiled from the prelude's
+        // deterministic bodies — they *are* the scheduler: `send` and
+        // `post` deep-copy outside the actor lock and enqueue under it,
+        // `drain` snapshots under it, and `run` puts every actor on its
+        // own OS thread and joins at quiescence. Everything else about
+        // the actor classes stays ordinary compiled Keal.
+        if (this.actorsMode) {
+            val ab = this.actorMethodBody(c, m.name, name, m.file, m.line, m.col)
+            if (ab != null) {
+                this.defs += "\n${signature} {\n${ab}}\n"
+                return
+            }
+        }
+
         this.body = []
         this.indent = 1
         this.nextTemp = 0
@@ -1697,6 +1712,162 @@ class CBackend() {
         val joined = this.body.join("\n")
         this.body = []
         this.defs += "\n${signature} {\n${joined}\n}\n"
+    }
+
+    /// The four scheduler bodies, one per monomorphized actor class. `null`
+    /// for every other method, which compiles as written. The message type
+    /// is the class's own parameter, read out of the instantiation's
+    /// substitution — the checker has already required it copyable.
+    fun actorMethodBody(c: ClassN, method: String, sn: String, file: Int, atLine: Int, col: Int): String? {
+        var isOp = false
+        if (c.name == "ActorRef" and method == "send") { isOp = true }
+        if (c.name == "Outbox" and (method == "post" or method == "drain")) { isOp = true }
+        if (c.name == "ActorSystem" and method == "run") { isOp = true }
+        unless (isOp) { return null }
+        if (c.typeParams.size == 0) { return null }
+        unless (this.tsubst.contains(c.typeParams[0].name)) { return null }
+        val mTy = this.tsubst[c.typeParams[0].name]!!
+        val mc = this.ctype(mTy, file, atLine, col)
+        if (mc == null) { return null }
+        val elem = this.elemKind(mTy, file, atLine, col)
+        if (elem == null) { return null }
+        // Enqueue a deep copy. The copy runs outside the lock — it only
+        // reads the sender's own values — and the mutex hand-off is what
+        // orders it before the receiver's read.
+        if (method == "send" or method == "post") {
+            var field = "k_items"
+            var arg = "k_v"
+            if (method == "send") {
+                field = "k_mailbox"
+                arg = "k_msg"
+            }
+            val copied = this.copyExprOf(mTy, arg, "0", file, atLine, col)
+            if (copied == null) { return null }
+            var b = "    ${mc} c = ${copied};\n"
+            if (this.catchMode) {
+                b += "    if (keal_unwinding) { return; }\n"
+            }
+            b += "    keal_actor_lock();\n"
+            b += "    keal_list_push(self->${field}, ${elemWord(elem, "c")});\n"
+            if (method == "send") {
+                b += "    keal_actor_signal();\n"
+            }
+            b += "    keal_actor_unlock();\n"
+            return b
+        }
+        // Snapshot under the lock, as copies — what leaves the box is
+        // the drainer's alone, whichever thread posted.
+        if (method == "drain") {
+            val thunk = this.releaserThunk(elem)
+            val copied = this.copyExprOf(mTy, elemUnword(elem, "w"), "0", file, atLine, col)
+            if (copied == null) { return null }
+            var b = "    KealList* out = keal_list_new(${thunk});\n"
+            b += "    keal_actor_lock();\n"
+            b += "    for (int64_t i = 0; i < self->k_items->len; i++) {\n"
+            b += "        KealWord w = self->k_items->data[i];\n"
+            b += "        ${mc} c = ${copied};\n"
+            if (this.catchMode) {
+                b += "        if (keal_unwinding) { keal_actor_unlock(); keal_list_release(out); return NULL; }\n"
+            }
+            b += "        keal_list_push(out, ${elemWord(elem, "c")});\n"
+            b += "    }\n"
+            b += "    keal_actor_unlock();\n"
+            b += "    return out;\n"
+            return b
+        }
+        // One OS thread per actor; `run` starts them, waits until every
+        // mailbox is empty with no handler in flight, and joins. A
+        // handler's panic is carried back in the run state and rethrown
+        // here, on the calling thread, where a `try` around `run` can
+        // catch it — without one, the actor thread has already ended the
+        // process at the panic site, message and line intact.
+        val margs: List<Ty> = []
+        margs.add(mTy)
+        val refSn = this.instantiateClass("ActorRef", margs, file, atLine, col)
+        if (refSn == null) { return null }
+        val relMsg = releaseFn(mTy)
+        this.typesOut += "typedef struct ${sn}_actctx { ${sn}* sys; int64_t idx; KealRunState* st; } ${sn}_actctx;\n"
+        var t = "static void* ${sn}_actor_main(void* argp) {\n"
+        t += "    ${sn}_actctx* a = (${sn}_actctx*)argp;\n"
+        t += "    KealList* box = (KealList*)a->sys->k_mailboxes->data[a->idx].p;\n"
+        t += "    KealClosure* h = (KealClosure*)a->sys->k_handlers->data[a->idx].p;\n"
+        t += "    keal_actor_lock();\n"
+        t += "    for (;;) {\n"
+        t += "        if (a->st->stop) { break; }\n"
+        t += "        if (box->len > 0) {\n"
+        t += "            KealWord w = box->data[0];\n"
+        t += "            box->len -= 1;\n"
+        t += "            memmove(box->data, box->data + 1, (size_t)box->len * sizeof(KealWord));\n"
+        t += "            a->st->workers += 1;\n"
+        t += "            keal_actor_unlock();\n"
+        t += "            ${refSn}* ref = ${refSn}_new(box);\n"
+        t += "            ${mc} msg = ${elemUnword(elem, "w")};\n"
+        if (this.catchMode) {
+            t += "            keal_try_depth += 1;\n"
+        }
+        t += "            ((void (*)(KealClosure*, ${refSn}*, ${mc}))(void*)h->fn)(h, ref, msg);\n"
+        if (this.catchMode) {
+            t += "            keal_try_depth -= 1;\n"
+        }
+        t += "            ${refSn}_release(ref);\n"
+        if (relMsg != null) {
+            t += "            ${relMsg}(msg);\n"
+        }
+        if (this.catchMode) {
+            // The panic is carried over and the unwind state cleared
+            // *before* the deinit sweep below, so a queued `deinit`
+            // runs whole instead of tripping on its own guards.
+            t += "            if (keal_unwinding) {\n"
+            t += "                keal_unwinding = false;\n"
+            t += "                keal_actor_lock();\n"
+            t += "                if (!a->st->panicked) { a->st->panicked = 1; a->st->panic_line = keal_unwind_line; snprintf(a->st->panic_msg, sizeof a->st->panic_msg, \"%s\", keal_unwind_msg); }\n"
+            t += "                a->st->stop = 1;\n"
+            t += "                keal_actor_unlock();\n"
+            t += "            }\n"
+        }
+        if (this.dropMode) {
+            t += "            keal_drain_drops();\n"
+        }
+        t += "            keal_actor_lock();\n"
+        t += "            a->st->workers -= 1;\n"
+        t += "            keal_actor_signal();\n"
+        t += "            continue;\n"
+        t += "        }\n"
+        t += "        keal_actor_wait();\n"
+        t += "    }\n"
+        t += "    keal_actor_unlock();\n"
+        t += "    return NULL;\n"
+        t += "}\n"
+        this.helpers += t
+
+        var b = "    int64_t n = self->k_handlers->len;\n"
+        b += "    if (n == 0) { return; }\n"
+        b += "    KealRunState st;\n"
+        b += "    st.workers = 0; st.stop = 0; st.panicked = 0; st.panic_line = 0; st.panic_msg[0] = '\\0';\n"
+        b += "    ${sn}_actctx* ctxs = (${sn}_actctx*)keal_alloc((size_t)n * sizeof(${sn}_actctx));\n"
+        b += "    pthread_t* ts = (pthread_t*)keal_alloc((size_t)n * sizeof(pthread_t));\n"
+        b += "    for (int64_t i = 0; i < n; i++) {\n"
+        b += "        ctxs[i].sys = self; ctxs[i].idx = i; ctxs[i].st = &st;\n"
+        b += "        if (pthread_create(&ts[i], NULL, ${sn}_actor_main, &ctxs[i]) != 0) { keal_fatal(\"could not start an actor thread\"); }\n"
+        b += "    }\n"
+        b += "    keal_actor_lock();\n"
+        b += "    for (;;) {\n"
+        b += "        int64_t queued = 0;\n"
+        b += "        for (int64_t i = 0; i < n; i++) { queued += ((KealList*)self->k_mailboxes->data[i].p)->len; }\n"
+        b += "        if (st.workers == 0 && (st.stop || queued == 0)) { break; }\n"
+        b += "        keal_actor_wait();\n"
+        b += "    }\n"
+        b += "    st.stop = 1;\n"
+        b += "    keal_actor_signal();\n"
+        b += "    keal_actor_unlock();\n"
+        b += "    for (int64_t i = 0; i < n; i++) { pthread_join(ts[i], NULL); }\n"
+        b += "    free(ctxs);\n"
+        b += "    free(ts);\n"
+        b += "    if (st.panicked) {\n"
+        b += "        keal_panic(st.panic_msg, st.panic_line);\n"
+        b += "        return;\n"
+        b += "    }\n"
+        return b
     }
 
     /// A function body, where the last expression is the result when the
@@ -5092,6 +5263,11 @@ class CBackend() {
     fun finish(): String {
         var out = ""
         out += "/* Generated by the Keal compiler. Do not edit. */\n"
+        if (this.actorsMode) {
+            // The one switch that puts actors on real threads: under it the
+            // runtime's counts go atomic and its pthread machinery exists.
+            out += "#define KEAL_ACTORS 1\n"
+        }
         out += runtimeSource()
         out += "\n"
 

@@ -28,8 +28,9 @@ At a glance:
   records
 * **Generics by monomorphisation** (no erasure, no boxing), traits with
   default methods, operator overloading
-* **Lazy sequences** (Stream/Sequence-style, written in Keal itself) and a
-  deterministic **actor model** for concurrency
+* **Lazy sequences** (Stream/Sequence-style, written in Keal itself) and an
+  **actor model** for concurrency — deterministic on the interpreters, real
+  OS threads under `keal build`, same output either way
 * **Reference counting** with a fully documented memory model — inspect any
   program's layout with `keal layout`
 * **Native compilation** (`keal build`) ~84× faster than the VM, with **C and
@@ -230,11 +231,13 @@ engines, which must agree on every byte they print.
   only what the terminal pulls, and `iterate(1, { it * 2 })` is an infinite
   source. Pull-based, fusing, zero cost for programs that never use it, and
   it compiles to native like everything else.
-- **Actors** — the concurrency model the language committed to, runnable
-  today: `spawn` a handler, `send` messages, `run` a deterministic
-  round-robin scheduler. One heap of truth per actor (state lives in the
-  handler's closure), messages as ordinary values, the same output on every
-  engine. Threaded execution is the planned next step and changes no API.
+- **Actors** — the concurrency model the language committed to: `spawn` a
+  handler, `send` messages, `run`. The interpreters deliver round-robin,
+  deterministically; compiled natively each actor is an OS thread, joined
+  at quiescence and verified under ThreadSanitizer. One heap of truth per
+  actor (state lives in the handler's own copy of its captures), messages
+  deep-copied, the same output on every engine for every program that only
+  depends on the order the model actually promises.
 - **A standard library** of about ninety built-ins over strings, lists, maps
   and numbers, including `map`/`filter`/`fold` typed generically.
 - **Modules.** `import "./other.keal"`, resolved relative to the importing
@@ -532,17 +535,10 @@ The honest list, in rough order of intent. (Interop used to live here;
 it doesn't anymore — C, C++, Rust, Go, Java and Kotlin all answer from one
 Keal file in [`examples/interop/polyglot/`](examples/interop/polyglot/),
 and [`docs/interop.md`](docs/interop.md) tells that whole story. Exceptions
-used to live here too; all three engines catch them now.)
+used to live here too; all three engines catch them now. So did actors on
+real threads: `keal build` runs one OS thread per actor today, TSan-clean,
+and [`docs/threads.md`](docs/threads.md) is the record of how.)
 
-* **Actors on real threads** — the model ships and is deterministic
-  today, and the road is now decided in [`docs/threads.md`](docs/threads.md):
-  the deterministic round-robin is a *legal schedule*, so the interpreters
-  keep it while the native backend grows a pthread scheduler behind the
-  same `run()` — one heap per actor, messages deep-copied, closure-free
-  message types enforced at compile time. Two of four stages are in:
-  thread-local runtime state, and `copy(value)` itself — the deep copy
-  as a builtin, checker-refused for what cannot cross. The scheduler is
-  the next runtime project. No API changes.
 * **`Any` in native code** — the one construct the C backend still refuses
   (by name, as always). It needs run-time type information; the tagged
   representation is already designed in [`docs/memory.md`](docs/memory.md) §4.

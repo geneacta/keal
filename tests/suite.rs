@@ -218,7 +218,7 @@ fn native_agrees_with_the_interpreters() {
         std::fs::write(&csrc, &emitted.stdout).expect("cannot write the generated C");
 
         let built = Command::new(&cc)
-            .args(["-O2", "-std=c11", "-o"])
+            .args(["-O2", "-std=c11", "-pthread", "-o"])
             .arg(&bin)
             .arg(&csrc)
             .output()
@@ -245,6 +245,59 @@ fn native_agrees_with_the_interpreters() {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// The threaded scheduler under ThreadSanitizer: the mesh program — eight
+/// actors fanning echoes at each other while posting into one outbox —
+/// builds with `-fsanitize=thread` and must come back clean, five runs in
+/// a row. Skipped when no C compiler is installed, and when this compiler
+/// cannot link the sanitizer runtime, so the suite stays green on machines
+/// that cannot run the check rather than pretending they did.
+#[test]
+fn actors_are_clean_under_thread_sanitizer() {
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let path = "tests/native/actor-mesh.keal";
+    let emitted = keal(&["emit-c", path]);
+    assert!(emitted.success, "{} did not emit C:\n{}", path, emitted.stderr);
+
+    let dir = std::env::temp_dir().join("keal-actor-tsan");
+    std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+    let csrc = dir.join("out.c");
+    let bin = dir.join("out");
+    std::fs::write(&csrc, &emitted.stdout).expect("cannot write the generated C");
+
+    let built = Command::new(&cc)
+        .args(["-O2", "-std=c11", "-pthread", "-fsanitize=thread", "-o"])
+        .arg(&bin)
+        .arg(&csrc)
+        .output()
+        .expect("cannot run the C compiler");
+    if !built.status.success() {
+        eprintln!("skipping: `{}` cannot build with -fsanitize=thread", cc);
+        let _ = std::fs::remove_dir_all(&dir);
+        return;
+    }
+
+    for _ in 0..5 {
+        let out = Command::new(&bin).output().expect("cannot run the built binary");
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(
+            !stderr.contains("ThreadSanitizer"),
+            "the thread sanitizer reported a race:\n{}",
+            stderr
+        );
+        assert!(out.status.success(), "the sanitized binary failed:\n{}", stderr);
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            "total 1117\n",
+            "the sanitized binary printed the wrong total"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A construct the backend does not cover must be named, not mis-compiled.

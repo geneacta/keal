@@ -102,7 +102,7 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
     // first and only the link is shared.
     let obj = format!("{}.o", out);
     let mut compile_cmd = Command::new(&cc);
-    compile_cmd.args(["-O2", "-std=c11"]);
+    compile_cmd.args(["-O2", "-std=c11", "-pthread"]);
     for f in &compile_flags {
         compile_cmd.arg(f);
     }
@@ -163,7 +163,7 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
 
     let linker = if any_cpp { &cxx } else { &cc };
     let mut cmd = Command::new(linker);
-    cmd.args(["-O2", "-o", &out]);
+    cmd.args(["-O2", "-pthread", "-o", &out]);
     for o in &objs {
         cmd.arg(o);
     }

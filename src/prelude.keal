@@ -419,13 +419,16 @@ fun iterate<T>(seed: T, step: (T) -> T): Sequence<T> {
 // ---- actors --------------------------------------------------------------
 //
 // The concurrency model the language committed to: actors that own their
-// state and talk only through messages. What lives here is the model itself,
-// runnable today on every engine — spawning, mailboxes, and a deterministic
-// scheduler — so programs can be written and tested against actor semantics
-// now. Running actors on real threads (one heap each, counts still plain,
-// exactly as docs/memory.md lays out) is the planned next step, and nothing
-// in this API will need to change for it: `send` is already asynchronous
-// and `run` is already the only synchronization point.
+// state and talk only through messages. What lives here is the model itself —
+// spawning, mailboxes, and a deterministic scheduler — which the two
+// interpreters run as written: a legal schedule, and the semantic reference.
+// Compiled natively, the same programs run each actor on its own OS thread
+// (docs/threads.md): `keal build` swaps `send`, `post`, `drain` and `run`
+// for a threaded scheduler with the same meaning, because `send` was always
+// asynchronous and `run` was always the only synchronization point. A
+// program whose output does not depend on ordering *between* actors — the
+// only kind the model promises anything about — prints the same bytes on
+// all three engines.
 //
 // One system carries one message type `M`; a protocol with several shapes
 // of message is a record or a `when` over a small union the program defines.
@@ -454,11 +457,13 @@ class Outbox<T>(val items: List<T>) {
         this.items.add(copy(v))
     }
 
-    /// Everything posted so far, in arrival order.
+    /// Everything posted so far, in arrival order — as **copies**: what
+    /// leaves the box is yours alone, so draining twice aliases nothing,
+    /// on any scheduler.
     fun drain(): List<T> {
         val out: List<T> = []
         for (v in this.items) {
-            out.add(v)
+            out.add(copy(v))
         }
         return out
     }
@@ -490,11 +495,13 @@ class ActorSystem<M>() {
         return ActorRef(box)
     }
 
-    /// Delivers messages round-robin — one message per actor per pass, in
-    /// spawn order — until every mailbox is drained. Deterministic, so the
-    /// same program computes the same thing on every engine; a threaded
-    /// scheduler may later relax the ordering between actors, never within
-    /// one actor's mailbox.
+    /// Delivers until every mailbox is drained and no handler is running.
+    /// The interpreters deliver round-robin — one message per actor per
+    /// pass, in spawn order — deterministically; compiled natively, each
+    /// actor is an OS thread and only the order *within* one actor's
+    /// mailbox is promised, which is the only order the model ever
+    /// promised. A handler's panic ends `run` on the calling thread, so
+    /// `try { sys.run() }` catches it on every engine.
     proc run() {
         var progress = true
         while (progress) {

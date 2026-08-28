@@ -799,8 +799,10 @@ assert(steps.drain() == [8, 12, 14, 15], "8, then self-sent 4, 2, 1")
 The checker holds the rules: a handler cannot reach a global `var`, a
 mutable global `val`, or `this`, and everything it captures must be
 copyable data — because those are exactly the data races a threaded
-scheduler cannot allow. Running actors on real threads is the planned
-next step, and changes nothing in this API.
+scheduler cannot allow. And it doesn't: compile this chapter with
+`keal build` and every actor runs on its own OS thread, same API, same
+output — the interpreters' deterministic round-robin is one legal
+schedule, the threads are another.
 
 ---
 

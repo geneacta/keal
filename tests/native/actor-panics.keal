@@ -1,0 +1,34 @@
+// A handler panic under `try { run }` is caught on the calling thread;
+// after the catch the system still delivers, and `deinit` runs on the
+// actor's own thread at statement boundaries.
+
+class Tracker(val tag: String) {
+    proc deinit() {
+        val trail: Outbox<String> = trace
+        trail.post(this.tag)
+    }
+}
+
+val trace: Outbox<String> = outbox()
+
+val sys: ActorSystem<Int> = ActorSystem()
+val boom = sys.spawn({ self, n ->
+    val t = Tracker("actor-${n}")
+    if (n == 13) {
+        val xs: List<Int> = []
+        println(xs[9])
+    }
+})
+
+boom.send(13)
+var caught = "no panic"
+try {
+    sys.run()
+} catch (e) {
+    caught = "caught: ${e}"
+}
+println(caught)
+
+boom.send(2)
+sys.run()
+println(trace.drain())

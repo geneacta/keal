@@ -1,0 +1,33 @@
+// Eight actors in a full mesh: every positive message fans out a negative
+// echo to all eight; the outbox collects magnitudes. The total is a sum,
+// so it does not depend on delivery order between actors.
+proc mesh(sums: Outbox<Int>, sys: ActorSystem<Int>) {
+    val refs: List<ActorRef<Int>> = []
+    var i = 0
+    while (i < 8) {
+        val r = sys.spawn({ self, n ->
+            if (n > 0) {
+                var j = 0
+                while (j < refs.size) {
+                    refs[j].send(0 - n)
+                    j += 1
+                }
+            }
+            if (n < 0) { sums.post(0 - n) }
+        })
+        refs.add(r)
+        i += 1
+    }
+    var k = 1
+    while (k <= 25) {
+        refs[k % 8].send(k)
+        k += 1
+    }
+}
+val sums: Outbox<Int> = outbox()
+val sys: ActorSystem<Int> = ActorSystem()
+mesh(sums, sys)
+sys.run()
+var total = 0
+for (v in sums.drain()) { total += v }
+println("total ${total}")
