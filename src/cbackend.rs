@@ -132,6 +132,9 @@ struct CBackend {
     /// Generated helper functions: releaser thunks and list renderers.
     helpers: String,
     thunks: std::collections::HashSet<String>,
+    /// Deep-copy functions already generated, by name — memoized before
+    /// their bodies are written, so recursive types close the loop.
+    copy_fns: std::collections::HashSet<String>,
     /// Cache of generated list-show helpers, keyed by element type.
     list_shows: HashMap<String, String>,
     pending_structs: Vec<String>,
@@ -211,6 +214,7 @@ impl CBackend {
             types: String::new(),
             helpers: String::new(),
             thunks: std::collections::HashSet::new(),
+            copy_fns: std::collections::HashSet::new(),
             list_shows: HashMap::new(),
             pending_structs: Vec::new(),
             shapes: HashMap::new(),
@@ -4127,6 +4131,146 @@ impl CBackend {
         }
     }
 
+    /// The C expression that copies `v` of type `ty` at `depth` — a raw
+    /// value for scalars, a retain for immutable strings, a generated
+    /// per-type function for anything with structure. `None` when the type
+    /// cannot cross, which the checker already refused.
+    fn copy_expr_of(&mut self, ty: &Type, v: &str, depth: &str, span: Span) -> Option<String> {
+        match ty {
+            Type::Int | Type::Float | Type::Bool | Type::Unit | Type::Range => {
+                Some(v.to_string())
+            }
+            Type::Str => Some(format!("keal_str_retain({})", v)),
+            Type::Nullable(inner) => {
+                if is_value_opt(ty) {
+                    return Some(v.to_string());
+                }
+                match &**inner {
+                    Type::Str => Some(format!("keal_str_retain({})", v)),
+                    _ => {
+                        let f = self.ensure_copy_fn(inner, span)?;
+                        Some(format!("({v} == NULL ? NULL : {f}({v}, {d}))", v = v, f = f, d = depth))
+                    }
+                }
+            }
+            Type::List(_) | Type::Map(_, _) | Type::Class(_, _) => {
+                let f = self.ensure_copy_fn(ty, span)?;
+                Some(format!("{}({}, {})", f, v, depth))
+            }
+            _ => None,
+        }
+    }
+
+    /// Generates (once) the copy function for a structured type, and
+    /// answers its name. Bodies check the same depth cap the interpreters
+    /// check, with the same message; on an unwind they release what they
+    /// built and poison-return, so a caught cycle panic leaks nothing.
+    fn ensure_copy_fn(&mut self, ty: &Type, span: Span) -> Option<String> {
+        let name = format!("kcopy_{}", mangle_type(ty));
+        if self.copy_fns.contains(&name) {
+            return Some(name);
+        }
+        self.copy_fns.insert(name.clone());
+        let cap = "if (depth > 10000) { keal_panic(\"`copy` went 10000 levels deep; is the value cyclic?\", 0); return NULL; }";
+        match ty {
+            Type::List(elem_ty) => {
+                let elem_ty = (**elem_ty).clone();
+                let elem = self.elem_kind(&elem_ty, span)?;
+                let thunk = self.releaser_thunk(&elem);
+                let cv = self.copy_expr_of(&elem_ty, &elem.unword("w"), "depth + 1", span)?;
+                let _ = writeln!(self.decls, "KealList* {}(KealList* l, int64_t depth);", name);
+                let bail = if Self::counted(&elem_ty) {
+                    "        if (keal_unwinding) { keal_list_release(out); return NULL; }\n"
+                } else {
+                    ""
+                };
+                let _ = write!(
+                    self.defs,
+                    "\nKealList* {n}(KealList* l, int64_t depth) {{\n    {cap}\n    KealList* out = keal_list_new({thunk});\n    for (int64_t i = 0; i < l->len; i++) {{\n        KealWord w = l->data[i];\n        keal_list_push(out, {word});\n{bail}    }}\n    return out;\n}}\n",
+                    n = name,
+                    cap = cap,
+                    thunk = thunk,
+                    bail = bail,
+                    word = elem.word(&cv)
+                );
+                Some(name)
+            }
+            Type::Map(kt, vt) => {
+                let (kt, vt) = ((**kt).clone(), (**vt).clone());
+                let kk = self.key_kind(&kt, span)?;
+                let vk = self.elem_kind(&vt, span)?;
+                let rel_k = self.releaser_thunk(&kk);
+                let rel_v = self.releaser_thunk(&vk);
+                let ck = self.copy_expr_of(&kt, &kk.unword("k"), "depth + 1", span)?;
+                let cv = self.copy_expr_of(&vt, &vk.unword("v"), "depth + 1", span)?;
+                let _ = writeln!(self.decls, "KealMap* {}(KealMap* m, int64_t depth);", name);
+                let bail = if Self::counted(&vt) {
+                    "        if (keal_unwinding) { keal_map_release(out); return NULL; }\n"
+                } else {
+                    ""
+                };
+                let _ = write!(
+                    self.defs,
+                    "\nKealMap* {n}(KealMap* m, int64_t depth) {{\n    {cap}\n    KealMap* out = keal_map_new({eq}, {rk}, {rv});\n    for (int64_t i = 0; i < m->len; i++) {{\n        KealWord k = m->data[2 * i];\n        KealWord v = m->data[2 * i + 1];\n        keal_map_set(out, {kw}, {vw});\n{bail}    }}\n    return out;\n}}\n",
+                    n = name,
+                    cap = cap,
+                    eq = Self::key_eq_fn(&kk),
+                    rk = rel_k,
+                    rv = rel_v,
+                    bail = bail,
+                    kw = kk.word(&ck),
+                    vw = vk.word(&cv)
+                );
+                Some(name)
+            }
+            Type::Class(cname, targs) => {
+                let sn = if targs.is_empty() {
+                    struct_name(cname)
+                } else {
+                    self.instantiate_class(cname, targs, span)?
+                };
+                let raw = self.shapes.get(&**cname).cloned()?;
+                let subst: crate::types::Subst = match self.class_decls.get(&**cname) {
+                    Some(decl) => decl
+                        .type_params
+                        .iter()
+                        .zip(targs.iter())
+                        .map(|(p, a)| (std::rc::Rc::from(p.name.as_str()), a.clone()))
+                        .collect(),
+                    None => crate::types::Subst::new(),
+                };
+                let fields: Vec<(String, Type)> = raw
+                    .into_iter()
+                    .map(|(fname, ft)| (fname, ft.substitute(&subst).substitute(&self.tsubst)))
+                    .collect();
+                let _ = writeln!(self.decls, "{n}* {f}({n}* o, int64_t depth);", n = sn, f = name);
+                let mut body = String::new();
+                let _ = write!(
+                    body,
+                    "\n{n}* {f}({n}* o, int64_t depth) {{\n    {cap}\n    {n}* c = ({n}*)keal_alloc(sizeof({n}));\n    memset((void*)c, 0, sizeof(*c));\n    c->rc = 1;\n",
+                    n = sn,
+                    f = name,
+                    cap = cap
+                );
+                for (fname, ft) in &fields {
+                    let cv = self.copy_expr_of(ft, &format!("o->{}", mangle(fname)), "depth + 1", span)?;
+                    let _ = write!(body, "    c->{} = {};\n", mangle(fname), cv);
+                    if Self::counted(ft) {
+                        let _ = write!(
+                            body,
+                            "    if (keal_unwinding) {{ {}_release(c); return NULL; }}\n",
+                            sn
+                        );
+                    }
+                }
+                let _ = write!(body, "    return c;\n}}\n");
+                self.defs.push_str(&body);
+                Some(name)
+            }
+            _ => None,
+        }
+    }
+
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Arg]) -> String {
         // Anything of function type is callable through its closure — a
         // local, a parameter, or the result of another call. A name that is
@@ -4179,6 +4323,28 @@ impl CBackend {
         }
         // `assert`: the message, when given, is evaluated eagerly — the
         // interpreters evaluate arguments before the call, and so does this.
+        // `copy(value)`: data crosses, code does not — and now it crosses
+        // natively, through per-type generated copies.
+        if name == "copy" && args.len() == 1 {
+            let Some(t) = self.ety(&args[0].value) else {
+                self.unsupported(e.span, "the built-in `copy` on this value");
+                return "0".to_string();
+            };
+            let v = self.expr(&args[0].value);
+            let Some(expr) = self.copy_expr_of(&t, &v, "0", e.span) else {
+                self.unsupported(e.span, &format!("copying a value of type `{}`", t));
+                return "0".to_string();
+            };
+            if Self::counted(&t) {
+                return self.own_temp_of(&t, expr);
+            }
+            let Some(ct) = self.ctype(&t, e.span) else { return "0".to_string() };
+            let tmp = self.temp();
+            let qual = if self.catch_mode { "" } else { "const " };
+            self.line(format!("{}{} {} = {};", qual, ct, tmp, expr));
+            self.check_unwind();
+            return tmp;
+        }
         if name == "assert" && (args.len() == 1 || args.len() == 2) {
             let c = self.expr(&args[0].value);
             match args.get(1) {

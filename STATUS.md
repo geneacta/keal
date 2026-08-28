@@ -62,6 +62,19 @@ Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 unwinding), the six-language polyglot demo AND the ternary family are
 **DONE and pushed**. See NEXT.
 
+**copy natively (threads stage 2 complete) + repo polish:** the C
+backend now GENERATES per-type copy fns (kcopy_<mangled>: lists/maps/
+classes/nullables; memoized-before-body so recursive types close; depth
+cap with the interpreters' exact message; unwind path releases the
+partial copy — tests/native/copy.keal three-engine with cycle-catch and
+deinit balance, 0 leaks). Twin mirrored byte-identically. threads.md
+now records THE stage-3 decision: spawn will COPY handler captures per
+actor (shared-capture aggregation is a data race under threads; all
+three engines adopt the copying semantics together; actor tests get
+rewritten to reply-patterns in that change). Also: 83 corpus tests
+renamed to say what they prove; CONTRIBUTING.md; assets/ logo + .keal
+file icon SVG.
+
 **copy (threads stage 2, user-facing):** copy(value) — deep copy on
 interp+VM (shared native.rs deep_copy, 10000-depth cap with an
 identical catchable panic for cycles; a copy is a NEW object → deinit

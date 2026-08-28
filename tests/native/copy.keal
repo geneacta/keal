@@ -1,0 +1,44 @@
+// Deep copy on all three engines: same aliasing, same deinits, same panic.
+
+val l = [[1, 2], [3]]
+val c = copy(l)
+c[0].add(9)
+println("${l[0].size} ${c[0].size}")
+
+record Team(val name: String, val scores: List<Int>)
+val t = Team("reds", [10, 20])
+val u = copy(t)
+u.scores.add(30)
+println("${t.scores.size} ${u.scores.size} ${u.name}")
+
+val m = {"a": [1], "b": [2, 2]}
+val mc = copy(m)
+mc["a"]!!.add(0)
+println("${m["a"]!!.size} ${mc["a"]!!.size} ${mc.size}")
+
+class Box<T>(val v: T)
+val nested = Box(Box([1, 2, 3]))
+val nc = copy(nested)
+nc.v.v.add(4)
+println("${nested.v.v.size} ${nc.v.v.size}")
+
+var opened = 0
+class Res(val id: Int) {
+    proc deinit() { opened -= 1 }
+}
+if (true) {
+    opened += 2
+    val a = Res(1)
+    val b = copy(a)
+}
+println("balance ${opened}")
+
+class Node(var next: Node?)
+val n1 = Node(null)
+n1.next = Node(n1)
+try {
+    val bad = copy(n1)
+} catch (e) {
+    println("cycle: " + e.take(24))
+}
+n1.next = null

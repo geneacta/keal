@@ -60,19 +60,34 @@ monomorphizes and the runtime is ours.
 ## Staging
 
 1. **Groundwork** — thread-local runtime state. *Done.*
-2. **`copy` + the message-safety check.** *Done, as a user-facing
-   builtin:* `copy(value)` deep-copies data on both interpreters, the
-   checker refuses what cannot cross (functions, `Any`, open type
-   parameters — `copyable` in the checker, mirrored in the twin), and a
-   cyclic value is refused at run time with a depth cap rather than a
-   stack overflow. The C backend refuses `copy` by name until stage 3 —
-   the generated per-type copies arrive with the scheduler that needs
-   them, and `send` starts copying in the same change, on all three
-   engines at once, so the aliasing semantics never diverge.
-3. **The pthread scheduler behind the same `run()`** — gated like
-   everything else: a program that never spawns pays nothing. Verified
-   with order-insensitive programs (counters, joined sets) on all three
-   engines, plus native stress runs under TSan.
+2. **`copy` + the message-safety check.** *Done, on all three engines:*
+   `copy(value)` deep-copies data everywhere — the checker refuses what
+   cannot cross (functions, `Any`, open type parameters), a cyclic value
+   is refused at run time with the same depth-cap panic on every engine,
+   and the C backend generates one copy function per type (lists, maps,
+   classes, nullables — recursive types memoize; the unwind path
+   releases the partial copy, so a caught cycle panic leaks nothing).
+   This is the scheduler's `copy_M`, landed early and user-facing.
+3. **The capture decision, then the scheduler.** Building the runtime
+   exposed the real wall, and it is not the pthreads: **handler closures
+   share captured state.** Today two handlers may capture the same list
+   and both mutate it — legal and deterministic under the round-robin,
+   a data race under threads, and no lock can hide it (plain counts,
+   mutable containers). The decision, recorded now so the scheduler can
+   be built against it: **`spawn` will copy its handler's captured
+   values, per actor** — an actor's state is its own, full stop, and
+   aggregation happens the actor way, by messages (a `Report` reply, a
+   collector actor), not through a shared list. This is a semantic
+   tightening that all three engines adopt *together* — the
+   deterministic engines start copying captures in the same change as
+   the threaded native, so programs never behave differently by engine
+   — and the checker enforces that captured values satisfy the same
+   copyability rule messages do. The existing actor tests aggregate
+   through shared captures and will be rewritten to reply-patterns as
+   part of that change. Then the scheduler itself: `KealActor`
+   (pthread, mutex, condvar, deque), `send` locks-copies-signals,
+   `run` joins, TSan in the suite.
+   *Not started; the copy machinery it needs is now fully in place.*
 4. **Measure before optimizing** — per-actor arenas only if malloc
    contention shows up in real programs.
 

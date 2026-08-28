@@ -684,6 +684,9 @@ class CBackend() {
     var typesOut: String = ""
     var helpers: String = ""
     var thunks: Map<String, Bool> = {}
+    // Deep-copy functions already generated, by name — memoized before
+    // their bodies are written, so recursive types close the loop.
+    var copyFns: Map<String, Bool> = {}
     var listShows: Map<String, String> = {}
     var pendingStructs: List<String> = []
     var shapes: Map<String, List<SField>> = {}
@@ -856,6 +859,115 @@ class CBackend() {
     }
 
     /// A key must have an equality the runtime can apply.
+    /// The C expression that copies `v` of type `ty` at `depth` — a raw
+    /// value for scalars, a retain for immutable strings, a generated
+    /// per-type function for anything with structure. `null` when the type
+    /// cannot cross, which the checker already refused.
+    fun copyExprOf(t: Ty, v: String, depth: String, file: Int, atLine: Int, col: Int): String? {
+        val k = t.kind
+        if (k == "Int" or k == "Float" or k == "Bool" or k == "Unit" or k == "Range") {
+            return v
+        }
+        if (k == "Str") { return "keal_str_retain(${v})" }
+        if (k == "Nullable") {
+            if (isValueOpt(t)) { return v }
+            val inner = t.args[0]
+            if (inner.kind == "Str") { return "keal_str_retain(${v})" }
+            val f = this.ensureCopyFn(inner, file, atLine, col)
+            if (f == null) { return null }
+            return "(${v} == NULL ? NULL : ${f}(${v}, ${depth}))"
+        }
+        if (k == "List" or k == "Map" or k == "Class") {
+            val f = this.ensureCopyFn(t, file, atLine, col)
+            if (f == null) { return null }
+            return "${f}(${v}, ${depth})"
+        }
+        return null
+    }
+
+    /// Generates (once) the copy function for a structured type, and
+    /// answers its name. Bodies check the same depth cap the interpreters
+    /// check, with the same message; on an unwind they release what they
+    /// built and poison-return, so a caught cycle panic leaks nothing.
+    fun ensureCopyFn(t: Ty, file: Int, atLine: Int, col: Int): String? {
+        val name = "kcopy_" + mangleType(t)
+        if (this.copyFns.contains(name)) { return name }
+        this.copyFns[name] = true
+        val cap = "if (depth > 10000) { keal_panic(\"`copy` went 10000 levels deep; is the value cyclic?\", 0); return NULL; }"
+        if (t.kind == "List") {
+            val elemTy = t.args[0]
+            val elem = this.elemKind(elemTy, file, atLine, col)
+            if (elem == null) { return null }
+            val thunk = this.releaserThunk(elem)
+            val cv = this.copyExprOf(elemTy, elemUnword(elem, "w"), "depth + 1", file, atLine, col)
+            if (cv == null) { return null }
+            this.decls += "KealList* ${name}(KealList* l, int64_t depth);\n"
+            val bail = if (countedC(elemTy)) {
+                "        if (keal_unwinding) { keal_list_release(out); return NULL; }\n"
+            } else {
+                ""
+            }
+            this.defs += "\nKealList* ${name}(KealList* l, int64_t depth) {\n    ${cap}\n    KealList* out = keal_list_new(${thunk});\n    for (int64_t i = 0; i < l->len; i++) {\n        KealWord w = l->data[i];\n        keal_list_push(out, ${elemWord(elem, cv)});\n${bail}    }\n    return out;\n}\n"
+            return name
+        }
+        if (t.kind == "Map") {
+            val kt = t.args[0]
+            val vt = t.args[1]
+            val kk = this.keyKind(kt, file, atLine, col)
+            if (kk == null) { return null }
+            val vk = this.elemKind(vt, file, atLine, col)
+            if (vk == null) { return null }
+            val relK = this.releaserThunk(kk)
+            val relV = this.releaserThunk(vk)
+            val ck = this.copyExprOf(kt, elemUnword(kk, "k"), "depth + 1", file, atLine, col)
+            if (ck == null) { return null }
+            val cv = this.copyExprOf(vt, elemUnword(vk, "v"), "depth + 1", file, atLine, col)
+            if (cv == null) { return null }
+            this.decls += "KealMap* ${name}(KealMap* m, int64_t depth);\n"
+            val bail = if (countedC(vt)) {
+                "        if (keal_unwinding) { keal_map_release(out); return NULL; }\n"
+            } else {
+                ""
+            }
+            this.defs += "\nKealMap* ${name}(KealMap* m, int64_t depth) {\n    ${cap}\n    KealMap* out = keal_map_new(${keyEqFn(kk)}, ${relK}, ${relV});\n    for (int64_t i = 0; i < m->len; i++) {\n        KealWord k = m->data[2 * i];\n        KealWord v = m->data[2 * i + 1];\n        keal_map_set(out, ${elemWord(kk, ck)}, ${elemWord(vk, cv)});\n${bail}    }\n    return out;\n}\n"
+            return name
+        }
+        if (t.kind == "Class") {
+            var sn = structName(t.name)
+            if (t.args.size > 0) {
+                val inst = this.instantiateClass(t.name, t.args, file, atLine, col)
+                if (inst == null) { return null }
+                sn = inst
+            }
+            val raw = this.shapes[t.name]
+            if (raw == null) { return null }
+            val subst: Map<String, Ty> = {}
+            val decl = this.classDecls[t.name]
+            if (decl != null) {
+                var pi = 0
+                while (pi < decl.typeParams.size and pi < t.args.size) {
+                    subst[decl.typeParams[pi].name] = t.args[pi]
+                    pi += 1
+                }
+            }
+            this.decls += "${sn}* ${name}(${sn}* o, int64_t depth);\n"
+            var body = "\n${sn}* ${name}(${sn}* o, int64_t depth) {\n    ${cap}\n    ${sn}* c = (${sn}*)keal_alloc(sizeof(${sn}));\n    memset((void*)c, 0, sizeof(*c));\n    c->rc = 1;\n"
+            for (f in raw) {
+                val ft = substitute(substitute(f.ty, subst), this.tsubst)
+                val cv = this.copyExprOf(ft, "o->" + mangle(f.name), "depth + 1", file, atLine, col)
+                if (cv == null) { return null }
+                body += "    c->${mangle(f.name)} = ${cv};\n"
+                if (countedC(ft)) {
+                    body += "    if (keal_unwinding) { ${sn}_release(c); return NULL; }\n"
+                }
+            }
+            body += "    return c;\n}\n"
+            this.defs += body
+            return name
+        }
+        return null
+    }
+
     fun keyKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
         if (t.kind == "Never" or t.kind == "Int" or t.kind == "Bool" or t.kind == "Float" or t.kind == "Str") {
             return this.elemKind(t, file, atLine, col)
@@ -4403,6 +4515,31 @@ class CBackend() {
         }
         // `assert`: the message, when given, is evaluated eagerly — the
         // interpreters evaluate arguments before the call, and so does this.
+        // `copy(value)`: data crosses, code does not — and now it crosses
+        // natively, through per-type generated copies.
+        if (name == "copy" and args.size == 1) {
+            val t = this.ety(args[0].value)
+            if (t == null) {
+                this.unsupported(e.file, e.line, e.col, "the built-in `copy` on this value")
+                return "0"
+            }
+            val v = this.expr(args[0].value)
+            val expr0 = this.copyExprOf(t, v, "0", e.file, e.line, e.col)
+            if (expr0 == null) {
+                this.unsupported(e.file, e.line, e.col, "copying a value of type `${tyShow(t)}`")
+                return "0"
+            }
+            if (countedC(t)) {
+                return this.ownTempOf(t, expr0)
+            }
+            val ct = this.ctype(t, e.file, e.line, e.col)
+            if (ct == null) { return "0" }
+            val tmp = this.temp()
+            val qual = if (this.catchMode) { "" } else { "const " }
+            this.line("${qual}${ct} ${tmp} = ${expr0};")
+            this.checkUnwind()
+            return tmp
+        }
         if (name == "assert" and (args.size == 1 or args.size == 2)) {
             val c = this.expr(args[0].value)
             if (args.size == 2) {
