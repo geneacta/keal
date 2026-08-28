@@ -66,7 +66,7 @@ page = """<!doctype html>
 
 <nav class="nav">
   <div class="nav-left">
-    <a href="index.html"><img class="nav-logo" src="assets/keal2.png" alt="keal"></a>
+    <a href="index.html"><img class="nav-logo" src="assets/keal.png" alt="keal"></a>
     <div class="nav-links">
       <a href="docs.html" class="tab-active">Docs</a>
       <a href="tour.html">Tour</a>
