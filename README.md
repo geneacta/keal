@@ -175,6 +175,9 @@ engines, which must agree on every byte they print.
 - **Guarded returns.** `return if (a > b) a` returns only when the guard
   holds and falls through otherwise — and the guard narrows, so
   `return unless (s == null) s` hands back a plain `String`.
+- **`keal doctor`.** The interop toolchains found on this machine — C,
+  Rust, Go, JDK, Kotlin — next to the versions the test suite was last
+  verified against. Versions are pinned, toolchains are not vendored.
 - **`keal doc`.** The `///` comments and the compiler's own signatures,
   rendered to one self-contained HTML page — run it with no arguments
   and it documents the standard library. KealDoc, if you like.

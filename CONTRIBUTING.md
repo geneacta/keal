@@ -12,7 +12,12 @@ cargo test --release             # the whole suite, native tests included
 ```
 
 A JDK and a C compiler unlock the interop tests; without them those
-tests skip, they do not fail.
+tests skip, they do not fail. `keal doctor` lists what this machine has,
+next to the versions the interop suite was last verified against —
+Keal pins *versions*, it does not vendor toolchains: compilers are
+hundreds of platform-specific megabytes that every OS packages better
+than a language repository can, and a differing version is not an
+error, just a fact `cargo test --release` settles.
 
 ## The rules every change must respect
 

@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — The standard library</title>
+<link rel="icon" type="image/png" href="assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<style>
+/* kealdoc structure, in the site's clothes */
+.sgrid { display: grid; grid-template-columns: 264px 1fr; min-height: 680px; }
+.snav { border-right: 1px solid var(--line); padding: 20px 0 40px; position: sticky;
+        top: 0; align-self: start; max-height: 100vh; overflow-y: auto; }
+.snav .navmod { font: 600 11px 'JetBrains Mono', monospace; color: var(--faint);
+                letter-spacing: .1em; text-transform: uppercase; padding: 4px 26px 10px; }
+.snav a { display: block; padding: 5px 26px; font: 500 13px 'JetBrains Mono', monospace;
+          color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.snav a:hover { color: var(--ink); background: rgba(53,200,168,.06); }
+.snav .k { display: inline-block; width: 52px; color: var(--faint); font-size: 11px; }
+.smain { padding: 40px 52px 96px; max-width: 780px; }
+.smain h1 { margin: 0 0 8px; font: 700 36px Sora, sans-serif; letter-spacing: -.015em; }
+.smain .sub { margin: 0 0 8px; color: var(--dim); font: 400 15.5px/1.7 Sora, sans-serif; }
+.smain h2 { font: 600 12px 'JetBrains Mono', monospace; color: var(--accent);
+            letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid var(--line);
+            padding-bottom: 8px; margin: 44px 0 10px; }
+.smain section { margin: 26px 0; }
+.smain pre.sig { font: 13.5px/1.6 'JetBrains Mono', monospace; color: var(--mint);
+                 background: var(--panel); border: 1px solid var(--line2);
+                 padding: 10px 16px; border-radius: 8px; overflow-x: auto; margin: 0 0 8px; }
+.smain pre.sig.m { background: none; border: 0; border-left: 3px solid var(--line2);
+                   border-radius: 0; padding: 2px 16px; margin: 10px 0 4px; color: var(--code); }
+.smain .members { margin-left: 14px; }
+.smain p { margin: 6px 0; font: 400 14.5px/1.7 Sora, sans-serif; color: var(--prose); }
+.smain code { font: 13px 'JetBrains Mono', monospace; color: var(--mint);
+              background: rgba(53,200,168,.08); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="assets/keal2.png" alt="keal"></a>
+    <div class="nav-links">
+      <a href="docs.html" class="tab-active">Docs</a>
+      <a href="tour.html">Tour</a>
+      <span class="soon" title="Coming soon">Playground</span>
+      <span class="soon" title="Coming soon">Blog</span>
+    </div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+
+<div class="sgrid">
+  <div class="snav">
+
+<div class="navmod">the standard library</div>
+<a href="#the-standard-library-Add"><span class="k k-trait">trait</span>Add</a>
+<a href="#the-standard-library-Sub"><span class="k k-trait">trait</span>Sub</a>
+<a href="#the-standard-library-Mul"><span class="k k-trait">trait</span>Mul</a>
+<a href="#the-standard-library-Div"><span class="k k-trait">trait</span>Div</a>
+<a href="#the-standard-library-Rem"><span class="k k-trait">trait</span>Rem</a>
+<a href="#the-standard-library-Neg"><span class="k k-trait">trait</span>Neg</a>
+<a href="#the-standard-library-Pow"><span class="k k-trait">trait</span>Pow</a>
+<a href="#the-standard-library-Root"><span class="k k-trait">trait</span>Root</a>
+<a href="#the-standard-library-Eq"><span class="k k-trait">trait</span>Eq</a>
+<a href="#the-standard-library-Ord"><span class="k k-trait">trait</span>Ord</a>
+<a href="#the-standard-library-Comp"><span class="k k-record">record</span>Comp</a>
+<a href="#the-standard-library-compare"><span class="k k-fun">fun</span>compare</a>
+<a href="#the-standard-library-Tuple2"><span class="k k-record">record</span>Tuple2</a>
+<a href="#the-standard-library-Tuple3"><span class="k k-record">record</span>Tuple3</a>
+<a href="#the-standard-library-Tuple4"><span class="k k-record">record</span>Tuple4</a>
+<a href="#the-standard-library-Tuple5"><span class="k k-record">record</span>Tuple5</a>
+<a href="#the-standard-library-SeqIter"><span class="k k-class">class</span>SeqIter</a>
+<a href="#the-standard-library-Sequence"><span class="k k-class">class</span>Sequence</a>
+<a href="#the-standard-library-seq"><span class="k k-fun">fun</span>seq</a>
+<a href="#the-standard-library-iterate"><span class="k k-fun">fun</span>iterate</a>
+<a href="#the-standard-library-ActorRef"><span class="k k-class">class</span>ActorRef</a>
+<a href="#the-standard-library-Outbox"><span class="k k-class">class</span>Outbox</a>
+<a href="#the-standard-library-outbox"><span class="k k-fun">fun</span>outbox</a>
+<a href="#the-standard-library-ActorSystem"><span class="k k-class">class</span>ActorSystem</a>
+
+  </div>
+  <div class="smain">
+    <div class="crumb">Docs <span class="sl">/</span> Guide <span class="sl">/</span> <span class="here">Standard library</span></div>
+    <h1>The standard library</h1>
+    <p class="sub">Generated by <code>keal doc</code> from the prelude — the signatures below are the compiler's own. Operator traits, the three-valued <code>Comp</code>, lazy sequences, and the actor model, all written in Keal itself.</p>
+
+
+<h2 id="the-standard-library-">the standard library</h2>
+<section id="the-standard-library-Add">
+<pre class="sig">trait Add</pre>
+<div class="members">
+<pre class="sig m">fun plus(other: Self): Self</pre>
+</div>
+</section>
+<section id="the-standard-library-Sub">
+<pre class="sig">trait Sub</pre>
+<div class="members">
+<pre class="sig m">fun minus(other: Self): Self</pre>
+</div>
+</section>
+<section id="the-standard-library-Mul">
+<pre class="sig">trait Mul</pre>
+<div class="members">
+<pre class="sig m">fun times(other: Self): Self</pre>
+</div>
+</section>
+<section id="the-standard-library-Div">
+<pre class="sig">trait Div</pre>
+<div class="members">
+<pre class="sig m">fun div(other: Self): Self</pre>
+</div>
+</section>
+<section id="the-standard-library-Rem">
+<pre class="sig">trait Rem</pre>
+<div class="members">
+<pre class="sig m">fun rem(other: Self): Self</pre>
+</div>
+</section>
+<section id="the-standard-library-Neg">
+<pre class="sig">trait Neg</pre>
+<div class="members">
+<pre class="sig m">fun negate(): Self</pre>
+</div>
+</section>
+<section id="the-standard-library-Pow">
+<pre class="sig">trait Pow</pre>
+<p><code>a ** b</code> is <code>a.pow(b)</code> — power, right-associative, tighter than <code>*</code>.</p>
+<div class="members">
+<pre class="sig m">fun pow(other: Self): Self</pre>
+</div>
+</section>
+<section id="the-standard-library-Root">
+<pre class="sig">trait Root</pre>
+<p><code>a ^/ b</code> is <code>a.root(b)</code> — the b-th root, the inverse of <code>**</code>. (<code>//</code>
+belongs to comments, so the root wears the power's hat.)</p>
+<div class="members">
+<pre class="sig m">fun root(other: Self): Self</pre>
+</div>
+</section>
+<section id="the-standard-library-Eq">
+<pre class="sig">trait Eq</pre>
+<p>Structural equality. Without it, <code>==</code> on two instances compares identity,
+so two separately built values are never equal.</p>
+<div class="members">
+<pre class="sig m">fun equals(other: Self): Bool</pre>
+</div>
+</section>
+<section id="the-standard-library-Ord">
+<pre class="sig">trait Ord</pre>
+<p>A total order. <code>compareTo</code> returns a negative number, zero, or a positive
+number according as the receiver is less than, equal to, or greater than
+<code>other</code> — the same convention as <code>Int.compareTo</code>.</p>
+<div class="members">
+<pre class="sig m">fun compareTo(other: Self): Int</pre>
+</div>
+</section>
+<section id="the-standard-library-Comp">
+<pre class="sig">record Comp(val sign: Int)</pre>
+<p>The outcome of a comparison: less, equal or greater — exactly one.</p>
+<div class="members">
+<pre class="sig m">val sign: Int</pre>
+<pre class="sig m">fun isLess(): Bool</pre>
+<pre class="sig m">fun isEqual(): Bool</pre>
+<pre class="sig m">fun isGreater(): Bool</pre>
+<pre class="sig m">fun isAtMost(): Bool</pre>
+<pre class="sig m">fun isAtLeast(): Bool</pre>
+<pre class="sig m">fun toString(): String</pre>
+</div>
+</section>
+<section id="the-standard-library-compare">
+<pre class="sig">fun compare&lt;T: Ord&gt;(a: T, b: T): Comp</pre>
+<p>Compares two values of any ordered type — <code>Int</code>, <code>Float</code>, <code>String</code>, or
+your own <code>: Ord</code> class — as a <code>Comp</code>.</p>
+</section>
+<section id="the-standard-library-Tuple2">
+<pre class="sig">record Tuple2&lt;A, B&gt;(val first: A, val second: B)</pre>
+<div class="members">
+<pre class="sig m">val first: A</pre>
+<pre class="sig m">val second: B</pre>
+</div>
+</section>
+<section id="the-standard-library-Tuple3">
+<pre class="sig">record Tuple3&lt;A, B, C&gt;(val first: A, val second: B, val third: C)</pre>
+<div class="members">
+<pre class="sig m">val first: A</pre>
+<pre class="sig m">val second: B</pre>
+<pre class="sig m">val third: C</pre>
+</div>
+</section>
+<section id="the-standard-library-Tuple4">
+<pre class="sig">record Tuple4&lt;A, B, C, D&gt;(val first: A, val second: B, val third: C, val fourth: D)</pre>
+<div class="members">
+<pre class="sig m">val first: A</pre>
+<pre class="sig m">val second: B</pre>
+<pre class="sig m">val third: C</pre>
+<pre class="sig m">val fourth: D</pre>
+</div>
+</section>
+<section id="the-standard-library-Tuple5">
+<pre class="sig">record Tuple5&lt;A, B, C, D, E&gt;(val first: A, val second: B, val third: C, val fourth: D, val fifth: E)</pre>
+<div class="members">
+<pre class="sig m">val first: A</pre>
+<pre class="sig m">val second: B</pre>
+<pre class="sig m">val third: C</pre>
+<pre class="sig m">val fourth: D</pre>
+<pre class="sig m">val fifth: E</pre>
+</div>
+</section>
+<section id="the-standard-library-SeqIter">
+<pre class="sig">class SeqIter&lt;T&gt;(val hasNextFn: () -&gt; Bool, val nextFn: () -&gt; T)</pre>
+<p>One pass over a sequence: whether an element remains, and the next one.
+Calling <code>nextFn</code> without a true <code>hasNextFn</code> first is the caller's bug.</p>
+<div class="members">
+<pre class="sig m">val hasNextFn: () -&gt; Bool</pre>
+<pre class="sig m">val nextFn: () -&gt; T</pre>
+</div>
+</section>
+<section id="the-standard-library-Sequence">
+<pre class="sig">class Sequence&lt;T&gt;(val iterFn: () -&gt; SeqIter&lt;T&gt;)</pre>
+<p>A recipe for iteration. Each terminal operation asks <code>iterFn</code> for a
+fresh pass, so a sequence built from a stable source can be walked twice.</p>
+<div class="members">
+<pre class="sig m">val iterFn: () -&gt; SeqIter&lt;T&gt;</pre>
+<pre class="sig m">fun iterator(): SeqIter&lt;T&gt;</pre>
+<pre class="sig m">fun map&lt;R&gt;(transform: (T) -&gt; R): Sequence&lt;R&gt;</pre>
+<p>Transforms each element as it is pulled.</p>
+<pre class="sig m">fun filter(predicate: (T) -&gt; Bool): Sequence&lt;T&gt;</pre>
+<p>Keeps the elements the predicate accepts. One element of lookahead,
+held in a one-slot buffer, is what makes <code>hasNext</code> honest.</p>
+<pre class="sig m">fun take(n: Int): Sequence&lt;T&gt;</pre>
+<p>At most <code>n</code> elements, then stops pulling.</p>
+<pre class="sig m">fun drop(n: Int): Sequence&lt;T&gt;</pre>
+<p>Skips the first <code>n</code> elements, lazily: nothing is pulled until the
+downstream asks.</p>
+<pre class="sig m">fun takeWhile(predicate: (T) -&gt; Bool): Sequence&lt;T&gt;</pre>
+<p>Elements while the predicate holds; the first refusal ends the
+sequence and nothing after it is pulled.</p>
+<pre class="sig m">fun dropWhile(predicate: (T) -&gt; Bool): Sequence&lt;T&gt;</pre>
+<p>Skips the leading run the predicate accepts, keeps everything after.</p>
+<pre class="sig m">fun flatMap&lt;R&gt;(transform: (T) -&gt; Sequence&lt;R&gt;): Sequence&lt;R&gt;</pre>
+<p>Substitutes a whole sequence for each element and flattens, still
+pulling one element at a time.</p>
+<pre class="sig m">fun toList(): List&lt;T&gt;</pre>
+<pre class="sig m">proc forEach(action: (T) -&gt; Unit)</pre>
+<pre class="sig m">fun fold&lt;R&gt;(initial: R, operation: (R, T) -&gt; R): R</pre>
+<pre class="sig m">fun count(): Int</pre>
+<pre class="sig m">fun any(predicate: (T) -&gt; Bool): Bool</pre>
+<p>True as soon as one element passes; pulls no further.</p>
+<pre class="sig m">fun all(predicate: (T) -&gt; Bool): Bool</pre>
+<p>False as soon as one element fails; pulls no further.</p>
+<pre class="sig m">fun first(): T?</pre>
+<p>The first element, or null for an empty sequence.</p>
+</div>
+</section>
+<section id="the-standard-library-seq">
+<pre class="sig">fun seq&lt;T&gt;(xs: List&lt;T&gt;): Sequence&lt;T&gt;</pre>
+<p>A sequence over a list. The list is read as the sequence is pulled, one
+index at a time.</p>
+</section>
+<section id="the-standard-library-iterate">
+<pre class="sig">fun iterate&lt;T&gt;(seed: T, step: (T) -&gt; T): Sequence&lt;T&gt;</pre>
+<p>The infinite sequence <code>seed, step(seed), step(step(seed)), ...</code>. Pair it
+with <code>take</code> or <code>takeWhile</code>; a plain <code>toList</code> on it will not come back.</p>
+</section>
+<section id="the-standard-library-ActorRef">
+<pre class="sig">class ActorRef&lt;M&gt;(val mailbox: List&lt;M&gt;)</pre>
+<p>The address of an actor: something to <code>send</code> to. Holds only the mailbox,
+so references never form cycles through the system.</p>
+<div class="members">
+<pre class="sig m">val mailbox: List&lt;M&gt;</pre>
+<pre class="sig m">proc send(msg: M)</pre>
+<p>Enqueues a **copy** of the message and returns immediately;
+delivery happens inside <code>run</code>. Messages cross by copy on every
+engine — under real threads they cross heaps, and the semantics
+must not depend on the scheduler — so mutating a value after
+sending it never reaches the receiver. An <code>ActorRef</code> inside a
+message is the exception: an address is shared, not duplicated.</p>
+</div>
+</section>
+<section id="the-standard-library-Outbox">
+<pre class="sig">class Outbox&lt;T&gt;(val items: List&lt;T&gt;)</pre>
+<p>Where results leave the actor world: an outbox is an **address**, like
+an <code>ActorRef</code> — capturing one shares it rather than copying it, so
+actors post into the same box the spawner drains after <code>run</code>. Under a
+threaded scheduler the posts interleave; treat the contents as a bag
+unless one actor alone is posting.</p>
+<div class="members">
+<pre class="sig m">val items: List&lt;T&gt;</pre>
+<pre class="sig m">proc post(v: T)</pre>
+<pre class="sig m">fun drain(): List&lt;T&gt;</pre>
+<p>Everything posted so far, in arrival order.</p>
+</div>
+</section>
+<section id="the-standard-library-outbox">
+<pre class="sig">fun outbox&lt;T&gt;(): Outbox&lt;T&gt;</pre>
+<p>An empty outbox; <code>Outbox&lt;Int&gt;([])</code> written the readable way.</p>
+</section>
+<section id="the-standard-library-ActorSystem">
+<pre class="sig">class ActorSystem&lt;M&gt;()</pre>
+<p>A set of actors and their mailboxes. <code>spawn</code> registers a handler; <code>run</code>
+delivers until every mailbox is empty.</p>
+<div class="members">
+<pre class="sig m">var handlers: List&lt;(ActorRef&lt;M&gt;, M) -&gt; Unit&gt;</pre>
+<pre class="sig m">var mailboxes: List&lt;List&lt;M&gt;&gt;</pre>
+<pre class="sig m">fun spawn(handler: (ActorRef&lt;M&gt;, M) -&gt; Unit): ActorRef&lt;M&gt;</pre>
+<p>A new actor. The handler receives the actor's own ref — for replies
+and self-sends — and one message; its state lives in what the
+handler's closure captured, and **each actor gets its own copy of
+every capture**: an actor's state is its own, on every engine, so
+mutating a captured value after the spawn never reaches the actor,
+and two actors never share one. Aggregate the actor way — reply
+with messages — not through a captured collection.</p>
+<pre class="sig m">proc run()</pre>
+<p>Delivers messages round-robin — one message per actor per pass, in
+spawn order — until every mailbox is drained. Deterministic, so the
+same program computes the same thing on every engine; a threaded
+scheduler may later relax the ordering between actors, never within
+one actor's mailbox.</p>
+</div>
+</section>
+
+
+  </div>
+</div>
+
+</div>
+<script src="site.js"></script>
+</body>
+</html>

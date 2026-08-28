@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — The language that compiles itself</title>
+<meta name="description" content="Keal: a statically typed, null-safe, self-hosting programming language. Three engines that agree on every byte, native code through C, interop with C, C++, Rust, Go, Java and Kotlin.">
+<link rel="icon" type="image/png" href="assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="assets/keal2.png" alt="keal"></a>
+    <div class="nav-links">
+      <a href="docs.html">Docs</a>
+      <a href="tour.html">Tour</a>
+      <span class="soon" title="Coming soon">Playground</span>
+      <span class="soon" title="Coming soon">Blog</span>
+    </div>
+  </div>
+  <div class="nav-right">
+    <div class="lang" role="group" aria-label="Language">
+      <button class="on" data-lang="en">EN</button><button data-lang="fr">FR</button>
+    </div>
+    <span class="badge">v0.5.0</span>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div>
+    <div class="pill"><span class="dot"></span><span data-i18n="pill">Self-hosting — the bootstrap fixed point is verified on every run</span></div>
+    <h1 data-i18n="h1">The language that compiles itself.</h1>
+    <p class="sub" data-i18n="sub">Statically typed, null-safe, with Kotlin's shape over a C-family syntax. Three engines that agree on every byte — and a compiler written in Keal, compiled by itself.</p>
+    <div class="ctas">
+      <a class="cta" href="tour.html" data-i18n="cta1">Start the tour →</a>
+      <a class="cta-line" href="docs.html" data-i18n="cta2">Read the docs</a>
+    </div>
+    <div class="cmd" id="clone" title="Copy">
+      <span class="p">$</span><span>git clone geneacta/keal &amp;&amp; ./bootstrap.sh</span><span class="cp" id="clone-cp">⧉</span>
+    </div>
+  </div>
+  <div class="win shadow">
+    <div class="win-bar"><span class="b"></span><span class="b"></span><span class="b"></span><span class="t">point.keal</span></div>
+    <pre><span class="k">class</span> <span class="t">Point</span>(<span class="k">val</span> x: <span class="t">Float</span>, <span class="k">val</span> y: <span class="t">Float</span>) {
+    <span class="k">fun</span> length(): <span class="t">Float</span> {
+        sqrt(this.x * this.x + this.y * this.y)
+    }
+}
+
+<span class="k">val</span> points = [<span class="t">Point</span>(1.0, 1.0), <span class="t">Point</span>(3.0, 4.0)]
+<span class="k">val</span> found  = firstLong(points, 2.0)
+
+println(<span class="k">when</span> {
+    found == <span class="k">null</span> -&gt; <span class="s">"nothing long enough"</span>
+    <span class="k">else</span> -&gt; <span class="s">"${found} has length ${found.length()}"</span>
+})</pre>
+    <div class="win-foot"><span class="c">$ keal point.keal</span><span class="out">(3.0, 4.0) has length 5.0</span></div>
+  </div>
+</section>
+
+<section class="cards4">
+  <div class="card">
+    <div class="eyebrow">Self-hosted</div>
+    <h3 data-i18n="c1h">The compiler is written in Keal</h3>
+    <p data-i18n="c1p">Lexer, parser, checker and C backend — held byte-for-byte to their Rust oracles, reproducing their own source.</p>
+  </div>
+  <div class="card">
+    <div class="eyebrow">Null safety</div>
+    <h3><span class="mono">String?</span> <span data-i18n="c2h">is another type</span></h3>
+    <p data-i18n="c2p">Inference everywhere, smart casts that hold across <span class="ic">and</span>, early returns — even <span class="ic">implies</span>.</p>
+  </div>
+  <div class="card">
+    <div class="eyebrow">Interop</div>
+    <h3 data-i18n="c3h">Six languages, one file</h3>
+    <div class="chips"><span class="chip">C</span><span class="chip">C++</span><span class="chip">Rust</span><span class="chip">Go</span><span class="chip">Java</span><span class="chip">Kotlin</span></div>
+  </div>
+  <div class="card">
+    <div class="eyebrow">REPL</div>
+    <pre><span class="c">&gt;&gt;&gt;</span> val xs = [3, 1, 2]
+<span class="c">&gt;&gt;&gt;</span> xs.sorted()
+<span class="out">[1, 2, 3]</span></pre>
+  </div>
+</section>
+
+<section class="duo">
+  <div>
+    <div class="eyebrow">Interop</div>
+    <h2 data-i18n="ioh">One file, six languages.</h2>
+    <p data-i18n="iop1">The native four meet Keal at the C ABI its binaries already speak — no runtime, no marshalling layer. Java and Kotlin go through one gateway module, written in Keal itself.</p>
+    <p><span class="ic">keal bindgen header.h</span> <span data-i18n="iop2">turns any C header into checked</span> <span class="ic">extern fun</span> <span data-i18n="iop3">declarations — a Rust staticlib, a Go c-archive, or sqlite's own.</span></p>
+  </div>
+  <div class="win">
+    <div class="cwin-bar" style="padding:11px 18px;border-bottom:1px solid var(--line)">
+      <span class="f">polyglot.keal</span><span class="mono" style="font:500 11px 'JetBrains Mono',monospace;color:var(--faint)">examples/interop</span>
+    </div>
+    <pre style="font-size:13px;line-height:1.85">println(c_add(40, 2))                 <span class="c">// C</span>
+println(cpp_shout(<span class="s">"c plus plus"</span>))     <span class="c">// C++</span>
+println(rust_fib(20))                 <span class="c">// Rust</span>
+println(go_hypot(3.0, 4.0))           <span class="c">// Go</span>
+println(id.toString())                <span class="c">// Java</span>
+println(greeterKtShout(<span class="s">"kotlin"</span>))     <span class="c">// Kotlin</span></pre>
+  </div>
+</section>
+
+<section class="duo">
+  <div class="perf">
+    <div class="perf-rows">
+      <div class="perf-row"><span>tree-walker</span><div class="bar"><div data-w="100%"></div></div><span>6.14s</span></div>
+      <div class="perf-row"><span>bytecode VM</span><div class="bar mid"><div data-w="41%"></div></div><span>2.51s</span></div>
+      <div class="perf-row hot"><span>native, via C</span><div class="bar hot"><div data-w="2.5%"></div></div><span>0.03s</span></div>
+    </div>
+    <div class="perf-cap" data-i18n="perfcap">fib(35) — the same program, on the three engines.</div>
+  </div>
+  <div>
+    <div class="eyebrow">Three engines</div>
+    <h2 data-i18n="teh">×84 native — with the same guarantees.</h2>
+    <p data-i18n="tep1">The tree-walking interpreter is the specification. The bytecode VM is the default. <span class="ic">keal build</span> compiles through C11 to a real executable.</p>
+    <p data-i18n="tep2">The test suite runs every program through all three and requires the output to match byte for byte — integer overflow still panics, bounds are still checked.</p>
+  </div>
+</section>
+
+<section class="gs" id="getting-started">
+  <div class="gs-head">
+    <h2 data-i18n="gsh">Up and running in a minute.</h2>
+    <a href="tour.html" data-i18n="gsl">Then take the tour — 30 minutes, every snippet runs →</a>
+  </div>
+  <div class="cards3">
+    <div class="term">
+      <div class="lbl">1 — GET IT</div>
+      <pre><span class="c">$</span> git clone geneacta/keal
+<span class="c">$</span> cargo build --release</pre>
+    </div>
+    <div class="term">
+      <div class="lbl">2 — WRITE A FILE</div>
+      <pre><span class="c">$</span> echo <span class="s">'println("hello, world")'</span> \
+    &gt; hello.keal</pre>
+    </div>
+    <div class="term">
+      <div class="lbl">3 — RUN IT</div>
+      <pre><span class="c">$</span> keal hello.keal
+<span class="out">hello, world</span></pre>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div>
+    <img src="assets/keal2.png" alt="keal" style="display:block;height:34px;width:auto;margin-bottom:12px">
+    <p class="base" data-i18n="base">A statically typed, self-hosting programming language. Built by Geneacta.</p>
+    <span class="badge">v0.5.0</span>
+  </div>
+  <div class="fcol">
+    <span class="h">LEARN</span>
+    <a href="tour.html" data-i18n="f-tour">The tour</a>
+    <a href="docs.html" data-i18n="f-docs">Docs &amp; reference</a>
+    <a href="https://github.com/geneacta/keal/tree/main/examples" data-i18n="f-ex">Examples</a>
+    <span class="soon" style="color:var(--faint)" title="Coming soon">Playground</span>
+  </div>
+  <div class="fcol">
+    <span class="h">LANGUAGE</span>
+    <a href="docs.html" data-i18n="f-mem">Memory model</a>
+    <a href="https://github.com/geneacta/keal/blob/main/docs/interop.md">Interop</a>
+    <a href="https://github.com/geneacta/keal/blob/main/docs/threads.md" data-i18n="f-th">Threads &amp; actors</a>
+    <a href="https://github.com/geneacta/keal/blob/main/docs/drop.md" data-i18n="f-de">Deterministic deinit</a>
+  </div>
+  <div class="fcol">
+    <span class="h">PROJECT</span>
+    <a href="https://github.com/geneacta/keal">GitHub</a>
+    <span class="soon" style="color:var(--faint)" title="Coming soon" data-i18n="f-vs">VS Code extension</span>
+    <span class="soon" style="color:var(--faint)" title="Coming soon">Blog</span>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md" data-i18n="f-co">Contributing</a>
+  </div>
+</footer>
+
+</div>
+<script src="site.js"></script>
+</body>
+</html>

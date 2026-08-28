@@ -4,6 +4,7 @@ mod ast;
 mod astdump;
 mod bindgen;
 mod jbind;
+mod doctor;
 mod kealdoc;
 mod builtins;
 mod bytecode;
@@ -48,6 +49,9 @@ usage:
     keal doc [files...]       render /// comments and signatures to one
                               self-contained HTML page (-o file.html);
                               with no files, document the standard library
+    keal doctor               report the interop toolchains found on this
+                              machine, next to the versions the tests
+                              were last verified against
     keal jbind <java.Class>... generate typed Keal wrappers for Java
                               classes over lib/jvm.keal (needs javap;
                               --jvm <path> sets the emitted import path,
@@ -104,6 +108,9 @@ fn real_main() -> ExitCode {
     }
     if args.first().map(|a| a.as_str()) == Some("doc") {
         return kealdoc::run(&args[1..]);
+    }
+    if args.first().map(|a| a.as_str()) == Some("doctor") {
+        return doctor::run();
     }
     let (command, target) = match args.as_slice() {
         [] => ("repl", None),
