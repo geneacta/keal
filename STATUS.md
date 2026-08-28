@@ -62,7 +62,24 @@ Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 unwinding), the six-language polyglot demo AND the ternary family are
 **DONE and pushed**. See NEXT.
 
-**Ternary + spaceship (latest):** `c ? a : b` selects on Bool, three
+**deinit (latest):** `proc deinit()` runs at refcount zero — queued,
+drained at statement boundaries (Op::DrainDrops / keal_drain_drops();
+runtime.rs shares one queue via Runtime::call_method and Instance's Drop
+impl marks-before-queue to survive TLS teardown). Reverse-declaration
+death order everywhere: interp Scope keeps insertion order and tears
+down in reverse (HashMap order is random per process — this was a real
+bug), VM pops frame stacks one-by-one and clears block slots (+ break/
+continue paths) in reverse when the program has a deinit, native was
+already reversed. Native also releases each statement's expression
+TEMPS at its boundary in drop mode (they otherwise pin values to block
+end — the r = Res(2) reassignment bug). Once-per-object via dropped/
+kdropped set at queue time; resurrection survives; manual calls are
+checker errors; jbind wrappers auto-free (released guard + deinit).
+Everything gated: no deinit → byte-identical output. Named deinit, NOT
+drop (drop is the take/drop pair). Tests: tests/programs/deinit.keal,
+tests/native/deinit.*, te39. docs/drop.md has the exact semantics.
+
+**Ternary + spaceship:** `c ? a : b` selects on Bool, three
 branches select on a `Comp` (lazy, condition once — VM sign-splits via a
 temp slot, native mirrors if_expr's slot mechanics in `ternary()`), and
 `a <=> b` rewrites in the checker to the prelude's generic `compare(a,b)`

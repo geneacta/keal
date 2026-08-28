@@ -1,0 +1,38 @@
+// The deinit hook, printed identically by all three engines: a local dies
+// when its block ends, the hook runs at the statement boundary after.
+
+var trace = ""
+
+class Handle(val id: Int) {
+    proc deinit() { trace += "~${this.id} " }
+}
+
+if (true) {
+    val a = Handle(1)
+    val b = Handle(2)
+    trace += "open "
+}
+println(trace + "|")
+
+// Reassignment frees the old value at its own statement.
+var h = Handle(3)
+h = Handle(4)
+println(trace + "|")
+
+// A cascade: the owner's hook runs first, then what it held.
+class Crate(val inner: Handle) {
+    proc deinit() { trace += "[crate] " }
+}
+if (true) {
+    val c = Crate(Handle(5))
+}
+println(trace + "|")
+
+// Deaths on the unwind path still run, after the catch.
+try {
+    val t = Handle(6)
+    throw "out"
+} catch (e) {
+    trace += "caught "
+}
+println(trace + "|")

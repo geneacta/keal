@@ -459,8 +459,12 @@ fn emit_class(p: &ParsedClass, simple: &str, bound: &[(String, String)]) -> Stri
         simple,
         if is_ord { " : Ord" } else { "" }
     ));
+    out.push_str("    var released: Bool = false\n");
     out.push_str("    fun toString(): String { return jvmToString(this.handle) }\n");
-    out.push_str("    proc free() { jvmFree(this.handle) }\n");
+    out.push_str(
+        "    proc free() {\n        unless (this.released) {\n            this.released = true\n            jvmFree(this.handle)\n        }\n    }\n",
+    );
+    out.push_str("    proc deinit() { this.free() }\n");
     for text in &instance {
         out.push_str(text);
     }

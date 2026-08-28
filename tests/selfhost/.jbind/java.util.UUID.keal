@@ -14,8 +14,15 @@ fun jbindClassUUID(): Int {
 }
 
 class UUID(val handle: Int) : Ord {
+    var released: Bool = false
     fun toString(): String { return jvmToString(this.handle) }
-    proc free() { jvmFree(this.handle) }
+    proc free() {
+        unless (this.released) {
+            this.released = true
+            jvmFree(this.handle)
+        }
+    }
+    proc deinit() { this.free() }
     fun getLeastSignificantBits(): Int {
         return jvmCallLong(this.handle, "getLeastSignificantBits", "()J")
     }

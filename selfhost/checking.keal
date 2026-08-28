@@ -844,6 +844,13 @@ class Checker() {
             if (methods.contains(m.name)) {
                 this.error(m.file, m.line, m.col, "method `${m.name}` is declared twice")
             }
+            if (m.name == "deinit" and (m.ret != null or m.params.size > 0 or m.typeParams.size > 0)) {
+                this.errorNote(
+                    m.file, m.line, m.col,
+                    "`deinit` must be declared `proc deinit()`",
+                    "the runtime calls it with no arguments when the last reference dies"
+                )
+            }
             val ft = this.funType(m)
             methods[m.name] = MInfo(this.paramDefs(m.typeParams), ft)
         }
@@ -2183,6 +2190,22 @@ class Checker() {
                 this.checkExpr(a.value, null)
             }
             return Ty("Error")
+        }
+        // `deinit` belongs to the runtime: it runs when the last reference
+        // dies, and calling it early would run it twice.
+        if (name == "deinit" and base.kind == "Class") {
+            val info = this.classes[base.name]
+            if (info != null and info.methods.contains("deinit")) {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "`deinit` is the runtime's to call, not yours",
+                    "it runs by itself when the last reference dies; give the class an ordinary method for manual release"
+                )
+                for (a in args) {
+                    this.checkExpr(a.value, null)
+                }
+                return Ty("Error")
+            }
         }
 
         // A value whose type is a parameter can only be used through the

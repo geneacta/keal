@@ -108,6 +108,9 @@ pub enum Op {
     /// message there. Balanced by `PopHandler` on the try block's exits.
     PushHandler(u32),
     PopHandler,
+    /// Runs the pending `drop`s; emitted after each statement when the
+    /// program declares any.
+    DrainDrops,
     /// Pops a `String` message and raises it as a runtime panic.
     Throw,
 

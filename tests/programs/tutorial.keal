@@ -299,3 +299,15 @@ val tutVerdict = 3 < 5 ? "small" : "big"
 assert(tutVerdict == "small", "the plain ternary")
 val tutWord = "kiwi" <=> "fig" ? "before" : "same" : "after"
 assert(tutWord == "after", "the three-way ternary")
+
+// ---- deinit (TUTORIAL.md) ------------------------------------------------
+
+var tutClosed = 0
+class TutSession(val id: Int) {
+    proc deinit() { tutClosed += 1 }
+}
+if (true) {
+    val s = TutSession(7)
+    assert(tutClosed == 0, "alive while in scope")
+}
+assert(tutClosed == 1, "deinit ran when the block ended")

@@ -27,6 +27,10 @@ const RUNTIME: &str = include_str!("runtime.c");
 pub fn emit(program: &Program, shapes: &[ClassShape]) -> Result<String, Vec<Diag>> {
     let mut b = CBackend::new();
     b.catch_mode = program_has_try(program);
+    b.drop_mode = program.items.iter().any(|i| match i {
+        Item::Class(c) => c.methods.iter().any(|m| m.name == "deinit"),
+        _ => false,
+    });
     for shape in shapes {
         b.shapes.insert(shape.name.clone(), shape.fields.clone());
         if shape.generic {
@@ -117,6 +121,9 @@ struct CBackend {
     next_unwind: usize,
     /// The `return` the function's bottom label ends with.
     poison: String,
+    /// Whether any class in the program declares `proc drop()` — only
+    /// then are the per-statement drains and the pending queue emitted.
+    drop_mode: bool,
     /// How many blocks deep each open loop is, so `break` releases correctly.
     loops: Vec<usize>,
     string_literals: Vec<String>,
@@ -198,6 +205,7 @@ impl CBackend {
             unwind_marks: Vec::new(),
             next_unwind: 0,
             poison: String::new(),
+            drop_mode: false,
             loops: Vec::new(),
             string_literals: Vec::new(),
             types: String::new(),
@@ -574,14 +582,24 @@ impl CBackend {
         }
         let Some(fields) = self.shapes.get(&c.name).cloned() else { return };
         let name = struct_name(&c.name);
-        self.emit_struct(&name, &fields, c.span);
+        self.emit_struct(&name, &fields, c.span, Self::class_has_drop(c));
     }
 
-    fn emit_struct(&mut self, name: &str, fields: &[(String, Type)], span: Span) {
+    /// Whether the class declares the hook the runtime calls at death.
+    fn class_has_drop(c: &ClassDecl) -> bool {
+        c.methods.iter().any(|m| m.name == "deinit")
+    }
+
+    fn emit_struct(&mut self, name: &str, fields: &[(String, Type)], span: Span, has_drop: bool) {
         let _ = writeln!(self.types, "typedef struct {} {};", name, name);
         let mut body = String::new();
         let _ = writeln!(body, "struct {} {{", name);
         let _ = writeln!(body, "    int64_t rc;");
+        if has_drop {
+            // Set once the object's `drop` has been queued: the hook runs
+            // exactly once, resurrection or not.
+            let _ = writeln!(body, "    bool kdropped;");
+        }
         for (fname, ty) in fields {
             let Some(ct) = self.ctype(ty, span) else { return };
             let _ = writeln!(body, "    {} {};", ct, mangle(fname));
@@ -643,7 +661,7 @@ impl CBackend {
         let saved_cells = std::mem::take(&mut self.frame_cells);
         let saved_top = std::mem::replace(&mut self.at_top_level, false);
         let saved_ret = self.current_ret.take();
-        self.emit_struct(&sn, &fields, span);
+        self.emit_struct(&sn, &fields, span, Self::class_has_drop(&c));
         self.class_functions_named(&c, &fields, &sn);
         self.current_ret = saved_ret;
         self.at_top_level = saved_top;
@@ -827,6 +845,18 @@ impl CBackend {
             "\nvoid {n}_release({n}* o) {{\n    if (o == NULL) {{ return; }}\n    o->rc--;\n    if (o->rc > 0) {{ return; }}\n",
             n = name
         );
+        if Self::class_has_drop(c) {
+            // The first death queues the hook instead of freeing: the
+            // object waits, whole and resurrected to one reference, for
+            // the next statement boundary. The dropper releases it again;
+            // by then `kdropped` is set and the plain path below runs —
+            // unless `drop` gave it away, in which case it lives on.
+            let _ = write!(
+                rel,
+                "    if (!o->kdropped) {{\n        o->kdropped = true;\n        o->rc = 1;\n        keal_queue_drop((void*)o, {n}_dropper);\n        return;\n    }}\n",
+                n = name
+            );
+        }
         // The last reference to an object is also the last to each of the
         // references it held.
         for (fname, ty) in &fields {
@@ -836,6 +866,15 @@ impl CBackend {
         }
         let _ = write!(rel, "    free(o);\n}}\n");
         self.defs.push_str(&rel);
+        if Self::class_has_drop(c) {
+            let _ = writeln!(self.decls, "void {}_dropper(void* p);", name);
+            let _ = write!(
+                self.defs,
+                "\nvoid {n}_dropper(void* p) {{\n    {n}* o = ({n}*)p;\n    {n}_{m}(o);\n    {n}_release(o);\n}}\n",
+                n = name,
+                m = mangle_method("deinit")
+            );
+        }
 
         self.class_show(c, &fields, &name);
         self.constructor(c, &fields, &name);
@@ -934,7 +973,7 @@ impl CBackend {
         self.frame_cells = lambda_free_names(&top_stmts);
         for item in &program.items {
             if let Item::Stmt(s) = item {
-                self.stmt(s);
+                self.seq_stmt(s);
             }
         }
         self.at_top_level = false;
@@ -1041,6 +1080,9 @@ impl CBackend {
             }
         }
         self.line(format!("{n}* self = ({n}*)keal_alloc(sizeof({n}));", n = name));
+        if Self::class_has_drop(c) {
+            self.line("self->kdropped = false;");
+        }
         if self.catch_mode {
             // A field initializer can unwind mid-construction; zeroed
             // fields make the release of the half-built instance safe.
@@ -1154,7 +1196,7 @@ impl CBackend {
                         Stmt { kind: StmtKind::Return(Some(e.clone())), span: st.span };
                     self.stmt(&synthetic);
                 }
-                _ => self.stmt(st),
+                _ => self.seq_stmt(st),
             }
         }
     }
@@ -1330,6 +1372,52 @@ impl CBackend {
         self.line(format!("if (keal_unwinding) {{ goto {}; }}", label));
     }
 
+    /// Emits one statement of a sequence. With a `deinit` in the program,
+    /// the statement's expression temporaries are released right after it —
+    /// a value they pinned dies at the boundary, exactly when the
+    /// interpreters kill it — and the pending `deinit`s run. A program
+    /// without one compiles byte-for-byte as before.
+    fn seq_stmt(&mut self, s: &Stmt) {
+        let mark = self.scopes.last().map(|sc| sc.len()).unwrap_or(0);
+        self.stmt(s);
+        self.drain_after_stmt(s, mark);
+    }
+
+    fn drain_after_stmt(&mut self, s: &Stmt, mark: usize) {
+        if !self.drop_mode {
+            return;
+        }
+        if matches!(
+            s.kind,
+            StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue | StmtKind::Throw(_)
+        ) {
+            return;
+        }
+        // The statement's own temps: everything it registered in this
+        // scope, except locals (they live to the block's end) and cells
+        // (a later lambda may still capture one).
+        let mut released: Vec<Owned> = Vec::new();
+        if let Some(scope) = self.scopes.last_mut() {
+            let mut i = mark.min(scope.len());
+            while i < scope.len() {
+                if scope[i].name.starts_with("_t") && scope[i].release != "keal_cell_release" {
+                    released.push(scope.remove(i));
+                } else {
+                    i += 1;
+                }
+            }
+        }
+        for o in &released {
+            self.line(format!("{}({});", o.release, o.name));
+            if self.catch_mode {
+                // The unwind label still lists the name; NULL keeps it safe.
+                self.line(format!("{} = NULL;", o.name));
+            }
+        }
+        self.line("keal_drain_drops();");
+        self.check_unwind();
+    }
+
     /// Rewrites the declaration just emitted for `name` into a plain
     /// assignment, hoisting a NULL-initialized declaration to the top of
     /// the block — the unwind label releases every name the block ever
@@ -1457,7 +1545,7 @@ impl CBackend {
     fn block(&mut self, stmts: &[Stmt]) {
         self.open_scope();
         for s in stmts {
-            self.stmt(s);
+            self.seq_stmt(s);
         }
         self.close_scope();
     }
@@ -1598,7 +1686,7 @@ impl CBackend {
                 self.unwind_targets.push((format!("KC{}", id), false));
                 self.open_scope();
                 for st in &body.stmts {
-                    self.stmt(st);
+                    self.seq_stmt(st);
                 }
                 self.close_scope();
                 let (_, caught) = self.unwind_targets.pop().unwrap();
@@ -1622,7 +1710,7 @@ impl CBackend {
                 self.own(&e_var, &Type::Str);
                 self.declare_local(name, &Type::Str, false);
                 for st in &handler.stmts {
-                    self.stmt(st);
+                    self.seq_stmt(st);
                 }
                 self.close_scope();
                 self.indent -= 1;
@@ -3607,7 +3695,7 @@ impl CBackend {
                 (StmtKind::Expr(e), Some(_)) if i == last => {
                     self.fill_slot(e, slot);
                 }
-                _ => self.stmt(s),
+                _ => self.seq_stmt(s),
             }
         }
     }
@@ -4011,7 +4099,7 @@ impl CBackend {
                 (StmtKind::Expr(e), Some(_)) if i == last => {
                     self.fill_slot(e, slot);
                 }
-                _ => self.stmt(s),
+                _ => self.seq_stmt(s),
             }
         }
         self.close_scope();

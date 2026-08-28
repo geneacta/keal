@@ -1458,6 +1458,60 @@ KEAL_FN int64_t keal_rem(int64_t a, int64_t b, int64_t line) {
     return a % b;
 }
 
+/* ---- the drop hook ---------------------------------------------------- */
+
+/* Objects whose last reference died wait here, whole and holding one
+ * resurrected reference, for the next statement boundary — where their
+ * class's `drop` runs and the release resumes. FIFO: death order is drop
+ * order. A `drop` body's own deaths join the same sweep; the guard stops
+ * the sweep from recursing into itself. */
+typedef struct KealPendingDrop {
+    void* obj;
+    void (*run)(void*);
+    struct KealPendingDrop* next;
+} KealPendingDrop;
+
+static KealPendingDrop* keal_drops_head = NULL;
+static KealPendingDrop* keal_drops_tail = NULL;
+static bool keal_draining = false;
+
+KEAL_FN void keal_queue_drop(void* obj, void (*run)(void*)) {
+    KealPendingDrop* n = (KealPendingDrop*)keal_alloc(sizeof(KealPendingDrop));
+    n->obj = obj;
+    n->run = run;
+    n->next = NULL;
+    if (keal_drops_tail == NULL) {
+        keal_drops_head = n;
+    } else {
+        keal_drops_tail->next = n;
+    }
+    keal_drops_tail = n;
+}
+
+KEAL_FN void keal_drain_drops(void) {
+    if (keal_draining) {
+        return;
+    }
+    keal_draining = true;
+    while (keal_drops_head != NULL) {
+        KealPendingDrop* n = keal_drops_head;
+        keal_drops_head = n->next;
+        if (keal_drops_head == NULL) {
+            keal_drops_tail = NULL;
+        }
+        void (*run)(void*) = n->run;
+        void* obj = n->obj;
+        free(n);
+        run(obj);
+        /* A panic inside a `drop` stops the sweep; what remains drains
+         * at the next boundary. */
+        if (keal_unwinding) {
+            break;
+        }
+    }
+    keal_draining = false;
+}
+
 /* Ends the unwind at a `catch`: hands the message over and clears the
  * flag, so the handler runs like any other code. */
 KEAL_FN KealStr* keal_unwind_take(void) {

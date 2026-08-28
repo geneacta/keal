@@ -35,6 +35,47 @@ pub fn err_note<T>(span: Span, msg: impl Into<String>, note: impl Into<String>) 
     }))
 }
 
+// ---- the drop hook ------------------------------------------------------
+
+thread_local! {
+    /// Objects whose last reference died, waiting for their `drop` to run
+    /// at the next statement boundary. FIFO: death order is drop order.
+    static PENDING_DROPS: std::cell::RefCell<std::collections::VecDeque<Value>> =
+        std::cell::RefCell::new(std::collections::VecDeque::new());
+    /// A `drop` body's own deaths queue and drain in the same sweep; the
+    /// guard stops the sweep from recursing into itself.
+    static DRAINING: std::cell::Cell<bool> = std::cell::Cell::new(false);
+}
+
+pub fn queue_drop(v: Value) {
+    // At thread teardown the queue itself is being destroyed; a death
+    // discovered that late has no boundary left to run at.
+    let _ = PENDING_DROPS.try_with(|q| q.borrow_mut().push_back(v));
+}
+
+pub fn drops_pending() -> bool {
+    PENDING_DROPS.try_with(|q| !q.borrow().is_empty()).unwrap_or(false)
+}
+
+/// Runs every pending `drop`, cascades included. An error (a panic inside
+/// a `drop`) stops the sweep; what remains drains at the next boundary.
+pub fn drain_drops(rt: &mut dyn Runtime, span: Span) -> R<()> {
+    if DRAINING.with(|d| d.get()) {
+        return Ok(());
+    }
+    DRAINING.with(|d| d.set(true));
+    loop {
+        let next = PENDING_DROPS.with(|q| q.borrow_mut().pop_front());
+        let Some(v) = next else { break };
+        if let Err(e) = rt.call_method(&v, "deinit", Vec::new(), span) {
+            DRAINING.with(|d| d.set(false));
+            return Err(e);
+        }
+    }
+    DRAINING.with(|d| d.set(false));
+    Ok(())
+}
+
 /// The part of an execution engine the standard library needs.
 ///
 /// `map`, `filter` and friends take a function and have to run it, and

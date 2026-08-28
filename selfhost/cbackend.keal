@@ -20,6 +20,14 @@ fun mangle(name: String): String { "k_" + name }
 /// A method's part of the function name it becomes.
 fun mangleMethod(name: String): String { "m_" + name }
 
+/// Whether the class declares the hook the runtime calls at death.
+fun classHasDeinit(c: ClassN): Bool {
+    for (m in c.methods) {
+        if (m.name == "deinit") { return true }
+    }
+    return false
+}
+
 /// The C struct a class is emitted as.
 fun structName(class_: String): String { "K_" + class_ }
 
@@ -659,6 +667,9 @@ class CBackend() {
     // unwind checks, labels and hoisted declarations below exist —
     // a program without one compiles byte-for-byte as before.
     var catchMode: Bool = false
+    // Whether any class in the program declares `proc deinit()` — only
+    // then are the per-statement drains and the pending queue emitted.
+    var dropMode: Bool = false
     // Innermost last: the label a failed `keal_unwinding` check jumps to.
     var unwindTargets: List<UnwindTarget> = []
     // One entry per open scope: where hoisted declarations insert, plus
@@ -940,13 +951,18 @@ class CBackend() {
         if (c.typeParams.size > 0) { return }
         val fields = this.shapes[c.name]
         if (fields == null) { return }
-        this.emitStruct(structName(c.name), fields, c.file, c.line, c.col)
+        this.emitStruct(structName(c.name), fields, c.file, c.line, c.col, classHasDeinit(c))
     }
 
-    proc emitStruct(name: String, fields: List<SField>, file: Int, atLine: Int, col: Int) {
+    proc emitStruct(name: String, fields: List<SField>, file: Int, atLine: Int, col: Int, hasDeinit: Bool) {
         this.typesOut += "typedef struct ${name} ${name};\n"
         var sbody = "struct ${name} {\n"
         sbody += "    int64_t rc;\n"
+        if (hasDeinit) {
+            // Set once the object's `deinit` has been queued: the hook runs
+            // exactly once, resurrection or not.
+            sbody += "    bool kdropped;\n"
+        }
         for (f in fields) {
             val ct = this.ctype(f.ty, file, atLine, col)
             if (ct == null) { return }
@@ -1016,7 +1032,7 @@ class CBackend() {
         this.atTopLevel = false
         val savedRet = this.currentRet
         this.currentRet = null
-        this.emitStruct(sn, fields, file, atLine, col)
+        this.emitStruct(sn, fields, file, atLine, col, classHasDeinit(c))
         this.classFunctionsNamed(c, fields, sn)
         this.currentRet = savedRet
         this.atTopLevel = savedTop
@@ -1220,6 +1236,14 @@ class CBackend() {
         this.decls += "void ${name}_release(${name}* o);\n"
         this.defs += "\n${name}* ${name}_retain(${name}* o) {\n    if (o != NULL) { o->rc++; }\n    return o;\n}\n"
         var rel = "\nvoid ${name}_release(${name}* o) {\n    if (o == NULL) { return; }\n    o->rc--;\n    if (o->rc > 0) { return; }\n"
+        if (classHasDeinit(c)) {
+            // The first death queues the hook instead of freeing: the
+            // object waits, whole and resurrected to one reference, for
+            // the next statement boundary. The dropper releases it again;
+            // by then `kdropped` is set and the plain path below runs —
+            // unless `deinit` gave it away, in which case it lives on.
+            rel += "    if (!o->kdropped) {\n        o->kdropped = true;\n        o->rc = 1;\n        keal_queue_drop((void*)o, ${name}_dropper);\n        return;\n    }\n"
+        }
         // The last reference to an object is also the last to each of the
         // references it held.
         for (f in fields) {
@@ -1230,6 +1254,10 @@ class CBackend() {
         }
         rel += "    free(o);\n}\n"
         this.defs += rel
+        if (classHasDeinit(c)) {
+            this.decls += "void ${name}_dropper(void* p);\n"
+            this.defs += "\nvoid ${name}_dropper(void* p) {\n    ${name}* o = (${name}*)p;\n    ${name}_${mangleMethod("deinit")}(o);\n    ${name}_release(o);\n}\n"
+        }
 
         this.classShow(c, fields, name)
         this.constructor(c, fields, name)
@@ -1309,7 +1337,7 @@ class CBackend() {
         }
         this.frameCells = lambdaFreeNames(topStmts)
         for (s in topStmts) {
-            this.stmt(s)
+            this.seqStmt(s)
         }
         this.atTopLevel = false
         this.closeScope()
@@ -1419,6 +1447,9 @@ class CBackend() {
             }
         }
         this.line("${name}* self = (${name}*)keal_alloc(sizeof(${name}));")
+        if (classHasDeinit(c)) {
+            this.line("self->kdropped = false;")
+        }
         if (this.catchMode) {
             // A field initializer can unwind mid-construction; zeroed
             // fields make the release of the half-built instance safe.
@@ -1546,7 +1577,7 @@ class CBackend() {
                 synthetic.ex = st.ex
                 this.stmt(synthetic)
             } else {
-                this.stmt(st)
+                this.seqStmt(st)
             }
             i += 1
         }
@@ -1863,9 +1894,56 @@ class CBackend() {
     proc block(stmts: List<StmtN>) {
         this.openScope()
         for (s in stmts) {
-            this.stmt(s)
+            this.seqStmt(s)
         }
         this.closeScope()
+    }
+
+    /// Emits one statement of a sequence. With a `deinit` in the program,
+    /// the statement's expression temporaries are released right after it —
+    /// a value they pinned dies at the boundary, exactly when the
+    /// interpreters kill it — and the pending `deinit`s run. A program
+    /// without one compiles byte-for-byte as before.
+    proc seqStmt(s: StmtN) {
+        var mark = 0
+        if (this.scopes.size > 0) { mark = this.scopes[this.scopes.size - 1].size }
+        this.stmt(s)
+        this.drainAfterStmt(s, mark)
+    }
+
+    proc drainAfterStmt(s: StmtN, mark: Int) {
+        unless (this.dropMode) { return }
+        if (s.kind == "return" or s.kind == "break" or s.kind == "continue" or s.kind == "throw") {
+            return
+        }
+        // The statement's own temps: everything it registered in this
+        // scope, except locals (they live to the block's end) and cells
+        // (a later lambda may still capture one).
+        val released: List<OwnedC> = []
+        if (this.scopes.size > 0) {
+            val scope = this.scopes[this.scopes.size - 1]
+            val kept: List<OwnedC> = []
+            var i = 0
+            while (i < scope.size) {
+                val o = scope[i]
+                if (i >= mark and o.name.startsWith("_t") and o.release != "keal_cell_release") {
+                    released.add(o)
+                } else {
+                    kept.add(o)
+                }
+                i += 1
+            }
+            this.scopes[this.scopes.size - 1] = kept
+        }
+        for (o in released) {
+            this.line("${o.release}(${o.name});")
+            if (this.catchMode) {
+                // The unwind label still lists the name; NULL keeps it safe.
+                this.line("${o.name} = NULL;")
+            }
+        }
+        this.line("keal_drain_drops();")
+        this.checkUnwind()
     }
 
     proc stmt(s: StmtN) {
@@ -2013,7 +2091,7 @@ class CBackend() {
             this.unwindTargets.add(UnwindTarget("KC${id}"))
             this.openScope()
             for (st in s.body!!.stmts) {
-                this.stmt(st)
+                this.seqStmt(st)
             }
             this.closeScope()
             val tryTarget = this.unwindTargets.removeAt(this.unwindTargets.size - 1)
@@ -2038,7 +2116,7 @@ class CBackend() {
             this.own(eVar, Ty("Str"))
             this.declareLocal(s.name, Ty("Str"), false)
             for (st in s.handler!!.stmts) {
-                this.stmt(st)
+                this.seqStmt(st)
             }
             this.closeScope()
             this.indent -= 1
@@ -3825,7 +3903,7 @@ class CBackend() {
             if (s.kind == "expr" and slot != "" and i == last) {
                 this.fillSlot(s.ex!!, slot, slotTy)
             } else {
-                this.stmt(s)
+                this.seqStmt(s)
             }
             i += 1
         }
@@ -4265,7 +4343,7 @@ class CBackend() {
             if (s.kind == "expr" and slot != "" and i == last) {
                 this.fillSlot(s.ex!!, slot, slotTy)
             } else {
-                this.stmt(s)
+                this.seqStmt(s)
             }
             i += 1
         }
@@ -4955,6 +5033,14 @@ for (d in checker.warnings.sortedBy({ w ->
 
 val backend = CBackend()
 backend.catchMode = programHasTry(loaded.program)
+for (item in loaded.program.items) {
+    val cd = item.classDecl
+    if (item.kind == "class" and cd != null) {
+        for (m in cd.methods) {
+            if (m.name == "deinit") { backend.dropMode = true }
+        }
+    }
+}
 for (name in checker.classes.keys()) {
     val info = checker.classes[name]!!
     val fields: List<SField> = []

@@ -86,6 +86,34 @@ pub struct Instance {
     /// Kept as a vector so fields print in declaration order; classes have
     /// few enough fields that a linear scan beats hashing.
     pub fields: RefCell<Vec<(Rc<str>, Value)>>,
+    /// Whether this object's `drop` has already been queued and run — the
+    /// hook fires once per object, resurrection or not.
+    pub dropped: std::cell::Cell<bool>,
+}
+
+/// The drop hook's doorway: an instance of a class that declares
+/// `proc drop()` does not just vanish when its last reference dies — its
+/// contents move into a fresh instance that waits on the pending queue,
+/// and the engine runs `drop` on it at the next statement boundary.
+impl Drop for Instance {
+    fn drop(&mut self) {
+        if self.dropped.get() {
+            return;
+        }
+        if !self.class.methods.iter().any(|m| m.name == "deinit") {
+            return;
+        }
+        let fields = std::mem::take(&mut self.fields);
+        // Marked before it ever queues — like the native backend's
+        // `kdropped` — so the hook runs at most once however this copy
+        // dies, including a queue that no longer exists at teardown.
+        let copy = Instance {
+            class: self.class.clone(),
+            fields,
+            dropped: std::cell::Cell::new(true),
+        };
+        crate::runtime::queue_drop(Value::Instance(Rc::new(copy)));
+    }
 }
 
 impl Instance {
@@ -218,23 +246,47 @@ pub type Env = Rc<Scope>;
 
 pub struct Scope {
     vars: RefCell<HashMap<Rc<str>, Value>>,
+    /// Names in the order they were bound, so the scope can die in
+    /// reverse-declaration order — the destructor convention all three
+    /// engines share, and the order `deinit` hooks observe.
+    order: RefCell<Vec<Rc<str>>>,
     parent: Option<Env>,
+}
+
+/// A HashMap tears down in whatever order hashing dealt; a scope must
+/// not, or two runs of the same program would `deinit` differently.
+impl Drop for Scope {
+    fn drop(&mut self) {
+        let order = std::mem::take(&mut *self.order.borrow_mut());
+        let mut vars = self.vars.borrow_mut();
+        for name in order.iter().rev() {
+            vars.remove(name);
+        }
+    }
 }
 
 impl Scope {
     pub fn root() -> Env {
-        Rc::new(Scope { vars: RefCell::new(HashMap::new()), parent: None })
+        Rc::new(Scope {
+            vars: RefCell::new(HashMap::new()),
+            order: RefCell::new(Vec::new()),
+            parent: None,
+        })
     }
 
     pub fn child(parent: &Env) -> Env {
         Rc::new(Scope {
             vars: RefCell::new(HashMap::new()),
+            order: RefCell::new(Vec::new()),
             parent: Some(parent.clone()),
         })
     }
 
     pub fn define(&self, name: &str, value: Value) {
-        self.vars.borrow_mut().insert(Rc::from(name), value);
+        let key: Rc<str> = Rc::from(name);
+        if self.vars.borrow_mut().insert(key.clone(), value).is_none() {
+            self.order.borrow_mut().push(key);
+        }
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {

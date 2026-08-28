@@ -769,6 +769,15 @@ impl Checker {
             if methods.contains_key(&m.name) {
                 self.error(m.span, format!("method `{}` is declared twice", m.name));
             }
+            if m.name == "deinit"
+                && (m.ret.is_some() || !m.params.is_empty() || !m.type_params.is_empty())
+            {
+                self.error_note(
+                    m.span,
+                    "`deinit` must be declared `proc deinit()`",
+                    "the runtime calls it with no arguments when the last reference dies",
+                );
+            }
             let ft = self.fun_type(m);
             let tps = self.param_defs(&m.type_params);
             methods.insert(m.name.clone(), Rc::new(MethodInfo { type_params: tps, sig: Rc::new(ft) }));
@@ -2118,6 +2127,29 @@ impl Checker {
                 self.check_expr(&mut a.value, None);
             }
             return Type::Error;
+        }
+        // `deinit` belongs to the runtime: it runs when the last reference
+        // dies, and calling it early would run it twice.
+        if name == "deinit" {
+            if let Type::Class(cn, _) = base {
+                let declares = self
+                    .classes
+                    .get(&**cn)
+                    .map(|c| c.methods.contains_key("deinit"))
+                    .unwrap_or(false);
+                if declares {
+                    self.error_note(
+                        span,
+                        "`deinit` is the runtime's to call, not yours",
+                        "it runs by itself when the last reference dies; \
+                         give the class an ordinary method for manual release",
+                    );
+                    for a in args.iter_mut() {
+                        self.check_expr(&mut a.value, None);
+                    }
+                    return Type::Error;
+                }
+            }
         }
 
         // A value whose type is a parameter can only be used through the

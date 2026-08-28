@@ -720,6 +720,28 @@ runtime, no marshalling layer — and the JVM two go through one gateway
 module written in Keal itself. (This section has no mirrored test:
 it needs six toolchains. The example directory is the proof.)
 
+## `deinit`: when the last reference dies
+
+A class may declare `proc deinit()`. It runs when the object's last
+reference dies — at the next statement boundary, exactly once, youngest
+object first:
+
+```keal
+var closed = 0
+class Session(val id: Int) {
+    proc deinit() { closed += 1 }
+}
+if (true) {
+    val s = Session(7)
+    assert(closed == 0, "alive while in scope")
+}
+assert(closed == 1, "deinit ran when the block ended")
+```
+
+Calling `deinit` yourself is a checker error — it is the runtime's to
+call. The generated JVM wrappers use it to free their handles, so a
+forgotten `free()` no longer leaks a global reference.
+
 ## Lazy sequences
 
 The prelude carries a pull-based pipeline — Keal's `Stream`/`Sequence` —

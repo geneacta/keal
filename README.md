@@ -165,6 +165,13 @@ engines, which must agree on every byte they print.
 - **Guarded returns.** `return if (a > b) a` returns only when the guard
   holds and falls through otherwise — and the guard narrows, so
   `return unless (s == null) s` hands back a plain `String`.
+- **`deinit`, deterministic.** A class may declare `proc deinit()`; it
+  runs when the object's last reference dies — at the next statement
+  boundary, in reverse-declaration order, exactly once, identically on
+  all three engines (the semantics are pinned in
+  [`docs/drop.md`](docs/drop.md)). `keal jbind`'s wrappers use it to
+  free their JVM handles by themselves. A program that declares none
+  pays nothing.
 - **A checker that suggests, not just refuses.** Warnings that never fail
   the build: write `!(a and b)` and it answers *"`not (a and b)` is
   `a nand b`"* — the negated connectives have first-class names, and the
@@ -511,12 +518,6 @@ Keal file in [`examples/interop/polyglot/`](examples/interop/polyglot/),
 and [`docs/interop.md`](docs/interop.md) tells that whole story. Exceptions
 used to live here too; all three engines catch them now.)
 
-* **A `drop` hook** — `proc drop()` running when a count hits zero, so
-  jbind's JVM wrappers free their handles automatically instead of by
-  `free()`. The native side is ready — native `try` already unwinds
-  through the same rails ([`docs/drop.md`](docs/drop.md)) — but the
-  interpreters need a deterministic pending-drop design first, and the
-  three engines must provably agree on drop order before it ships.
 * **Actors on real threads** — the model ships and is deterministic today;
   the threaded scheduler (one heap per actor, counts stay non-atomic,
   exactly as the memory model planned) is the next runtime project. No

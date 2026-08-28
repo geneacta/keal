@@ -1,0 +1,58 @@
+var log = ""
+
+class Res(val name: String) {
+    proc deinit() { log += "[" + this.name + "]" }
+}
+
+// A local dies when its block ends; drop runs right after the block.
+if (true) {
+    val a = Res("a")
+    log += "using " + a.name + " "
+}
+log += "|"
+assert(log == "using a [a]|", log)
+
+// Reassignment kills the old value at that statement.
+log = ""
+var r = Res("one")
+r = Res("two")
+log += "|"
+assert(log == "[one]|", log)
+r = Res("three")
+
+// Cascade: an owner's death releases what it holds.
+log = ""
+class Owner(val held: Res) {
+    proc deinit() { log += "<owner>" }
+}
+if (true) {
+    val o = Owner(Res("held"))
+    log += "alive "
+}
+assert(log == "alive <owner>[held]", log)
+
+// Once only, resurrection included.
+log = ""
+var keep: Res? = null
+class Sly(val tag: String) {
+    proc deinit() {
+        log += "(sly)"
+        keep = Res(this.tag)
+    }
+}
+if (true) {
+    val s = Sly("z")
+}
+log += "|"
+assert(log == "(sly)|", "resurrection ran once: " + log)
+
+// Values that die inside a try's unwind still drop, after the catch.
+log = ""
+try {
+    val t = Res("try")
+    throw "boom"
+} catch (e) {
+    log += "caught "
+}
+log += "|"
+assert(log == "caught [try]|", log)

@@ -80,6 +80,9 @@ impl Interp {
             if let Item::Stmt(s) = item {
                 let env = self.globals.clone();
                 last = self.exec_stmt(s, &env)?;
+                if runtime::drops_pending() {
+                    runtime::drain_drops(self, s.span)?;
+                }
             }
         }
         Ok(last)
@@ -97,6 +100,11 @@ impl Interp {
         let mut last = Value::Unit;
         for s in stmts {
             last = self.exec_stmt(s, env)?;
+            // Objects whose last reference died in that statement run
+            // their `drop` now, at the boundary.
+            if runtime::drops_pending() {
+                runtime::drain_drops(self, s.span)?;
+            }
         }
         Ok(last)
     }
@@ -783,6 +791,7 @@ impl Interp {
         let instance = Rc::new(Instance {
             class: class.clone(),
             fields: RefCell::new(fields),
+            dropped: std::cell::Cell::new(false),
         });
         // Field initializers may use `this` and the fields declared above them.
         scope.define("this", Value::Instance(instance.clone()));

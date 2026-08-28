@@ -231,7 +231,9 @@ impl Vm {
                     e.frames = self.trace(depth);
                 }
                 self.frames.truncate(depth);
-                self.stack.truncate(base);
+                while self.stack.len() > base {
+                    self.stack.pop();
+                }
                 Err(Flow::Err(e))
             }
             other => other,
@@ -262,7 +264,9 @@ impl Vm {
                     Some(h) if h.frames_len > depth => {
                         let h = self.handlers.pop().unwrap();
                         self.frames.truncate(h.frames_len);
-                        self.stack.truncate(h.stack_len);
+                        while self.stack.len() > h.stack_len {
+                            self.stack.pop();
+                        }
                         self.frames.last_mut().unwrap().ip = h.target;
                         self.push(Value::str(&e.diag.msg));
                     }
@@ -484,7 +488,11 @@ impl Vm {
                 Op::Return | Op::ReturnUnit => {
                     let v = if matches!(op, Op::Return) { self.pop() } else { Value::Unit };
                     let frame = self.frames.pop().unwrap();
-                    self.stack.truncate(frame.base);
+                    // Popped one by one so the locals die youngest-first —
+                    // reverse-declaration order, like every scope.
+                    while self.stack.len() > frame.base {
+                        self.stack.pop();
+                    }
                     // A `return` out of a `try` leaves its handler behind;
                     // handlers of the popped frame die with it.
                     while self.handlers.last().map_or(false, |h| h.frames_len > self.frames.len()) {
@@ -506,6 +514,11 @@ impl Vm {
                 }
                 Op::PopHandler => {
                     self.handlers.pop();
+                }
+                Op::DrainDrops => {
+                    if runtime::drops_pending() {
+                        runtime::drain_drops(self, span)?;
+                    }
                 }
                 Op::Throw => {
                     let v = self.pop();
@@ -616,6 +629,7 @@ impl Vm {
                     let instance = Rc::new(Instance {
                         class: class.decl.clone(),
                         fields: RefCell::new(fields),
+                        dropped: std::cell::Cell::new(false),
                     });
                     self.frames.last_mut().unwrap().this = Some(Value::Instance(instance));
                 }

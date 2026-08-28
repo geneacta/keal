@@ -49,6 +49,10 @@ struct LoopCtx {
     /// How many catch handlers were live when the loop began: a `break` or
     /// `continue` jumping out of `try` blocks must pop the difference.
     handler_depth: usize,
+    /// How many scopes were open when the loop began: with a `deinit` in
+    /// the program, a jump out must clear the slots of the scopes it
+    /// leaves, or their values would outlive their block.
+    scope_depth: usize,
 }
 
 struct FnState {
@@ -94,6 +98,8 @@ pub struct Compiler {
     classes: Vec<Rc<RtClass>>,
     functions: Vec<Rc<Function>>,
     fns: Vec<FnState>,
+    /// Whether any class in the program declares `proc drop()`.
+    has_drop: bool,
 }
 
 impl Compiler {
@@ -105,10 +111,18 @@ impl Compiler {
             classes: Vec::new(),
             functions: Vec::new(),
             fns: Vec::new(),
+            has_drop: false,
         }
     }
 
     pub fn compile(&mut self, program: &crate::ast::Program) -> Result<CompiledUnit, Diag> {
+        // A program with a `drop` anywhere pays one opcode per statement;
+        // one without pays nothing.
+        self.has_drop = self.has_drop
+            || program.items.iter().any(|i| match i {
+                Item::Class(c) => c.methods.iter().any(|m| m.name == "deinit"),
+                _ => false,
+            });
         // Declarations are visible before their line, so register the names
         // first and compile the bodies afterwards.
         for item in &program.items {
@@ -183,6 +197,14 @@ impl Compiler {
         let last = stmts.len().saturating_sub(1);
         for (i, s) in stmts.iter().enumerate() {
             self.stmt(s, i == last)?;
+            if self.has_drop
+                && !matches!(
+                    s.kind,
+                    StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue | StmtKind::Throw(_)
+                )
+            {
+                self.emit(Op::DrainDrops, s.span);
+            }
         }
         let span = program.items.last().map(item_span).unwrap_or_default();
         if stmts.is_empty() {
@@ -239,6 +261,18 @@ impl Compiler {
         // not, since a closure may still hold one.
         let released = gone.iter().filter(|l| !l.boxed).count() as u16;
         fs.next_slot -= released;
+        // With a `deinit` in the program, a local must actually die when
+        // its block ends — the interpreter's scopes do, and the engines
+        // must agree on when the hook runs. Overwriting the slot with Unit
+        // releases the value; without a `deinit` anywhere, the slot can
+        // keep its garbage until reuse, as before.
+        if self.has_drop {
+            // Youngest first: reverse-declaration order, like every scope.
+            for l in gone.iter().rev().filter(|l| !l.boxed) {
+                self.emit(Op::Unit, Span::default());
+                self.emit(Op::StoreLocal(l.index), Span::default());
+            }
+        }
     }
 
     /// Introduces a name, boxing it when a nested function mentions it.
@@ -471,6 +505,17 @@ impl Compiler {
         for (i, s) in stmts.iter().enumerate() {
             let keep = keep_value && i == last;
             self.stmt(s, keep)?;
+            // Objects whose last reference died in that statement run
+            // their `drop` now — but only if the program declares any,
+            // and not after a statement that already left.
+            if self.has_drop
+                && !matches!(
+                    s.kind,
+                    StmtKind::Return(_) | StmtKind::Break | StmtKind::Continue | StmtKind::Throw(_)
+                )
+            {
+                self.emit(Op::DrainDrops, s.span);
+            }
         }
         Ok(())
     }
@@ -516,6 +561,7 @@ impl Compiler {
             }
             StmtKind::Break => {
                 self.pop_handlers_to_loop(span)?;
+                self.clear_slots_to_loop(span);
                 let at = self.fs().chunk.emit_jump(Op::Jump, span);
                 match self.fs().loops.last_mut() {
                     Some(l) => l.breaks.push(at),
@@ -524,6 +570,7 @@ impl Compiler {
             }
             StmtKind::Continue => {
                 self.pop_handlers_to_loop(span)?;
+                self.clear_slots_to_loop(span);
                 let at = self.fs().chunk.emit_jump(Op::Jump, span);
                 match self.fs().loops.last_mut() {
                     Some(l) => l.continues.push(at),
@@ -643,13 +690,35 @@ impl Compiler {
         Ok(())
     }
 
+    /// With a `deinit` in the program, a jump out of a loop clears the
+    /// slots of every scope it leaves, so their values die on time.
+    fn clear_slots_to_loop(&mut self, span: Span) {
+        if !self.has_drop {
+            return;
+        }
+        let slots: Vec<u16> = {
+            let fs = self.fs();
+            let Some(l) = fs.loops.last() else { return };
+            fs.scopes[l.scope_depth..]
+                .iter()
+                .rev()
+                .flat_map(|s| s.iter().rev().filter(|l| !l.boxed).map(|l| l.index))
+                .collect()
+        };
+        for i in slots {
+            self.emit(Op::Unit, span);
+            self.emit(Op::StoreLocal(i), span);
+        }
+    }
+
     fn while_loop(&mut self, cond: &Expr, body: &Block, span: Span) -> Result<(), Diag> {
         let top = self.fs().chunk.here();
         self.expr(cond)?;
         let exit = self.fs().chunk.emit_jump(Op::JumpIfFalse, span);
 
         let handler_depth = self.fs().handlers;
-        self.fs().loops.push(LoopCtx { continue_target: top, breaks: Vec::new(), continues: Vec::new(), handler_depth });
+        let scope_depth = self.fs().scopes.len();
+        self.fs().loops.push(LoopCtx { continue_target: top, breaks: Vec::new(), continues: Vec::new(), handler_depth, scope_depth });
         self.push_scope();
         self.compile_stmts(&body.stmts, false)?;
         self.pop_scope();
@@ -691,7 +760,8 @@ impl Compiler {
         }
 
         let handler_depth = self.fs().handlers;
-        self.fs().loops.push(LoopCtx { continue_target: top, breaks: Vec::new(), continues: Vec::new(), handler_depth });
+        let scope_depth = self.fs().scopes.len();
+        self.fs().loops.push(LoopCtx { continue_target: top, breaks: Vec::new(), continues: Vec::new(), handler_depth, scope_depth });
         self.compile_stmts(&body.stmts, false)?;
         self.emit(Op::Jump(top), span);
 

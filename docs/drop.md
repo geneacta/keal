@@ -78,14 +78,37 @@ what it was before this design existed. What native `try` still does not
 catch: C stack exhaustion (the VM's `MAX_DEPTH` panic is catchable, a
 native segfault is not).
 
-## The other half: a drop hook
+## The other half: `deinit` — shipped
 
-The same machinery is the road to `proc drop()` — user code running when
-a count hits zero, which would let `keal jbind`'s wrappers free their JVM
-handles automatically instead of by hand. The native side is easy (the
-generated `X_release` calls it). The honest blocker is the interpreters:
-their values die inside Rust's `Rc::drop`, where no engine is in reach to
-run Keal code. The likely shape is a pending-drop queue drained at
-statement boundaries — deterministic, but its ordering must be proven
-identical to the native backend's before it ships. Not started; nothing
-about `try` depends on it.
+The hook landed, named `deinit` (`drop` already belongs to the
+take/`drop` pair on sequences and strings): a class or record may declare
+`proc deinit()`, and it runs when the object's last reference dies.
+`keal jbind`'s wrappers use it to free their JVM handles by themselves —
+`free()` stays as the manual lever, idempotent either way.
+
+The semantics, stated exactly:
+
+* **When.** A death is *queued*; the queue drains at the next statement
+  boundary, cascades included (an object freed by a `deinit` joins the
+  same sweep). A statement that leaves early — `return`, `break`,
+  `throw` — drains at the boundary it lands on, unwinding included.
+* **Order.** Reverse-declaration order — the destructor convention —
+  everywhere: the interpreter's scopes tear down youngest-first (a
+  `HashMap` would tear down in hash order, so scopes remember their
+  insertion order), the VM pops frame locals youngest-first and clears
+  block slots in reverse, the C backend always released in reverse.
+* **Once.** `deinit` runs at most once per object, marked before it is
+  queued. If the body stores `this` somewhere, the object survives —
+  resurrected, never re-dropped. Calling `deinit` yourself is a checker
+  error; give the class an ordinary method for manual release.
+* **What it costs.** Everything is gated on the program declaring one:
+  without a `deinit`, the three engines compile and run byte-for-byte
+  as before. With one, every statement gains a drain call, VM locals are
+  cleared at block ends, and the C backend releases each statement's
+  expression temporaries at its boundary (they otherwise live to the
+  block's end, which would postpone the hook).
+* **The stated limits.** Objects still alive when the program ends do
+  not `deinit` — like every finalizer since finalizers. An object cycle
+  never dies, so it never `deinit`s (docs/memory.md §5). And `keal
+  layout` does not yet show the one-byte `kdropped` flag a deinit-class
+  carries natively.
