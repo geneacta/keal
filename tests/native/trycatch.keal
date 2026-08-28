@@ -1,0 +1,56 @@
+// Panics caught on all three engines, byte for byte — including through
+// deep frames that hold references the unwind must release exactly.
+
+fun deep(n: Int, s: String): String {
+    val local = s + "-" + n.toString()
+    if (n == 0) { throw "bottom reached with " + local }
+    return deep(n - 1, local)
+}
+
+try {
+    println(deep(3, "x"))
+} catch (e) {
+    println("caught: " + e)
+}
+
+// A panic inside a closure crosses the frames of `map`.
+try {
+    val parts = ["4", "0", "2"].map({ t -> 10 / t.toInt()!! })
+    println(parts.size)
+} catch (e) {
+    println("map: " + e)
+}
+
+// The guard idiom, natively.
+fun safeDiv(a: Int, b: Int): Int {
+    try { return a / b } catch (e) { return -1 }
+}
+println(safeDiv(84, 2))
+println(safeDiv(84, 0))
+
+// Nested try with a rethrow that carries the inner message out.
+try {
+    try {
+        val l = [1, 2, 3]
+        println(l[9])
+    } catch (e) {
+        throw "wrapped: " + e
+    }
+} catch (e) {
+    println(e)
+}
+
+// A caught panic leaves the world consistent: state built before the try
+// survives, and the loop goes on.
+val log: List<String> = []
+var i = 0
+while (i < 4) {
+    try {
+        if (i == 2) { throw "skip ${i}" }
+        log.add("ok ${i}")
+    } catch (e) {
+        log.add(e)
+    }
+    i++
+}
+println(log.join(", "))

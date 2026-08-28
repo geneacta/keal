@@ -1,0 +1,6 @@
+caught: bottom reached with x-3-2-1-0
+map: division by zero
+42
+-1
+wrapped: index 9 is out of bounds for a list of 3 element(s)
+ok 0, ok 1, skip 2, ok 3

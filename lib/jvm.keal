@@ -45,8 +45,12 @@ static jvalue keal_jvm_args[KEAL_JVM_MAX_ARGS];
 static int keal_jvm_argc = 0;
 
 /* A pending Java exception ends the program the Keal way: as a panic that
- * says which call threw and what the throwable printed. */
-static void keal_jvm_check(const char* what) {
+ * says which call threw and what the throwable printed. Under an active
+ * `try`, `keal_panic` records the message and returns instead of exiting;
+ * the helper that called this then returns a harmless value, and the
+ * generated code's unwind checks carry the panic to the `catch` — so Java
+ * exceptions are catchable in native binaries. Returns whether one threw. */
+static bool keal_jvm_check(const char* what) {
     if ((*keal_jvm_env)->ExceptionCheck(keal_jvm_env)) {
         jthrowable ex = (*keal_jvm_env)->ExceptionOccurred(keal_jvm_env);
         (*keal_jvm_env)->ExceptionClear(keal_jvm_env);
@@ -64,13 +68,17 @@ static void keal_jvm_check(const char* what) {
         char msg[512];
         snprintf(msg, sizeof msg, "%s threw: %s", what, text);
         keal_panic(msg, 0);
+        return true;
     }
+    return false;
 }
 
-static void keal_jvm_need(void) {
+static bool keal_jvm_need(void) {
     if (keal_jvm_env == NULL) {
         keal_panic("the JVM is not running; call jvmStart first", 0);
+        return false;
     }
+    return true;
 }
 
 static bool keal_jvm_start_impl(const char* options) {
@@ -94,9 +102,11 @@ static bool keal_jvm_start_impl(const char* options) {
 }
 
 static int64_t keal_jvm_class_impl(const char* name) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return 0; }
     jclass local = (*keal_jvm_env)->FindClass(keal_jvm_env, name);
-    keal_jvm_check(name);
+    if (keal_jvm_check(name)) {
+        return 0;
+    }
     jclass global = (jclass)(*keal_jvm_env)->NewGlobalRef(keal_jvm_env, local);
     (*keal_jvm_env)->DeleteLocalRef(keal_jvm_env, local);
     return (int64_t)(intptr_t)global;
@@ -135,7 +145,7 @@ static void keal_jvm_arg_bool_impl(bool v) {
 }
 
 static void keal_jvm_arg_str_impl(const char* s) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return; }
     jvalue j;
     j.l = (*keal_jvm_env)->NewStringUTF(keal_jvm_env, s);
     keal_jvm_push(j);
@@ -152,7 +162,9 @@ static jmethodID keal_jvm_method(jclass cls, const char* name, const char* sig,
     jmethodID mid = is_static
         ? (*keal_jvm_env)->GetStaticMethodID(keal_jvm_env, cls, name, sig)
         : (*keal_jvm_env)->GetMethodID(keal_jvm_env, cls, name, sig);
-    keal_jvm_check(name);
+    if (keal_jvm_check(name)) {
+        return NULL;
+    }
     return mid;
 }
 
@@ -166,9 +178,10 @@ static int64_t keal_jvm_keep(jobject local) {
 }
 
 static int64_t keal_jvm_static_obj_impl(int64_t cls, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return 0; }
     jclass c = (jclass)(intptr_t)cls;
     jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    if (mid == NULL) { keal_jvm_argc = 0; return 0; }
     jobject r = (*keal_jvm_env)->CallStaticObjectMethodA(keal_jvm_env, c, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -176,9 +189,10 @@ static int64_t keal_jvm_static_obj_impl(int64_t cls, const char* name, const cha
 }
 
 static int64_t keal_jvm_static_long_impl(int64_t cls, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return 0; }
     jclass c = (jclass)(intptr_t)cls;
     jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    if (mid == NULL) { keal_jvm_argc = 0; return 0; }
     jlong r = (*keal_jvm_env)->CallStaticLongMethodA(keal_jvm_env, c, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -186,9 +200,10 @@ static int64_t keal_jvm_static_long_impl(int64_t cls, const char* name, const ch
 }
 
 static double keal_jvm_static_double_impl(int64_t cls, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return 0.0; }
     jclass c = (jclass)(intptr_t)cls;
     jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    if (mid == NULL) { keal_jvm_argc = 0; return 0.0; }
     jdouble r = (*keal_jvm_env)->CallStaticDoubleMethodA(keal_jvm_env, c, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -196,9 +211,10 @@ static double keal_jvm_static_double_impl(int64_t cls, const char* name, const c
 }
 
 static bool keal_jvm_static_bool_impl(int64_t cls, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return false; }
     jclass c = (jclass)(intptr_t)cls;
     jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    if (mid == NULL) { keal_jvm_argc = 0; return false; }
     jboolean r = (*keal_jvm_env)->CallStaticBooleanMethodA(keal_jvm_env, c, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -206,18 +222,20 @@ static bool keal_jvm_static_bool_impl(int64_t cls, const char* name, const char*
 }
 
 static void keal_jvm_static_void_impl(int64_t cls, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return; }
     jclass c = (jclass)(intptr_t)cls;
     jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    if (mid == NULL) { keal_jvm_argc = 0; return; }
     (*keal_jvm_env)->CallStaticVoidMethodA(keal_jvm_env, c, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
 }
 
 static int64_t keal_jvm_new_impl(int64_t cls, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return 0; }
     jclass c = (jclass)(intptr_t)cls;
     jmethodID mid = keal_jvm_method(c, "<init>", sig, 0);
+    if (mid == NULL) { keal_jvm_argc = 0; return 0; }
     jobject r = (*keal_jvm_env)->NewObjectA(keal_jvm_env, c, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check("<init>");
@@ -225,9 +243,10 @@ static int64_t keal_jvm_new_impl(int64_t cls, const char* sig) {
 }
 
 static int64_t keal_jvm_static_int_impl(int64_t cls, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return 0; }
     jclass c = (jclass)(intptr_t)cls;
     jmethodID mid = keal_jvm_method(c, name, sig, 1);
+    if (mid == NULL) { keal_jvm_argc = 0; return 0; }
     jint r = (*keal_jvm_env)->CallStaticIntMethodA(keal_jvm_env, c, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -239,9 +258,10 @@ static jclass keal_jvm_class_of(jobject obj) {
 }
 
 static int64_t keal_jvm_call_obj_impl(int64_t obj, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return 0; }
     jobject o = (jobject)(intptr_t)obj;
     jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    if (mid == NULL) { keal_jvm_argc = 0; return 0; }
     jobject r = (*keal_jvm_env)->CallObjectMethodA(keal_jvm_env, o, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -249,9 +269,10 @@ static int64_t keal_jvm_call_obj_impl(int64_t obj, const char* name, const char*
 }
 
 static int64_t keal_jvm_call_int_impl(int64_t obj, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return 0; }
     jobject o = (jobject)(intptr_t)obj;
     jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    if (mid == NULL) { keal_jvm_argc = 0; return 0; }
     jint r = (*keal_jvm_env)->CallIntMethodA(keal_jvm_env, o, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -259,9 +280,10 @@ static int64_t keal_jvm_call_int_impl(int64_t obj, const char* name, const char*
 }
 
 static int64_t keal_jvm_call_long_impl(int64_t obj, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return 0; }
     jobject o = (jobject)(intptr_t)obj;
     jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    if (mid == NULL) { keal_jvm_argc = 0; return 0; }
     jlong r = (*keal_jvm_env)->CallLongMethodA(keal_jvm_env, o, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -269,9 +291,10 @@ static int64_t keal_jvm_call_long_impl(int64_t obj, const char* name, const char
 }
 
 static double keal_jvm_call_double_impl(int64_t obj, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return 0.0; }
     jobject o = (jobject)(intptr_t)obj;
     jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    if (mid == NULL) { keal_jvm_argc = 0; return 0.0; }
     jdouble r = (*keal_jvm_env)->CallDoubleMethodA(keal_jvm_env, o, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -279,9 +302,10 @@ static double keal_jvm_call_double_impl(int64_t obj, const char* name, const cha
 }
 
 static bool keal_jvm_call_bool_impl(int64_t obj, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return false; }
     jobject o = (jobject)(intptr_t)obj;
     jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    if (mid == NULL) { keal_jvm_argc = 0; return false; }
     jboolean r = (*keal_jvm_env)->CallBooleanMethodA(keal_jvm_env, o, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -289,9 +313,10 @@ static bool keal_jvm_call_bool_impl(int64_t obj, const char* name, const char* s
 }
 
 static void keal_jvm_call_void_impl(int64_t obj, const char* name, const char* sig) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return; }
     jobject o = (jobject)(intptr_t)obj;
     jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), name, sig, 0);
+    if (mid == NULL) { keal_jvm_argc = 0; return; }
     (*keal_jvm_env)->CallVoidMethodA(keal_jvm_env, o, mid, keal_jvm_args);
     keal_jvm_argc = 0;
     keal_jvm_check(name);
@@ -300,7 +325,7 @@ static void keal_jvm_call_void_impl(int64_t obj, const char* name, const char* s
 /* The throwable-free path to text: whatever the object's toString says,
  * as a malloc'd buffer Keal adopts. */
 static char* keal_jvm_to_string_impl(int64_t obj) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return NULL; }
     if (obj == 0) {
         char* out = (char*)malloc(5);
         memcpy(out, "null", 5);
@@ -310,7 +335,9 @@ static char* keal_jvm_to_string_impl(int64_t obj) {
     jmethodID mid = keal_jvm_method(keal_jvm_class_of(o), "toString",
                                     "()Ljava/lang/String;", 0);
     jstring s = (jstring)(*keal_jvm_env)->CallObjectMethod(keal_jvm_env, o, mid);
-    keal_jvm_check("toString");
+    if (keal_jvm_check("toString") || s == NULL) {
+        return NULL;
+    }
     const char* utf = (*keal_jvm_env)->GetStringUTFChars(keal_jvm_env, s, NULL);
     size_t n = strlen(utf);
     char* out = (char*)malloc(n + 1);
@@ -321,7 +348,7 @@ static char* keal_jvm_to_string_impl(int64_t obj) {
 }
 
 static void keal_jvm_free_impl(int64_t obj) {
-    keal_jvm_need();
+    if (!keal_jvm_need()) { return; }
     if (obj != 0) {
         (*keal_jvm_env)->DeleteGlobalRef(keal_jvm_env, (jobject)(intptr_t)obj);
     }

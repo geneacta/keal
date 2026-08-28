@@ -166,10 +166,12 @@ engines, which must agree on every byte they print.
 - **Exceptions, the honest way.** `throw "message"` raises the same panic
   every built-in failure raises, and `try { ... } catch (e) { ... }` binds
   the message and continues — one form covers your throws, overflow,
-  division by zero, a failed `assert`, all of it. `return` passes through
-  uncaught. The native backend still refuses `try` by name (unwinding
-  through reference counts wants a real drop design, not a leak), so
-  caught panics run on the VM today.
+  division by zero, a failed `assert`, even a Java exception crossing the
+  JVM gateway. `return` passes through uncaught. All three engines catch,
+  byte-for-byte alike: the C backend unwinds by checked, poisoned returns
+  — every scope releases exactly what it owns on the way out, zero leaks,
+  zero cost to programs that never `try`
+  ([`docs/drop.md`](docs/drop.md) records the design).
 - **Generics and traits.** `fun first<T>(...)`, `class Box<T>`, inferred one
   argument at a time so a later lambda knows what an earlier argument fixed.
   Traits carry required and default methods, `Self`, and bounds (`<T: Show +
@@ -526,10 +528,10 @@ The honest list, in rough order of intent:
   evaluator.
 * **Macros** — deliberately last: the language keeps earning features the
   hard way first.
-* **Native `try`/`catch`** — the VM and the tree-walker catch panics
-  today; the C backend refuses `try` by name until unwinding can release
-  what it skips. The drop design that fixes it is the same one that would
-  auto-free jbind's JVM handles — one stone, two birds.
+* **A `drop` hook** — `proc drop()` running when a count hits zero, so
+  jbind's JVM wrappers free their handles automatically. The native side
+  is ready (native `try` shares its rails, [`docs/drop.md`](docs/drop.md));
+  the interpreters need a deterministic pending-drop design first.
 * Smaller items: indexing/call
   operator overloads, namespaced imports, a register-based VM if the
   bytecode engine ever needs to be faster than it is.

@@ -672,8 +672,9 @@ try {
 ```
 
 `return`, `break` and `continue` pass through a `try` untouched — only
-panics are caught. (The native backend refuses `try` for now and says so
-by name; caught panics run on the VM.)
+panics are caught. This works identically on all three engines — a native
+binary unwinds with zero leaks, and even a Java exception arriving through
+the JVM gateway lands in your `catch`.
 
 ## One file, six languages
 

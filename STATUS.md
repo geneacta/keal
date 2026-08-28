@@ -70,12 +70,20 @@ out of a try; `try{return}catch{return}` types as Never like if/else).
 Interp: intercept `Flow::Err` in exec_stmt. VM: `Op::PushHandler/
 PopHandler/Throw`, a `handlers` stack, and `execute` wraps
 `execute_inner` in a catch loop (three truncations + jump; RC stays
-exact because popped Values drop). **Native refuses `try` by name**
-(unwinding through refcounts leaks without a drop design — the same
-design that would auto-free jbind handles; do them together). `throw`
-compiles natively to `keal_panic(msg->bytes, line)`. Tests:
-tests/programs/exceptions.keal (+tutorial.keal), perr31, te37,
-tests/selfhost/tryrefuse.keal (cgen refusal corpus).
+exact because popped Values drop). **Native `try` — DONE too**
+(checked unwinding / poisoned returns; docs/drop.md records the design
+and the rejected ones). Zero cost when the program has no `try`
+(`program_has_try` gates all of it; non-try corpus byte-identical).
+Per-scope unwind labels release the ever-owned list (hoisted NULL
+declarations), functions poison-return, `try` bodies chain to the catch
+label; runtime keeps keal_try_depth/keal_unwinding, panicking helpers
+return poison; JNI gateway bails after each check so Java exceptions
+land in native `catch` (suite: java_exceptions_are_catchable_natively).
+Twins fully mirrored — corpora 4x147 = 588/588. Tests:
+tests/programs/exceptions.keal (+tutorial.keal), tests/native/trycatch
+(3 engines, 0 leaks incl. unwind paths), trynative.keal (cgen corpus),
+perr31, te37. Remaining half: the `proc drop()` hook (interp/VM need a
+deterministic pending-drop queue; see docs/drop.md and NEXT).
 
 ## Recently landed (kept for context)
 

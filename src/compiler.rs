@@ -1349,7 +1349,7 @@ fn collect_all_idents_expr(e: &Expr, out: &mut HashSet<String>) {
 
 /// Visits `e` and its sub-expressions. The callback returns false to stop
 /// descending into that node's children.
-fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr) -> bool) {
+pub(crate) fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr) -> bool) {
     if !f(e) {
         return;
     }

@@ -612,6 +612,15 @@ fun keyEqFn(e: CElem): String {
 /// A local the current block owns a reference to.
 class OwnedC(val name: String, val release: String)
 
+class UnwindTarget(val label: String) {
+    var referenced: Bool = false
+}
+
+class UnwindMark(val at: Int, val pad: String) {
+    var hoisted: List<String> = []
+    var everOwned: List<OwnedC> = []
+}
+
 class LocalC(val name: String, val ty: Ty, val mutable: Bool)
 
 class SField(val name: String, val ty: Ty)
@@ -638,6 +647,19 @@ class CBackend() {
     var indent: Int = 1
     var nextTemp: Int = 0
     var scopes: List<List<OwnedC>> = []
+    // Whether the program contains a `try` anywhere. Only then do the
+    // unwind checks, labels and hoisted declarations below exist —
+    // a program without one compiles byte-for-byte as before.
+    var catchMode: Bool = false
+    // Innermost last: the label a failed `keal_unwinding` check jumps to.
+    var unwindTargets: List<UnwindTarget> = []
+    // One entry per open scope: where hoisted declarations insert, plus
+    // everything the scope ever owned — `disown` at a `return` must not
+    // thin the unwind list.
+    var unwindMarks: List<UnwindMark> = []
+    var nextUnwind: Int = 0
+    // The `return` the function's bottom label ends with.
+    var poison: String = ""
     var loops: List<Int> = []
     var stringLiterals: List<String> = []
     var typesOut: String = ""
@@ -964,6 +986,12 @@ class CBackend() {
         this.scopes = []
         val savedLocals = this.locals
         this.locals = []
+        val savedUnwindT = this.unwindTargets
+        this.unwindTargets = []
+        val savedUnwindM = this.unwindMarks
+        this.unwindMarks = []
+        val savedPoison = this.poison
+        this.poison = ""
         val savedLoops = this.loops
         this.loops = []
         val savedIndent = this.indent
@@ -989,6 +1017,9 @@ class CBackend() {
         this.body = savedBody
         this.scopes = savedScopes
         this.locals = savedLocals
+        this.unwindTargets = savedUnwindT
+        this.unwindMarks = savedUnwindM
+        this.poison = savedPoison
         this.loops = savedLoops
         this.indent = savedIndent
         this.nextTemp = savedTemp
@@ -1046,6 +1077,12 @@ class CBackend() {
         this.scopes = []
         val savedLocals = this.locals
         this.locals = []
+        val savedUnwindT = this.unwindTargets
+        this.unwindTargets = []
+        val savedUnwindM = this.unwindMarks
+        this.unwindMarks = []
+        val savedPoison = this.poison
+        this.poison = ""
         val savedLoops = this.loops
         this.loops = []
         val savedIndent = this.indent
@@ -1070,6 +1107,9 @@ class CBackend() {
         this.body = savedBody
         this.scopes = savedScopes
         this.locals = savedLocals
+        this.unwindTargets = savedUnwindT
+        this.unwindMarks = savedUnwindM
+        this.poison = savedPoison
         this.loops = savedLoops
         this.indent = savedIndent
         this.nextTemp = savedTemp
@@ -1114,6 +1154,12 @@ class CBackend() {
         this.scopes = []
         val savedLocals = this.locals
         this.locals = []
+        val savedUnwindT = this.unwindTargets
+        this.unwindTargets = []
+        val savedUnwindM = this.unwindMarks
+        this.unwindMarks = []
+        val savedPoison = this.poison
+        this.poison = ""
         val savedLoops = this.loops
         this.loops = []
         val savedIndent = this.indent
@@ -1142,6 +1188,9 @@ class CBackend() {
         this.body = savedBody
         this.scopes = savedScopes
         this.locals = savedLocals
+        this.unwindTargets = savedUnwindT
+        this.unwindMarks = savedUnwindM
+        this.poison = savedPoison
         this.loops = savedLoops
         this.indent = savedIndent
         this.nextTemp = savedTemp
@@ -1219,7 +1268,8 @@ class CBackend() {
                 if (present != null) {
                     f += "    if (${fieldAccess} == NULL) {\n        keal_buf_lit(&b, \"null\");\n    } else {\n        keal_buf_str(&b, ${present});\n    }\n"
                 } else {
-                    f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, 0);\n"
+                    val bail = if (this.catchMode) { "    return keal_buf_finish(&b);\n" } else { "" }
+                    f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, 0);\n" + bail
                 }
                 i += 1
                 continue
@@ -1228,7 +1278,8 @@ class CBackend() {
             if (rendered != null) {
                 f += "    keal_buf_str(&b, ${rendered});\n"
             } else {
-                f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, 0);\n"
+                val bail = if (this.catchMode) { "    return keal_buf_finish(&b);\n" } else { "" }
+                f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, 0);\n" + bail
             }
             i += 1
         }
@@ -1240,10 +1291,8 @@ class CBackend() {
     proc emitMain(program: ProgramN) {
         this.body = []
         this.indent = 1
-        val sc: List<OwnedC> = []
-        this.scopes.add(sc)
-        val lc: List<LocalC> = []
-        this.locals.add(lc)
+        this.beginFunctionUnwind("int64_t")
+        this.openScope()
         this.atTopLevel = true
         val topStmts: List<StmtN> = []
         for (item in program.items) {
@@ -1257,6 +1306,7 @@ class CBackend() {
         this.atTopLevel = false
         this.closeScope()
         this.line("return 0;")
+        this.endFunctionUnwind()
         val joined = this.body.join("\n")
         this.body = []
         this.defs += "\nint main(void) {\n${joined}\n}\n"
@@ -1301,10 +1351,8 @@ class CBackend() {
         this.body = []
         this.indent = 1
         this.nextTemp = 0
-        val sc: List<OwnedC> = []
-        this.scopes.add(sc)
-        val lc: List<LocalC> = []
-        this.locals.add(lc)
+        this.beginFunctionUnwind(ret)
+        this.openScope()
         for (p in f.params) {
             val te = p.tyEx
             if (te != null) {
@@ -1321,6 +1369,7 @@ class CBackend() {
         if (ret == "void") {
             this.line("return;")
         }
+        this.endFunctionUnwind()
         val joined = this.body.join("\n")
         this.body = []
         this.defs += "\n${signature} {\n${joined}\n}\n"
@@ -1351,10 +1400,8 @@ class CBackend() {
         this.body = []
         this.indent = 1
         this.nextTemp = 0
-        val sc: List<OwnedC> = []
-        this.scopes.add(sc)
-        val lc: List<LocalC> = []
-        this.locals.add(lc)
+        this.beginFunctionUnwind("void*")
+        this.openScope()
         for (p in c.ctor) {
             for (f in fields) {
                 if (f.name == p.name) {
@@ -1364,6 +1411,16 @@ class CBackend() {
             }
         }
         this.line("${name}* self = (${name}*)keal_alloc(sizeof(${name}));")
+        if (this.catchMode) {
+            // A field initializer can unwind mid-construction; zeroed
+            // fields make the release of the half-built instance safe.
+            this.line("memset((void*)self, 0, sizeof(*self));")
+            if (this.unwindMarks.size > 0) {
+                this.unwindMarks[this.unwindMarks.size - 1].everOwned.add(
+                    OwnedC("self", "${name}_release")
+                )
+            }
+        }
         this.line("self->rc = 1;")
         for (p in c.ctor) {
             var fty: Ty? = null
@@ -1398,6 +1455,7 @@ class CBackend() {
         this.thisName = ""
         this.closeScope()
         this.line("return self;")
+        this.endFunctionUnwind()
         val joined = this.body.join("\n")
         this.body = []
         this.defs += "\n${signature} {\n${joined}\n}\n"
@@ -1441,10 +1499,8 @@ class CBackend() {
         this.body = []
         this.indent = 1
         this.nextTemp = 0
-        val sc: List<OwnedC> = []
-        this.scopes.add(sc)
-        val lc: List<LocalC> = []
-        this.locals.add(lc)
+        this.beginFunctionUnwind(ret)
+        this.openScope()
         for (p in m.params) {
             val te = p.tyEx
             if (te != null) {
@@ -1461,6 +1517,7 @@ class CBackend() {
         if (ret == "void") {
             this.line("return;")
         }
+        this.endFunctionUnwind()
         val joined = this.body.join("\n")
         this.body = []
         this.defs += "\n${signature} {\n${joined}\n}\n"
@@ -1571,9 +1628,19 @@ class CBackend() {
         this.scopes.add(sc)
         val lc: List<LocalC> = []
         this.locals.add(lc)
+        if (this.catchMode) {
+            val id = this.nextUnwind
+            this.nextUnwind += 1
+            this.unwindTargets.add(UnwindTarget("KU${id}"))
+            this.unwindMarks.add(UnwindMark(this.body.size, "    ".repeat(this.indent)))
+        }
     }
 
-    /// Emits the releases this block owes, and drops it.
+    /// Emits the releases this block owes, and drops it. In catch mode the
+    /// block also gets its unwind label — releases everything the block
+    /// ever owned (all NULL-initialized up top, so order of arrival cannot
+    /// matter) and chains to the enclosing label — and its hoisted
+    /// declarations are inserted where the block began.
     proc closeScope() {
         if (this.locals.size > 0) {
             this.locals.removeAt(this.locals.size - 1)
@@ -1585,6 +1652,106 @@ class CBackend() {
             this.line("${scope[i].release}(${scope[i].name});")
             i -= 1
         }
+        if (this.catchMode) {
+            val target = this.unwindTargets.removeAt(this.unwindTargets.size - 1)
+            val mark = this.unwindMarks.removeAt(this.unwindMarks.size - 1)
+            if (target.referenced) {
+                val parent = this.unwindTargets[this.unwindTargets.size - 1]
+                parent.referenced = true
+                val done = "KD" + target.label.substring(2, target.label.length)
+                this.line("goto ${done};")
+                this.line("${target.label}:;")
+                var j = mark.everOwned.size - 1
+                while (j >= 0) {
+                    this.line("${mark.everOwned[j].release}(${mark.everOwned[j].name});")
+                    j -= 1
+                }
+                this.line("goto ${parent.label};")
+                this.line("${done}:;")
+            }
+            var k = 0
+            while (k < mark.hoisted.size) {
+                this.body.insert(mark.at + k, mark.hoisted[k])
+                k += 1
+            }
+        }
+    }
+
+    /// Enters a function's emission in catch mode: the bottom unwind label
+    /// and the poisoned `return` under it. Call before the body scope opens.
+    proc beginFunctionUnwind(retC: String) {
+        unless (this.catchMode) { return }
+        val id = this.nextUnwind
+        this.nextUnwind += 1
+        this.unwindTargets.add(UnwindTarget("KUF${id}"))
+        this.poison = when (retC) {
+            "void" -> "return;"
+            "int64_t" -> "return 0;"
+            "double" -> "return 0.0;"
+            "bool" -> "return false;"
+            else -> {
+                if (retC.endsWith("*")) { "return NULL;" } else { "return (${retC}){0};" }
+            }
+        }
+    }
+
+    /// Closes what `beginFunctionUnwind` opened, after the body's last
+    /// normal `return`.
+    proc endFunctionUnwind() {
+        unless (this.catchMode) { return }
+        val target = this.unwindTargets.removeAt(this.unwindTargets.size - 1)
+        if (target.referenced) {
+            this.line("${target.label}:;")
+            this.line(this.poison)
+        }
+    }
+
+    /// The check every possibly-panicking operation is followed by: a set
+    /// flag unwinds to the innermost live label. Nothing is emitted when
+    /// the program has no `try`.
+    proc checkUnwind() {
+        unless (this.catchMode) { return }
+        if (this.unwindTargets.size == 0) { return }
+        val last = this.unwindTargets[this.unwindTargets.size - 1]
+        last.referenced = true
+        this.line("if (keal_unwinding) { goto ${last.label}; }")
+    }
+
+    /// Rewrites the declaration just emitted for `name` into a plain
+    /// assignment, hoisting a NULL-initialized declaration to the top of
+    /// the block — the unwind label releases every name the block ever
+    /// owns, so each must be a valid pointer on every path to it.
+    proc hoistDeclaration(name: String) {
+        unless (this.catchMode) { return }
+        if (this.body.size == 0) {
+            this.errors.add(DiagN(0, 0, 0, "internal: no declaration to hoist for `${name}`"))
+            return
+        }
+        val last = this.body[this.body.size - 1]
+        var padLen = 0
+        while (padLen < last.length and last.get(padLen) == " ") { padLen += 1 }
+        val pad = last.substring(0, padLen)
+        val rest = last.substring(padLen, last.length)
+        val assignPat = " ${name} = "
+        val barePat = " ${name};"
+        val pos = rest.indexOf(assignPat)
+        var ctype = ""
+        var replacement = ""
+        var hasReplacement = false
+        if (pos >= 0) {
+            ctype = rest.substring(0, pos)
+            replacement = pad + rest.substring(pos + 1, rest.length)
+            hasReplacement = true
+        } else if (rest.endsWith(barePat)) {
+            ctype = rest.substring(0, rest.length - barePat.length)
+        } else {
+            this.errors.add(DiagN(0, 0, 0, "internal: cannot hoist the declaration of `${name}`"))
+            return
+        }
+        val mark = this.unwindMarks[this.unwindMarks.size - 1]
+        mark.hoisted.add("${mark.pad}${ctype} ${name} = NULL;")
+        this.body.removeAt(this.body.size - 1)
+        if (hasReplacement) { this.body.add(replacement) }
     }
 
     /// Emits the releases owed by the innermost `depth` blocks without
@@ -1632,16 +1799,26 @@ class CBackend() {
     }
 
     proc ownCell(name: String) {
+        this.hoistDeclaration(name)
+        val o = OwnedC(name, "keal_cell_release")
+        if (this.unwindMarks.size > 0) {
+            this.unwindMarks[this.unwindMarks.size - 1].everOwned.add(o)
+        }
         if (this.scopes.size > 0) {
-            this.scopes[this.scopes.size - 1].add(OwnedC(name, "keal_cell_release"))
+            this.scopes[this.scopes.size - 1].add(o)
         }
     }
 
     proc own(name: String, t: Ty) {
         val release = releaseFn(t)
         if (release == null) { return }
+        this.hoistDeclaration(name)
+        val o = OwnedC(name, release)
+        if (this.unwindMarks.size > 0) {
+            this.unwindMarks[this.unwindMarks.size - 1].everOwned.add(o)
+        }
         if (this.scopes.size > 0) {
-            this.scopes[this.scopes.size - 1].add(OwnedC(name, release))
+            this.scopes[this.scopes.size - 1].add(o)
         }
     }
 
@@ -1669,6 +1846,7 @@ class CBackend() {
         val c = this.ctype(t, 0, 0, 0) ?: "void*"
         this.line("${c} ${tv} = ${expr};")
         this.own(tv, t)
+        this.checkUnwind()
         return tv
     }
 
@@ -1811,14 +1989,53 @@ class CBackend() {
             // three engines.
             val m = this.expr(s.ex!!)
             this.line("keal_panic(${m}->bytes, ${s.line});")
+            this.checkUnwind()
             return
         }
         if (s.kind == "try") {
-            this.refuse(
-                s.file, s.line, s.col,
-                "`try`/`catch`",
-                "unwinding through reference counts needs the drop design; run it on the bytecode VM, which catches panics"
-            )
+            // The body runs under a counted `try`; any panic in its
+            // dynamic extent unwinds — every frame releasing its own
+            // holdings on the way — to the catch label, which adopts
+            // the message and runs the handler.
+            val id = this.nextUnwind
+            this.nextUnwind += 1
+            this.line("keal_try_depth++;")
+            this.line("{")
+            this.indent += 1
+            this.unwindTargets.add(UnwindTarget("KC${id}"))
+            this.openScope()
+            for (st in s.body!!.stmts) {
+                this.stmt(st)
+            }
+            this.closeScope()
+            val tryTarget = this.unwindTargets.removeAt(this.unwindTargets.size - 1)
+            val caught = tryTarget.referenced
+            this.indent -= 1
+            this.line("}")
+            this.line("keal_try_depth--;")
+            this.line("goto KE${id};")
+            if (caught) {
+                this.line("KC${id}:;")
+                this.line("keal_try_depth--;")
+            }
+            // With nothing in the body able to panic, the handler is
+            // dead code behind the unconditional jump — but it still
+            // compiles, so its diagnostics and its names stay real.
+            this.line("{")
+            this.indent += 1
+            this.openScope()
+            val eVar = mangle(s.name)
+            val source = if (caught) { "keal_unwind_take()" } else { "keal_str_empty()" }
+            this.line("KealStr* ${eVar} = ${source};")
+            this.own(eVar, Ty("Str"))
+            this.declareLocal(s.name, Ty("Str"), false)
+            for (st in s.handler!!.stmts) {
+                this.stmt(st)
+            }
+            this.closeScope()
+            this.indent -= 1
+            this.line("}")
+            this.line("KE${id}:;")
             return
         }
         if (s.kind == "break" or s.kind == "continue") {
@@ -2086,11 +2303,13 @@ class CBackend() {
                     val it = it0.args[0]
                     val v = this.expr(inner)
                     this.line("if (!${optHas(it, v)}) { keal_panic(\"`!!` was applied to a null value\", ${e.line}); }")
+                    this.checkUnwind()
                     return optGet(it, v)
                 }
             }
             val v = this.expr(inner)
             this.line("if (${v} == NULL) { keal_panic(\"`!!` was applied to a null value\", ${e.line}); }")
+            this.checkUnwind()
             return v
         }
         if (e.kind == "this") {
@@ -2233,15 +2452,19 @@ class CBackend() {
         this.scopes = []
         val savedLocals = this.locals
         this.locals = []
+        val savedUnwindT = this.unwindTargets
+        this.unwindTargets = []
+        val savedUnwindM = this.unwindMarks
+        this.unwindMarks = []
+        val savedPoison = this.poison
+        this.poison = ""
         val savedEnv = this.captureEnv
         val savedIndent = this.indent
         val savedLoops = this.loops
         this.loops = []
         this.indent = 1
-        val sc0: List<OwnedC> = []
-        this.scopes.add(sc0)
-        val lc0: List<LocalC> = []
-        this.locals.add(lc0)
+        this.beginFunctionUnwind(retC)
+        this.openScope()
         pi = 0
         while (pi < e.params.size and pi < ft.params.size) {
             this.declareLocal(e.params[pi].name, ft.params[pi].ty, false)
@@ -2274,6 +2497,7 @@ class CBackend() {
         if (retC == "void") {
             this.line("return;")
         }
+        this.endFunctionUnwind()
         val compiled = this.body.join("\n")
         this.atTopLevel = savedTop
         this.celled = savedCelled
@@ -2281,6 +2505,9 @@ class CBackend() {
         this.body = savedBody
         this.scopes = savedScopes
         this.locals = savedLocals
+        this.unwindTargets = savedUnwindT
+        this.unwindMarks = savedUnwindM
+        this.poison = savedPoison
         this.captureEnv = savedEnv
         this.indent = savedIndent
         this.loops = savedLoops
@@ -2731,6 +2958,7 @@ class CBackend() {
             val f = if (name == "pow") { "keal_int_pow" } else { "keal_int_root" }
             val t = this.temp()
             this.line("const int64_t ${t} = ${f}(${a}, ${b}, ${e.line});")
+            this.checkUnwind()
             return t
         }
         return null
@@ -2812,6 +3040,7 @@ class CBackend() {
             val i = this.expr(e.args[0].value)
             val w = this.temp()
             this.line("const KealWord ${w} = keal_list_remove_at(${l}, ${i}, ${e.line});")
+            this.checkUnwind()
             val value = elemUnword(elem, w)
             if (countedC(elemTy)) {
                 // The list's own reference travels out with the element, so
@@ -2837,8 +3066,19 @@ class CBackend() {
             val l = this.expr(obj)
             val i = this.expr(e.args[0].value)
             val v = this.expr(e.args[1].value)
-            val stored = retained(elemTy, v)
+            val stored = if (this.catchMode and countedC(elemTy)) {
+                // The insert can panic before it takes the reference;
+                // owning it in a temp keeps the unwind path exact, and
+                // a clean call transfers it by NULLing the temp.
+                this.ownTempOf(elemTy, retained(elemTy, v))
+            } else {
+                retained(elemTy, v)
+            }
             this.line("keal_list_insert_at(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+            this.checkUnwind()
+            if (this.catchMode and countedC(elemTy)) {
+                this.line("${stored} = NULL;")
+            }
             return "0"
         }
         if (name == "contains" and n == 1) {
@@ -3106,6 +3346,7 @@ class CBackend() {
         val i = this.expr(index)
         val w = this.temp()
         this.line("const KealWord ${w} = keal_list_get(${l}, ${i}, ${e.line});")
+        this.checkUnwind()
         val value = elemUnword(elem, w)
         if (countedC(elemTy)) {
             val call = retained(elemTy, value)
@@ -3642,6 +3883,7 @@ class CBackend() {
                 else -> "keal_rem"
             }
             this.line("const int64_t ${t} = ${helper}(${a}, ${b}, ${e.line});")
+            this.checkUnwind()
             return t
         }
         // `x == null` on a tagged value is a presence test, not a compare.
@@ -4014,6 +4256,7 @@ class CBackend() {
             } else {
                 this.line("if (!(${c})) { keal_panic(\"assertion failed\", ${e.line}); }")
             }
+            this.checkUnwind()
             return "0"
         }
         // The float globals map straight onto the C math library.
@@ -4316,6 +4559,7 @@ class CBackend() {
         if (ty == null) { return call }
         if (ty.kind == "Unit") {
             this.line("${call};")
+            this.checkUnwind()
             // Arguments were borrowed; anything owned for the call is
             // released by whichever block created it.
             return "0"
@@ -4324,11 +4568,14 @@ class CBackend() {
         if (c == null) { return "0" }
         val t = this.temp()
         // A counted result is not `const`: releasing it mutates the object.
-        val qualifier = if (countedC(ty)) { "" } else { "const " }
+        // In catch mode nothing is `const`, because the declaration hoists
+        // to the top of the block for the unwind label's sake.
+        val qualifier = if (countedC(ty) or this.catchMode) { "" } else { "const " }
         this.line("${qualifier}${c} ${t} = ${call};")
         if (countedC(ty)) {
             this.own(t, ty)
         }
+        this.checkUnwind()
         return t
     }
 
@@ -4373,15 +4620,27 @@ class CBackend() {
             val l = this.expr(obj)
             val i = this.expr(index)
             val v = this.expr(value)
-            val stored = retained(elemTy, v)
+            val stored = if (this.catchMode and countedC(elemTy)) {
+                // The set can panic before it takes the reference; owning
+                // it in a temp keeps the unwind path exact, and a clean
+                // call transfers it by NULLing the temp.
+                this.ownTempOf(elemTy, retained(elemTy, v))
+            } else {
+                retained(elemTy, v)
+            }
             val release = releaseFn(elemTy)
             if (release != null) {
                 val old = this.temp()
                 this.line("const KealWord ${old} = keal_list_set(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+                this.checkUnwind()
+                if (this.catchMode) {
+                    this.line("${stored} = NULL;")
+                }
                 this.line("${release}(${elemUnword(elem, old)});")
             } else {
                 // Nothing to release; the displaced word is discarded.
                 this.line("(void)keal_list_set(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+                this.checkUnwind()
             }
             return
         }
@@ -4526,7 +4785,91 @@ if (checker.errors.size > 0) {
     exit(1)
 }
 
+/// Whether any `try` appears anywhere — including inside lambdas and the
+/// blocks that `if`/`when` expressions carry. Only such a program pays for
+/// the unwind machinery.
+fun hasTryStmts(stmts: List<StmtN>): Bool {
+    for (s in stmts) {
+        if (hasTryStmt(s)) { return true }
+    }
+    return false
+}
+
+fun hasTryStmt(s: StmtN): Bool {
+    if (s.kind == "try") { return true }
+    val init = s.init
+    if (init != null and hasTryExpr(init)) { return true }
+    val ex = s.ex
+    if (ex != null and hasTryExpr(ex)) { return true }
+    val b = s.body
+    if (b != null and hasTryStmts(b.stmts)) { return true }
+    val h = s.handler
+    if (h != null and hasTryStmts(h.stmts)) { return true }
+    val fd = s.funDecl
+    if (fd != null and hasTryStmts(fd.body.stmts)) { return true }
+    val cd = s.classDecl
+    if (cd != null) {
+        for (m in cd.methods) {
+            if (hasTryStmts(m.body.stmts)) { return true }
+        }
+    }
+    return false
+}
+
+fun hasTryExpr(e: Ex): Bool {
+    for (k in e.kids) {
+        if (hasTryExpr(k)) { return true }
+    }
+    for (a in e.args) {
+        if (hasTryExpr(a.value)) { return true }
+    }
+    for (p in e.parts) {
+        val inner = p.ex
+        if (inner != null and hasTryExpr(inner)) { return true }
+    }
+    for (k in e.keys) {
+        if (hasTryExpr(k)) { return true }
+    }
+    for (v in e.values) {
+        if (hasTryExpr(v)) { return true }
+    }
+    val b = e.body
+    if (b != null and hasTryStmts(b.stmts)) { return true }
+    val els = e.els
+    if (els != null and hasTryStmts(els.stmts)) { return true }
+    val chain = e.elseif
+    if (chain != null and hasTryExpr(chain)) { return true }
+    val subj = e.subject
+    if (subj != null and hasTryExpr(subj)) { return true }
+    for (arm in e.arms) {
+        if (hasTryStmts(arm.body.stmts)) { return true }
+        for (v in arm.values) {
+            if (hasTryExpr(v)) { return true }
+        }
+        val g = arm.guard
+        if (g != null and hasTryExpr(g)) { return true }
+    }
+    return false
+}
+
+fun programHasTry(program: ProgramN): Bool {
+    for (item in program.items) {
+        val s = item.stmt
+        if (s != null and hasTryStmt(s)) { return true }
+        val f = item.funDecl
+        if (f != null and hasTryStmts(f.body.stmts)) { return true }
+        val c = item.classDecl
+        if (c != null) {
+            for (m in c.methods) {
+                if (hasTryStmts(m.body.stmts)) { return true }
+            }
+        }
+    }
+    return false
+}
+
 val backend = CBackend()
+backend.catchMode = programHasTry(loaded.program)
 for (name in checker.classes.keys()) {
     val info = checker.classes[name]!!
     val fields: List<SField> = []

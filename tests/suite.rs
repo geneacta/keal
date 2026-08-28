@@ -811,6 +811,71 @@ d.free()
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The interop payoff of native `try`: a Java exception, caught in a
+/// native binary, with the program carrying on.
+#[test]
+fn java_exceptions_are_catchable_natively() {
+    let Ok(out) = Command::new("/usr/libexec/java_home").output() else {
+        eprintln!("skipping: no java_home helper");
+        return;
+    };
+    if !out.status.success() {
+        eprintln!("skipping: no JDK installed");
+        return;
+    }
+    let jh = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !Path::new(&jh).join("include/jni.h").exists() {
+        eprintln!("skipping: JDK without JNI headers");
+        return;
+    }
+
+    let dir = root().join("target").join("jexc-e2e");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot create the jexc test dir");
+    std::fs::write(
+        dir.join("main.keal"),
+        r#"import java.time.LocalDate
+jvmStart("")
+val good = localDateOf(2026, 2, 28)
+println(good.toString())
+try {
+    val bad = localDateOf(2026, 13, 1)
+    println(bad.toString())
+} catch (e) {
+    println("caught: " + e.take(26))
+}
+println("still running")
+good.free()
+"#,
+    )
+    .expect("cannot write the program");
+
+    let built = Command::new(BIN)
+        .current_dir(&dir)
+        .arg("build")
+        .arg("main.keal")
+        .arg(format!("-I{}/include", jh))
+        .arg(format!("-I{}/include/darwin", jh))
+        .arg(format!("-L{}/lib/server", jh))
+        .arg("-ljvm")
+        .arg(format!("-Wl,-rpath,{}/lib/server", jh))
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the program did not build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let ran = Command::new(dir.join("main")).output().expect("cannot run the binary");
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        "2026-02-28\ncaught: of threw: java.time.DateTi\nstill running\n",
+        "the caught Java exception went wrong:\n{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn jvm_gateway_works_end_to_end() {
     let Ok(out) = Command::new("/usr/libexec/java_home").output() else {

@@ -26,6 +26,7 @@ const RUNTIME: &str = include_str!("runtime.c");
 
 pub fn emit(program: &Program, shapes: &[ClassShape]) -> Result<String, Vec<Diag>> {
     let mut b = CBackend::new();
+    b.catch_mode = program_has_try(program);
     for shape in shapes {
         b.shapes.insert(shape.name.clone(), shape.fields.clone());
         if shape.generic {
@@ -76,6 +77,14 @@ impl Elem {
 /// block ends by any route. The release is recorded with it because each kind
 /// of object has its own: the header is one word, so nothing in it says how
 /// to free the thing it heads.
+struct UnwindMark {
+    at: usize,
+    pad: String,
+    hoisted: Vec<String>,
+    ever_owned: Vec<Owned>,
+}
+
+#[derive(Clone)]
 struct Owned {
     name: String,
     release: String,
@@ -90,6 +99,24 @@ struct CBackend {
     next_temp: usize,
     /// One entry per open block, holding what that block must release.
     scopes: Vec<Vec<Owned>>,
+    /// Whether the program contains a `try` anywhere. Only then do the
+    /// unwind checks, labels and hoisted declarations below exist —
+    /// a program without one compiles byte-for-byte as before.
+    catch_mode: bool,
+    /// Innermost last: the label a failed `keal_unwinding` check jumps to.
+    /// The bottom entry is the function's own; a `try` body pushes its
+    /// catch label; every open scope pushes its chain label. The flag
+    /// records whether anything jumps there, so unused labels vanish.
+    unwind_targets: Vec<(String, bool)>,
+    /// One entry per open scope: where hoisted declarations insert, their
+    /// indentation, the lines to insert, and everything the scope ever
+    /// owned — `disown` at a `return` must not thin the unwind list,
+    /// because a check earlier in the block still needs those released.
+    unwind_marks: Vec<UnwindMark>,
+    /// Fresh numbers for the label pairs.
+    next_unwind: usize,
+    /// The `return` the function's bottom label ends with.
+    poison: String,
     /// How many blocks deep each open loop is, so `break` releases correctly.
     loops: Vec<usize>,
     string_literals: Vec<String>,
@@ -166,6 +193,11 @@ impl CBackend {
             indent: 1,
             next_temp: 0,
             scopes: Vec::new(),
+            catch_mode: false,
+            unwind_targets: Vec::new(),
+            unwind_marks: Vec::new(),
+            next_unwind: 0,
+            poison: String::new(),
             loops: Vec::new(),
             string_literals: Vec::new(),
             types: String::new(),
@@ -597,6 +629,11 @@ impl CBackend {
         let saved_body = std::mem::take(&mut self.body);
         let saved_scopes = std::mem::take(&mut self.scopes);
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_unwind = (
+            std::mem::take(&mut self.unwind_targets),
+            std::mem::take(&mut self.unwind_marks),
+            std::mem::take(&mut self.poison),
+        );
         let saved_loops = std::mem::take(&mut self.loops);
         let saved_indent = self.indent;
         let saved_temp = self.next_temp;
@@ -615,6 +652,9 @@ impl CBackend {
         self.body = saved_body;
         self.scopes = saved_scopes;
         self.locals = saved_locals;
+        self.unwind_targets = saved_unwind.0;
+        self.unwind_marks = saved_unwind.1;
+        self.poison = saved_unwind.2;
         self.loops = saved_loops;
         self.indent = saved_indent;
         self.next_temp = saved_temp;
@@ -664,6 +704,11 @@ impl CBackend {
         let saved_body = std::mem::take(&mut self.body);
         let saved_scopes = std::mem::take(&mut self.scopes);
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_unwind = (
+            std::mem::take(&mut self.unwind_targets),
+            std::mem::take(&mut self.unwind_marks),
+            std::mem::take(&mut self.poison),
+        );
         let saved_loops = std::mem::take(&mut self.loops);
         let saved_indent = self.indent;
         let saved_temp = self.next_temp;
@@ -681,6 +726,9 @@ impl CBackend {
         self.body = saved_body;
         self.scopes = saved_scopes;
         self.locals = saved_locals;
+        self.unwind_targets = saved_unwind.0;
+        self.unwind_marks = saved_unwind.1;
+        self.poison = saved_unwind.2;
         self.loops = saved_loops;
         self.indent = saved_indent;
         self.next_temp = saved_temp;
@@ -715,6 +763,11 @@ impl CBackend {
         let saved_body = std::mem::take(&mut self.body);
         let saved_scopes = std::mem::take(&mut self.scopes);
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_unwind = (
+            std::mem::take(&mut self.unwind_targets),
+            std::mem::take(&mut self.unwind_marks),
+            std::mem::take(&mut self.poison),
+        );
         let saved_loops = std::mem::take(&mut self.loops);
         let saved_indent = self.indent;
         let saved_temp = self.next_temp;
@@ -736,6 +789,9 @@ impl CBackend {
         self.body = saved_body;
         self.scopes = saved_scopes;
         self.locals = saved_locals;
+        self.unwind_targets = saved_unwind.0;
+        self.unwind_marks = saved_unwind.1;
+        self.poison = saved_unwind.2;
         self.loops = saved_loops;
         self.indent = saved_indent;
         self.next_temp = saved_temp;
@@ -827,13 +883,15 @@ impl CBackend {
                         );
                     }
                     None => {
+                        let bail = if self.catch_mode { "    return keal_buf_finish(&b);\n" } else { "" };
                         let _ = write!(
                             f,
-                            "    keal_panic({}, 0);\n",
+                            "    keal_panic({}, 0);\n{}",
                             c_string(&format!(
                                 "cannot render a value of type `{}` natively",
                                 ty
-                            ))
+                            )),
+                            bail
                         );
                     }
                 }
@@ -844,10 +902,12 @@ impl CBackend {
                     let _ = write!(f, "    keal_buf_str(&b, {});\n", rendered);
                 }
                 None => {
+                    let bail = if self.catch_mode { "    return keal_buf_finish(&b);\n" } else { "" };
                     let _ = write!(
                         f,
-                        "    keal_panic({}, 0);\n",
-                        c_string(&format!("cannot render a value of type `{}` natively", ty))
+                        "    keal_panic({}, 0);\n{}",
+                        c_string(&format!("cannot render a value of type `{}` natively", ty)),
+                        bail
                     );
                 }
             }
@@ -860,8 +920,8 @@ impl CBackend {
     fn main(&mut self, program: &Program) {
         self.body.clear();
         self.indent = 1;
-        self.scopes.push(Vec::new());
-        self.locals.push(Vec::new());
+        self.begin_function_unwind("int64_t");
+        self.open_scope();
         self.at_top_level = true;
         let top_stmts: Vec<Stmt> = program
             .items
@@ -880,6 +940,7 @@ impl CBackend {
         self.at_top_level = false;
         self.close_scope();
         self.line("return 0;");
+        self.end_function_unwind();
         let body = std::mem::take(&mut self.body).join("\n");
         let _ = write!(self.defs, "\nint main(void) {{\n{}\n}}\n", body);
     }
@@ -923,8 +984,8 @@ impl CBackend {
         self.body.clear();
         self.indent = 1;
         self.next_temp = 0;
-        self.scopes.push(Vec::new());
-        self.locals.push(Vec::new());
+        self.begin_function_unwind(&ret);
+        self.open_scope();
         for p in f.params.iter() {
             if let Some(te) = &p.ty {
                 if let Some(ty) = self.resolved(te, p.span) {
@@ -943,6 +1004,7 @@ impl CBackend {
         if ret == "void" {
             self.line("return;");
         }
+        self.end_function_unwind();
         let body = std::mem::take(&mut self.body).join("\n");
         let _ = write!(self.defs, "\n{} {{\n{}\n}}\n", signature, body);
     }
@@ -970,8 +1032,8 @@ impl CBackend {
         self.body.clear();
         self.indent = 1;
         self.next_temp = 0;
-        self.scopes.push(Vec::new());
-        self.locals.push(Vec::new());
+        self.begin_function_unwind("void*");
+        self.open_scope();
         for p in &c.ctor {
             if let Some((_, ty)) = fields.iter().find(|(n, _)| *n == p.name) {
                 let ty = ty.clone();
@@ -979,6 +1041,17 @@ impl CBackend {
             }
         }
         self.line(format!("{n}* self = ({n}*)keal_alloc(sizeof({n}));", n = name));
+        if self.catch_mode {
+            // A field initializer can unwind mid-construction; zeroed
+            // fields make the release of the half-built instance safe.
+            self.line("memset((void*)self, 0, sizeof(*self));");
+            if let Some(mark) = self.unwind_marks.last_mut() {
+                mark.ever_owned.push(Owned {
+                    name: "self".to_string(),
+                    release: format!("{}_release", name),
+                });
+            }
+        }
         self.line("self->rc = 1;");
         for p in &c.ctor {
             let Some((_, ty)) = fields.iter().find(|(n, _)| *n == p.name).cloned() else { return };
@@ -1006,6 +1079,7 @@ impl CBackend {
         self.this_name = None;
         self.close_scope();
         self.line("return self;");
+        self.end_function_unwind();
         let body = std::mem::take(&mut self.body).join("\n");
         let _ = write!(self.defs, "\n{} {{\n{}\n}}\n", signature, body);
     }
@@ -1044,8 +1118,8 @@ impl CBackend {
         self.body.clear();
         self.indent = 1;
         self.next_temp = 0;
-        self.scopes.push(Vec::new());
-        self.locals.push(Vec::new());
+        self.begin_function_unwind(&ret);
+        self.open_scope();
         for p in m.params.iter() {
             if let Some(te) = &p.ty {
                 if let Some(ty) = self.resolved(te, p.span) {
@@ -1060,6 +1134,7 @@ impl CBackend {
         if ret == "void" {
             self.line("return;");
         }
+        self.end_function_unwind();
         let body = std::mem::take(&mut self.body).join("\n");
         let _ = write!(self.defs, "\n{} {{\n{}\n}}\n", signature, body);
         let _ = c;
@@ -1161,14 +1236,135 @@ impl CBackend {
     fn open_scope(&mut self) {
         self.scopes.push(Vec::new());
         self.locals.push(Vec::new());
+        if self.catch_mode {
+            let id = self.next_unwind;
+            self.next_unwind += 1;
+            self.unwind_targets.push((format!("KU{}", id), false));
+            self.unwind_marks.push(UnwindMark {
+                at: self.body.len(),
+                pad: "    ".repeat(self.indent),
+                hoisted: Vec::new(),
+                ever_owned: Vec::new(),
+            });
+        }
     }
 
-    /// Emits the releases this block owes, and drops it.
+    /// Emits the releases this block owes, and drops it. In catch mode the
+    /// block also gets its unwind label — releases everything the block
+    /// ever owned (all NULL-initialized up top, so order of arrival cannot
+    /// matter) and chains to the enclosing label — and its hoisted
+    /// declarations are inserted where the block began.
     fn close_scope(&mut self) {
         self.locals.pop();
         let scope = self.scopes.pop().unwrap_or_default();
         for owned in scope.iter().rev() {
             self.line(format!("{}({});", owned.release, owned.name));
+        }
+        if self.catch_mode {
+            let (label, referenced) = self.unwind_targets.pop().unwrap();
+            let mark = self.unwind_marks.pop().unwrap();
+            if referenced {
+                let parent = {
+                    let p = self.unwind_targets.last_mut().unwrap();
+                    p.1 = true;
+                    p.0.clone()
+                };
+                let done = label.replacen("KU", "KD", 1);
+                self.line(format!("goto {};", done));
+                self.line(format!("{}:;", label));
+                for owned in mark.ever_owned.iter().rev() {
+                    self.line(format!("{}({});", owned.release, owned.name));
+                }
+                self.line(format!("goto {};", parent));
+                self.line(format!("{}:;", done));
+            }
+            for (i, d) in mark.hoisted.iter().enumerate() {
+                self.body.insert(mark.at + i, d.clone());
+            }
+        }
+    }
+
+    /// Enters a function's emission in catch mode: the bottom unwind label
+    /// and the poisoned `return` under it. Call before the body scope opens.
+    fn begin_function_unwind(&mut self, ret_c: &str) {
+        if !self.catch_mode {
+            return;
+        }
+        let id = self.next_unwind;
+        self.next_unwind += 1;
+        self.unwind_targets.push((format!("KUF{}", id), false));
+        self.poison = match ret_c {
+            "void" => "return;".to_string(),
+            "int64_t" => "return 0;".to_string(),
+            "double" => "return 0.0;".to_string(),
+            "bool" => "return false;".to_string(),
+            c if c.ends_with('*') => "return NULL;".to_string(),
+            c => format!("return ({}){{0}};", c),
+        };
+    }
+
+    /// Closes what `begin_function_unwind` opened, after the body's last
+    /// normal `return`.
+    fn end_function_unwind(&mut self) {
+        if !self.catch_mode {
+            return;
+        }
+        let (label, referenced) = self.unwind_targets.pop().unwrap();
+        if referenced {
+            self.line(format!("{}:;", label));
+            let poison = self.poison.clone();
+            self.line(poison);
+        }
+    }
+
+    /// The check every possibly-panicking operation is followed by: a set
+    /// flag unwinds to the innermost live label. Nothing is emitted when
+    /// the program has no `try`.
+    fn check_unwind(&mut self) {
+        if !self.catch_mode {
+            return;
+        }
+        let Some(last) = self.unwind_targets.last_mut() else { return };
+        last.1 = true;
+        let label = last.0.clone();
+        self.line(format!("if (keal_unwinding) {{ goto {}; }}", label));
+    }
+
+    /// Rewrites the declaration just emitted for `name` into a plain
+    /// assignment, hoisting a NULL-initialized declaration to the top of
+    /// the block — the unwind label releases every name the block ever
+    /// owns, so each must be a valid pointer on every path to it.
+    fn hoist_declaration(&mut self, name: &str) {
+        if !self.catch_mode {
+            return;
+        }
+        let Some(last) = self.body.last().cloned() else {
+            self.errors.push(Diag::new(
+                Span::default(),
+                format!("internal: no declaration to hoist for `{}`", name),
+            ));
+            return;
+        };
+        let pad: String = last.chars().take_while(|c| c.is_whitespace()).collect();
+        let rest = &last[pad.len()..];
+        let assign_pat = format!(" {} = ", name);
+        let bare_pat = format!(" {};", name);
+        let (ctype, replacement) = if let Some(pos) = rest.find(&assign_pat) {
+            (rest[..pos].to_string(), Some(format!("{}{}", pad, &rest[pos + 1..])))
+        } else if rest.ends_with(&bare_pat) {
+            (rest[..rest.len() - bare_pat.len()].to_string(), None)
+        } else {
+            self.errors.push(Diag::new(
+                Span::default(),
+                format!("internal: cannot hoist the declaration of `{}`", name),
+            ));
+            return;
+        };
+        let Some(mark) = self.unwind_marks.last_mut() else { return };
+        mark.hoisted.push(format!("{}{} {} = NULL;", mark.pad, ctype, name));
+        self.body.pop();
+        if let Some(r) = replacement {
+            self.body.push(r);
         }
     }
 
@@ -1211,15 +1407,25 @@ impl CBackend {
     }
 
     fn own_cell(&mut self, name: &str) {
+        self.hoist_declaration(name);
+        let o = Owned { name: name.to_string(), release: "keal_cell_release".into() };
+        if let Some(mark) = self.unwind_marks.last_mut() {
+            mark.ever_owned.push(o.clone());
+        }
         if let Some(scope) = self.scopes.last_mut() {
-            scope.push(Owned { name: name.to_string(), release: "keal_cell_release".into() });
+            scope.push(o);
         }
     }
 
     fn own(&mut self, name: &str, ty: &Type) {
         let Some(release) = Self::release_fn(ty) else { return };
+        self.hoist_declaration(name);
+        let o = Owned { name: name.to_string(), release };
+        if let Some(mark) = self.unwind_marks.last_mut() {
+            mark.ever_owned.push(o.clone());
+        }
         if let Some(scope) = self.scopes.last_mut() {
-            scope.push(Owned { name: name.to_string(), release });
+            scope.push(o);
         }
     }
 
@@ -1242,6 +1448,7 @@ impl CBackend {
         let c = self.ctype(ty, Span::default()).unwrap_or_else(|| "void*".to_string());
         self.line(format!("{} {} = {};", c, t, expr));
         self.own(&t, ty);
+        self.check_unwind();
         t
     }
 
@@ -1376,12 +1583,52 @@ impl CBackend {
                 // three engines.
                 let m = self.expr(e);
                 self.line(format!("keal_panic({}->bytes, {});", m, s.span.line));
+                self.check_unwind();
             }
-            StmtKind::Try { .. } => self.refuse(
-                s.span,
-                "`try`/`catch`",
-                "unwinding through reference counts needs the drop design; run it on the bytecode VM, which catches panics",
-            ),
+            StmtKind::Try { body, name, handler } => {
+                // The body runs under a counted `try`; any panic in its
+                // dynamic extent unwinds — every frame releasing its own
+                // holdings on the way — to the catch label, which adopts
+                // the message and runs the handler.
+                let id = self.next_unwind;
+                self.next_unwind += 1;
+                self.line("keal_try_depth++;");
+                self.line("{");
+                self.indent += 1;
+                self.unwind_targets.push((format!("KC{}", id), false));
+                self.open_scope();
+                for st in &body.stmts {
+                    self.stmt(st);
+                }
+                self.close_scope();
+                let (_, caught) = self.unwind_targets.pop().unwrap();
+                self.indent -= 1;
+                self.line("}");
+                self.line("keal_try_depth--;");
+                self.line(format!("goto KE{};", id));
+                if caught {
+                    self.line(format!("KC{}:;", id));
+                    self.line("keal_try_depth--;");
+                }
+                // With nothing in the body able to panic, the handler is
+                // dead code behind the unconditional jump — but it still
+                // compiles, so its diagnostics and its names stay real.
+                self.line("{");
+                self.indent += 1;
+                self.open_scope();
+                let e_var = mangle(name);
+                let source = if caught { "keal_unwind_take()" } else { "keal_str_empty()" };
+                self.line(format!("KealStr* {} = {};", e_var, source));
+                self.own(&e_var, &Type::Str);
+                self.declare_local(name, &Type::Str, false);
+                for st in &handler.stmts {
+                    self.stmt(st);
+                }
+                self.close_scope();
+                self.indent -= 1;
+                self.line("}");
+                self.line(format!("KE{}:;", id));
+            }
             StmtKind::Break | StmtKind::Continue => {
                 let depth = self.loops.last().map(|d| self.scopes.len() - d + 1).unwrap_or(1);
                 self.release_through(depth);
@@ -1650,6 +1897,7 @@ impl CBackend {
                             opt_has(&it, &v),
                             e.span.line
                         ));
+                        self.check_unwind();
                         return opt_get(&it, &v);
                     }
                 }
@@ -1658,6 +1906,7 @@ impl CBackend {
                     "if ({} == NULL) {{ keal_panic(\"`!!` was applied to a null value\", {}); }}",
                     v, e.span.line
                 ));
+                self.check_unwind();
                 v
             }
             ExprKind::This => match &self.this_name {
@@ -1819,12 +2068,17 @@ impl CBackend {
         let saved_body = std::mem::take(&mut self.body);
         let saved_scopes = std::mem::take(&mut self.scopes);
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_unwind = (
+            std::mem::take(&mut self.unwind_targets),
+            std::mem::take(&mut self.unwind_marks),
+            std::mem::take(&mut self.poison),
+        );
         let saved_env = self.capture_env.take();
         let saved_indent = self.indent;
         let saved_loops = std::mem::take(&mut self.loops);
         self.indent = 1;
-        self.scopes.push(Vec::new());
-        self.locals.push(Vec::new());
+        self.begin_function_unwind(&ret_c);
+        self.open_scope();
         for (p, pt) in params.iter().zip(&ft.params) {
             self.declare_local(&p.name, &pt.ty, false);
         }
@@ -1851,6 +2105,7 @@ impl CBackend {
         if ret_c == "void" {
             self.line("return;");
         }
+        self.end_function_unwind();
         let compiled = std::mem::take(&mut self.body).join("\n");
         self.at_top_level = saved_top;
         self.celled = saved_celled;
@@ -1858,6 +2113,9 @@ impl CBackend {
         self.body = saved_body;
         self.scopes = saved_scopes;
         self.locals = saved_locals;
+        self.unwind_targets = saved_unwind.0;
+        self.unwind_marks = saved_unwind.1;
+        self.poison = saved_unwind.2;
         self.capture_env = saved_env;
         self.indent = saved_indent;
         self.loops = saved_loops;
@@ -2423,6 +2681,7 @@ impl CBackend {
                     "const int64_t {} = {}({}, {}, {});",
                     t, f, a, b, e.span.line
                 ));
+                self.check_unwind();
                 Some(t)
             }
             _ => None,
@@ -2518,6 +2777,7 @@ impl CBackend {
                     "const KealWord {} = keal_list_remove_at({}, {}, {});",
                     w, l, i, e.span.line
                 ));
+                self.check_unwind();
                 let value = elem.unword(&w);
                 if Self::counted(elem_ty) {
                     // The list's own reference travels out with the element,
@@ -2541,7 +2801,14 @@ impl CBackend {
                 let l = self.expr(obj);
                 let i = self.expr(&args[0].value);
                 let v = self.expr(&args[1].value);
-                let stored = Self::retained(elem_ty, &v);
+                let stored = if self.catch_mode && Self::counted(elem_ty) {
+                    // The insert can panic before it takes the reference;
+                    // owning it in a temp keeps the unwind path exact, and
+                    // a clean call transfers it by NULLing the temp.
+                    self.own_temp_of(elem_ty, Self::retained(elem_ty, &v))
+                } else {
+                    Self::retained(elem_ty, &v)
+                };
                 self.line(format!(
                     "keal_list_insert_at({}, {}, {}, {});",
                     l,
@@ -2549,6 +2816,10 @@ impl CBackend {
                     elem.word(&stored),
                     e.span.line
                 ));
+                self.check_unwind();
+                if self.catch_mode && Self::counted(elem_ty) {
+                    self.line(format!("{} = NULL;", stored));
+                }
                 Some("0".to_string())
             }
             ("contains", 1) => {
@@ -2858,6 +3129,7 @@ impl CBackend {
             "const KealWord {} = keal_list_get({}, {}, {});",
             w, l, i, e.span.line
         ));
+        self.check_unwind();
         let value = elem.unword(&w);
         if Self::counted(&elem_ty) {
             let call = Self::retained(&elem_ty, &value);
@@ -3385,6 +3657,7 @@ impl CBackend {
                 b,
                 e.span.line
             ));
+            self.check_unwind();
             return t;
         }
         // `x == null` on a tagged value is a presence test, not a compare.
@@ -3771,6 +4044,7 @@ impl CBackend {
                     ));
                 }
             }
+            self.check_unwind();
             return "0".to_string();
         }
         // The float globals map straight onto the C math library.
@@ -4053,6 +4327,7 @@ impl CBackend {
         let Some(ty) = self.ety(e) else { return call };
         if ty == Type::Unit {
             self.line(format!("{};", call));
+            self.check_unwind();
             // Arguments were borrowed, so anything owned for the call is
             // released by whichever block created it.
             return "0".to_string();
@@ -4060,11 +4335,14 @@ impl CBackend {
         let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
         let t = self.temp();
         // A counted result is not `const`: releasing it mutates the object.
-        let qualifier = if Self::counted(&ty) { "" } else { "const " };
+        // In catch mode nothing is `const`, because the declaration hoists
+        // to the top of the block for the unwind label's sake.
+        let qualifier = if Self::counted(&ty) || self.catch_mode { "" } else { "const " };
         self.line(format!("{}{} {} = {};", qualifier, c, t, call));
         if Self::counted(&ty) {
             self.own(&t, &ty);
         }
+        self.check_unwind();
         t
     }
 
@@ -4104,7 +4382,14 @@ impl CBackend {
             let l = self.expr(obj);
             let i = self.expr(index);
             let v = self.expr(value);
-            let stored = Self::retained(&elem_ty, &v);
+            let stored = if self.catch_mode && Self::counted(&elem_ty) {
+                // The set can panic before it takes the reference; owning
+                // it in a temp keeps the unwind path exact, and a clean
+                // call transfers it by NULLing the temp.
+                self.own_temp_of(&elem_ty, Self::retained(&elem_ty, &v))
+            } else {
+                Self::retained(&elem_ty, &v)
+            };
             match Self::release_fn(&elem_ty) {
                 Some(release) => {
                     let old = self.temp();
@@ -4116,6 +4401,10 @@ impl CBackend {
                         elem.word(&stored),
                         span.line
                     ));
+                    self.check_unwind();
+                    if self.catch_mode {
+                        self.line(format!("{} = NULL;", stored));
+                    }
                     self.line(format!("{}({});", release, elem.unword(&old)));
                 }
                 None => {
@@ -4127,6 +4416,7 @@ impl CBackend {
                         elem.word(&stored),
                         span.line
                     ));
+                    self.check_unwind();
                 }
             }
             return;
@@ -4732,6 +5022,75 @@ fn type_expr_name(te: &TypeExpr) -> String {
         TypeExprKind::Boundary { inner, .. } => type_expr_name(inner),
         TypeExprKind::Fun { .. } => "a function".to_string(),
     }
+}
+
+/// Whether any `try` appears anywhere — including inside lambdas and the
+/// blocks that `if`/`when` expressions carry. Only such a program pays for
+/// the unwind machinery.
+fn program_has_try(p: &Program) -> bool {
+    fn in_stmts(stmts: &[Stmt]) -> bool {
+        stmts.iter().any(in_stmt)
+    }
+    fn in_stmt(s: &Stmt) -> bool {
+        match &s.kind {
+            StmtKind::Try { .. } => true,
+            StmtKind::Let { init, .. } | StmtKind::Destructure { init, .. } => in_expr(init),
+            StmtKind::Expr(e) | StmtKind::Throw(e) => in_expr(e),
+            StmtKind::Return(v) => v.as_ref().map(in_expr).unwrap_or(false),
+            StmtKind::Break | StmtKind::Continue => false,
+            StmtKind::While { cond, body } => in_expr(cond) || in_stmts(&body.stmts),
+            StmtKind::For { iter, body, .. } => in_expr(iter) || in_stmts(&body.stmts),
+            StmtKind::Fun(f) => in_stmts(&f.body.stmts),
+            StmtKind::Class(c) => c.methods.iter().any(|m| in_stmts(&m.body.stmts)),
+        }
+    }
+    fn in_expr(e: &Expr) -> bool {
+        let mut found = false;
+        crate::compiler::walk_expr(e, &mut |x: &Expr| {
+            match &x.kind {
+                ExprKind::If { then, els, .. } => {
+                    if in_stmts(&then.stmts) {
+                        found = true;
+                    }
+                    if let Some(els) = els {
+                        match &**els {
+                            Else::Block(b) => {
+                                if in_stmts(&b.stmts) {
+                                    found = true;
+                                }
+                            }
+                            Else::If(inner) => {
+                                if in_expr(inner) {
+                                    found = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                ExprKind::When { arms, .. } => {
+                    for a in arms {
+                        if in_stmts(&a.body.stmts) {
+                            found = true;
+                        }
+                    }
+                }
+                ExprKind::Lambda { body, .. } => {
+                    if in_stmts(&body.stmts) {
+                        found = true;
+                    }
+                }
+                _ => {}
+            }
+            true
+        });
+        found
+    }
+    p.items.iter().any(|i| match i {
+        Item::Stmt(s) => in_stmt(s),
+        Item::Fun(f) => in_stmts(&f.body.stmts),
+        Item::Class(c) => c.methods.iter().any(|m| in_stmts(&m.body.stmts)),
+        _ => false,
+    })
 }
 
 fn c_operator(op: BinOp) -> &'static str {
