@@ -1,6 +1,12 @@
-# Keal — a small, statically typed, self-hosting programming language
+# Keal — a statically typed, self-hosting language with a small surface
 
 **Version 0.5.0** · `keal version` prints the toolchain's own.
+
+*Small* means the surface, not the reach: a handful of concepts —
+values, functions, classes and traits, `when`, null safety — carried
+far, with no inheritance, no macros, no second way to say anything.
+The whole language fits in one sitting of [TUTORIAL.md](TUTORIAL.md);
+what it can do fills the rest of this page.
 
 **Keal** is a statically typed programming language that **compiles itself**:
 the compiler is written in Keal, compiles to native code through C, and
