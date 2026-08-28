@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/keal.png" alt="Keal" width="360"></p>
+
 # Keal — a statically typed, self-hosting language with a small surface
 
 **Version 0.5.0** · `keal version` prints the toolchain's own.
@@ -6,7 +8,9 @@
 values, functions, classes and traits, `when`, null safety — carried
 far, with no inheritance, no macros, no second way to say anything.
 The whole language fits in one sitting of [TUTORIAL.md](TUTORIAL.md);
-what it can do fills the rest of this page.
+what it can do fills the rest of this page. Want to help build it?
+[CONTRIBUTING.md](CONTRIBUTING.md) is the whole procedure — the rules
+every change must respect, and the three commands that verify them.
 
 **Keal** is a statically typed programming language that **compiles itself**:
 the compiler is written in Keal, compiles to native code through C, and

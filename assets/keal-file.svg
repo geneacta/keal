@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- The .keal file icon: the logo's K, teal on a soft document shape. -->
+  <path d="M10 4 h34 l10 10 v46 a4 4 0 0 1 -4 4 H10 a4 4 0 0 1 -4 -4 V8 a4 4 0 0 1 4 -4 z"
+        fill="#f2fbf8" stroke="#2fc4a7" stroke-width="2.5"/>
+  <path d="M44 4 v10 h10 z" fill="#9be3c6" stroke="#2fc4a7" stroke-width="2"/>
+  <g stroke="#2fc4a7" stroke-width="5.5" stroke-linecap="round">
+    <line x1="22" y1="20" x2="22" y2="50"/>
+    <line x1="41" y1="20" x2="24" y2="36"/>
+    <line x1="26" y1="34" x2="41" y2="50"/>
+  </g>
+  <ellipse cx="43" cy="52" rx="4" ry="2" fill="#2fc4a7"/>
+</svg>

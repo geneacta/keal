@@ -72,7 +72,7 @@ the (Any)->Any signature for `val f = copy` (runtime re-checks). Native
 REFUSES copy by name until stage 3 (per-type copy fns arrive with the
 scheduler; send starts copying then, all engines at once). Twins
 mirrored (checkCall arm + copyBlocker + builtins). Tests:
-tests/programs/copy.keal, te40.
+tests/programs/copy.keal, copy-refusals.
 
 **Hardening round (user-driven):** differential fuzzer
 tests/fuzz/fuzz.py (grammar generator, typed-by-construction + injected
@@ -110,7 +110,7 @@ kdropped set at queue time; resurrection survives; manual calls are
 checker errors; jbind wrappers auto-free (released guard + deinit).
 Everything gated: no deinit → byte-identical output. Named deinit, NOT
 drop (drop is the take/drop pair). Tests: tests/programs/deinit.keal,
-tests/native/deinit.*, te39. docs/drop.md has the exact semantics.
+tests/native/deinit.*, deinit-rules. docs/drop.md has the exact semantics.
 
 **Ternary + spaceship:** `c ? a : b` selects on Bool, three
 branches select on a `Comp` (lazy, condition once — VM sign-splits via a
@@ -121,7 +121,7 @@ re-publish `lastInst = e.inst` or the outer wrapper erases the
 instantiation and native emission loses the monomorphized name). Nested
 ternary in the THEN position needs parentheses (a third colon reads as
 the inner ternary's greater-branch); the else-position chain reads plain.
-Tests: tests/programs/ternary.keal, tests/native/ternary.*, te38, perr32,
+Tests: tests/programs/ternary.keal, tests/native/ternary.*, ternary-arity, ternary-missing-colon,
 tutorial mirrors. Corpora 600/600, suite 25/25, bootstrap green.
 
 **Exceptions, the shape that landed** (user asked for "gestion des
@@ -146,7 +146,7 @@ land in native `catch` (suite: java_exceptions_are_catchable_natively).
 Twins fully mirrored — corpora 4x147 = 588/588. Tests:
 tests/programs/exceptions.keal (+tutorial.keal), tests/native/trycatch
 (3 engines, 0 leaks incl. unwind paths), trynative.keal (cgen corpus),
-perr31, te37. Remaining half: the `proc drop()` hook (interp/VM need a
+try-without-catch, throw-not-a-string. Remaining half: the `proc drop()` hook (interp/VM need a
 deterministic pending-drop queue; see docs/drop.md and NEXT).
 
 ## Recently landed (kept for context)
@@ -182,7 +182,7 @@ smoke test passes):
 **All remaining steps below were completed** (float printing fixed with a
 shortest-roundtrip loop in `keal_str_from_float`; all four twins mirrored;
 tests `tests/programs/operators2.keal`, `tests/programs/guarded.keal`,
-`tests/native/powroot.keal`, `te36`/`perr29`; corpora 536/536; suite 21/21;
+`tests/native/powroot.keal`, `pow-root-misuse`/`increment-a-literal`; corpora 536/536; suite 21/21;
 bootstrap fixed point green; README updated; version 0.5.0):
 1. **Float printing in native**: `keal_str_from_float` uses `%g` (6
    digits) but Rust prints shortest-roundtrip → `2.0 ** 0.5` prints
@@ -206,7 +206,7 @@ bootstrap fixed point green; README updated; version 0.5.0):
    and elements, ** right-assoc, ^/ int+float, compounds, Comp/compare,
    literal widening `x ** 2` on Float); `tests/native/powroot.keal`
    (three-engine prints incl. `2.0 ** 0.5`); error cases in
-   `tests/selfhost/type-errors/te36.keal` (`"s" ** 2`, `true ^/ 2`,
+   `tests/selfhost/type-errors/pow-root-misuse.keal` (`"s" ** 2`, `true ^/ 2`,
    class without Pow, negative Int root/pow panics are runtime not check).
 4. **Corpora ×4 + suite + bootstrap** green; README operator table update
    (the answer text from the conversation is the source), TUTORIAL touch.
@@ -238,7 +238,7 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
    the four dump commands and the twins NEVER generate — cache-only —
    so the corpora stay pure (missing cache → identical error + hint in
    oracle and twin loader). Corpus: `tests/selfhost/jbindsugar.keal` +
-   committed `tests/selfhost/.jbind/`, `perr30`, `err11`; suite test
+   committed `tests/selfhost/.jbind/`, `import-trailing-dot`, `jbind-cache-missing`; suite test
    `import_sugar_works_end_to_end` (JDK-gated).
 2. Closure callbacks at the C boundary (interop 1d) once a consumer fixes
    the `userdata` convention.
