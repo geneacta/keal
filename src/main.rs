@@ -4,6 +4,7 @@ mod ast;
 mod astdump;
 mod bindgen;
 mod jbind;
+mod kealdoc;
 mod builtins;
 mod bytecode;
 mod cbackend;
@@ -44,6 +45,9 @@ usage:
     keal emit-header <f.keal>  print a C header for the program's boundary
     keal emit-c <file.keal>   print the C a native build would compile
     keal bindgen <header.h>   turn a C header into extern declarations
+    keal doc [files...]       render /// comments and signatures to one
+                              self-contained HTML page (-o file.html);
+                              with no files, document the standard library
     keal jbind <java.Class>... generate typed Keal wrappers for Java
                               classes over lib/jvm.keal (needs javap;
                               --jvm <path> sets the emitted import path,
@@ -97,6 +101,9 @@ fn real_main() -> ExitCode {
     });
     if args.first().map(|a| a.as_str()) == Some("jbind") {
         return jbind::run(&args[1..]);
+    }
+    if args.first().map(|a| a.as_str()) == Some("doc") {
+        return kealdoc::run(&args[1..]);
     }
     let (command, target) = match args.as_slice() {
         [] => ("repl", None),

@@ -921,6 +921,22 @@ fn jvm_gateway_works_end_to_end() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `keal doc` renders the compiler's own signatures with their `///`
+/// comments; the snapshot keeps the page shape honest.
+#[test]
+fn kealdoc_matches_snapshot() {
+    let out = keal(&["doc", "tests/doc/sample.keal"]);
+    assert!(out.success, "keal doc failed:\n{}", out.stderr);
+    let expected_path = root().join("tests/doc/sample.html.expected");
+    if std::env::var_os("UPDATE_EXPECT").is_some() {
+        std::fs::write(&expected_path, &out.stdout).expect("cannot write snapshot");
+        return;
+    }
+    let expected = std::fs::read_to_string(&expected_path)
+        .expect("missing snapshot; run UPDATE_EXPECT=1 cargo test");
+    assert_eq!(expected, out.stdout, "the generated documentation changed");
+}
+
 #[test]
 fn cli_reports_missing_files() {
     let out = keal(&["run", "does/not/exist.keal"]);

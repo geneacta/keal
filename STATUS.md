@@ -62,6 +62,18 @@ Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 unwinding), the six-language polyglot demo AND the ternary family are
 **DONE and pushed**. See NEXT.
 
+**Hardening round (user-driven):** differential fuzzer
+tests/fuzz/fuzz.py (grammar generator, typed-by-construction + injected
+mistakes + clean mode; asserts checker never crashes AND accepted
+programs run byte-identically on both interpreters). 27k programs: zero
+checker crashes; the diff mode found ONE real bug on its first run —
+interp said "integer overflow in `+`" vs VM/native "integer overflow";
+fixed in interp, pinned by tests/runtime/overflow.*. docs/types.md now
+formalizes assignability/join/inference/narrowing incl. the honest
+fill-and-join debt note. keal doc (src/kealdoc.rs, Rust-only tool like
+bindgen): /// comments + parsed signatures → self-contained HTML; no
+args = stdlib reference; snapshot test tests/doc/.
+
 **Actors-on-threads: designed, staged (docs/threads.md).** Key call:
 cross-actor ordering is unspecified, so the deterministic round-robin is
 a LEGAL schedule — interpreters keep it forever; threads are native-only

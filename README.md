@@ -165,6 +165,9 @@ engines, which must agree on every byte they print.
 - **Guarded returns.** `return if (a > b) a` returns only when the guard
   holds and falls through otherwise — and the guard narrows, so
   `return unless (s == null) s` hands back a plain `String`.
+- **`keal doc`.** The `///` comments and the compiler's own signatures,
+  rendered to one self-contained HTML page — run it with no arguments
+  and it documents the standard library. KealDoc, if you like.
 - **`deinit`, deterministic.** A class may declare `proc deinit()`; it
   runs when the object's last reference dies — at the next statement
   boundary, in reverse-declaration order, exactly once, identically on
