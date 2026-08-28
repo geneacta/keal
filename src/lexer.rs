@@ -67,6 +67,7 @@ pub enum Tok {
     /// `!!` — asserts that a nullable value is not null.
     BangBang,
     Lt,
+    Spaceship,
     LtEq,
     Gt,
     GtEq,
@@ -203,6 +204,7 @@ impl Tok {
             Tok::BangBang => "!!",
             Tok::Lt => "<",
             Tok::LtEq => "<=",
+            Tok::Spaceship => "<=>",
             Tok::Gt => ">",
             Tok::GtEq => ">=",
             Tok::AndAnd => "&&",
@@ -462,7 +464,19 @@ impl<'a> Lexer<'a> {
                         Tok::Bang
                     }
                 }
-                b'<' => self.pick(b'=', Tok::LtEq, Tok::Lt),
+                b'<' => {
+                    if self.peek() == b'=' {
+                        self.bump();
+                        if self.peek() == b'>' {
+                            self.bump();
+                            Tok::Spaceship
+                        } else {
+                            Tok::LtEq
+                        }
+                    } else {
+                        Tok::Lt
+                    }
+                }
                 b'>' => self.pick(b'=', Tok::GtEq, Tok::Gt),
                 b'&' => {
                     if self.peek() == b'&' {

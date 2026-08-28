@@ -57,8 +57,22 @@ commit that leaves work in flight.*
 ## IN FLIGHT
 
 Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
-`import java.time.LocalDate`, the verified Go demo AND exceptions
-(`throw` / `try`-`catch`) are **DONE and pushed**. See NEXT.
+`import java.time.LocalDate`, the verified Go demo, exceptions
+(`throw` / `try`-`catch` on all three engines incl. native checked
+unwinding), the six-language polyglot demo AND the ternary family are
+**DONE and pushed**. See NEXT.
+
+**Ternary + spaceship (latest):** `c ? a : b` selects on Bool, three
+branches select on a `Comp` (lazy, condition once — VM sign-splits via a
+temp slot, native mirrors if_expr's slot mechanics in `ternary()`), and
+`a <=> b` rewrites in the checker to the prelude's generic `compare(a,b)`
+(NOTE the lastInst dance: after the in-place rewrite's inner checkExpr,
+re-publish `lastInst = e.inst` or the outer wrapper erases the
+instantiation and native emission loses the monomorphized name). Nested
+ternary in the THEN position needs parentheses (a third colon reads as
+the inner ternary's greater-branch); the else-position chain reads plain.
+Tests: tests/programs/ternary.keal, tests/native/ternary.*, te38, perr32,
+tutorial mirrors. Corpora 600/600, suite 25/25, bootstrap green.
 
 **Exceptions, the shape that landed** (user asked for "gestion des
 exceptions"): `throw "msg"` raises the same String panic every built-in

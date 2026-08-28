@@ -289,6 +289,15 @@ fun pExInner(e: Ex): String {
             out
         }
         "index" -> "index ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
+        "ternary" -> {
+            var out = "ternary ${sp}\n" + indentBlock(wrapNode("cond", pEx(e.kids[0])))
+            var bi = 1
+            while (bi < e.kids.size) {
+                out += "\n" + indentBlock(wrapNode("branch", pEx(e.kids[bi])))
+                bi += 1
+            }
+            out
+        }
         "if" -> {
             var out = "if ${sp}\n" + indentBlock(wrapNode("cond", pEx(e.kids[0]))) + "\n" + indentBlock(pBlock("then", e.body!!))
             val els = e.els

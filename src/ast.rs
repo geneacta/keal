@@ -201,6 +201,10 @@ pub enum ExprKind {
     Index { obj: Box<Expr>, index: Box<Expr> },
 
     If { cond: Box<Expr>, then: Block, els: Option<Box<Else>> },
+    /// `c ? a : b` on a `Bool`, and `c ? less : equal : greater` on a
+    /// `Comp` — the ternary, generalized to three-valued comparisons. Only
+    /// the selected branch is evaluated, and the condition exactly once.
+    Ternary { cond: Box<Expr>, branches: Vec<Expr> },
     When { subject: Option<Box<Expr>>, arms: Vec<WhenArm> },
     ListLit(Vec<Expr>),
     MapLit(Vec<(Expr, Expr)>),
@@ -360,6 +364,9 @@ pub enum BinOp {
     Root,
     Eq,
     Ne,
+    /// `a <=> b` — the spaceship: rewritten by the checker to the prelude's
+    /// `compare(a, b)`, so it answers a `Comp` for any `Ord` operands.
+    Compare,
     Lt,
     Le,
     Gt,
@@ -378,6 +385,7 @@ impl BinOp {
             BinOp::Root => "^/",
             BinOp::Eq => "==",
             BinOp::Ne => "!=",
+            BinOp::Compare => "<=>",
             BinOp::Lt => "<",
             BinOp::Le => "<=",
             BinOp::Gt => ">",

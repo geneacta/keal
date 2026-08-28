@@ -1790,6 +1790,48 @@ impl Checker {
                 Type::Fun(Rc::new(FunType { params: param_tys, ret }))
             }
 
+            ExprKind::Ternary { cond, branches } => {
+                let ct = self.check_expr(cond, None);
+                let arity = if ct == Type::class("Comp", Vec::new()) {
+                    3
+                } else if ct == Type::Bool || ct == Type::Error {
+                    2
+                } else {
+                    self.error_note(
+                        span,
+                        format!("`?` cannot select on a value of type `{}`", ct),
+                        "a `Bool` picks between two branches; a `Comp` picks \
+                         between three — less, equal, greater",
+                    );
+                    2
+                };
+                if ct != Type::Error && branches.len() != arity {
+                    if arity == 2 {
+                        self.error_note(
+                            span,
+                            "a `Bool` condition selects between two branches, not three",
+                            "compare with `<=>` to get a `Comp`, which takes \
+                             less, equal and greater branches",
+                        );
+                    } else {
+                        self.error_note(
+                            span,
+                            "a `Comp` condition selects between three branches, not two",
+                            "write the branches in order: less, equal, greater",
+                        );
+                    }
+                }
+                let mut result: Option<Type> = None;
+                for b in branches.iter_mut() {
+                    let bt = self.check_expr(b, expected);
+                    result = Some(match result {
+                        None => bt,
+                        Some(prev) => Type::join(&prev, &bt),
+                    });
+                }
+                result.unwrap_or(Type::Error)
+            }
+
             ExprKind::If { cond, then, els } => {
                 let ct = self.check_expr(cond, Some(&Type::Bool));
                 self.expect_assignable(&ct, &Type::Bool, cond.span, "`if` condition");
@@ -2500,6 +2542,33 @@ impl Checker {
             _ => unreachable!("check_binary called on a non-binary expression"),
         };
 
+        // `a <=> b` is the prelude's `compare(a, b)` wearing an operator:
+        // the rewrite reuses the generic call path, so `Ord` bounds, the
+        // instantiation and the `Comp` result all come from one place.
+        if op == BinOp::Compare {
+            let (lhs, rhs) = match std::mem::replace(&mut e.kind, ExprKind::Null) {
+                ExprKind::Binary { lhs, rhs, .. } => (lhs, rhs),
+                _ => unreachable!(),
+            };
+            e.kind = ExprKind::Call {
+                callee: Box::new(Expr {
+                    ty: None,
+                    inst: None,
+                    span,
+                    kind: ExprKind::Ident("compare".to_string()),
+                }),
+                args: vec![
+                    Arg { name: None, value: *lhs },
+                    Arg { name: None, value: *rhs },
+                ],
+            };
+            let t = self.check_expr(e, None);
+            // The wrapper around this call takes `last_inst` for itself;
+            // hand the solved instantiation back up so it survives.
+            self.last_inst = e.inst.clone();
+            return t;
+        }
+
         let lt = match &mut e.kind {
             ExprKind::Binary { lhs, .. } => self.check_expr(lhs, None),
             _ => unreachable!(),
@@ -2653,6 +2722,8 @@ impl Checker {
             return Type::Error;
         }
         match op {
+            // Rewritten to `compare(a, b)` before this is consulted.
+            Compare => Type::class("Comp", Vec::new()),
             Eq | Ne => {
                 let comparable = lt.assignable_to(rt)
                     || rt.assignable_to(lt)
@@ -3046,6 +3117,8 @@ fn synth_record_equals(c: &ClassDecl) -> FunDecl {
 /// The prelude trait an operator is wired to, and the method it calls.
 fn operator_trait(op: BinOp) -> (&'static str, &'static str) {
     match op {
+        // Rewritten to `compare(a, b)` before any trait is consulted.
+        BinOp::Compare => ("Ord", "compareTo"),
         BinOp::Add => ("Add", "plus"),
         BinOp::Sub => ("Sub", "minus"),
         BinOp::Mul => ("Mul", "times"),

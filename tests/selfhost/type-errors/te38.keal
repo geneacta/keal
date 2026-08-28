@@ -1,0 +1,6 @@
+val a = [1] ? 1 : 2
+val b = true ? 1 : 2 : 3
+val c = (1 <=> 2) ? 1 : 2
+class Bare(val n: Int)
+val d = Bare(1) <=> Bare(2)
+val e = true ? 1 : "x"

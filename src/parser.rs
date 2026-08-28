@@ -34,6 +34,7 @@ fn binary_power(tok: &Tok) -> Option<(u8, BinOp)> {
         Tok::EqEq => (2, BinOp::Eq),
         Tok::BangEq => (2, BinOp::Ne),
         Tok::Lt => (3, BinOp::Lt),
+        Tok::Spaceship => (3, BinOp::Compare),
         Tok::LtEq => (3, BinOp::Le),
         Tok::Gt => (3, BinOp::Gt),
         Tok::GtEq => (3, BinOp::Ge),
@@ -854,7 +855,30 @@ impl Parser {
     // ---- expressions ---------------------------------------------------
 
     fn expr(&mut self) -> Result<Expr, Diag> {
-        self.binary(0)
+        let cond = self.binary(0)?;
+        // The ternary sits below everything else: `c ? a : b` selects on a
+        // `Bool`, and a third branch (`c ? less : equal : greater`) selects
+        // on a `Comp` — which of the two the checker decides by the
+        // condition's type. Branches parse greedily, so a nested ternary
+        // binds its own colons first.
+        if !matches!(self.peek(), Tok::Question) {
+            return Ok(cond);
+        }
+        let span = self.span();
+        self.advance();
+        let mut branches = vec![self.expr()?];
+        self.expect(Tok::Colon, "between the branches of `?`")?;
+        branches.push(self.expr()?);
+        if matches!(self.peek(), Tok::Colon) {
+            self.advance();
+            branches.push(self.expr()?);
+        }
+        Ok(Expr {
+            ty: None,
+            inst: None,
+            span,
+            kind: ExprKind::Ternary { cond: Box::new(cond), branches },
+        })
     }
 
     fn binary(&mut self, min_bp: u8) -> Result<Expr, Diag> {

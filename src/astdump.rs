@@ -437,6 +437,15 @@ fn expr_node_inner(e: &Expr) -> String {
             indent(&expr_node(obj)),
             indent(&expr_node(index))
         ),
+        ExprKind::Ternary { cond, branches } => {
+            let mut out = format!("ternary {}\n", at(e.span));
+            out.push_str(&indent(&wrap("cond", &expr_node(cond))));
+            for b in branches {
+                out.push('\n');
+                out.push_str(&indent(&wrap("branch", &expr_node(b))));
+            }
+            out
+        }
         ExprKind::If { cond, then, els } => {
             let mut out = format!(
                 "if {}\n{}\n{}",

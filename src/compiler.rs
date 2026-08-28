@@ -829,6 +829,46 @@ impl Compiler {
                 let idx = self.compile_function(&decl, false)?;
                 self.emit(Op::MakeClosure(idx), span);
             }
+            ExprKind::Ternary { cond, branches } => {
+                self.expr(cond)?;
+                let comp = cond
+                    .ty()
+                    .map(|t| *t == crate::types::Type::class("Comp", Vec::new()))
+                    .unwrap_or(false);
+                if !comp {
+                    // A `Bool` selects like a braceless two-branch `if`.
+                    let els = self.fs().chunk.emit_jump(Op::JumpIfFalse, span);
+                    self.expr(&branches[0])?;
+                    let done = self.fs().chunk.emit_jump(Op::Jump, span);
+                    self.fs().chunk.patch(els);
+                    self.expr(&branches[1])?;
+                    self.fs().chunk.patch(done);
+                } else {
+                    // A `Comp` reads its sign once, then splits three ways.
+                    let n = self.fs().chunk.name("sign");
+                    self.emit(Op::GetField(n), span);
+                    let slot = self.temp_slots(1);
+                    self.emit(Op::StoreLocal(slot), span);
+                    let zero = self.fs().chunk.constant(Value::Int(0));
+                    self.emit(Op::LoadLocal(slot), span);
+                    self.emit(Op::Const(zero), span);
+                    self.emit(Op::Compare(Compare::Lt), span);
+                    let not_less = self.fs().chunk.emit_jump(Op::JumpIfFalse, span);
+                    self.expr(&branches[0])?;
+                    let first_done = self.fs().chunk.emit_jump(Op::Jump, span);
+                    self.fs().chunk.patch(not_less);
+                    self.emit(Op::LoadLocal(slot), span);
+                    self.emit(Op::Const(zero), span);
+                    self.emit(Op::Eq, span);
+                    let not_equal = self.fs().chunk.emit_jump(Op::JumpIfFalse, span);
+                    self.expr(&branches[1])?;
+                    let second_done = self.fs().chunk.emit_jump(Op::Jump, span);
+                    self.fs().chunk.patch(not_equal);
+                    self.expr(&branches[2])?;
+                    self.fs().chunk.patch(first_done);
+                    self.fs().chunk.patch(second_done);
+                }
+            }
             ExprKind::If { cond, then, els } => self.if_expr(cond, then, els.as_deref(), span)?,
             ExprKind::When { subject, arms } => self.when_expr(subject.as_deref(), arms, span)?,
             ExprKind::Index { obj, index } => {
@@ -1201,6 +1241,7 @@ fn binary_op(op: BinOp) -> Op {
         BinOp::Rem => Op::Arith(Arith::Rem),
         BinOp::Pow => Op::Arith(Arith::Pow),
         BinOp::Root => Op::Arith(Arith::Root),
+        BinOp::Compare => unreachable!("`<=>` is rewritten to `compare` by the checker"),
         BinOp::Eq => Op::Eq,
         BinOp::Ne => Op::Ne,
         BinOp::Lt => Op::Compare(Compare::Lt),
@@ -1354,6 +1395,12 @@ pub(crate) fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr) -> bool) {
         return;
     }
     match &e.kind {
+        ExprKind::Ternary { cond, branches } => {
+            walk_expr(cond, f);
+            for b in branches {
+                walk_expr(b, f);
+            }
+        }
         ExprKind::Int(_)
         | ExprKind::Float(_)
         | ExprKind::Bool(_)

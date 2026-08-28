@@ -156,10 +156,12 @@ engines, which must agree on every byte they print.
   increments `x++` / `x--` come along. Integer arithmetic is **checked** —
   overflow, division by zero and `Int.pow`'s negative exponent panic instead
   of wrapping — while `Float` follows IEEE 754 (`inf`, `NaN`, no panics).
-- **`Comp`, the three-valued comparison.** `compare(a, b)` works on any
-  `Ord` type and answers `less`, `equal` or `greater` — `Comp` is to
-  ordering what `Bool` is to truth, with `compareTo: Int` remaining the
-  overload protocol underneath.
+- **`Comp`, the three-valued comparison — with its own ternary.**
+  `a <=> b` (the spaceship) works on any `Ord` type and answers a `Comp`:
+  `less`, `equal` or `greater` — `Comp` is to ordering what `Bool` is to
+  truth. And the ternary knows both: `c ? a : b` selects on a `Bool`,
+  `a <=> b ? smaller : same : bigger` selects on a `Comp`, lazily, the
+  condition evaluated exactly once.
 - **Guarded returns.** `return if (a > b) a` returns only when the guard
   holds and falls through otherwise — and the guard narrows, so
   `return unless (s == null) s` hands back a plain `String`.
@@ -498,42 +500,39 @@ leaks under macOS `leaks`.
 
 ## What remains
 
-The honest list, in rough order of intent:
+The honest list, in rough order of intent. (Interop used to live here;
+it doesn't anymore — C, C++, Rust, Go, Java and Kotlin all answer from one
+Keal file in [`examples/interop/polyglot/`](examples/interop/polyglot/),
+and [`docs/interop.md`](docs/interop.md) tells that whole story. Exceptions
+used to live here too; all three engines catch them now.)
 
+* **A `drop` hook** — `proc drop()` running when a count hits zero, so
+  jbind's JVM wrappers free their handles automatically instead of by
+  `free()`. The native side is ready — native `try` already unwinds
+  through the same rails ([`docs/drop.md`](docs/drop.md)) — but the
+  interpreters need a deterministic pending-drop design first, and the
+  three engines must provably agree on drop order before it ships.
+* **Actors on real threads** — the model ships and is deterministic today;
+  the threaded scheduler (one heap per actor, counts stay non-atomic,
+  exactly as the memory model planned) is the next runtime project. No
+  API changes.
 * **`Any` in native code** — the one construct the C backend still refuses
   (by name, as always). It needs run-time type information; the tagged
   representation is already designed in [`docs/memory.md`](docs/memory.md) §4.
-* **Actors on real threads** — the model ships and is deterministic today;
-  the threaded scheduler (one heap per actor, counts stay non-atomic, exactly
-  as the memory model planned) is the next runtime project. No API changes.
-* **Foreign languages** — C, C++, **Rust** and **Java/Kotlin** work today:
-  `borrow`/`own` strings, by-value records, `keal emit-header`, link
-  inputs, `keal bindgen` (verified Rust demo in
-  [`examples/interop/rust/`](examples/interop/rust/), verified **Go**
-  c-archive demo in [`examples/interop/go/`](examples/interop/go/)) and
-  the JVM gateway
-  [`lib/jvm.keal`](lib/jvm.keal) — `java.time.LocalDate` driven from a
-  native Keal binary in [`examples/interop/java/`](examples/interop/java/).
-  **Go** rides the same tools as Rust — and now provably does. And the
-  endpoint is in:
-  `import java.time.LocalDate, java.time.DayOfWeek` — no path — generates
-  `javap`-driven typed wrappers into a `.jbind/` cache on the next
-  `run`/`build` (a Java `compareTo` even makes the class `Ord`).
-  [`docs/interop.md`](docs/interop.md) tells the whole story.
 * **Cycle handling** — reference counting leaks cycles; the three candidate
   answers (documented leak, weak references, cycle collector) are weighed in
   [`docs/memory.md`](docs/memory.md) §5 and not yet chosen.
+* **Typed exceptions** — `catch (e)` binds the message as a `String`
+  today; catching by kind (and letting `throw` carry a value) is the
+  natural second step now that all three engines unwind.
 * **`constexpr` evaluation** — the tree-walking interpreter is kept as the
   reference implementation partly so it can become the compile-time
   evaluator.
 * **Macros** — deliberately last: the language keeps earning features the
   hard way first.
-* **A `drop` hook** — `proc drop()` running when a count hits zero, so
-  jbind's JVM wrappers free their handles automatically. The native side
-  is ready (native `try` shares its rails, [`docs/drop.md`](docs/drop.md));
-  the interpreters need a deterministic pending-drop design first.
-* Smaller items: indexing/call
-  operator overloads, namespaced imports, a register-based VM if the
+* Smaller items: indexing/call operator overloads, namespaced imports,
+  native `try` catching C stack exhaustion (the VM's depth panic is
+  catchable, a native segfault is not), a register-based VM if the
   bytecode engine ever needs to be faster than it is.
 
 Class inheritance is a **non-goal**: composition, traits with default

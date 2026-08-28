@@ -30,7 +30,7 @@ fun describeKind(kind: String): String {
 /// The word an operator token contributes to a `binary` node.
 fun binaryOpOf(kind: String): String {
     return when (kind) {
-        "==", "!=", "<", "<=", ">", ">=", "+", "-", "*", "/", "%", "**", "^/" -> kind
+        "==", "!=", "<", "<=", ">", ">=", "<=>", "+", "-", "*", "/", "%", "**", "^/" -> kind
         else -> ""
     }
 }
@@ -38,7 +38,7 @@ fun binaryOpOf(kind: String): String {
 fun binaryPowerOf(kind: String): Int {
     return when (kind) {
         "==", "!=" -> 2
-        "<", "<=", ">", ">=" -> 3
+        "<", "<=", ">", ">=", "<=>" -> 3
         "+", "-" -> 6
         "*", "/", "%" -> 7
         "**", "^/" -> 8
@@ -803,7 +803,27 @@ class Parser(val toks: List<Token>) {
 
     // ---- expressions ----------------------------------------------------
 
-    fun expr(): Ex { this.binary(0) }
+    fun expr(): Ex {
+        val cond = this.binary(0)
+        // The ternary sits below everything else: `c ? a : b` selects on a
+        // `Bool`, and a third branch (`c ? less : equal : greater`) selects
+        // on a `Comp` — which of the two the checker decides by the
+        // condition's type. Branches parse greedily, so a nested ternary
+        // binds its own colons first.
+        unless (this.at("?")) { return cond }
+        val t = this.peek()
+        this.advance()
+        val e = Ex("ternary", t.line, t.col)
+        e.kids.add(cond)
+        e.kids.add(this.expr())
+        this.expect(":", "between the branches of `?`")
+        e.kids.add(this.expr())
+        if (this.at(":")) {
+            this.advance()
+            e.kids.add(this.expr())
+        }
+        return e
+    }
 
     fun binary(minBp: Int): Ex {
         var lhs = this.unary()

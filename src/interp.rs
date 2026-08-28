@@ -349,6 +349,32 @@ impl Interp {
                 index_get(&target, &key, span)
             }
 
+            ExprKind::Ternary { cond, branches } => {
+                let c = self.eval(cond, env)?;
+                let idx = match &c {
+                    Value::Bool(b) => {
+                        if *b {
+                            0
+                        } else {
+                            1
+                        }
+                    }
+                    other => match self.get_member(other, "sign", span)? {
+                        Value::Int(s) => {
+                            if s < 0 {
+                                0
+                            } else if s == 0 {
+                                1
+                            } else {
+                                2
+                            }
+                        }
+                        _ => return err(span, "`?` needs a `Bool` or a `Comp`"),
+                    },
+                };
+                self.eval(&branches[idx], env)
+            }
+
             ExprKind::Field { obj, name, safe } => {
                 let target = self.eval(obj, env)?;
                 if *safe && matches!(target, Value::Null) {
@@ -490,7 +516,7 @@ impl Interp {
                     Le => Value::Bool(x <= y),
                     Gt => Value::Bool(x > y),
                     Ge => Value::Bool(x >= y),
-                    Eq | Ne => unreachable!(),
+                    Compare | Eq | Ne => unreachable!(),
                 })
             }
             (Value::Float(x), Value::Float(y)) => {
@@ -507,7 +533,7 @@ impl Interp {
                     Le => Value::Bool(x <= y),
                     Gt => Value::Bool(x > y),
                     Ge => Value::Bool(x >= y),
-                    Eq | Ne => unreachable!(),
+                    Compare | Eq | Ne => unreachable!(),
                 })
             }
             (Value::Str(x), _) if op == Add => {

@@ -1,0 +1,54 @@
+// The ternary: `c ? a : b` on Bool, three branches on Comp, and `<=>`.
+
+assert((3 < 5 ? "y" : "n") == "y", "bool ternary picks then")
+assert((3 > 5 ? "y" : "n") == "n", "bool ternary picks else")
+
+// The spaceship answers a Comp for any Ord operands.
+assert((1 <=> 2).isLess(), "int spaceship less")
+assert((2 <=> 2).isEqual(), "int spaceship equal")
+assert(("b" <=> "a").isGreater(), "string spaceship greater")
+assert((1.5 <=> 2.5).isLess(), "float spaceship")
+
+// A Comp condition selects between three branches.
+assert((1 <=> 2 ? "L" : "E" : "G") == "L", "comp ternary less")
+assert((2 <=> 2 ? "L" : "E" : "G") == "E", "comp ternary equal")
+assert((3 <=> 2 ? "L" : "E" : "G") == "G", "comp ternary greater")
+
+// Only the selected branch runs, and the condition runs exactly once.
+var runs = 0
+var conds = 0
+fun probe(s: String): String { runs += 1  return s }
+fun judge(a: Int, b: Int): Comp { conds += 1  return compare(a, b) }
+val picked = judge(4, 4) ? probe("L") : probe("E") : probe("G")
+assert(picked == "E" and runs == 1 and conds == 1, "lazy branches, one condition")
+
+// Chains nest in the else branch without parentheses, like C; a ternary
+// in the THEN branch wants parentheses, because a third colon would read
+// as the inner ternary's greater-branch.
+assert((true ? (false ? 1 : 2) : 3) == 2, "nested ternary in the then branch")
+assert((false ? 0 : true ? 1 : 2) == 1, "the else-position chain reads plain")
+assert((1 <=> 1 ? 0 : (2 <=> 1 ? 10 : 20 : 30) : 9) == 30, "comp nested in comp")
+
+// User types ride the same rails through Ord.
+record Pair(val a: Int, val b: Int) : Ord {
+    fun compareTo(other: Pair): Int {
+        val first = this.a.compareTo(other.a)
+        return if (first != 0) first
+        return this.b.compareTo(other.b)
+    }
+}
+assert((Pair(1, 5) <=> Pair(1, 7)).isLess(), "record spaceship")
+assert((Pair(2, 0) <=> Pair(1, 9) ? -1 : 0 : 1) == 1, "record comp ternary")
+
+// Expression positions: arguments, list and map literals, interpolation.
+fun label(c: Comp): String { return c ? "less" : "equal" : "greater" }
+assert(label(5 <=> 9) == "less", "ternary as a function body")
+val words = [1 <=> 2 ? "a" : "b" : "c", 2 <=> 1 ? "a" : "b" : "c"]
+assert(words == ["a", "c"], "ternary in list literals")
+val m = {"k": true ? 1 : 2}
+assert(m["k"] == 1, "ternary as a map value")
+assert("${2 <=> 3 ? "<" : "=" : ">"}" == "<", "ternary in interpolation")
+
+// Null widening joins branch types like an if/else would.
+val maybe: Int? = false ? 1 : null
+assert(maybe == null, "branches join through null")

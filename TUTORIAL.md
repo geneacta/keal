@@ -629,9 +629,21 @@ acc++
 assert(acc == 10, "compounds and increments")
 ```
 
-Comparisons can speak, too: `compare(a, b)` works on any `Ord` type and
-answers a `Comp` — `less`, `equal` or `greater`, three-valued the way
-`Bool` is two-valued. And a `return` can carry its own guard:
+Comparisons can speak, too: `a <=> b` — the spaceship — works on any
+`Ord` type and answers a `Comp`: `less`, `equal` or `greater`,
+three-valued the way `Bool` is two-valued (`compare(a, b)` is the same
+thing as a function). The ternary understands both: two branches select
+on a `Bool`, three select on a `Comp` — lazily, the condition evaluated
+exactly once:
+
+```keal
+val verdict = 3 < 5 ? "small" : "big"
+assert(verdict == "small", "the plain ternary")
+val word = "kiwi" <=> "fig" ? "before" : "same" : "after"
+assert(word == "after", "the three-way ternary")
+```
+
+And a `return` can carry its own guard:
 
 ```keal
 fun cheapest<T: Ord>(a: T, b: T): T {

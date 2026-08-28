@@ -243,7 +243,14 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
                 else if (this.peek() == "!") { this.bump(); "!!" }
                 else { "!" }
             }
-            "<" -> this.pick("=", "<=", "<")
+            "<" -> {
+                if (this.peek() == "=") {
+                    this.bump()
+                    if (this.peek() == ">") { this.bump(); "<=>" } else { "<=" }
+                } else {
+                    "<"
+                }
+            }
             ">" -> this.pick("=", ">=", ">")
             "&" -> {
                 unless (this.peek() == "&") {

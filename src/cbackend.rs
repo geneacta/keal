@@ -1880,6 +1880,7 @@ impl CBackend {
             ExprKind::Binary { op, lhs, rhs } => self.binary(e, *op, lhs, rhs),
             ExprKind::Logical { op, lhs, rhs } => self.logical(*op, lhs, rhs),
             ExprKind::If { cond, then, els } => self.if_expr(e, cond, then, els.as_deref()),
+            ExprKind::Ternary { cond, branches } => self.ternary(e, cond, branches),
             ExprKind::Call { callee, args } => self.call(e, callee, args),
             ExprKind::Interp(parts) => self.interpolate(parts, e.span),
             ExprKind::Assign { target, op, value } => {
@@ -3890,6 +3891,69 @@ impl CBackend {
         t
     }
 
+    /// `c ? a : b` and `c ? less : equal : greater`: the `if` expression's
+    /// slot mechanics, with expressions for branches. The condition is
+    /// emitted once; a `Comp` reads its sign into a temp for the split.
+    fn ternary(&mut self, e: &Expr, cond: &Expr, branches: &[Expr]) -> String {
+        let produces =
+            !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never) | Some(Type::Any));
+        let slot = if produces {
+            let Some(ty) = self.ety(e) else { return "0".to_string() };
+            let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
+            let t = self.temp();
+            self.line(format!("{} {};", c, t));
+            if Self::counted(&ty) {
+                self.own(&t, &ty);
+            }
+            Some(t)
+        } else {
+            None
+        };
+        let slot_ty = if slot.is_some() { self.ety(e) } else { None };
+        let filled = slot.as_deref().zip(slot_ty.as_ref());
+        let comp = self
+            .ety(cond)
+            .map(|t| t == Type::class("Comp", Vec::new()))
+            .unwrap_or(false);
+        if !comp {
+            let c = self.condition(cond);
+            self.line(format!("if ({}) {{", c));
+            self.indent += 1;
+            self.expr_branch(&branches[0], filled);
+            self.indent -= 1;
+            self.line("} else {");
+            self.indent += 1;
+            self.expr_branch(&branches[1], filled);
+            self.indent -= 1;
+            self.line("}");
+        } else {
+            let c = self.expr(cond);
+            let s = self.temp();
+            self.line(format!("const int64_t {} = {}->{};", s, c, mangle("sign")));
+            self.line(format!("if ({} < 0) {{", s));
+            self.indent += 1;
+            self.expr_branch(&branches[0], filled);
+            self.indent -= 1;
+            self.line(format!("}} else if ({} == 0) {{", s));
+            self.indent += 1;
+            self.expr_branch(&branches[1], filled);
+            self.indent -= 1;
+            self.line("} else {");
+            self.indent += 1;
+            self.expr_branch(&branches[2], filled);
+            self.indent -= 1;
+            self.line("}");
+        }
+        slot.unwrap_or_else(|| "0".to_string())
+    }
+
+    /// One ternary branch: its own scope, its value into the slot.
+    fn expr_branch(&mut self, b: &Expr, slot: Option<(&str, &Type)>) {
+        self.open_scope();
+        self.fill_slot(b, slot);
+        self.close_scope();
+    }
+
     fn if_expr(&mut self, e: &Expr, cond: &Expr, then: &Block, els: Option<&Else>) -> String {
         // A branch join of `Any` can only sit in statement position — using
         // the value would have been refused where it was used — so like
@@ -4637,6 +4701,12 @@ fn lambda_frees_in_stmt(s: &Stmt, out: &mut std::collections::HashSet<String>) {
 
 fn lambda_frees_in_expr(e: &Expr, out: &mut std::collections::HashSet<String>) {
     match &e.kind {
+        ExprKind::Ternary { cond, branches } => {
+            lambda_frees_in_expr(cond, out);
+            for b in branches {
+                lambda_frees_in_expr(b, out);
+            }
+        }
         ExprKind::Lambda { params, body } => {
             let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
             let mut free = Vec::new();
@@ -4789,6 +4859,12 @@ fn collect_free(stmts: &[Stmt], bound: &mut Vec<String>, free: &mut Vec<String>)
 
 fn collect_free_expr(e: &Expr, bound: &mut Vec<String>, free: &mut Vec<String>) {
     match &e.kind {
+        ExprKind::Ternary { cond, branches } => {
+            collect_free_expr(cond, bound, free);
+            for b in branches {
+                collect_free_expr(b, bound, free);
+            }
+        }
         ExprKind::Ident(name) => {
             if !bound.contains(name) && !free.contains(name) {
                 free.push(name.clone());
@@ -5095,6 +5171,8 @@ fn program_has_try(p: &Program) -> bool {
 
 fn c_operator(op: BinOp) -> &'static str {
     match op {
+        // Rewritten to `compare(a, b)` by the checker; never emitted.
+        BinOp::Compare => "<=>",
         BinOp::Add => "+",
         BinOp::Sub => "-",
         BinOp::Mul => "*",

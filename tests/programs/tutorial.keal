@@ -292,3 +292,10 @@ try {
 } catch (e) {
     assert(e == "division by zero", "built-in panics are the same kind")
 }
+
+// ---- the spaceship and the three-way ternary (TUTORIAL.md) ---------------
+
+val tutVerdict = 3 < 5 ? "small" : "big"
+assert(tutVerdict == "small", "the plain ternary")
+val tutWord = "kiwi" <=> "fig" ? "before" : "same" : "after"
+assert(tutWord == "after", "the three-way ternary")

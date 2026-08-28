@@ -69,6 +69,8 @@ class Recv(val base: Ty?, val nullable: Bool)
 /// The prelude trait an operator is wired to, and the method it calls.
 fun operatorTrait(op: String): (String, String) {
     return when (op) {
+        // Rewritten to `compare(a, b)` before any trait is consulted.
+        "<=>" -> ("Ord", "compareTo")
         "+" -> ("Add", "plus")
         "-" -> ("Sub", "minus")
         "*" -> ("Mul", "times")
@@ -1891,6 +1893,47 @@ class Checker() {
 
             return tyFun(paramTys, ret)
         }
+        if (e.kind == "ternary") {
+            val cond = e.kids[0]
+            val ct = this.checkExpr(cond, null)
+            val branchCount = e.kids.size - 1
+            var arity = 2
+            if (ct.kind == "Class" and ct.name == "Comp" and ct.args.size == 0) {
+                arity = 3
+            } else if (ct.kind == "Bool" or ct.kind == "Error") {
+                arity = 2
+            } else {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "`?` cannot select on a value of type `${tyShow(ct)}`",
+                    "a `Bool` picks between two branches; a `Comp` picks between three — less, equal, greater"
+                )
+            }
+            if (ct.kind != "Error" and branchCount != arity) {
+                if (arity == 2) {
+                    this.errorNote(
+                        e.file, e.line, e.col,
+                        "a `Bool` condition selects between two branches, not three",
+                        "compare with `<=>` to get a `Comp`, which takes less, equal and greater branches"
+                    )
+                } else {
+                    this.errorNote(
+                        e.file, e.line, e.col,
+                        "a `Comp` condition selects between three branches, not two",
+                        "write the branches in order: less, equal, greater"
+                    )
+                }
+            }
+            var result: Ty? = null
+            var bi = 1
+            while (bi < e.kids.size) {
+                val bt = this.checkExpr(e.kids[bi], expected)
+                val prev = result
+                result = if (prev == null) { bt } else { tyJoin(prev, bt) }
+                bi += 1
+            }
+            return result ?: Ty("Error")
+        }
         if (e.kind == "if") {
             val cond = e.kids[0]
             val ct = this.checkExpr(cond, Ty("Bool"))
@@ -2536,6 +2579,24 @@ class Checker() {
     /// whichever path is taken checks it exactly once.
     fun checkBinary(e: Ex): Ty {
         val op = e.text
+        // `a <=> b` is the prelude's `compare(a, b)` wearing an operator:
+        // the rewrite reuses the generic call path, so `Ord` bounds, the
+        // instantiation and the `Comp` result all come from one place.
+        if (op == "<=>") {
+            val lhs0 = e.kids[0]
+            val rhs0 = e.kids[1]
+            val callee = Ex("ident", e.line, e.col)
+            callee.file = e.file
+            callee.text = "compare"
+            e.kind = "call"
+            e.kids = [callee]
+            e.args = [ArgN("", lhs0), ArgN("", rhs0)]
+            val t = this.checkExpr(e, null)
+            // The wrapper around this call takes `lastInst` for itself;
+            // hand the solved instantiation back up so it survives.
+            this.lastInst = e.inst
+            return t
+        }
         val lt = this.checkExpr(e.kids[0], null)
 
         if (overloadable(lt)) {
@@ -2659,6 +2720,8 @@ class Checker() {
 
     fun binaryResult(op: String, lt: Ty, rt: Ty, file: Int, line: Int, col: Int): Ty {
         if (lt.kind == "Error" or rt.kind == "Error") { return Ty("Error") }
+        // Rewritten to `compare(a, b)` before this is consulted.
+        if (op == "<=>") { return tyClass("Comp", []) }
         if (op == "==" or op == "!=") {
             val comparable = assignableTo(lt, rt) or assignableTo(rt, lt) or tyEq(tyNonNull(lt), tyNonNull(rt))
             unless (comparable) {

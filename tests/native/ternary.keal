@@ -1,0 +1,16 @@
+// The ternary and the spaceship, printed identically by all three engines.
+
+println(4 < 7 ? "yes" : "no")
+println((3 <=> 8).toString())
+println(3 <=> 8 ? "less" : "equal" : "greater")
+println("kiwi" <=> "kiwi" ? "less" : "equal" : "greater")
+
+fun rank(a: Int, b: Int): String {
+    return a <=> b ? "${a} first" : "tie" : "${b} first"
+}
+println(rank(2, 9))
+println(rank(9, 2))
+println(rank(5, 5))
+
+val sorted = ["pear", "fig", "plum"]
+println(sorted[0] <=> sorted[1] ? -1 : 0 : 1)

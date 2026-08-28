@@ -395,6 +395,10 @@ proc lambdaFreesInExpr(e: Ex, out: Map<String, Bool>) {
         }
         return
     }
+    if (e.kind == "ternary") {
+        for (k in e.kids) { lambdaFreesInExpr(k, out) }
+        return
+    }
     if (e.kind == "if") {
         lambdaFreesInExpr(e.kids[0], out)
         for (st in e.body!!.stmts) { lambdaFreesInStmt(st, out) }
@@ -528,6 +532,10 @@ proc collectFreeExpr(e: Ex, bound: List<String>, free: List<String>) {
             collectFreeExpr(e.values[i], bound, free)
             i += 1
         }
+        return
+    }
+    if (e.kind == "ternary") {
+        for (k in e.kids) { collectFreeExpr(k, bound, free) }
         return
     }
     if (e.kind == "if") {
@@ -2287,6 +2295,7 @@ class CBackend() {
         if (e.kind == "binary") { return this.binary(e) }
         if (e.kind == "logical") { return this.logical(e) }
         if (e.kind == "if") { return this.ifExpr(e) }
+        if (e.kind == "ternary") { return this.ternary(e) }
         if (e.kind == "call") { return this.call(e) }
         if (e.kind == "interp") { return this.interpolate(e) }
         if (e.kind == "assign") {
@@ -4122,6 +4131,74 @@ class CBackend() {
             this.line("const bool ${t} = ${applyLogicalC(op, a, b)};")
         }
         return t
+    }
+
+    /// `c ? a : b` and `c ? less : equal : greater`: the `if` expression's
+    /// slot mechanics, with expressions for branches. The condition is
+    /// emitted once; a `Comp` reads its sign into a temp for the split.
+    fun ternary(e: Ex): String {
+        val ety0 = this.ety(e)
+        val produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never" and ety0.kind != "Any"
+        var slot = ""
+        if (produces) {
+            val ty = ety0
+            if (ty == null) { return "0" }
+            val c = this.ctype(ty, e.file, e.line, e.col)
+            if (c == null) { return "0" }
+            val t = this.temp()
+            this.line("${c} ${t};")
+            if (countedC(ty)) {
+                this.own(t, ty)
+            }
+            slot = t
+        }
+        var slotTy: Ty? = null
+        unless (slot == "") { slotTy = this.ety(e) }
+        val condTy = this.ety(e.kids[0])
+        val comp = condTy != null and condTy.kind == "Class" and condTy.name == "Comp" and condTy.args.size == 0
+        unless (comp) {
+            val c = this.condition(e.kids[0])
+            this.line("if (${c}) {")
+            this.indent += 1
+            this.exprBranch(e.kids[1], slot, slotTy)
+            this.indent -= 1
+            this.line("} else {")
+            this.indent += 1
+            this.exprBranch(e.kids[2], slot, slotTy)
+            this.indent -= 1
+            this.line("}")
+        }
+        if (comp) {
+            val c = this.expr(e.kids[0])
+            val s = this.temp()
+            this.line("const int64_t ${s} = ${c}->${mangle("sign")};")
+            this.line("if (${s} < 0) {")
+            this.indent += 1
+            this.exprBranch(e.kids[1], slot, slotTy)
+            this.indent -= 1
+            this.line("} else if (${s} == 0) {")
+            this.indent += 1
+            this.exprBranch(e.kids[2], slot, slotTy)
+            this.indent -= 1
+            this.line("} else {")
+            this.indent += 1
+            this.exprBranch(e.kids[3], slot, slotTy)
+            this.indent -= 1
+            this.line("}")
+        }
+        if (slot == "") { return "0" }
+        return slot
+    }
+
+    /// One ternary branch: its own scope, its value into the slot.
+    proc exprBranch(b: Ex, slot: String, slotTy: Ty?) {
+        this.openScope()
+        if (slot == "") {
+            this.expr(b)
+        } else {
+            this.fillSlot(b, slot, slotTy)
+        }
+        this.closeScope()
     }
 
     fun ifExpr(e: Ex): String {
