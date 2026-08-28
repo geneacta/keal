@@ -100,8 +100,14 @@ without cc/TSan). Verified: corpora 4-way byte-identical, 27/27,
 bootstrap fixed point, fuzz 3000 clean, leaks 0, TSan 0, 100-run
 stability. Docs: threads.md (decided→done), memory.md counts section,
 prelude actor comments, README, TUTORIAL. Embeds regenerated (both).
-Still open from the plan: JNI AttachCurrentThread for JVM calls from
-actor threads (gateway attaches on the main thread only today);
+JNI attach — DONE in the follow-up commit: keal_jvm_env and the
+jvalue arg buffer are _Thread_local in lib/jvm.keal; keal_jvm_need does
+GetEnv → AttachCurrentThread lazily and arms a pthread_key destructor
+that detaches at thread exit (the CreateJavaVM thread is never
+detached); jvmStart on a running VM now just attaches the caller.
+examples/interop/java/actordate.keal + suite test
+jvm_calls_work_from_actor_threads (JDK-gated). 28/28. No twin work —
+the native block is verbatim data to both compilers. Still open:
 performance is stage 6 (measure first — the lock is global and every
 completion broadcasts).
 
@@ -319,8 +325,8 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
    `import_sugar_works_end_to_end` (JDK-gated).
 2. Closure callbacks at the C boundary (interop 1d) once a consumer fixes
    the `userdata` convention.
-3. Threaded actors — DONE (stage 5, see IN FLIGHT top). Left there: JNI
-   attach from actor threads, scheduler perf (measure first). Then `Any`
+3. Threaded actors — DONE (stage 5), JNI attach from actor threads —
+   DONE too. Left there: scheduler perf (measure first). Then `Any`
    natively (RTTI); cycles decision; `constexpr`; macros last. See README
    "What remains".
 

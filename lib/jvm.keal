@@ -36,13 +36,35 @@
 
 native """
 #include <jni.h>
+#include <pthread.h>
 
 static JavaVM* keal_jvm_vm = NULL;
-static JNIEnv* keal_jvm_env = NULL;
+/* Per thread — that is JNI's rule, not ours: an env is only valid on the
+ * thread it was handed to. Each thread resolves its own in keal_jvm_need. */
+static _Thread_local JNIEnv* keal_jvm_env = NULL;
 
 #define KEAL_JVM_MAX_ARGS 16
-static jvalue keal_jvm_args[KEAL_JVM_MAX_ARGS];
-static int keal_jvm_argc = 0;
+/* Per thread too, so two actors mid-push never interleave arguments. */
+static _Thread_local jvalue keal_jvm_args[KEAL_JVM_MAX_ARGS];
+static _Thread_local int keal_jvm_argc = 0;
+
+/* A thread this gateway attached gets detached when it ends — actor
+ * threads come and go per `run`, and the JVM keeps resources for every
+ * attachment. The thread that started the JVM was attached by
+ * JNI_CreateJavaVM, never by us, so it is never detached here. */
+static pthread_key_t keal_jvm_detach_key;
+static pthread_once_t keal_jvm_detach_once = PTHREAD_ONCE_INIT;
+
+static void keal_jvm_detach(void* unused) {
+    (void)unused;
+    if (keal_jvm_vm != NULL) {
+        (*keal_jvm_vm)->DetachCurrentThread(keal_jvm_vm);
+    }
+}
+
+static void keal_jvm_detach_key_make(void) {
+    pthread_key_create(&keal_jvm_detach_key, keal_jvm_detach);
+}
 
 /* A pending Java exception ends the program the Keal way: as a panic that
  * says which call threw and what the throwable printed. Under an active
@@ -73,17 +95,39 @@ static bool keal_jvm_check(const char* what) {
     return false;
 }
 
+/* This thread's env, resolving it lazily: the first JVM call an actor
+ * thread makes attaches the thread (docs/threads.md said it would), and
+ * the key above detaches it at thread exit. */
 static bool keal_jvm_need(void) {
-    if (keal_jvm_env == NULL) {
+    if (keal_jvm_env != NULL) {
+        return true;
+    }
+    if (keal_jvm_vm == NULL) {
         keal_panic("the JVM is not running; call jvmStart first", 0);
         return false;
     }
+    JNIEnv* env = NULL;
+    jint got = (*keal_jvm_vm)->GetEnv(keal_jvm_vm, (void**)&env, JNI_VERSION_1_8);
+    if (got == JNI_EDETACHED) {
+        if ((*keal_jvm_vm)->AttachCurrentThread(keal_jvm_vm, (void**)&env, NULL) != JNI_OK) {
+            keal_panic("could not attach this thread to the JVM", 0);
+            return false;
+        }
+        pthread_once(&keal_jvm_detach_once, keal_jvm_detach_key_make);
+        pthread_setspecific(keal_jvm_detach_key, (void*)1);
+    }
+    if (env == NULL) {
+        keal_panic("the JVM is not running; call jvmStart first", 0);
+        return false;
+    }
+    keal_jvm_env = env;
     return true;
 }
 
 static bool keal_jvm_start_impl(const char* options) {
-    if (keal_jvm_env != NULL) {
-        return true;
+    if (keal_jvm_vm != NULL) {
+        /* Already running — make sure *this* thread is attached, and say yes. */
+        return keal_jvm_need();
     }
     static char optbuf[4096];
     JavaVMOption opts[1];

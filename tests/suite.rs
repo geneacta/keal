@@ -974,6 +974,57 @@ fn jvm_gateway_works_end_to_end() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Java from an actor thread: the gateway must attach the thread to the
+/// JVM lazily at its first call and detach it when the actor ends — a
+/// JNIEnv is only valid on the thread it was handed to, so using main's
+/// from an actor is undefined behavior, not a slow path. Skipped without
+/// a JDK, like the other gateway tests.
+#[test]
+fn jvm_calls_work_from_actor_threads() {
+    let Ok(out) = Command::new("/usr/libexec/java_home").output() else {
+        eprintln!("skipping: no java_home helper");
+        return;
+    };
+    if !out.status.success() {
+        eprintln!("skipping: no JDK installed");
+        return;
+    }
+    let jh = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !Path::new(&jh).join("include/jni.h").exists() {
+        eprintln!("skipping: JDK without JNI headers");
+        return;
+    }
+
+    let dir = root().join("target").join("jvm-actor-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot create the jvm actor test dir");
+
+    let built = Command::new(BIN)
+        .current_dir(&dir)
+        .arg("build")
+        .arg(root().join("examples/interop/java/actordate.keal"))
+        .arg(format!("-I{}/include", jh))
+        .arg(format!("-I{}/include/darwin", jh))
+        .arg(format!("-L{}/lib/server", jh))
+        .arg("-ljvm")
+        .arg(format!("-Wl,-rpath,{}/lib/server", jh))
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the actor JVM program did not build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let ran = Command::new(dir.join("actordate")).output().expect("cannot run the binary");
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout),
+        "2026-01-01 is a THURSDAY\n2026-01-02 is a FRIDAY\n2026-01-03 is a SATURDAY\n",
+        "the actor asked Java and got the wrong answer:\n{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `keal doc` renders the compiler's own signatures with their `///`
 /// comments; the snapshot keeps the page shape honest.
 #[test]

@@ -128,8 +128,12 @@ monomorphizes and the runtime is ours.
    completion broadcasts; per-mailbox locks or per-actor arenas only if
    contention shows up in real programs, and only with numbers in hand.
 
-JNI note, still open: a JVM call from an actor thread needs
-`AttachCurrentThread`; the gateway will attach lazily per thread.
+JNI note, closed: a JNIEnv is only valid on the thread it was handed
+to, so the gateway keeps one per thread — the first JVM call an actor
+makes attaches its thread lazily, a pthread-key destructor detaches it
+when the actor ends, and the argument buffer went thread-local with it.
+`examples/interop/java/actordate.keal` is an actor asking `java.time`
+for weekdays from its own thread; the suite runs it under a JDK.
 
 *Cost, as it turned out: stages 1–5 changed no line of user code. The
 scheduler is four generated method bodies and one runtime section behind

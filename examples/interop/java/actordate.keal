@@ -1,0 +1,43 @@
+// Java from an actor. Under `keal build` the handler below runs on its
+// own OS thread, and the gateway attaches that thread to the JVM at its
+// first call — lazily, detached again when the actor ends
+// (docs/threads.md). Build exactly like localdate.keal:
+//
+//   JH=$(/usr/libexec/java_home)
+//   keal build actordate.keal -I$JH/include -I$JH/include/darwin \
+//       -L$JH/lib/server -ljvm -Wl,-rpath,$JH/lib/server
+//
+// One actor, self-sending — so the posts arrive in causal order and the
+// output is the same bytes on every schedule.
+
+import "../../../lib/jvm.keal"
+
+unless (jvmStart("")) {
+    println("no JVM available")
+    exit(1)
+}
+
+proc ask(names: Outbox<String>) {
+    val sys: ActorSystem<Int> = ActorSystem()
+    val dates = sys.spawn({ self, offset ->
+        val localDate = jvmClass("java/time/LocalDate")
+        jvmArgInt(2026)
+        jvmArgInt(1)
+        jvmArgInt(1)
+        val base = jvmStaticObj(localDate, "of", "(III)Ljava/time/LocalDate;")
+        jvmArgLong(offset)
+        val day = jvmCallObj(base, "plusDays", "(J)Ljava/time/LocalDate;")
+        val week = jvmCallObj(day, "getDayOfWeek", "()Ljava/time/DayOfWeek;")
+        names.post("${jvmToString(day)} is a ${jvmToString(week)}")
+        jvmFree(week)
+        jvmFree(day)
+        jvmFree(base)
+        if (offset < 2) { self.send(offset + 1) }
+    })
+    dates.send(0)
+    sys.run()
+}
+
+val names: Outbox<String> = outbox()
+ask(names)
+for (line in names.drain()) { println(line) }
