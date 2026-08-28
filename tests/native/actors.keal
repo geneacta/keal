@@ -1,23 +1,49 @@
-// The actor model, compiled to native: closures in lists, mailboxes,
-// deterministic round-robin delivery.
+// Actors on the native engine, under the ownership rules: captures are
+// copied per actor, results leave through an Outbox, reply addresses
+// travel inside messages.
 
-val sys: ActorSystem<Int> = ActorSystem()
-var total = 0
-val acc = sys.spawn({ self, n ->
-    total += n
-    println("got " + "${n}")
-    if (n > 1) {
-        self.send(n / 2)
+record Msg(val n: Int, val replyTo: ActorRef<Msg>?)
+
+val sys: ActorSystem<Msg> = ActorSystem()
+val volleys: Outbox<Int> = outbox()
+val ping = sys.spawn({ self, msg ->
+    if (msg.n > 0) {
+        volleys.post(msg.n)
+        val back = msg.replyTo
+        if (back != null) { back.send(Msg(msg.n - 1, self)) }
     }
 })
-acc.send(20)
+val pong = sys.spawn({ self, msg ->
+    if (msg.n > 0) {
+        val back = msg.replyTo
+        if (back != null) { back.send(Msg(msg.n - 1, self)) }
+    }
+})
+ping.send(Msg(6, pong))
 sys.run()
-println(total)
+println(volleys.drain())
 
-val order: ActorSystem<String> = ActorSystem()
-val a = order.spawn({ self, m -> println("a:" + m) })
-val b = order.spawn({ self, m -> println("b:" + m) })
-a.send("1")
-a.send("2")
-b.send("x")
-order.run()
+proc accumulate(steps: Outbox<Int>) {
+    val tally: ActorSystem<Int> = ActorSystem()
+    var total = 0
+    val counter = tally.spawn({ self, n ->
+        total += n
+        steps.post(total)
+        if (n > 1) { self.send(n / 2) }
+    })
+    counter.send(20)
+    tally.run()
+    println("spawner still holds ${total}")
+}
+val steps: Outbox<Int> = outbox()
+accumulate(steps)
+println(steps.drain())
+
+val echo: ActorSystem<List<Int>> = ActorSystem()
+val got: Outbox<Int> = outbox()
+val sink = echo.spawn({ self, xs -> got.post(xs.size) })
+val payload = [1, 2]
+sink.send(payload)
+payload.add(3)
+echo.run()
+println("sent ${got.drain()[0]} kept ${payload.size}")

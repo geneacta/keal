@@ -239,6 +239,9 @@ pub fn global_sig(name: &str, args: &[Option<Type>]) -> Option<FunType> {
         // is what `val f = copy` sees — and a value smuggled through it
         // is checked again at run time.
         "copy" => sig(vec![p("value", Type::Any)], Type::Any),
+        // The capture-copying primitive `spawn` leans on; typed precisely
+        // at the direct call by the checker.
+        "copyClosure" => sig(vec![p("handler", Type::Any)], Type::Any),
         "sqrt" => sig(vec![p("x", Type::Float)], Type::Float),
         "pow" => sig(vec![p("base", Type::Float), p("exponent", Type::Float)], Type::Float),
         "floor" | "ceil" | "round" => sig(vec![p("x", Type::Float)], Type::Int),

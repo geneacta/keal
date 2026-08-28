@@ -1082,7 +1082,19 @@ typedef struct KealClosure {
     int64_t rc;
     KealCode fn;
     void (*drop)(struct KealClosure* self);
+    /* A fresh closure whose captured values are deep copies — the spawn
+     * semantics: an actor's state is its own. NULL when the captures do
+     * not copy, which the checker keeps unreachable through `spawn`. */
+    struct KealClosure* (*copy)(struct KealClosure* self);
 } KealClosure;
+
+KEAL_FN KealClosure* keal_fn_copy_captures(KealClosure* c) {
+    if (c == NULL || c->copy == NULL) {
+        keal_panic("this handler's captures do not copy", 0);
+        return NULL;
+    }
+    return c->copy(c);
+}
 
 KEAL_FN KealClosure* keal_fn_retain(KealClosure* c) {
     if (c != NULL) {

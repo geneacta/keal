@@ -433,10 +433,41 @@ fun iterate<T>(seed: T, step: (T) -> T): Sequence<T> {
 /// The address of an actor: something to `send` to. Holds only the mailbox,
 /// so references never form cycles through the system.
 class ActorRef<M>(val mailbox: List<M>) {
-    /// Enqueues and returns immediately; delivery happens inside `run`.
+    /// Enqueues a **copy** of the message and returns immediately;
+    /// delivery happens inside `run`. Messages cross by copy on every
+    /// engine — under real threads they cross heaps, and the semantics
+    /// must not depend on the scheduler — so mutating a value after
+    /// sending it never reaches the receiver. An `ActorRef` inside a
+    /// message is the exception: an address is shared, not duplicated.
     proc send(msg: M) {
-        this.mailbox.add(msg)
+        this.mailbox.add(copy(msg))
     }
+}
+
+/// Where results leave the actor world: an outbox is an **address**, like
+/// an `ActorRef` — capturing one shares it rather than copying it, so
+/// actors post into the same box the spawner drains after `run`. Under a
+/// threaded scheduler the posts interleave; treat the contents as a bag
+/// unless one actor alone is posting.
+class Outbox<T>(val items: List<T>) {
+    proc post(v: T) {
+        this.items.add(copy(v))
+    }
+
+    /// Everything posted so far, in arrival order.
+    fun drain(): List<T> {
+        val out: List<T> = []
+        for (v in this.items) {
+            out.add(v)
+        }
+        return out
+    }
+}
+
+/// An empty outbox; `Outbox<Int>([])` written the readable way.
+fun outbox<T>(): Outbox<T> {
+    val items: List<T> = []
+    return Outbox(items)
 }
 
 /// A set of actors and their mailboxes. `spawn` registers a handler; `run`
@@ -447,10 +478,14 @@ class ActorSystem<M>() {
 
     /// A new actor. The handler receives the actor's own ref — for replies
     /// and self-sends — and one message; its state lives in what the
-    /// handler's closure captured.
+    /// handler's closure captured, and **each actor gets its own copy of
+    /// every capture**: an actor's state is its own, on every engine, so
+    /// mutating a captured value after the spawn never reaches the actor,
+    /// and two actors never share one. Aggregate the actor way — reply
+    /// with messages — not through a captured collection.
     fun spawn(handler: (ActorRef<M>, M) -> Unit): ActorRef<M> {
         val box: List<M> = []
-        this.handlers.add(handler)
+        this.handlers.add(copyClosure(handler))
         this.mailboxes.add(box)
         return ActorRef(box)
     }

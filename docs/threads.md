@@ -68,7 +68,28 @@ monomorphizes and the runtime is ours.
    classes, nullables — recursive types memoize; the unwind path
    releases the partial copy, so a caught cycle panic leaks nothing).
    This is the scheduler's `copy_M`, landed early and user-facing.
-3. **The capture decision, then the scheduler.** Building the runtime
+3. **The capture semantics — SHIPPED.** `spawn` copies its handler's
+   captures per actor (`copyClosure`, a builtin all three engines
+   implement: the interpreter rebuilds the environment from the same
+   free-variable analysis the compilers use, the VM re-cells, the C
+   backend generates a per-lambda `_copy` for the closure header's new
+   `copy` slot). `send` copies every message. The checker holds the
+   whole rule set at the spawn site: the handler is written in place,
+   captures must be copyable data, `this` cannot come along, and a
+   handler may not reach a global `var` or a mutable global `val` —
+   the addresses (`ActorRef`, and the new `Outbox<T>`, main's own
+   mailbox for results) are blessed shared exceptions. Programs
+   aggregate the actor way now: state in a local the actor copies,
+   results out through an `Outbox`, reply addresses inside messages.
+   Two real bugs fell out of building it: `Nullable(ActorRef)` slipped
+   past the address blessing and duplicated mailboxes, and — a
+   pre-existing one — empty container literals in *generic* class
+   bodies kept their `List<Never>` type (the expected type's rigid
+   params were mistaken for inference variables), so every generic
+   field's native list carried a NULL release thunk and leaked its
+   elements. Both fixed, both pinned by tests.
+
+4. **The scheduler itself.** Building the runtime
    exposed the real wall, and it is not the pthreads: **handler closures
    share captured state.** Today two handlers may capture the same list
    and both mutate it — legal and deterministic under the round-robin,
@@ -87,8 +108,9 @@ monomorphizes and the runtime is ours.
    part of that change. Then the scheduler itself: `KealActor`
    (pthread, mutex, condvar, deque), `send` locks-copies-signals,
    `run` joins, TSan in the suite.
-   *Not started; the copy machinery it needs is now fully in place.*
-4. **Measure before optimizing** — per-actor arenas only if malloc
+   *Not started; every semantic it schedules is now frozen and
+   engine-verified, so it is a pure runtime project.*
+5. **Measure before optimizing** — per-actor arenas only if malloc
    contention shows up in real programs.
 
 JNI note for later: a JVM call from an actor thread needs

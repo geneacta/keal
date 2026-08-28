@@ -282,6 +282,30 @@ impl Scope {
         })
     }
 
+    /// Resolves a name only in the scopes below the root — the captures,
+    /// as opposed to the globals. `copyClosure` copies exactly these.
+    pub fn find_below_root(&self, name: &str) -> Option<Value> {
+        if self.parent.is_none() {
+            return None;
+        }
+        if let Some(v) = self.vars.borrow().get(name) {
+            return Some(v.clone());
+        }
+        self.parent.as_ref().and_then(|p| p.find_below_root(name))
+    }
+
+    /// The chain's root: the globals every closure ultimately hangs from.
+    pub fn root_of(env: &Env) -> Env {
+        let mut cur = env.clone();
+        loop {
+            let parent = cur.parent.clone();
+            match parent {
+                Some(p) => cur = p,
+                None => return cur,
+            }
+        }
+    }
+
     pub fn define(&self, name: &str, value: Value) {
         let key: Rc<str> = Rc::from(name);
         if self.vars.borrow_mut().insert(key.clone(), value).is_none() {

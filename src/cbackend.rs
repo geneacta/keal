@@ -31,6 +31,7 @@ pub fn emit(program: &Program, shapes: &[ClassShape]) -> Result<String, Vec<Diag
         Item::Class(c) => c.methods.iter().any(|m| m.name == "deinit"),
         _ => false,
     });
+    b.actors_mode = program_uses_actors(program);
     for shape in shapes {
         b.shapes.insert(shape.name.clone(), shape.fields.clone());
         if shape.generic {
@@ -121,9 +122,12 @@ struct CBackend {
     next_unwind: usize,
     /// The `return` the function's bottom label ends with.
     poison: String,
-    /// Whether any class in the program declares `proc drop()` — only
+    /// Whether any class in the program declares `proc deinit()` — only
     /// then are the per-statement drains and the pending queue emitted.
     drop_mode: bool,
+    /// Whether the user program touches the actor machinery — only then
+    /// do lambdas carry generated capture-copy functions.
+    actors_mode: bool,
     /// How many blocks deep each open loop is, so `break` releases correctly.
     loops: Vec<usize>,
     string_literals: Vec<String>,
@@ -209,6 +213,7 @@ impl CBackend {
             next_unwind: 0,
             poison: String::new(),
             drop_mode: false,
+            actors_mode: false,
             loops: Vec::new(),
             string_literals: Vec::new(),
             types: String::new(),
@@ -2213,6 +2218,56 @@ impl CBackend {
         self.indent = saved_indent;
         self.loops = saved_loops;
 
+        // The capture copy, when the actor machinery is in play and every
+        // capture can cross: a fresh environment whose values are deep
+        // copies — `spawn`'s semantics that an actor's state is its own.
+        let copy_fn = if self.actors_mode {
+            let mut lines = Vec::new();
+            let mut all_copyable = true;
+            for (name, ty, is_cell) in &captures {
+                if *is_cell {
+                    let Some(kind) = self.elem_kind(ty, e.span) else {
+                        all_copyable = false;
+                        break;
+                    };
+                    let Some(cv) =
+                        self.copy_expr_of(ty, &kind.unword(&format!("env->{}->w", mangle(name))), "0", e.span)
+                    else {
+                        all_copyable = false;
+                        break;
+                    };
+                    lines.push(format!(
+                        "    out->{f} = keal_cell_new(env->{f}->release_inner);\n    out->{f}->w = {w};\n",
+                        f = mangle(name),
+                        w = kind.word(&cv)
+                    ));
+                } else {
+                    let Some(cv) =
+                        self.copy_expr_of(ty, &format!("env->{}", mangle(name)), "0", e.span)
+                    else {
+                        all_copyable = false;
+                        break;
+                    };
+                    lines.push(format!("    out->{f} = {v};\n", f = mangle(name), v = cv));
+                }
+            }
+            if all_copyable {
+                let mut f = format!(
+                    "static KealClosure* {n}_copy(KealClosure* c) {{\n    {n}* env = ({n}*)c;\n    {n}* out = ({n}*)keal_alloc(sizeof({n}));\n    out->head.rc = 1;\n    out->head.fn = (KealCode){n}_call;\n    out->head.drop = {n}_drop;\n    out->head.copy = {n}_copy;\n",
+                    n = env_name
+                );
+                for l in &lines {
+                    f.push_str(l);
+                }
+                f.push_str("    return &out->head;\n}\n");
+                Some(f)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let _ = write!(
             self.lambda_defs,
             "\n{st}{drop}{sig} {{\n{body}\n}}\n",
@@ -2221,6 +2276,9 @@ impl CBackend {
             sig = sig,
             body = compiled
         );
+        if let Some(f) = &copy_fn {
+            let _ = write!(self.lambda_defs, "{}", f);
+        }
 
         // Creation: allocate, fill the header, copy the captures in.
         let t = self.temp();
@@ -2228,6 +2286,12 @@ impl CBackend {
         self.line(format!("{t}_env->head.rc = 1;", t = t));
         self.line(format!("{t}_env->head.fn = (KealCode){n}_call;", t = t, n = env_name));
         self.line(format!("{t}_env->head.drop = {n}_drop;", t = t, n = env_name));
+        match &copy_fn {
+            Some(_) => {
+                self.line(format!("{t}_env->head.copy = {n}_copy;", t = t, n = env_name))
+            }
+            None => self.line(format!("{t}_env->head.copy = NULL;", t = t)),
+        }
         for (name, ty, is_cell) in &captures {
             let source = self.var_ref(name);
             let v = if *is_cell {
@@ -4147,11 +4211,31 @@ impl CBackend {
                 }
                 match &**inner {
                     Type::Str => Some(format!("keal_str_retain({})", v)),
+                    // The addresses stay addresses under `?` too — retain
+                    // is NULL-safe, so no guard is needed.
+                    Type::Class(name, targs) if &**name == "ActorRef" || &**name == "Outbox" => {
+                        let sn = if targs.is_empty() {
+                            struct_name(name)
+                        } else {
+                            self.instantiate_class(name, targs, span)?
+                        };
+                        Some(format!("{}_retain({})", sn, v))
+                    }
                     _ => {
                         let f = self.ensure_copy_fn(inner, span)?;
                         Some(format!("({v} == NULL ? NULL : {f}({v}, {d}))", v = v, f = f, d = depth))
                     }
                 }
+            }
+            // An `ActorRef` is an address: it crosses by being shared,
+            // never duplicated — a copied mailbox would swallow replies.
+            Type::Class(name, targs) if &**name == "ActorRef" || &**name == "Outbox" => {
+                let sn = if targs.is_empty() {
+                    struct_name(name)
+                } else {
+                    self.instantiate_class(name, targs, span)?
+                };
+                Some(format!("{}_retain({})", sn, v))
             }
             Type::List(_) | Type::Map(_, _) | Type::Class(_, _) => {
                 let f = self.ensure_copy_fn(ty, span)?;
@@ -4323,6 +4407,16 @@ impl CBackend {
         }
         // `assert`: the message, when given, is evaluated eagerly — the
         // interpreters evaluate arguments before the call, and so does this.
+        // `copyClosure(f)`: a fresh closure whose captured values are
+        // deep copies — what `spawn` calls so an actor's state is its own.
+        if name == "copyClosure" && args.len() == 1 {
+            let Some(t) = self.ety(&args[0].value) else {
+                self.unsupported(e.span, "the built-in `copyClosure` on this value");
+                return "0".to_string();
+            };
+            let v = self.expr(&args[0].value);
+            return self.own_temp_of(&t, format!("keal_fn_copy_captures({})", v));
+        }
         // `copy(value)`: data crosses, code does not — and now it crosses
         // natively, through per-type generated copies.
         if name == "copy" && args.len() == 1 {
@@ -5071,7 +5165,7 @@ fn lambda_frees_in_expr(e: &Expr, out: &mut std::collections::HashSet<String>) {
 /// bound everywhere in it. That misses a capture only when the same name is
 /// both a local and a capture, in which case the local wins and the program
 /// still means something; it never invents one.
-fn collect_free(stmts: &[Stmt], bound: &mut Vec<String>, free: &mut Vec<String>) {
+pub(crate) fn collect_free(stmts: &[Stmt], bound: &mut Vec<String>, free: &mut Vec<String>) {
     for s in stmts {
         match &s.kind {
             StmtKind::Let { name, init, .. } => {
@@ -5419,6 +5513,114 @@ fn program_has_try(p: &Program) -> bool {
         Item::Stmt(s) => in_stmt(s),
         Item::Fun(f) => in_stmts(&f.body.stmts),
         Item::Class(c) => c.methods.iter().any(|m| in_stmts(&m.body.stmts)),
+        _ => false,
+    })
+}
+
+/// Whether the user program touches the actor machinery — the types, the
+/// system, or the capture-copying primitive `spawn` leans on. The prelude
+/// alone never triggers it: unused generics are not emitted.
+fn program_uses_actors(p: &Program) -> bool {
+    fn name_hits(n: &str) -> bool {
+        n == "ActorSystem" || n == "ActorRef" || n == "copyClosure"
+    }
+    fn in_type(t: &TypeExpr) -> bool {
+        match &t.kind {
+            TypeExprKind::Named { name, args } => {
+                name_hits(name) || args.iter().any(in_type)
+            }
+            TypeExprKind::Boundary { inner, .. } | TypeExprKind::Nullable(inner) => in_type(inner),
+            TypeExprKind::Fun { params, ret } => params.iter().any(in_type) || in_type(ret),
+        }
+    }
+    fn in_stmts(stmts: &[Stmt]) -> bool {
+        stmts.iter().any(in_stmt)
+    }
+    fn in_stmt(s: &Stmt) -> bool {
+        match &s.kind {
+            StmtKind::Let { ty, init, .. } => {
+                ty.as_ref().map(in_type).unwrap_or(false) || in_expr(init)
+            }
+            StmtKind::Destructure { init, .. } => in_expr(init),
+            StmtKind::Expr(e) | StmtKind::Throw(e) => in_expr(e),
+            StmtKind::Return(v) => v.as_ref().map(in_expr).unwrap_or(false),
+            StmtKind::Break | StmtKind::Continue => false,
+            StmtKind::While { cond, body } => in_expr(cond) || in_stmts(&body.stmts),
+            StmtKind::For { ty, iter, body, .. } => {
+                ty.as_ref().map(in_type).unwrap_or(false)
+                    || in_expr(iter)
+                    || in_stmts(&body.stmts)
+            }
+            StmtKind::Try { body, handler, .. } => {
+                in_stmts(&body.stmts) || in_stmts(&handler.stmts)
+            }
+            StmtKind::Fun(f) => in_fun(f),
+            StmtKind::Class(c) => in_class(c),
+        }
+    }
+    fn in_fun(f: &FunDecl) -> bool {
+        f.params.iter().any(|p| p.ty.as_ref().map(in_type).unwrap_or(false))
+            || f.ret.as_ref().map(in_type).unwrap_or(false)
+            || in_stmts(&f.body.stmts)
+    }
+    fn in_class(c: &ClassDecl) -> bool {
+        c.ctor.iter().any(|p| in_type(&p.ty))
+            || c.fields.iter().any(|f| f.ty.as_ref().map(in_type).unwrap_or(false))
+            || c.methods.iter().any(in_fun)
+    }
+    fn in_expr(e: &Expr) -> bool {
+        let mut found = false;
+        crate::compiler::walk_expr(e, &mut |x: &Expr| {
+            match &x.kind {
+                ExprKind::Ident(n) if name_hits(n) => found = true,
+                ExprKind::Is { ty, .. } => {
+                    if in_type(ty) {
+                        found = true;
+                    }
+                }
+                ExprKind::Lambda { params, body } => {
+                    if params.iter().any(|p| p.ty.as_ref().map(in_type).unwrap_or(false))
+                        || in_stmts(&body.stmts)
+                    {
+                        found = true;
+                    }
+                }
+                ExprKind::If { then, els, .. } => {
+                    if in_stmts(&then.stmts) {
+                        found = true;
+                    }
+                    if let Some(els) = els {
+                        match &**els {
+                            Else::Block(b) => {
+                                if in_stmts(&b.stmts) {
+                                    found = true;
+                                }
+                            }
+                            Else::If(inner) => {
+                                if in_expr(inner) {
+                                    found = true;
+                                }
+                            }
+                        }
+                    }
+                }
+                ExprKind::When { arms, .. } => {
+                    for a in arms {
+                        if in_stmts(&a.body.stmts) {
+                            found = true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            true
+        });
+        found
+    }
+    p.items.iter().any(|i| match i {
+        Item::Stmt(s) => in_stmt(s),
+        Item::Fun(f) => in_fun(f),
+        Item::Class(c) => in_class(c),
         _ => false,
     })
 }

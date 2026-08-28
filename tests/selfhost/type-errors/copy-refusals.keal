@@ -1,4 +1,6 @@
 val bad = copy({ n: Int -> n })
 val any: Any = 5
 val bad2 = copy(any)
+// An open `T` is allowed under `copy`: each instantiation settles it.
 fun gen<T>(x: T): T { return copy(x) }
+val genOk = gen(5)

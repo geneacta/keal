@@ -86,6 +86,56 @@ pub fn contains(it: &mut dyn Runtime, container: &Value, value: &Value, span: Sp
 
 // ---- globals -----------------------------------------------------------
 
+/// `copyClosure`: the same closure, its captured values deep-copied.
+pub fn copy_closure(v: &Value, span: Span) -> R<Value> {
+    match v {
+        Value::Fun(c) => {
+            let mut bound: Vec<String> = c.params.iter().map(|p| p.name.clone()).collect();
+            let mut free: Vec<String> = Vec::new();
+            crate::cbackend::collect_free(&c.body.stmts, &mut bound, &mut free);
+            let root = crate::value::Scope::root_of(&c.env);
+            let scope = crate::value::Scope::child(&root);
+            for name in &free {
+                // A name the chain resolves below the globals is a capture
+                // and gets a copy; a global stays a global.
+                if let Some(val) = c.env.find_below_root(name) {
+                    scope.define(name, deep_copy(&val, span, 0)?);
+                }
+            }
+            let this = match &c.this {
+                Some(t) => Some(deep_copy(t, span, 0)?),
+                None => None,
+            };
+            Ok(Value::Fun(Rc::new(crate::value::Closure {
+                name: c.name.clone(),
+                params: c.params.clone(),
+                body: c.body.clone(),
+                env: scope,
+                this,
+            })))
+        }
+        Value::VmFun(c) => {
+            let mut cells = Vec::new();
+            for cell in c.captured.iter() {
+                let copied = deep_copy(&cell.borrow(), span, 0)?;
+                cells.push(Rc::new(RefCell::new(copied)));
+            }
+            let this = match &c.this {
+                Some(t) => Some(deep_copy(t, span, 0)?),
+                None => None,
+            };
+            Ok(Value::VmFun(Rc::new(crate::value::VmClosure {
+                func: c.func.clone(),
+                captured: Rc::new(cells),
+                this,
+            })))
+        }
+        // A named builtin carries no environment; sharing is copying.
+        Value::Native(_) => Ok(v.clone()),
+        _ => err(span, "`copyClosure` takes a function"),
+    }
+}
+
 /// The recursive copy behind `copy` and, one day, actor `send`.
 pub fn deep_copy(v: &Value, span: Span, depth: usize) -> R<Value> {
     if depth > 10000 {
@@ -119,6 +169,11 @@ pub fn deep_copy(v: &Value, span: Span, depth: usize) -> R<Value> {
             Value::Map(Rc::new(RefCell::new(data)))
         }
         Value::Instance(i) => {
+            // An `ActorRef` is an address: it crosses by being shared,
+            // never duplicated — a copied mailbox would swallow replies.
+            if i.class.name == "ActorRef" || i.class.name == "Outbox" {
+                return Ok(v.clone());
+            }
             let mut fields = Vec::new();
             for (n, val) in i.fields.borrow().iter() {
                 fields.push((n.clone(), deep_copy(val, span, depth + 1)?));
@@ -153,6 +208,16 @@ pub fn call_global(it: &mut dyn Runtime, name: &str, args: Vec<Value>, span: Spa
                 return err(span, "`copy` takes one value");
             };
             deep_copy(v, span, 0)
+        }
+        // A fresh closure whose captured values are deep copies — what
+        // `spawn` calls so an actor's state is its own. The captured set
+        // is the compiler's own free-variable analysis, so the engines
+        // copy exactly the same names.
+        "copyClosure" => {
+            let Some(v) = args.first() else {
+                return err(span, "`copyClosure` takes one function");
+            };
+            copy_closure(v, span)
         }
         "println" | "print" => {
             let text = match args.first() {

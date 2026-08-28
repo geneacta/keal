@@ -216,9 +216,9 @@ val f2 = f1
 assert(f1 == f2, "records compare by value whatever their identity")
 
 // An independent copy is built explicitly.
-val copy = shared.slice(0, shared.size)
-copy.add(4)
-assert(shared.size == 3 and copy.size == 4, "slice produced a new list")
+val copied = shared.slice(0, shared.size)
+copied.add(4)
+assert(shared.size == 3 and copied.size == 4, "slice produced a new list")
 
 // Tuples, as the tutorial introduces them.
 fun divmod(a: Int, b: Int): (Int, Int) { return a / b, a % b }
@@ -244,15 +244,21 @@ assert(tutPowers == [1, 2, 4, 8, 16], "iterate is lazy")
 
 // ---- actors (TUTORIAL.md) ------------------------------------------------
 
-val tutTallySys: ActorSystem<Int> = ActorSystem()
-var tutTotal = 0
-val tutCounter = tutTallySys.spawn({ self, n ->
-    tutTotal += n
-    if (n > 1) { self.send(n / 2) }
-})
-tutCounter.send(8)
-tutTallySys.run()
-assert(tutTotal == 15, "8 + 4 + 2 + 1, delivered one message per pass")
+proc tutTallyDown(steps: Outbox<Int>) {
+    val tally: ActorSystem<Int> = ActorSystem()
+    var total = 0
+    val counter = tally.spawn({ self, n ->
+        total += n
+        steps.post(total)
+        if (n > 1) { self.send(n / 2) }
+    })
+    counter.send(8)
+    tally.run()
+    assert(total == 0, "the actor accumulated in its own copy, not mine")
+}
+val tutSteps: Outbox<Int> = outbox()
+tutTallyDown(tutSteps)
+assert(tutSteps.drain() == [8, 12, 14, 15], "8, then self-sent 4, 2, 1")
 
 // ---- power, root, Comp, guarded returns (TUTORIAL.md) --------------------
 

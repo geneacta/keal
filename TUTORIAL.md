@@ -770,26 +770,37 @@ the lazy stages; `toList`, `forEach`, `fold`, `count`, `any`, `all` and
 
 ## Actors
 
-Concurrency in Keal is actors: state owned by one handler, messages between
-them, and — today — a deterministic round-robin scheduler, so a program
-computes the same thing on every engine. An actor's state lives in whatever
-its handler's closure captured:
+Concurrency in Keal is actors: state owned by one handler, messages
+between them, and — today — a deterministic round-robin scheduler, so a
+program computes the same thing on every engine. The ownership rules are
+real: **each actor gets its own copy of every capture** (its state is its
+own), **messages cross by copy**, and results leave through an `Outbox` —
+an address, shared like an `ActorRef`:
 
 ```keal
-val tally: ActorSystem<Int> = ActorSystem()
-var total = 0
-val counter = tally.spawn({ self, n ->
-    total += n
-    if (n > 1) { self.send(n / 2) }
-})
-counter.send(8)
-tally.run()
-assert(total == 15, "8 + 4 + 2 + 1, delivered one message per pass")
+proc tallyDown(steps: Outbox<Int>) {
+    val tally: ActorSystem<Int> = ActorSystem()
+    var total = 0
+    val counter = tally.spawn({ self, n ->
+        total += n
+        steps.post(total)
+        if (n > 1) { self.send(n / 2) }
+    })
+    counter.send(8)
+    tally.run()
+    assert(total == 0, "the actor accumulated in its own copy, not mine")
+}
+val steps: Outbox<Int> = outbox()
+tallyDown(steps)
+assert(steps.drain() == [8, 12, 14, 15], "8, then self-sent 4, 2, 1")
 ```
 
 `send` enqueues and returns; `run` delivers until every mailbox is empty.
-Running actors on real threads is the planned next step, and changes nothing
-in this API.
+The checker holds the rules: a handler cannot reach a global `var`, a
+mutable global `val`, or `this`, and everything it captures must be
+copyable data — because those are exactly the data races a threaded
+scheduler cannot allow. Running actors on real threads is the planned
+next step, and changes nothing in this API.
 
 ---
 

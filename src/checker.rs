@@ -1261,6 +1261,20 @@ impl Checker {
                 };
                 let (name, kind) =
                     (name.clone(), if *mutable { BindKind::Var } else { BindKind::Val });
+                // A top-level binding lands in the scope the prelude's own
+                // code resolves against; the built-ins the prelude itself
+                // calls cannot be shadowed there, or the standard library
+                // would be rewired out from under it.
+                if !self.repl
+                    && self.scopes.len() == 1
+                    && (name == "copy" || name == "copyClosure")
+                {
+                    self.error_note(
+                        span,
+                        format!("`{}` is already the name of a built-in", name),
+                        "pick another name: the prelude itself calls the built-in by this one",
+                    );
+                }
                 let shadowing_at_top_level = self.repl && self.scopes.len() == 1;
                 if self.scopes.last().unwrap().contains_key(&name) && !shadowing_at_top_level {
                     self.error(span, format!("`{}` is already declared in this scope", name));
@@ -1741,9 +1755,12 @@ impl Checker {
 
             ExprKind::ListLit(items) => {
                 let hint = match expected {
-                    // While `T` is unsolved it says nothing about the
-                    // elements; infer them and let unification do the rest.
-                    Some(Type::List(t)) if !t.has_params() => Some((**t).clone()),
+                    // An unsolved `T` (call inference) says nothing about
+                    // the elements; a *rigid* `T` — declared by the
+                    // enclosing class or function — is a real type, and the
+                    // literal adopts it. The difference once cost every
+                    // generic class field its release thunk natively.
+                    Some(Type::List(t)) if self.params_rigid(t) => Some((**t).clone()),
                     _ => None,
                 };
                 let mut elem = Type::Never;
@@ -1763,7 +1780,7 @@ impl Checker {
 
             ExprKind::MapLit(entries) => {
                 let hint = match expected {
-                    Some(Type::Map(k, v)) if !k.has_params() && !v.has_params() => {
+                    Some(Type::Map(k, v)) if self.params_rigid(k) && self.params_rigid(v) => {
                         Some(((**k).clone(), (**v).clone()))
                     }
                     _ => None,
@@ -1813,7 +1830,7 @@ impl Checker {
                     let from_hint = hint
                         .as_ref()
                         .and_then(|f| f.params.get(i))
-                        .filter(|pt| !pt.ty.has_params());
+                        .filter(|pt| self.params_rigid(&pt.ty));
                     let ty = match (&p.ty, from_hint) {
                         (Some(t), _) => self.resolve(t),
                         (None, Some(pt)) => pt.ty.clone(),
@@ -2128,6 +2145,17 @@ impl Checker {
             }
             return Type::Error;
         }
+        // A spawn handler becomes an actor's whole world: its captures
+        // are copied per actor, so they must be visible here and able to
+        // cross, and `this` — an object the actor would share — cannot
+        // come along.
+        if name == "spawn" && args.len() == 1 {
+            if let Type::Class(cn, _) = base {
+                if &**cn == "ActorSystem" {
+                    self.check_spawn_handler(&mut args[0].value, span);
+                }
+            }
+        }
         // `deinit` belongs to the runtime: it runs when the last reference
         // dies, and calling it early would run it twice.
         if name == "deinit" {
@@ -2296,6 +2324,20 @@ impl Checker {
         // crosses, code does not. Generic over its argument, which the
         // monomorphic builtin table cannot express; checked here instead.
         if let ExprKind::Ident(name) = &callee.kind {
+            if name == "copyClosure" && self.lookup(name).is_none() && args.len() == 1 {
+                let t = self.check_expr(&mut args[0].value, None);
+                if !matches!(t, Type::Fun(_) | Type::Error) {
+                    self.error_note(
+                        span,
+                        format!("`copyClosure` takes a function, not `{}`", t),
+                        "for data, `copy` is the one you want",
+                    );
+                    return Type::Error;
+                }
+                return t;
+            }
+        }
+        if let ExprKind::Ident(name) = &callee.kind {
             if name == "copy" && self.lookup(name).is_none() && args.len() == 1 {
                 let t = self.check_expr(&mut args[0].value, None);
                 if t == Type::Error {
@@ -2320,7 +2362,7 @@ impl Checker {
                 if let Some(info) = self.classes.get(&name) {
                     let ctor = info.ctor.clone();
                     let tps = info.type_params.clone();
-                    return self.check_args(
+                    let result = self.check_args(
                         &ctor,
                         &tps,
                         args,
@@ -2328,6 +2370,26 @@ impl Checker {
                         &format!("constructor `{}`", name),
                         expected,
                     );
+                    // A system's message type must cross by copy: what
+                    // `send` will do to every message, checked at the one
+                    // place the type becomes concrete.
+                    if name == "ActorSystem" || name == "Outbox" {
+                        let m = match &result {
+                            Type::Class(_, targs) => targs.first().cloned(),
+                            _ => None,
+                        };
+                        if let Some(m) = m {
+                            let mut seen = Vec::new();
+                            if let Err(reason) = self.copyable(&m, &mut seen) {
+                                self.error_note(
+                                    span,
+                                    format!("`{}` cannot cross between actors", m),
+                                    format!("a message crosses by copy: {}", reason),
+                                );
+                            }
+                        }
+                    }
+                    return result;
                 }
                 if builtins::global_sig(&name, &[None, None]).is_some() {
                     return self.check_global_call(&name, args, span);
@@ -3028,6 +3090,168 @@ impl Checker {
     /// Facts proved about simple variables when `cond` evaluates to
     /// `positive`. Only immutable bindings are narrowed, so nothing can
     /// invalidate the fact inside the guarded block.
+    /// The `spawn` rule: the handler is written in place, captures only
+    /// values that copy, and never `this`.
+    fn check_spawn_handler(&mut self, handler: &mut Expr, span: Span) {
+        let ExprKind::Lambda { params, body } = &handler.kind else {
+            self.error_note(
+                span,
+                "`spawn` needs its handler written in place",
+                "the handler's captures are copied per actor, so they must \
+                 be visible at the spawn",
+            );
+            return;
+        };
+        let mut uses_this = false;
+        crate::compiler::walk_block(body, &mut |x: &Expr| {
+            if matches!(x.kind, ExprKind::This) {
+                uses_this = true;
+            }
+            true
+        });
+        if uses_this {
+            self.error_note(
+                span,
+                "a spawn handler cannot capture `this`",
+                "an actor owns its state; pass data in the message, or an \
+                 `ActorRef` to reply to",
+            );
+        }
+        let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+        let mut free: Vec<String> = Vec::new();
+        crate::cbackend::collect_free(&body.stmts, &mut bound, &mut free);
+        for name in &free {
+            // A name below the globals is a capture: copied per actor, so
+            // it must copy.
+            let local = self
+                .scopes
+                .iter()
+                .skip(1)
+                .rev()
+                .find_map(|s| s.get(name))
+                .map(|b| b.ty.clone());
+            if let Some(ty) = local {
+                let mut seen = Vec::new();
+                if let Err(reason) = self.copyable(&ty, &mut seen) {
+                    self.error_note(
+                        span,
+                        format!(
+                            "the handler captures `{}: {}`, which cannot be copied",
+                            name, ty
+                        ),
+                        format!("each actor gets its own copy of every capture: {}", reason),
+                    );
+                }
+                continue;
+            }
+            // A global is shared by every actor and the spawner alike, so a
+            // handler may only reach the ones no one can mutate — plus the
+            // addresses (`ActorRef`, `Outbox`), which are the sanctioned
+            // channels. Anything else is the data race the model forbids.
+            let global = self.scopes.first().and_then(|s| s.get(name));
+            let Some(b) = global else { continue };
+            if b.kind == BindKind::Fun {
+                continue;
+            }
+            let (kind, ty) = (b.kind, b.ty.clone());
+            if kind == BindKind::Var {
+                self.error_note(
+                    span,
+                    format!("a spawn handler cannot reach the global `var {}`", name),
+                    "actors share no mutable state; keep the state in a \
+                     local the actor copies, or post results to an `Outbox`",
+                );
+                continue;
+            }
+            let mut seen = Vec::new();
+            if let Err(what) = self.deeply_immutable(&ty, &mut seen) {
+                self.error_note(
+                    span,
+                    format!(
+                        "a spawn handler reaches the global `{}: {}`, which is mutable",
+                        name, ty
+                    ),
+                    format!(
+                        "actors share no mutable state ({}); pass it in the \
+                         message, or post results to an `Outbox`",
+                        what
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Whether sharing a value of this type between actors can never be a
+    /// data race: nothing anyone could mutate through it. The addresses
+    /// (`ActorRef`, `Outbox`) pass by decree — they are the channels.
+    fn deeply_immutable(&self, t: &Type, seen: &mut Vec<String>) -> Result<(), String> {
+        match t {
+            Type::Int
+            | Type::Float
+            | Type::Bool
+            | Type::Str
+            | Type::Unit
+            | Type::Null
+            | Type::Never
+            | Type::Range
+            | Type::Error => Ok(()),
+            Type::Nullable(x) => self.deeply_immutable(x, seen),
+            Type::List(_) => Err("a `List` can be mutated".into()),
+            Type::Map(_, _) => Err("a `Map` can be mutated".into()),
+            Type::Fun(_) => Ok(()),
+            Type::Any => Err("`Any` hides what it is".into()),
+            Type::Param(_) | Type::SelfTy => Ok(()),
+            Type::Class(name, targs) => {
+                if &**name == "ActorRef" || &**name == "Outbox" {
+                    return Ok(());
+                }
+                if seen.iter().any(|s| s == &**name) {
+                    return Ok(());
+                }
+                seen.push(name.to_string());
+                let Some(info) = self.classes.get(&**name) else {
+                    return Err(format!("`{}` is not a class this program knows", name));
+                };
+                let subst: crate::types::Subst = info
+                    .type_params
+                    .iter()
+                    .zip(targs.iter())
+                    .map(|(p, a)| (p.name.clone(), a.clone()))
+                    .collect();
+                for (fname, f) in &info.fields {
+                    if f.mutable {
+                        return Err(format!("field `{}` of `{}` is a `var`", fname, name));
+                    }
+                    let ft = f.ty.substitute(&subst);
+                    self.deeply_immutable(&ft, seen).map_err(|r| {
+                        format!("field `{}` of `{}`: {}", fname, name, r)
+                    })?;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Whether every type parameter this type mentions is *rigid* — in
+    /// scope, declared by the enclosing class or function — as opposed to
+    /// an inference variable a call site is still solving.
+    fn params_rigid(&self, t: &Type) -> bool {
+        match t {
+            Type::Param(p) => self
+                .type_params
+                .iter()
+                .rev()
+                .any(|s| s.iter().any(|d| &*d.name == &**p)),
+            Type::Nullable(x) | Type::List(x) => self.params_rigid(x),
+            Type::Map(k, v) => self.params_rigid(k) && self.params_rigid(v),
+            Type::Fun(f) => {
+                f.params.iter().all(|p| self.params_rigid(&p.ty)) && self.params_rigid(&f.ret)
+            }
+            Type::Class(_, args) => args.iter().all(|a| self.params_rigid(a)),
+            _ => true,
+        }
+    }
+
     /// Whether `copy` can carry a value of this type: data does, code
     /// does not. Recursive classes are fine as *types* (the visited list
     /// stops the recursion); a cyclic *value* is the runtime's to refuse.
@@ -3051,14 +3275,19 @@ impl Checker {
                 Err("a function is its environment, and environments do not copy".into())
             }
             Type::Any => Err("`Any` hides what it is; narrow it first".into()),
-            Type::Param(p) => Err(format!(
-                "whether `{}` copies depends on the caller; copy concrete values",
-                p
-            )),
+            // Open inside a generic body: each instantiation settles it —
+            // the native backend refuses uncopyable ones by name, and the
+            // interpreters refuse the value at run time.
+            Type::Param(_) => Ok(()),
             Type::SelfTy => {
                 Err("`Self` stands for a type the trait does not know; copy concrete values".into())
             }
             Type::Class(name, targs) => {
+                // An `ActorRef` or an `Outbox` is an address: it crosses
+                // by being shared, never duplicated.
+                if &**name == "ActorRef" || &**name == "Outbox" {
+                    return Ok(());
+                }
                 if seen.iter().any(|s| s == &**name) {
                     return Ok(());
                 }

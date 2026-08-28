@@ -62,6 +62,27 @@ Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 unwinding), the six-language polyglot demo AND the ternary family are
 **DONE and pushed**. See NEXT.
 
+**Threads stage 3a COMPLETE — the actor ownership semantics:** spawn
+copies captures per actor (copyClosure builtin: interp rebuilds env from
+cbackend::collect_free + find_below_root/root_of on Scope; VM re-cells;
+native per-lambda _copy fn behind the new KealClosure.copy slot, gated
+on programUsesActors). send copies messages (prelude). Outbox<T> +
+outbox() in prelude = main's result mailbox; ActorRef/Outbox blessed as
+shared addresses in checker copyable, deep_copy, cbackend copyExprOf
+(INCLUDING the Nullable(address) arm — that was a real bug: duplicated
+mailboxes swallowed replies). Checker spawn rules: literal handler,
+copyable captures, no `this`, no global var / mutable global val
+(deeply_immutable); ActorSystem/Outbox ctor requires copyable M;
+copy's Param refusal relaxed (instantiations settle it — native refuses
+by name, interp at runtime); copy/copyClosure top-level shadowing
+forbidden (only those two names). FOUND+FIXED pre-existing leak: empty
+container literals in generic class bodies typed List<Never> (rigid
+params mistaken for inference vars → params_rigid) → NULL release
+thunks → every generic field list leaked elements natively. Tests:
+actors rewritten to reply/Outbox patterns (programs+native+tutorial),
+actor-rules.keal error corpus. Corpora 636/636, suite 26/26, bootstrap,
+fuzz clean. NEXT: stage 4, the pthread scheduler — semantics frozen.
+
 **copy natively (threads stage 2 complete) + repo polish:** the C
 backend now GENERATES per-type copy fns (kcopy_<mangled>: lists/maps/
 classes/nullables; memoized-before-body so recursive types close; depth

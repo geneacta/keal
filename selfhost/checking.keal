@@ -1359,6 +1359,17 @@ class Checker() {
                 actual = if (t.kind == "Never") { Ty("Error") } else { t }
             }
             val kind = if (s.mutable) { "var" } else { "val" }
+            // A top-level binding lands in the scope the prelude's own
+            // code resolves against; the built-ins the prelude itself
+            // calls cannot be shadowed there, or the standard library
+            // would be rewired out from under it.
+            if (this.scopes.size == 1 and (s.name == "copy" or s.name == "copyClosure")) {
+                this.errorNote(
+                    s.file, s.line, s.col,
+                    "`${s.name}` is already the name of a built-in",
+                    "pick another name: the prelude itself calls the built-in by this one"
+                )
+            }
             if (this.scopes[this.scopes.size - 1].contains(s.name)) {
                 this.error(s.file, s.line, s.col, "`${s.name}` is already declared in this scope")
             }
@@ -1835,8 +1846,10 @@ class Checker() {
         if (e.kind == "list") {
             var hint0: Ty? = null
             if (expected != null and expected.kind == "List") {
-                // While `T` is unsolved it says nothing about the elements.
-                unless (hasParams(expected.args[0])) { hint0 = expected.args[0] }
+                // An unsolved `T` (call inference) says nothing about the
+                // elements; a *rigid* `T` — declared by the enclosing class
+                // or function — is a real type, and the literal adopts it.
+                if (this.paramsRigid(expected.args[0])) { hint0 = expected.args[0] }
             }
             val hint = hint0
             var elem = Ty("Never")
@@ -1857,7 +1870,7 @@ class Checker() {
             var hintK0: Ty? = null
             var hintV0: Ty? = null
             if (expected != null and expected.kind == "Map") {
-                unless (hasParams(expected.args[0]) or hasParams(expected.args[1])) {
+                if (this.paramsRigid(expected.args[0]) and this.paramsRigid(expected.args[1])) {
                     hintK0 = expected.args[0]
                     hintV0 = expected.args[1]
                 }
@@ -1910,7 +1923,7 @@ class Checker() {
                     var fromHint0: Ty? = null
                     if (hint != null and i < hint.params.size) {
                         val ht = hint.params[i].ty
-                        unless (hasParams(ht)) { fromHint0 = ht }
+                        if (this.paramsRigid(ht)) { fromHint0 = ht }
                     }
                     val fromHint = fromHint0
                     if (fromHint != null) {
@@ -2191,6 +2204,13 @@ class Checker() {
             }
             return Ty("Error")
         }
+        // A spawn handler becomes an actor's whole world: its captures
+        // are copied per actor, so they must be visible here and able to
+        // cross, and `this` — an object the actor would share — cannot
+        // come along.
+        if (name == "spawn" and args.size == 1 and base.kind == "Class" and base.name == "ActorSystem") {
+            this.checkSpawnHandler(args[0].value, e)
+        }
         // `deinit` belongs to the runtime: it runs when the last reference
         // dies, and calling it early would run it twice.
         if (name == "deinit" and base.kind == "Class") {
@@ -2341,6 +2361,18 @@ class Checker() {
     fun checkCall(e: Ex, expected: Ty?): Ty {
         val callee = e.kids[0]
         val args = e.args
+        if (callee.kind == "ident" and callee.text == "copyClosure" and this.lookup("copyClosure") == null and args.size == 1) {
+            val t = this.checkExpr(args[0].value, null)
+            unless (t.kind == "Fun" or t.kind == "Error") {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "`copyClosure` takes a function, not `${tyShow(t)}`",
+                    "for data, `copy` is the one you want"
+                )
+                return Ty("Error")
+            }
+            return t
+        }
         // `copy(value)` — the deep copy behind message passing: data
         // crosses, code does not. Generic over its argument, which the
         // monomorphic builtin table cannot express; checked here instead.
@@ -2365,10 +2397,28 @@ class Checker() {
             if (this.lookup(name) == null) {
                 val info = this.classes[name]
                 if (info != null) {
-                    return this.checkArgs(
+                    val result = this.checkArgs(
                         info.ctor, info.typeParams, args, e,
                         "constructor `${name}`", expected
                     )
+                    // A system's message type must cross by copy: what
+                    // `send` will do to every message, checked at the one
+                    // place the type becomes concrete.
+                    if (name == "ActorSystem" or name == "Outbox") {
+                        if (result.kind == "Class" and result.args.size > 0) {
+                            val m = result.args[0]
+                            val seenM: List<String> = []
+                            val reason = this.copyBlocker(m, seenM)
+                            unless (reason == "") {
+                                this.errorNote(
+                                    e.file, e.line, e.col,
+                                    "`${tyShow(m)}` cannot cross between actors",
+                                    "a message crosses by copy: ${reason}"
+                                )
+                            }
+                        }
+                    }
+                    return result
                 }
                 val two: List<Ty?> = [null, null]
                 if (globalSig(name, two) != null) {
@@ -2982,6 +3032,152 @@ class Checker() {
     /// Facts proved about simple variables when `cond` evaluates to
     /// `positive`. Only immutable bindings are narrowed, so nothing can
     /// invalidate the fact inside the guarded block.
+    /// The `spawn` rule: the handler is written in place, captures only
+    /// values that copy, and never `this`.
+    proc checkSpawnHandler(handler: Ex, e: Ex) {
+        unless (handler.kind == "lambda") {
+            this.errorNote(
+                e.file, e.line, e.col,
+                "`spawn` needs its handler written in place",
+                "the handler's captures are copied per actor, so they must be visible at the spawn"
+            )
+            return
+        }
+        if (spawnBodyUsesThis(handler.body!!.stmts)) {
+            this.errorNote(
+                e.file, e.line, e.col,
+                "a spawn handler cannot capture `this`",
+                "an actor owns its state; pass data in the message, or an `ActorRef` to reply to"
+            )
+        }
+        val bound: List<String> = []
+        for (p in handler.params) { bound.add(p.name) }
+        val free: List<String> = []
+        spawnFreeInStmts(handler.body!!.stmts, bound, free)
+        for (fname in free) {
+            // A name below the globals is a capture: copied per actor, so
+            // it must copy.
+            var localTy: Ty? = null
+            var i = this.scopes.size - 1
+            while (i >= 1 and localTy == null) {
+                val b = this.scopes[i][fname]
+                if (b != null) { localTy = b.ty }
+                i -= 1
+            }
+            val lt = localTy
+            if (lt != null) {
+                val seenT: List<String> = []
+                val reason = this.copyBlocker(lt, seenT)
+                unless (reason == "") {
+                    this.errorNote(
+                        e.file, e.line, e.col,
+                        "the handler captures `${fname}: ${tyShow(lt)}`, which cannot be copied",
+                        "each actor gets its own copy of every capture: ${reason}"
+                    )
+                }
+                continue
+            }
+            // A global is shared by every actor and the spawner alike, so a
+            // handler may only reach the ones no one can mutate — plus the
+            // addresses (`ActorRef`, `Outbox`), which are the sanctioned
+            // channels. Anything else is the data race the model forbids.
+            val g = this.scopes[0][fname]
+            if (g == null) { continue }
+            if (g.kind == "fun") { continue }
+            if (g.kind == "var") {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "a spawn handler cannot reach the global `var ${fname}`",
+                    "actors share no mutable state; keep the state in a local the actor copies, or post results to an `Outbox`"
+                )
+                continue
+            }
+            val seenG: List<String> = []
+            val what = this.mutableReason(g.ty, seenG)
+            unless (what == "") {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "a spawn handler reaches the global `${fname}: ${tyShow(g.ty)}`, which is mutable",
+                    "actors share no mutable state (${what}); pass it in the message, or post results to an `Outbox`"
+                )
+            }
+        }
+    }
+
+    /// Whether sharing a value of this type between actors can never be a
+    /// data race: "" when it cannot, the reason when it can. The addresses
+    /// (`ActorRef`, `Outbox`) pass by decree — they are the channels.
+    fun mutableReason(t: Ty, seen: List<String>): String {
+        val k = t.kind
+        if (k == "Int" or k == "Float" or k == "Bool" or k == "Str" or k == "Unit" or k == "Null" or k == "Never" or k == "Range" or k == "Error") {
+            return ""
+        }
+        if (k == "Nullable") { return this.mutableReason(t.args[0], seen) }
+        if (k == "List") { return "a `List` can be mutated" }
+        if (k == "Map") { return "a `Map` can be mutated" }
+        if (k == "Fun") { return "" }
+        if (k == "Any") { return "`Any` hides what it is" }
+        if (k == "Param" or k == "Self") { return "" }
+        if (k == "Class") {
+            if (t.name == "ActorRef" or t.name == "Outbox") { return "" }
+            if (seen.contains(t.name)) { return "" }
+            seen.add(t.name)
+            val info = this.classes[t.name]
+            if (info == null) { return "`${t.name}` is not a class this program knows" }
+            val subst: Map<String, Ty> = {}
+            var pi = 0
+            while (pi < info.typeParams.size and pi < t.args.size) {
+                subst[info.typeParams[pi].name] = t.args[pi]
+                pi += 1
+            }
+            for (f in info.fields) {
+                if (f.mutable) { return "field `${f.name}` of `${t.name}` is a `var`" }
+                val ft = substitute(f.ty, subst)
+                val r = this.mutableReason(ft, seen)
+                unless (r == "") {
+                    return "field `${f.name}` of `${t.name}`: ${r}"
+                }
+            }
+            return ""
+        }
+        return ""
+    }
+
+    /// Whether every type parameter this type mentions is *rigid* — in
+    /// scope, declared by the enclosing class or function — as opposed to
+    /// an inference variable a call site is still solving.
+    fun paramsRigid(t: Ty): Bool {
+        if (t.kind == "Param") {
+            var i = this.typeParams.size - 1
+            while (i >= 0) {
+                for (d in this.typeParams[i]) {
+                    if (d.name == t.name) { return true }
+                }
+                i -= 1
+            }
+            return false
+        }
+        if (t.kind == "Nullable" or t.kind == "List") { return this.paramsRigid(t.args[0]) }
+        if (t.kind == "Map") {
+            return this.paramsRigid(t.args[0]) and this.paramsRigid(t.args[1])
+        }
+        if (t.kind == "Fun") {
+            for (p in t.params) {
+                unless (this.paramsRigid(p.ty)) { return false }
+            }
+            val r = t.ret
+            if (r != null) { return this.paramsRigid(r) }
+            return true
+        }
+        if (t.kind == "Class") {
+            for (a in t.args) {
+                unless (this.paramsRigid(a)) { return false }
+            }
+            return true
+        }
+        return true
+    }
+
     /// Whether `copy` can carry a value of this type: "" when it can,
     /// the reason when it cannot. Recursive classes are fine as *types*;
     /// a cyclic *value* is the runtime's to refuse.
@@ -3001,12 +3197,18 @@ class Checker() {
         }
         if (k == "Any") { return "`Any` hides what it is; narrow it first" }
         if (k == "Param") {
-            return "whether `${t.name}` copies depends on the caller; copy concrete values"
+            // Open inside a generic body: each instantiation settles it —
+            // the native backend refuses uncopyable ones by name, and the
+            // interpreters refuse the value at run time.
+            return ""
         }
         if (k == "Self") {
             return "`Self` stands for a type the trait does not know; copy concrete values"
         }
         if (k == "Class") {
+            // An `ActorRef` or an `Outbox` is an address: it crosses
+            // by being shared, never duplicated.
+            if (t.name == "ActorRef" or t.name == "Outbox") { return "" }
             if (seen.contains(t.name)) { return "" }
             seen.add(t.name)
             val info = this.classes[t.name]
@@ -3220,3 +3422,134 @@ fun synthRecordEquals(c: ClassN): FunN {
     f.body = b
     return f
 }
+
+/// The free names of a spawn handler's body — the same walk the backends
+/// use for captures, so the checker judges exactly what will be copied.
+proc spawnFreeInStmts(stmts: List<StmtN>, bound: List<String>, free: List<String>) {
+    for (s in stmts) {
+        if (s.kind == "let") {
+            spawnFreeInExpr(s.init!!, bound, free)
+            bound.add(s.name)
+        } else if (s.kind == "destructure") {
+            spawnFreeInExpr(s.init!!, bound, free)
+            for (b in s.pattern!!.binds) {
+                unless (b == "_") { bound.add(b) }
+            }
+        } else if (s.kind == "expr" or s.kind == "throw") {
+            spawnFreeInExpr(s.ex!!, bound, free)
+        } else if (s.kind == "return") {
+            val e0 = s.ex
+            if (e0 != null) { spawnFreeInExpr(e0, bound, free) }
+        } else if (s.kind == "while") {
+            spawnFreeInExpr(s.ex!!, bound, free)
+            spawnFreeInStmts(s.body!!.stmts, bound, free)
+        } else if (s.kind == "for") {
+            spawnFreeInExpr(s.ex!!, bound, free)
+            bound.add(s.name)
+            spawnFreeInStmts(s.body!!.stmts, bound, free)
+        } else if (s.kind == "try") {
+            spawnFreeInStmts(s.body!!.stmts, bound, free)
+            bound.add(s.name)
+            spawnFreeInStmts(s.handler!!.stmts, bound, free)
+        } else if (s.kind == "fun") {
+            val f = s.funDecl!!
+            bound.add(f.name)
+            val inner: List<String> = []
+            for (p in f.params) { inner.add(p.name) }
+            inner.addAll(bound)
+            spawnFreeInStmts(f.body.stmts, inner, free)
+        }
+    }
+}
+
+proc spawnFreeInExpr(e: Ex, bound: List<String>, free: List<String>) {
+    if (e.kind == "ident") {
+        if (not bound.contains(e.text) and not free.contains(e.text)) {
+            free.add(e.text)
+        }
+        return
+    }
+    if (e.kind == "lambda") {
+        val inner: List<String> = []
+        for (p in e.params) { inner.add(p.name) }
+        inner.addAll(bound)
+        spawnFreeInStmts(e.body!!.stmts, inner, free)
+        return
+    }
+    for (k in e.kids) { spawnFreeInExpr(k, bound, free) }
+    for (a in e.args) { spawnFreeInExpr(a.value, bound, free) }
+    for (p in e.parts) {
+        val inner = p.ex
+        if (inner != null) { spawnFreeInExpr(inner, bound, free) }
+    }
+    for (k in e.keys) { spawnFreeInExpr(k, bound, free) }
+    for (v in e.values) { spawnFreeInExpr(v, bound, free) }
+    val b = e.body
+    if (b != null) { spawnFreeInStmts(b.stmts, bound, free) }
+    val els = e.els
+    if (els != null) { spawnFreeInStmts(els.stmts, bound, free) }
+    val chain = e.elseif
+    if (chain != null) { spawnFreeInExpr(chain, bound, free) }
+    val subj = e.subject
+    if (subj != null) { spawnFreeInExpr(subj, bound, free) }
+    for (arm in e.arms) {
+        for (v in arm.values) { spawnFreeInExpr(v, bound, free) }
+        val g = arm.guard
+        if (g != null) { spawnFreeInExpr(g, bound, free) }
+        spawnFreeInStmts(arm.body.stmts, bound, free)
+    }
+}
+
+fun spawnBodyUsesThis(stmts: List<StmtN>): Bool {
+    for (s in stmts) {
+        val init = s.init
+        if (init != null and exprUsesThis(init)) { return true }
+        val ex = s.ex
+        if (ex != null and exprUsesThis(ex)) { return true }
+        val b = s.body
+        if (b != null and spawnBodyUsesThis(b.stmts)) { return true }
+        val h = s.handler
+        if (h != null and spawnBodyUsesThis(h.stmts)) { return true }
+        val fd = s.funDecl
+        if (fd != null and spawnBodyUsesThis(fd.body.stmts)) { return true }
+    }
+    return false
+}
+
+fun exprUsesThis(e: Ex): Bool {
+    if (e.kind == "this") { return true }
+    for (k in e.kids) {
+        if (exprUsesThis(k)) { return true }
+    }
+    for (a in e.args) {
+        if (exprUsesThis(a.value)) { return true }
+    }
+    for (p in e.parts) {
+        val inner = p.ex
+        if (inner != null and exprUsesThis(inner)) { return true }
+    }
+    for (k in e.keys) {
+        if (exprUsesThis(k)) { return true }
+    }
+    for (v in e.values) {
+        if (exprUsesThis(v)) { return true }
+    }
+    val b = e.body
+    if (b != null and spawnBodyUsesThis(b.stmts)) { return true }
+    val els = e.els
+    if (els != null and spawnBodyUsesThis(els.stmts)) { return true }
+    val chain = e.elseif
+    if (chain != null and exprUsesThis(chain)) { return true }
+    val subj = e.subject
+    if (subj != null and exprUsesThis(subj)) { return true }
+    for (arm in e.arms) {
+        for (v in arm.values) {
+            if (exprUsesThis(v)) { return true }
+        }
+        val g = arm.guard
+        if (g != null and exprUsesThis(g)) { return true }
+        if (spawnBodyUsesThis(arm.body.stmts)) { return true }
+    }
+    return false
+}
+

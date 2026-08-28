@@ -1562,7 +1562,7 @@ pub(crate) fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr) -> bool) {
     }
 }
 
-fn walk_block(b: &Block, f: &mut dyn FnMut(&Expr) -> bool) {
+pub(crate) fn walk_block(b: &Block, f: &mut dyn FnMut(&Expr) -> bool) {
     for s in &b.stmts {
         match &s.kind {
             StmtKind::Let { init, .. } | StmtKind::Destructure { init, .. } => {

@@ -1,9 +1,4 @@
-got 20
-got 10
-got 5
-got 2
-got 1
-38
-a:1
-b:x
-a:2
+[6, 4, 2]
+spawner still holds 0
+[20, 30, 35, 37, 38]
+sent 2 kept 3

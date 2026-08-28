@@ -670,6 +670,9 @@ class CBackend() {
     // Whether any class in the program declares `proc deinit()` — only
     // then are the per-statement drains and the pending queue emitted.
     var dropMode: Bool = false
+    // Whether the user program touches the actor machinery — only then
+    // do lambdas carry generated capture-copy functions.
+    var actorsMode: Bool = false
     // Innermost last: the label a failed `keal_unwinding` check jumps to.
     var unwindTargets: List<UnwindTarget> = []
     // One entry per open scope: where hoisted declarations insert, plus
@@ -873,9 +876,31 @@ class CBackend() {
             if (isValueOpt(t)) { return v }
             val inner = t.args[0]
             if (inner.kind == "Str") { return "keal_str_retain(${v})" }
+            // The addresses stay addresses under `?` too — retain
+            // is NULL-safe, so no guard is needed.
+            if (inner.kind == "Class" and (inner.name == "ActorRef" or inner.name == "Outbox")) {
+                var sn = structName(inner.name)
+                if (inner.args.size > 0) {
+                    val inst = this.instantiateClass(inner.name, inner.args, file, atLine, col)
+                    if (inst == null) { return null }
+                    sn = inst
+                }
+                return "${sn}_retain(${v})"
+            }
             val f = this.ensureCopyFn(inner, file, atLine, col)
             if (f == null) { return null }
             return "(${v} == NULL ? NULL : ${f}(${v}, ${depth}))"
+        }
+        // An `ActorRef` is an address: it crosses by being shared,
+        // never duplicated — a copied mailbox would swallow replies.
+        if (k == "Class" and (t.name == "ActorRef" or t.name == "Outbox")) {
+            var sn = structName(t.name)
+            if (t.args.size > 0) {
+                val inst = this.instantiateClass(t.name, t.args, file, atLine, col)
+                if (inst == null) { return null }
+                sn = inst
+            }
+            return "${sn}_retain(${v})"
         }
         if (k == "List" or k == "Map" or k == "Class") {
             val f = this.ensureCopyFn(t, file, atLine, col)
@@ -2711,7 +2736,48 @@ class CBackend() {
         this.indent = savedIndent
         this.loops = savedLoops
 
+        // The capture copy, when the actor machinery is in play and every
+        // capture can cross: a fresh environment whose values are deep
+        // copies — `spawn`'s semantics that an actor's state is its own.
+        var copyFnText: String? = null
+        if (this.actorsMode) {
+            val copyLines: List<String> = []
+            var allCopyable = true
+            for (cap in captures) {
+                if (cap.isCell) {
+                    val kind = this.elemKind(cap.ty, e.file, e.line, e.col)
+                    if (kind == null) {
+                        allCopyable = false
+                        break
+                    }
+                    val cv = this.copyExprOf(cap.ty, elemUnword(kind, "env->${mangle(cap.name)}->w"), "0", e.file, e.line, e.col)
+                    if (cv == null) {
+                        allCopyable = false
+                        break
+                    }
+                    copyLines.add("    out->${mangle(cap.name)} = keal_cell_new(env->${mangle(cap.name)}->release_inner);\n    out->${mangle(cap.name)}->w = ${elemWord(kind, cv)};\n")
+                } else {
+                    val cv = this.copyExprOf(cap.ty, "env->${mangle(cap.name)}", "0", e.file, e.line, e.col)
+                    if (cv == null) {
+                        allCopyable = false
+                        break
+                    }
+                    copyLines.add("    out->${mangle(cap.name)} = ${cv};\n")
+                }
+            }
+            if (allCopyable) {
+                var cf = "static KealClosure* ${envName}_copy(KealClosure* c) {\n    ${envName}* env = (${envName}*)c;\n    ${envName}* out = (${envName}*)keal_alloc(sizeof(${envName}));\n    out->head.rc = 1;\n    out->head.fn = (KealCode)${envName}_call;\n    out->head.drop = ${envName}_drop;\n    out->head.copy = ${envName}_copy;\n"
+                for (l in copyLines) { cf += l }
+                cf += "    return &out->head;\n}\n"
+                copyFnText = cf
+            }
+        }
+
         this.lambdaDefs += "\n${st}${dropText}${sig} {\n${compiled}\n}\n"
+        val cft = copyFnText
+        if (cft != null) {
+            this.lambdaDefs += cft
+        }
 
         // Creation: allocate, fill the header, copy the captures in.
         val t = this.temp()
@@ -2719,6 +2785,11 @@ class CBackend() {
         this.line("${t}_env->head.rc = 1;")
         this.line("${t}_env->head.fn = (KealCode)${envName}_call;")
         this.line("${t}_env->head.drop = ${envName}_drop;")
+        if (copyFnText != null) {
+            this.line("${t}_env->head.copy = ${envName}_copy;")
+        } else {
+            this.line("${t}_env->head.copy = NULL;")
+        }
         for (cap in captures) {
             val source = this.varRef(cap.name)
             val v = if (cap.isCell) {
@@ -4515,6 +4586,17 @@ class CBackend() {
         }
         // `assert`: the message, when given, is evaluated eagerly — the
         // interpreters evaluate arguments before the call, and so does this.
+        // `copyClosure(f)`: a fresh closure whose captured values are
+        // deep copies — what `spawn` calls so an actor's state is its own.
+        if (name == "copyClosure" and args.size == 1) {
+            val t = this.ety(args[0].value)
+            if (t == null) {
+                this.unsupported(e.file, e.line, e.col, "the built-in `copyClosure` on this value")
+                return "0"
+            }
+            val v = this.expr(args[0].value)
+            return this.ownTempOf(t, "keal_fn_copy_captures(${v})")
+        }
         // `copy(value)`: data crosses, code does not — and now it crosses
         // natively, through per-type generated copies.
         if (name == "copy" and args.size == 1) {
@@ -5168,6 +5250,142 @@ for (d in checker.warnings.sortedBy({ w ->
     println(wline)
 }
 
+/// Whether the user program touches the actor machinery — the types, the
+/// system, or the capture-copying primitive `spawn` leans on. The prelude
+/// alone never triggers it: unused generics are not emitted.
+fun actorNameHits(n: String): Bool {
+    return n == "ActorSystem" or n == "ActorRef" or n == "copyClosure"
+}
+
+fun actorInType(t: TypeEx): Bool {
+    if (t.kind == "named") {
+        if (actorNameHits(t.name)) { return true }
+        for (a in t.args) {
+            if (actorInType(a)) { return true }
+        }
+        return false
+    }
+    if (t.kind == "boundary" or t.kind == "nullable") {
+        val inner = t.inner
+        if (inner != null) { return actorInType(inner) }
+        return false
+    }
+    if (t.kind == "fun") {
+        for (a in t.args) {
+            if (actorInType(a)) { return true }
+        }
+        val r = t.ret
+        if (r != null) { return actorInType(r) }
+        return false
+    }
+    return false
+}
+
+fun actorInStmts(stmts: List<StmtN>): Bool {
+    for (s in stmts) {
+        if (actorInStmt(s)) { return true }
+    }
+    return false
+}
+
+fun actorInStmt(s: StmtN): Bool {
+    val te = s.tyEx
+    if (te != null and actorInType(te)) { return true }
+    val init = s.init
+    if (init != null and actorInExpr(init)) { return true }
+    val ex = s.ex
+    if (ex != null and actorInExpr(ex)) { return true }
+    val b = s.body
+    if (b != null and actorInStmts(b.stmts)) { return true }
+    val h = s.handler
+    if (h != null and actorInStmts(h.stmts)) { return true }
+    val fd = s.funDecl
+    if (fd != null and actorInFun(fd)) { return true }
+    val cd = s.classDecl
+    if (cd != null and actorInClass(cd)) { return true }
+    return false
+}
+
+fun actorInFun(f: FunN): Bool {
+    for (p in f.params) {
+        val te = p.tyEx
+        if (te != null and actorInType(te)) { return true }
+    }
+    val r = f.ret
+    if (r != null and actorInType(r)) { return true }
+    return actorInStmts(f.body.stmts)
+}
+
+fun actorInClass(c: ClassN): Bool {
+    for (p in c.ctor) {
+        val te = p.tyEx
+        if (te != null and actorInType(te)) { return true }
+    }
+    for (f in c.fields) {
+        val te = f.tyEx
+        if (te != null and actorInType(te)) { return true }
+    }
+    for (m in c.methods) {
+        if (actorInFun(m)) { return true }
+    }
+    return false
+}
+
+fun actorInExpr(e: Ex): Bool {
+    if (e.kind == "ident" and actorNameHits(e.text)) { return true }
+    val ite = e.tyEx
+    if (ite != null and actorInType(ite)) { return true }
+    for (k in e.kids) {
+        if (actorInExpr(k)) { return true }
+    }
+    for (a in e.args) {
+        if (actorInExpr(a.value)) { return true }
+    }
+    for (p in e.parts) {
+        val inner = p.ex
+        if (inner != null and actorInExpr(inner)) { return true }
+    }
+    for (k in e.keys) {
+        if (actorInExpr(k)) { return true }
+    }
+    for (v in e.values) {
+        if (actorInExpr(v)) { return true }
+    }
+    for (lp in e.params) {
+        val te = lp.tyEx
+        if (te != null and actorInType(te)) { return true }
+    }
+    val b = e.body
+    if (b != null and actorInStmts(b.stmts)) { return true }
+    val els = e.els
+    if (els != null and actorInStmts(els.stmts)) { return true }
+    val chain = e.elseif
+    if (chain != null and actorInExpr(chain)) { return true }
+    val subj = e.subject
+    if (subj != null and actorInExpr(subj)) { return true }
+    for (arm in e.arms) {
+        for (v in arm.values) {
+            if (actorInExpr(v)) { return true }
+        }
+        val g = arm.guard
+        if (g != null and actorInExpr(g)) { return true }
+        if (actorInStmts(arm.body.stmts)) { return true }
+    }
+    return false
+}
+
+fun programUsesActors(program: ProgramN): Bool {
+    for (item in program.items) {
+        val s = item.stmt
+        if (s != null and actorInStmt(s)) { return true }
+        val f = item.funDecl
+        if (f != null and actorInFun(f)) { return true }
+        val c = item.classDecl
+        if (c != null and actorInClass(c)) { return true }
+    }
+    return false
+}
+
 val backend = CBackend()
 backend.catchMode = programHasTry(loaded.program)
 for (item in loaded.program.items) {
@@ -5178,6 +5396,7 @@ for (item in loaded.program.items) {
         }
     }
 }
+backend.actorsMode = programUsesActors(loaded.program)
 for (name in checker.classes.keys()) {
     val info = checker.classes[name]!!
     val fields: List<SField> = []

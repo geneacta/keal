@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&amp;family=Quicksand:wght@600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=Space+Grotesk:wght@400;500;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>body{margin:0;background:#f0eee9;font-family:system-ui,sans-serif}a{color:#1a6b6b}a:hover{color:#35C8A8}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 system-ui,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.55)}.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.08);border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.06);overflow:hidden}.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}</style></helmet>
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Site complet, direction <a class="dv-oid" href="#1a">1a</a> — landing, tour, docs/référence</span></div>
+<div class="dv-opts">
+
+<!-- ============ 2a : Landing complète ============ -->
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Landing complète</div>
+<div class="dv-card" style="width:1240px;background:#0B1514">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 40px;border-bottom:1px solid rgba(140,220,196,.12)">
+    <div style="display:flex;align-items:center;gap:36px">
+      <img src="uploads/keal.png" alt="keal" style="display:block;height:36px;width:auto">
+      <div style="display:flex;gap:26px;font:500 14px Sora,sans-serif">
+        <span style="color:#E4F1EC">Docs</span><span style="color:#8CA69F">Tour</span><span style="color:#8CA69F">Playground</span><span style="color:#8CA69F">Blog</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <div style="display:flex;border:1px solid rgba(140,220,196,.2);border-radius:99px;overflow:hidden;font:600 11px Sora,sans-serif">
+        <span style="padding:5px 11px;background:#35C8A8;color:#0B1514">EN</span><span style="padding:5px 11px;color:#8CA69F">FR</span>
+      </div>
+      <span style="font:500 12px 'JetBrains Mono',monospace;color:#8CA69F;border:1px solid rgba(140,220,196,.2);border-radius:6px;padding:5px 10px">v0.5.0</span>
+      <span style="font:600 13px Sora,sans-serif;color:#0B1514;background:#A9EBCD;border-radius:8px;padding:8px 16px">GitHub</span>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:56px;padding:72px 40px 64px;align-items:center">
+    <div>
+      <div style="display:inline-flex;align-items:center;gap:8px;font:600 12px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.25);border-radius:99px;padding:6px 14px;margin-bottom:26px"><span style="width:6px;height:6px;border-radius:99px;background:#35C8A8"></span>Self-hosting — the bootstrap fixed point is verified on every run</div>
+      <h1 style="margin:0 0 20px;font:700 54px/1.12 Sora,sans-serif;color:#E4F1EC;letter-spacing:-.02em;text-wrap:pretty">The language that compiles itself.</h1>
+      <p style="margin:0 0 34px;font:400 18px/1.65 Sora,sans-serif;color:#8CA69F;max-width:52ch">Statically typed, null-safe, with Kotlin's shape over a C-family syntax. Three engines that agree on every byte — and a compiler written in Keal, compiled by itself.</p>
+      <div style="display:flex;gap:14px;align-items:center;margin-bottom:26px">
+        <span style="font:600 15px Sora,sans-serif;color:#0B1514;background:#35C8A8;border-radius:10px;padding:13px 24px">Start the tour →</span>
+        <span style="font:600 15px Sora,sans-serif;color:#E4F1EC;border:1px solid rgba(140,220,196,.25);border-radius:10px;padding:13px 24px">Read the docs</span>
+      </div>
+      <div style="display:inline-flex;align-items:center;gap:12px;font:500 13.5px 'JetBrains Mono',monospace;color:#A9EBCD;background:#0F1D1B;border:1px solid rgba(140,220,196,.14);border-radius:10px;padding:12px 18px"><span style="color:#567870">$</span>git clone geneacta/keal &amp;&amp; ./bootstrap.sh<span style="color:#567870;border-left:1px solid rgba(140,220,196,.14);padding-left:12px">⧉</span></div>
+    </div>
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.16);border-radius:14px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.45)">
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid rgba(140,220,196,.12)">
+        <span style="width:10px;height:10px;border-radius:99px;background:rgba(140,220,196,.18)"></span><span style="width:10px;height:10px;border-radius:99px;background:rgba(140,220,196,.18)"></span><span style="width:10px;height:10px;border-radius:99px;background:rgba(140,220,196,.18)"></span>
+        <span style="margin-left:10px;font:500 12px 'JetBrains Mono',monospace;color:#8CA69F">point.keal</span>
+      </div>
+      <pre style="margin:0;padding:22px 24px;font:13.5px/1.75 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre;overflow:hidden"><span style="color:#63D3B4">class</span> <span style="color:#A9EBCD">Point</span>(<span style="color:#63D3B4">val</span> x: <span style="color:#A9EBCD">Float</span>, <span style="color:#63D3B4">val</span> y: <span style="color:#A9EBCD">Float</span>) {
+    <span style="color:#63D3B4">fun</span> length(): <span style="color:#A9EBCD">Float</span> {
+        sqrt(this.x * this.x + this.y * this.y)
+    }
+}
+
+<span style="color:#63D3B4">val</span> points = [<span style="color:#A9EBCD">Point</span>(1.0, 1.0), <span style="color:#A9EBCD">Point</span>(3.0, 4.0)]
+<span style="color:#63D3B4">val</span> found  = firstLong(points, 2.0)
+
+println(<span style="color:#63D3B4">when</span> {
+    found == <span style="color:#63D3B4">null</span> -&gt; <span style="color:#D9C98B">"nothing long enough"</span>
+    <span style="color:#63D3B4">else</span> -&gt; <span style="color:#D9C98B">"${found} has length ${found.length()}"</span>
+})</pre>
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 24px;border-top:1px solid rgba(140,220,196,.12);font:500 13px 'JetBrains Mono',monospace"><span style="color:#567870">$ keal point.keal</span><span style="color:#A9EBCD">(3.0, 4.0) has length 5.0</span></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:18px;padding:0 40px 64px">
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:24px">
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;margin-bottom:12px">SELF-HOSTED</div>
+      <div style="font:600 16px Sora,sans-serif;color:#E4F1EC;margin-bottom:8px">The compiler is written in Keal</div>
+      <p style="margin:0;font:400 13.5px/1.6 Sora,sans-serif;color:#8CA69F">Lexer, parser, checker and C backend — held byte-for-byte to their Rust oracles, reproducing their own source.</p>
+    </div>
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:24px">
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;margin-bottom:12px">NULL SAFETY</div>
+      <div style="font:600 16px Sora,sans-serif;color:#E4F1EC;margin-bottom:8px"><span style="font-family:'JetBrains Mono',monospace">String?</span> is another type</div>
+      <p style="margin:0;font:400 13.5px/1.6 Sora,sans-serif;color:#8CA69F">Inference everywhere, smart casts that hold across <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">and</span>, early returns — even <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">implies</span>.</p>
+    </div>
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:24px">
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;margin-bottom:12px">INTEROP</div>
+      <div style="font:600 16px Sora,sans-serif;color:#E4F1EC;margin-bottom:8px">Six languages, one file</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">C</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">C++</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">Rust</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">Go</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">Java</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">Kotlin</span>
+      </div>
+    </div>
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:24px">
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;margin-bottom:12px">REPL</div>
+      <pre style="margin:0;font:12.5px/1.7 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre"><span style="color:#567870">&gt;&gt;&gt;</span> val xs = [3, 1, 2]
+<span style="color:#567870">&gt;&gt;&gt;</span> xs.sorted()
+<span style="color:#A9EBCD">[1, 2, 3]</span></pre>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:56px;padding:64px 40px;border-top:1px solid rgba(140,220,196,.12);align-items:center">
+    <div>
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;letter-spacing:.08em;margin-bottom:14px">INTEROP</div>
+      <h2 style="margin:0 0 18px;font:700 34px/1.2 Sora,sans-serif;color:#E4F1EC;letter-spacing:-.015em">One file, six languages.</h2>
+      <p style="margin:0 0 22px;font:400 15.5px/1.7 Sora,sans-serif;color:#8CA69F;max-width:50ch">The native four meet Keal at the C ABI its binaries already speak — no runtime, no marshalling layer. Java and Kotlin go through one gateway module, written in Keal itself.</p>
+      <p style="margin:0;font:400 15.5px/1.7 Sora,sans-serif;color:#8CA69F;max-width:50ch"><span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">keal bindgen header.h</span> turns any C header into checked <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">extern fun</span> declarations — a Rust staticlib, a Go c-archive, or sqlite's own.</p>
+    </div>
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.16);border-radius:14px;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 18px;border-bottom:1px solid rgba(140,220,196,.12)">
+        <span style="font:500 12px 'JetBrains Mono',monospace;color:#8CA69F">polyglot.keal</span>
+        <span style="font:500 11px 'JetBrains Mono',monospace;color:#567870">examples/interop</span>
+      </div>
+      <pre style="margin:0;padding:20px 24px;font:13px/1.85 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre">println(c_add(40, 2))                 <span style="color:#567870">// C</span>
+println(cpp_shout(<span style="color:#D9C98B">"c plus plus"</span>))     <span style="color:#567870">// C++</span>
+println(rust_fib(20))                 <span style="color:#567870">// Rust</span>
+println(go_hypot(3.0, 4.0))           <span style="color:#567870">// Go</span>
+println(id.toString())                <span style="color:#567870">// Java</span>
+println(greeterKtShout(<span style="color:#D9C98B">"kotlin"</span>))     <span style="color:#567870">// Kotlin</span></pre>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:56px;padding:64px 40px;border-top:1px solid rgba(140,220,196,.12);align-items:center">
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.16);border-radius:14px;padding:28px">
+      <div style="display:flex;flex-direction:column;gap:12px;font:500 13px 'JetBrains Mono',monospace">
+        <div style="display:grid;grid-template-columns:120px 1fr 56px;gap:14px;align-items:center"><span style="color:#8CA69F">tree-walker</span><div style="height:7px;border-radius:99px;background:rgba(140,220,196,.1)"><div style="width:100%;height:100%;border-radius:99px;background:rgba(140,220,196,.35)"></div></div><span style="color:#8CA69F">6.14s</span></div>
+        <div style="display:grid;grid-template-columns:120px 1fr 56px;gap:14px;align-items:center"><span style="color:#8CA69F">bytecode VM</span><div style="height:7px;border-radius:99px;background:rgba(140,220,196,.1)"><div style="width:41%;height:100%;border-radius:99px;background:rgba(140,220,196,.55)"></div></div><span style="color:#8CA69F">2.51s</span></div>
+        <div style="display:grid;grid-template-columns:120px 1fr 56px;gap:14px;align-items:center"><span style="color:#A9EBCD">native, via C</span><div style="height:7px;border-radius:99px;background:rgba(140,220,196,.1)"><div style="width:2.5%;height:100%;border-radius:99px;background:#35C8A8"></div></div><span style="color:#A9EBCD">0.03s</span></div>
+      </div>
+      <div style="margin-top:16px;font:400 12.5px Sora,sans-serif;color:#567870">fib(35) — the same program, on the three engines.</div>
+    </div>
+    <div>
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;letter-spacing:.08em;margin-bottom:14px">THREE ENGINES</div>
+      <h2 style="margin:0 0 18px;font:700 34px/1.2 Sora,sans-serif;color:#E4F1EC;letter-spacing:-.015em">×84 native — with the same guarantees.</h2>
+      <p style="margin:0 0 22px;font:400 15.5px/1.7 Sora,sans-serif;color:#8CA69F;max-width:50ch">The tree-walking interpreter is the specification. The bytecode VM is the default. <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">keal build</span> compiles through C11 to a real executable.</p>
+      <p style="margin:0;font:400 15.5px/1.7 Sora,sans-serif;color:#8CA69F;max-width:50ch">The test suite runs every program through all three and requires the output to match byte for byte — integer overflow still panics, bounds are still checked.</p>
+    </div>
+  </div>
+  <div style="padding:64px 40px;border-top:1px solid rgba(140,220,196,.12)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:26px">
+      <h2 style="margin:0;font:700 34px Sora,sans-serif;color:#E4F1EC;letter-spacing:-.015em">Up and running in a minute.</h2>
+      <span style="font:600 13.5px Sora,sans-serif;color:#35C8A8">Then take the tour — 30 minutes, every snippet runs →</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px">
+      <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:22px">
+        <div style="font:600 12px 'JetBrains Mono',monospace;color:#567870;margin-bottom:12px">1 — GET IT</div>
+        <pre style="margin:0;font:12.5px/1.8 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre"><span style="color:#567870">$</span> git clone geneacta/keal
+<span style="color:#567870">$</span> cargo build --release</pre>
+      </div>
+      <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:22px">
+        <div style="font:600 12px 'JetBrains Mono',monospace;color:#567870;margin-bottom:12px">2 — WRITE A FILE</div>
+        <pre style="margin:0;font:12.5px/1.8 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre"><span style="color:#567870">$</span> echo <span style="color:#D9C98B">'println("hello, world")'</span> \
+    &gt; hello.keal</pre>
+      </div>
+      <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:22px">
+        <div style="font:600 12px 'JetBrains Mono',monospace;color:#567870;margin-bottom:12px">3 — RUN IT</div>
+        <pre style="margin:0;font:12.5px/1.8 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre"><span style="color:#567870">$</span> keal hello.keal
+<span style="color:#A9EBCD">hello, world</span></pre>
+      </div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:32px;padding:44px 40px 36px;border-top:1px solid rgba(140,220,196,.12)">
+    <div>
+      <img src="uploads/keal.png" alt="keal" style="display:block;height:34px;width:auto;margin-bottom:12px">
+      <p style="margin:0 0 14px;font:400 13px/1.6 Sora,sans-serif;color:#567870;max-width:34ch">A statically typed, self-hosting programming language. Built by Geneacta.</p>
+      <span style="font:500 12px 'JetBrains Mono',monospace;color:#8CA69F;border:1px solid rgba(140,220,196,.2);border-radius:6px;padding:4px 10px">v0.5.0</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;font:400 13.5px Sora,sans-serif">
+      <span style="font:600 12px 'JetBrains Mono',monospace;color:#567870;letter-spacing:.08em">LEARN</span>
+      <span style="color:#8CA69F">The tour</span><span style="color:#8CA69F">Docs &amp; reference</span><span style="color:#8CA69F">Examples</span><span style="color:#8CA69F">Playground</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;font:400 13.5px Sora,sans-serif">
+      <span style="font:600 12px 'JetBrains Mono',monospace;color:#567870;letter-spacing:.08em">LANGUAGE</span>
+      <span style="color:#8CA69F">Memory model</span><span style="color:#8CA69F">Interop</span><span style="color:#8CA69F">Threads &amp; actors</span><span style="color:#8CA69F">Deterministic deinit</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:10px;font:400 13.5px Sora,sans-serif">
+      <span style="font:600 12px 'JetBrains Mono',monospace;color:#567870;letter-spacing:.08em">PROJECT</span>
+      <span style="color:#8CA69F">GitHub</span><span style="color:#8CA69F">VS Code extension</span><span style="color:#8CA69F">Blog</span><span style="color:#8CA69F">Contributing</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 2b : Page tour ============ -->
+<div class="dv-opt" id="2b">
+<div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Page tour — chapitre 6, Null safety</div>
+<div class="dv-card" style="width:1240px;background:#0B1514">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 32px;border-bottom:1px solid rgba(140,220,196,.12)">
+    <div style="display:flex;align-items:center;gap:16px">
+      <img src="uploads/keal.png" alt="keal" style="display:block;height:30px;width:auto">
+      <span style="color:#33504A">/</span><span style="font:600 14px Sora,sans-serif;color:#E4F1EC">Tour of Keal</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <span style="font:500 12px 'JetBrains Mono',monospace;color:#8CA69F">6 / 12</span>
+      <div style="width:180px;height:5px;border-radius:99px;background:rgba(140,220,196,.12);overflow:hidden"><div style="width:50%;height:100%;border-radius:99px;background:linear-gradient(90deg,#35C8A8,#A9EBCD)"></div></div>
+      <span style="font:600 12px Sora,sans-serif;color:#8CA69F;border:1px solid rgba(140,220,196,.2);border-radius:8px;padding:6px 14px">Exit the tour</span>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:264px 1fr;min-height:680px">
+    <div style="border-right:1px solid rgba(140,220,196,.12);padding:24px 0">
+      <div style="font:600 11px 'JetBrains Mono',monospace;color:#567870;letter-spacing:.1em;padding:0 24px 12px">THE TOUR</div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;background:rgba(53,200,168,.18);color:#35C8A8;font:600 11px Sora,sans-serif;display:grid;place-items:center">✓</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Hello world</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;background:rgba(53,200,168,.18);color:#35C8A8;font:600 11px Sora,sans-serif;display:grid;place-items:center">✓</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Values &amp; bindings</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;background:rgba(53,200,168,.18);color:#35C8A8;font:600 11px Sora,sans-serif;display:grid;place-items:center">✓</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">fun and proc</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;background:rgba(53,200,168,.18);color:#35C8A8;font:600 11px Sora,sans-serif;display:grid;place-items:center">✓</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Control flow</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;background:rgba(53,200,168,.18);color:#35C8A8;font:600 11px Sora,sans-serif;display:grid;place-items:center">✓</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">when</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px;background:rgba(53,200,168,.1);border-left:2px solid #35C8A8"><span style="width:20px;height:20px;border-radius:99px;background:#35C8A8;color:#0B1514;font:600 11px Sora,sans-serif;display:grid;place-items:center">6</span><span style="font:600 13.5px Sora,sans-serif;color:#E4F1EC">Null safety</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">7</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Collections &amp; lambdas</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">8</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Records &amp; classes</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">9</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Generics &amp; traits</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">10</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">The eight connectives</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">11</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Errors &amp; diagnostics</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">12</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Native code &amp; C</span></div>
+      </div>
+      <div style="margin:20px 24px 0;background:rgba(169,235,205,.05);border:1px solid rgba(169,235,205,.14);border-radius:10px;padding:14px 16px">
+        <div style="font:600 11px 'JetBrains Mono',monospace;color:#A9EBCD;margin-bottom:6px">EVERY SNIPPET RUNS</div>
+        <p style="margin:0;font:400 12px/1.55 Sora,sans-serif;color:#567870">Checked by the test suite, on both engines. If one fails, that is a bug.</p>
+      </div>
+    </div>
+    <div style="padding:44px 56px;max-width:760px">
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;letter-spacing:.08em;margin-bottom:10px">CHAPTER 6 · 4 MIN</div>
+      <h2 style="margin:0 0 18px;font:700 32px Sora,sans-serif;color:#E4F1EC;letter-spacing:-.01em">Null safety</h2>
+      <p style="margin:0 0 26px;font:400 15.5px/1.75 Sora,sans-serif;color:#9FB8B1">A type does not admit <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">null</span> unless you write <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">?</span> — and the checker will not let you forget. Four ways across:</p>
+      <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.16);border-radius:12px;overflow:hidden;margin-bottom:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(140,220,196,.12)">
+          <span style="font:500 12px 'JetBrains Mono',monospace;color:#8CA69F">maybe.keal</span>
+          <span style="font:600 12px Sora,sans-serif;color:#0B1514;background:#A9EBCD;border-radius:6px;padding:4px 12px">▶ Run</span>
+        </div>
+        <pre style="margin:0;padding:20px 22px;font:13.5px/1.8 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre"><span style="color:#63D3B4">var</span> maybe: <span style="color:#A9EBCD">String?</span> = <span style="color:#63D3B4">null</span>
+
+maybe?.length              <span style="color:#567870">// safe call — the result is Int?</span>
+maybe ?: <span style="color:#D9C98B">"default"</span>         <span style="color:#567870">// a fallback</span>
+maybe!!                    <span style="color:#567870">// assert non-null
+
+</span><span style="color:#63D3B4">if</span> (maybe != <span style="color:#63D3B4">null</span>) {
+    maybe.length           <span style="color:#567870">// smart cast — plain String here</span>
+}</pre>
+      </div>
+      <p style="margin:0 0 20px;font:400 15.5px/1.75 Sora,sans-serif;color:#9FB8B1">That last one is the interesting one. After a check that proves something about an <em>immutable</em> binding, the fact holds for the rest of the branch — and Keal carries it further than most:</p>
+      <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.16);border-radius:12px;overflow:hidden;margin-bottom:20px">
+        <pre style="margin:0;padding:20px 22px;font:13.5px/1.8 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre"><span style="color:#63D3B4">if</span> (s == <span style="color:#63D3B4">null</span>) { <span style="color:#63D3B4">return</span> }
+s.length                    <span style="color:#567870">// narrowed for the rest of the block</span>
+
+s != <span style="color:#63D3B4">null</span> <span style="color:#63D3B4">and</span> s.length &gt; 0  <span style="color:#567870">// narrowed in the right operand</span>
+
+s != <span style="color:#63D3B4">null</span> <span style="color:#63D3B4">implies</span> s.length &gt; 0  <span style="color:#567870">// and across implies</span></pre>
+      </div>
+      <div style="display:flex;gap:14px;background:rgba(169,235,205,.06);border:1px solid rgba(169,235,205,.18);border-radius:12px;padding:16px 20px;margin-bottom:34px">
+        <span style="font:700 14px Sora,sans-serif;color:#A9EBCD">✦</span>
+        <p style="margin:0;font:400 13.5px/1.65 Sora,sans-serif;color:#9FB8B1">A <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">var</span> is never narrowed — anything the branch calls could reassign it — and the checker says so rather than leaving you to wonder.</p>
+      </div>
+      <div style="display:flex;justify-content:space-between">
+        <span style="font:600 14px Sora,sans-serif;color:#8CA69F;border:1px solid rgba(140,220,196,.2);border-radius:10px;padding:11px 20px">← when</span>
+        <span style="font:600 14px Sora,sans-serif;color:#0B1514;background:#35C8A8;border-radius:10px;padding:11px 20px">Collections &amp; lambdas →</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 2c : Page docs/référence ============ -->
+<div class="dv-opt" id="2c">
+<div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a>Docs / référence — page « Memory model »</div>
+<div class="dv-card" style="width:1240px;background:#0B1514">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 32px;border-bottom:1px solid rgba(140,220,196,.12)">
+    <div style="display:flex;align-items:center;gap:28px">
+      <img src="uploads/keal.png" alt="keal" style="display:block;height:32px;width:auto">
+      <div style="display:flex;gap:24px;font:500 13.5px Sora,sans-serif"><span style="color:#E4F1EC;border-bottom:2px solid #35C8A8;padding-bottom:3px">Docs</span><span style="color:#8CA69F">Tour</span><span style="color:#8CA69F">Playground</span><span style="color:#8CA69F">Blog</span></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;font:500 13px 'JetBrains Mono',monospace;color:#567870;background:#0F1D1B;border:1px solid rgba(140,220,196,.14);border-radius:8px;padding:8px 14px;width:260px">⌕ Search the docs<span style="margin-left:auto;font-size:11px;border:1px solid rgba(140,220,196,.18);border-radius:4px;padding:1px 5px">⌘K</span></div>
+  </div>
+  <div style="display:grid;grid-template-columns:264px 1fr 200px;min-height:680px">
+    <div style="border-right:1px solid rgba(140,220,196,.12);padding:28px 0">
+      <div style="font:600 11px 'JetBrains Mono',monospace;color:#567870;letter-spacing:.1em;padding:0 26px 10px">GUIDE</div>
+      <div style="display:flex;flex-direction:column;font:500 13.5px Sora,sans-serif">
+        <span style="padding:7px 26px;color:#8CA69F">Getting started</span>
+        <span style="padding:7px 26px;color:#8CA69F">A tour of Keal</span>
+        <span style="padding:7px 26px;color:#8CA69F">Examples</span>
+      </div>
+      <div style="font:600 11px 'JetBrains Mono',monospace;color:#567870;letter-spacing:.1em;padding:20px 26px 10px">LANGUAGE</div>
+      <div style="display:flex;flex-direction:column;font:500 13.5px Sora,sans-serif">
+        <span style="padding:7px 26px;color:#8CA69F">Complete reference</span>
+        <span style="padding:7px 26px;color:#8CA69F">Types &amp; inference</span>
+        <span style="padding:7px 26px;color:#8CA69F">Null safety</span>
+        <span style="padding:7px 26px;color:#8CA69F">Generics &amp; traits</span>
+        <span style="padding:7px 26px;color:#8CA69F">The eight connectives</span>
+      </div>
+      <div style="font:600 11px 'JetBrains Mono',monospace;color:#567870;letter-spacing:.1em;padding:20px 26px 10px">INTERNALS</div>
+      <div style="display:flex;flex-direction:column;font:500 13.5px Sora,sans-serif">
+        <span style="padding:7px 26px;color:#E4F1EC;background:rgba(53,200,168,.1);border-left:2px solid #35C8A8;font-weight:600">Memory model</span>
+        <span style="padding:7px 26px;color:#8CA69F">Deterministic deinit</span>
+        <span style="padding:7px 26px;color:#8CA69F">Threads &amp; actors</span>
+        <span style="padding:7px 26px;color:#8CA69F">Interop: C to Kotlin</span>
+      </div>
+    </div>
+    <div style="padding:40px 52px;max-width:720px">
+      <div style="font:500 12.5px 'JetBrains Mono',monospace;color:#567870;margin-bottom:14px">Docs <span style="color:#33504A">/</span> Internals <span style="color:#33504A">/</span> <span style="color:#A9EBCD">Memory model</span></div>
+      <h1 style="margin:0 0 20px;font:700 36px Sora,sans-serif;color:#E4F1EC;letter-spacing:-.015em">The memory model</h1>
+      <p style="margin:0 0 24px;font:400 15.5px/1.75 Sora,sans-serif;color:#9FB8B1">Compiling to native code makes one question unavoidable which an interpreter can dodge — what a value is in bytes, and who frees it. The short version: <strong style="color:#E4F1EC;font-weight:600">reference counting</strong>. Every heap object carries its count. No collector, no ownership annotations, no borrow checker.</p>
+      <p style="margin:0 0 26px;font:400 15.5px/1.75 Sora,sans-serif;color:#9FB8B1">Fields keep declaration order, padding and all — a struct whose shape the author cannot predict is one that cannot be handed to C. <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">keal layout</span> prints the whole table for any program, so none of it has to be taken on trust:</p>
+      <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.16);border-radius:12px;overflow:hidden;margin-bottom:26px">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(140,220,196,.12)">
+          <span style="font:500 12px 'JetBrains Mono',monospace;color:#8CA69F">$ keal layout point.keal</span>
+          <span style="font:500 11px 'JetBrains Mono',monospace;color:#567870">⧉ copy</span>
+        </div>
+        <pre style="margin:0;padding:20px 22px;font:13px/1.8 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre"><span style="color:#A9EBCD">record Point</span>
+  24 bytes, align 8, 0 of which is padding
+  <span style="color:#567870">offset  size  field                as</span>
+       0     8  &lt;reference count&gt;    usize
+       8     8  x: Float             f64
+      16     8  y: Float             f64</pre>
+      </div>
+      <h2 style="margin:0 0 14px;font:700 22px Sora,sans-serif;color:#E4F1EC">Nullable niches</h2>
+      <p style="margin:0 0 18px;font:400 15.5px/1.75 Sora,sans-serif;color:#9FB8B1"><span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">T?</span> is free where a spare bit pattern exists — and says so where it is not:</p>
+      <div style="border:1px solid rgba(140,220,196,.14);border-radius:12px;overflow:hidden;margin-bottom:26px;font:400 13.5px Sora,sans-serif">
+        <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:16px;padding:11px 20px;background:rgba(53,200,168,.06);font:600 11.5px 'JetBrains Mono',monospace;color:#567870"><span>TYPE</span><span>SIZE</span><span>WHY</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:16px;padding:12px 20px;border-top:1px solid rgba(140,220,196,.1)"><span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">String?</span><span style="color:#9FB8B1">= String</span><span style="color:#8CA69F">the null pointer is the niche</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 2fr;gap:16px;padding:12px 20px;border-top:1px solid rgba(140,220,196,.1)"><span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">Int?</span><span style="color:#9FB8B1">2 × Int</span><span style="color:#8CA69F">every bit pattern is a valid Int — a tag is added, and priced openly</span></div>
+      </div>
+      <div style="display:flex;gap:14px;background:rgba(169,235,205,.06);border:1px solid rgba(169,235,205,.18);border-radius:12px;padding:16px 20px;margin-bottom:34px">
+        <span style="font:700 14px Sora,sans-serif;color:#A9EBCD">✦</span>
+        <p style="margin:0;font:400 13.5px/1.65 Sora,sans-serif;color:#9FB8B1">The layouts of a sample program are snapshotted in the test suite — changing a representation shows up as a diff, not as a surprise.</p>
+      </div>
+      <div style="display:flex;justify-content:space-between">
+        <span style="font:600 14px Sora,sans-serif;color:#8CA69F;border:1px solid rgba(140,220,196,.2);border-radius:10px;padding:11px 20px">← Deterministic deinit</span>
+        <span style="font:600 14px Sora,sans-serif;color:#8CA69F;border:1px solid rgba(140,220,196,.2);border-radius:10px;padding:11px 20px">Interop: C to Kotlin →</span>
+      </div>
+    </div>
+    <div style="padding:40px 28px 0 8px">
+      <div style="font:600 11px 'JetBrains Mono',monospace;color:#567870;letter-spacing:.1em;margin-bottom:14px">ON THIS PAGE</div>
+      <div style="display:flex;flex-direction:column;gap:10px;font:400 12.5px Sora,sans-serif;border-left:1px solid rgba(140,220,196,.14)">
+        <span style="color:#A9EBCD;padding-left:14px;border-left:2px solid #35C8A8;margin-left:-1.5px">Reference counting</span>
+        <span style="color:#8CA69F;padding-left:14px">What a value is, in bytes</span>
+        <span style="color:#8CA69F;padding-left:14px">Nullable niches</span>
+        <span style="color:#8CA69F;padding-left:14px">Cycles — the open question</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">À essayer : « ajoute la page playground » · « une version FR de la landing » · « anime le hero (le code qui se tape tout seul) »</p>
+</section>
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Keal — 3 directions (landing + vue tuto). Palette issue du logo Geneacta ; wordmark « keal » : e+a menthe, k avec barre descendante. Snippets réels du repo.</span></div>
+<div class="dv-opts">
+
+<!-- ============ 1a : Clair-obscur éditorial (EN) ============ -->
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Clair-obscur éditorial — proche de l'esprit Kotlin Tour, version anglaise</div>
+<div class="dv-card" style="width:1240px;background:#0B1514">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 40px;border-bottom:1px solid rgba(140,220,196,.12)">
+    <div style="display:flex;align-items:center;gap:36px">
+      <img src="uploads/keal.png" alt="keal" style="display:block;height:36px;width:auto">
+      <div style="display:flex;gap:26px;font:500 14px Sora,sans-serif">
+        <span style="color:#E4F1EC">Docs</span><span style="color:#8CA69F">Tour</span><span style="color:#8CA69F">Playground</span><span style="color:#8CA69F">Blog</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <div style="display:flex;border:1px solid rgba(140,220,196,.2);border-radius:99px;overflow:hidden;font:600 11px Sora,sans-serif">
+        <span style="padding:5px 11px;background:#35C8A8;color:#0B1514">EN</span><span style="padding:5px 11px;color:#8CA69F">FR</span>
+      </div>
+      <span style="font:500 12px 'JetBrains Mono',monospace;color:#8CA69F;border:1px solid rgba(140,220,196,.2);border-radius:6px;padding:5px 10px">v0.5.0</span>
+      <span style="font:600 13px Sora,sans-serif;color:#0B1514;background:#A9EBCD;border-radius:8px;padding:8px 16px">GitHub</span>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:56px;padding:72px 40px 64px;align-items:center">
+    <div>
+      <div style="display:inline-flex;align-items:center;gap:8px;font:600 12px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.25);border-radius:99px;padding:6px 14px;margin-bottom:26px"><span style="width:6px;height:6px;border-radius:99px;background:#35C8A8"></span>Self-hosting — the bootstrap fixed point is verified on every run</div>
+      <h1 style="margin:0 0 20px;font:700 54px/1.12 Sora,sans-serif;color:#E4F1EC;letter-spacing:-.02em;text-wrap:pretty">The language that compiles itself.</h1>
+      <p style="margin:0 0 34px;font:400 18px/1.65 Sora,sans-serif;color:#8CA69F;max-width:52ch">Statically typed, null-safe, with Kotlin's shape over a C-family syntax. Three engines that agree on every byte — and a compiler written in Keal, compiled by itself.</p>
+      <div style="display:flex;gap:14px;align-items:center;margin-bottom:26px">
+        <span style="font:600 15px Sora,sans-serif;color:#0B1514;background:#35C8A8;border-radius:10px;padding:13px 24px">Start the tour →</span>
+        <span style="font:600 15px Sora,sans-serif;color:#E4F1EC;border:1px solid rgba(140,220,196,.25);border-radius:10px;padding:13px 24px">Read the docs</span>
+      </div>
+      <div style="display:inline-flex;align-items:center;gap:12px;font:500 13.5px 'JetBrains Mono',monospace;color:#A9EBCD;background:#0F1D1B;border:1px solid rgba(140,220,196,.14);border-radius:10px;padding:12px 18px"><span style="color:#567870">$</span>git clone geneacta/keal &amp;&amp; ./bootstrap.sh<span style="color:#567870;border-left:1px solid rgba(140,220,196,.14);padding-left:12px">⧉</span></div>
+    </div>
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.16);border-radius:14px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.45)">
+      <div style="display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid rgba(140,220,196,.12)">
+        <span style="width:10px;height:10px;border-radius:99px;background:rgba(140,220,196,.18)"></span><span style="width:10px;height:10px;border-radius:99px;background:rgba(140,220,196,.18)"></span><span style="width:10px;height:10px;border-radius:99px;background:rgba(140,220,196,.18)"></span>
+        <span style="margin-left:10px;font:500 12px 'JetBrains Mono',monospace;color:#8CA69F">point.keal</span>
+      </div>
+      <pre style="margin:0;padding:22px 24px;font:13.5px/1.75 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre;overflow:hidden"><span style="color:#63D3B4">class</span> <span style="color:#A9EBCD">Point</span>(<span style="color:#63D3B4">val</span> x: <span style="color:#A9EBCD">Float</span>, <span style="color:#63D3B4">val</span> y: <span style="color:#A9EBCD">Float</span>) {
+    <span style="color:#63D3B4">fun</span> length(): <span style="color:#A9EBCD">Float</span> {
+        sqrt(this.x * this.x + this.y * this.y)
+    }
+}
+
+<span style="color:#63D3B4">val</span> points = [<span style="color:#A9EBCD">Point</span>(1.0, 1.0), <span style="color:#A9EBCD">Point</span>(3.0, 4.0)]
+<span style="color:#63D3B4">val</span> found  = firstLong(points, 2.0)
+
+println(<span style="color:#63D3B4">when</span> {
+    found == <span style="color:#63D3B4">null</span> -&gt; <span style="color:#D9C98B">"nothing long enough"</span>
+    <span style="color:#63D3B4">else</span> -&gt; <span style="color:#D9C98B">"${found} has length ${found.length()}"</span>
+})</pre>
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 24px;border-top:1px solid rgba(140,220,196,.12);font:500 13px 'JetBrains Mono',monospace"><span style="color:#567870">$ keal point.keal</span><span style="color:#A9EBCD">(3.0, 4.0) has length 5.0</span></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:18px;padding:0 40px 56px">
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:24px">
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;margin-bottom:12px">SELF-HOSTED</div>
+      <div style="font:600 16px Sora,sans-serif;color:#E4F1EC;margin-bottom:8px">The compiler is written in Keal</div>
+      <p style="margin:0;font:400 13.5px/1.6 Sora,sans-serif;color:#8CA69F">Lexer, parser, checker and C backend — held byte-for-byte to their Rust oracles, reproducing their own source.</p>
+    </div>
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:24px">
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;margin-bottom:12px">NULL SAFETY</div>
+      <div style="font:600 16px Sora,sans-serif;color:#E4F1EC;margin-bottom:8px"><span style="font-family:'JetBrains Mono',monospace">String?</span> is another type</div>
+      <p style="margin:0;font:400 13.5px/1.6 Sora,sans-serif;color:#8CA69F">Inference everywhere, smart casts that hold across <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">and</span>, early returns — even <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">implies</span>.</p>
+    </div>
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:24px">
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;margin-bottom:12px">INTEROP</div>
+      <div style="font:600 16px Sora,sans-serif;color:#E4F1EC;margin-bottom:8px">Six languages, one file</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">C</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">C++</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">Rust</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">Go</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">Java</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#A9EBCD;border:1px solid rgba(169,235,205,.2);border-radius:6px;padding:3px 8px">Kotlin</span>
+      </div>
+    </div>
+    <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.12);border-radius:14px;padding:24px">
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;margin-bottom:12px">REPL</div>
+      <pre style="margin:0;font:12.5px/1.7 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre"><span style="color:#567870">&gt;&gt;&gt;</span> val xs = [3, 1, 2]
+<span style="color:#567870">&gt;&gt;&gt;</span> xs.sorted()
+<span style="color:#A9EBCD">[1, 2, 3]</span></pre>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:22px 40px;border-top:1px solid rgba(140,220,196,.12)">
+    <div style="font:400 14px Sora,sans-serif;color:#8CA69F"><span style="font:600 20px Sora,sans-serif;color:#A9EBCD">×84</span> &nbsp;native vs the VM — <span style="font-family:'JetBrains Mono',monospace;color:#E4F1EC">keal build</span> compiles through C11</div>
+    <span style="font:600 13.5px Sora,sans-serif;color:#35C8A8">How the three engines stay honest →</span>
+  </div>
+</div>
+<div class="dv-olabel"><span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.05);color:#666;border-radius:5px">tuto</span>Parcours guidé, progression à gauche</div>
+<div class="dv-card" style="width:1240px;background:#0B1514">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 32px;border-bottom:1px solid rgba(140,220,196,.12)">
+    <div style="display:flex;align-items:center;gap:16px">
+      <img src="uploads/keal.png" alt="keal" style="display:block;height:30px;width:auto">
+      <span style="color:#33504A">/</span><span style="font:600 14px Sora,sans-serif;color:#E4F1EC">Tour of Keal</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <span style="font:500 12px 'JetBrains Mono',monospace;color:#8CA69F">6 / 12</span>
+      <div style="width:180px;height:5px;border-radius:99px;background:rgba(140,220,196,.12);overflow:hidden"><div style="width:50%;height:100%;border-radius:99px;background:linear-gradient(90deg,#35C8A8,#A9EBCD)"></div></div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:264px 1fr;min-height:620px">
+    <div style="border-right:1px solid rgba(140,220,196,.12);padding:24px 0">
+      <div style="font:600 11px 'JetBrains Mono',monospace;color:#567870;letter-spacing:.1em;padding:0 24px 12px">THE TOUR</div>
+      <div style="display:flex;flex-direction:column">
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;background:rgba(53,200,168,.18);color:#35C8A8;font:600 11px Sora,sans-serif;display:grid;place-items:center">✓</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Hello world</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;background:rgba(53,200,168,.18);color:#35C8A8;font:600 11px Sora,sans-serif;display:grid;place-items:center">✓</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Values &amp; bindings</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;background:rgba(53,200,168,.18);color:#35C8A8;font:600 11px Sora,sans-serif;display:grid;place-items:center">✓</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">fun and proc</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;background:rgba(53,200,168,.18);color:#35C8A8;font:600 11px Sora,sans-serif;display:grid;place-items:center">✓</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Control flow</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;background:rgba(53,200,168,.18);color:#35C8A8;font:600 11px Sora,sans-serif;display:grid;place-items:center">✓</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">when</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px;background:rgba(53,200,168,.1);border-left:2px solid #35C8A8"><span style="width:20px;height:20px;border-radius:99px;background:#35C8A8;color:#0B1514;font:600 11px Sora,sans-serif;display:grid;place-items:center">6</span><span style="font:600 13.5px Sora,sans-serif;color:#E4F1EC">Null safety</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">7</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Collections &amp; lambdas</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">8</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Records &amp; classes</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">9</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Generics &amp; traits</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">10</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">The eight connectives</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">11</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Errors &amp; diagnostics</span></div>
+        <div style="display:flex;align-items:center;gap:12px;padding:9px 24px"><span style="width:20px;height:20px;border-radius:99px;border:1px solid rgba(140,220,196,.25);color:#567870;font:500 11px Sora,sans-serif;display:grid;place-items:center">12</span><span style="font:500 13.5px Sora,sans-serif;color:#8CA69F">Native code &amp; C</span></div>
+      </div>
+    </div>
+    <div style="padding:44px 56px;max-width:760px">
+      <div style="font:600 12px 'JetBrains Mono',monospace;color:#35C8A8;letter-spacing:.08em;margin-bottom:10px">CHAPTER 6 · 4 MIN</div>
+      <h2 style="margin:0 0 18px;font:700 32px Sora,sans-serif;color:#E4F1EC;letter-spacing:-.01em">Null safety</h2>
+      <p style="margin:0 0 26px;font:400 15.5px/1.75 Sora,sans-serif;color:#9FB8B1">A type does not admit <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">null</span> unless you write <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">?</span> — and the checker will not let you forget. Four ways across:</p>
+      <div style="background:#0F1D1B;border:1px solid rgba(140,220,196,.16);border-radius:12px;overflow:hidden;margin-bottom:20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 18px;border-bottom:1px solid rgba(140,220,196,.12)">
+          <span style="font:500 12px 'JetBrains Mono',monospace;color:#8CA69F">maybe.keal</span>
+          <span style="font:600 12px Sora,sans-serif;color:#0B1514;background:#A9EBCD;border-radius:6px;padding:4px 12px">▶ Run</span>
+        </div>
+        <pre style="margin:0;padding:20px 22px;font:13.5px/1.8 'JetBrains Mono',monospace;color:#C7DAD4;white-space:pre"><span style="color:#63D3B4">var</span> maybe: <span style="color:#A9EBCD">String?</span> = <span style="color:#63D3B4">null</span>
+
+maybe?.length              <span style="color:#567870">// safe call — the result is Int?</span>
+maybe ?: <span style="color:#D9C98B">"default"</span>         <span style="color:#567870">// a fallback</span>
+maybe!!                    <span style="color:#567870">// assert non-null
+
+</span><span style="color:#63D3B4">if</span> (maybe != <span style="color:#63D3B4">null</span>) {
+    maybe.length           <span style="color:#567870">// smart cast — plain String here</span>
+}</pre>
+      </div>
+      <div style="display:flex;gap:14px;background:rgba(169,235,205,.06);border:1px solid rgba(169,235,205,.18);border-radius:12px;padding:16px 20px;margin-bottom:34px">
+        <span style="font:700 14px Sora,sans-serif;color:#A9EBCD">✦</span>
+        <p style="margin:0;font:400 13.5px/1.65 Sora,sans-serif;color:#9FB8B1">The fact holds for the rest of the branch — and further than most: across <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">and</span>, after an early-return guard, even across <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">implies</span>. A <span style="font-family:'JetBrains Mono',monospace;color:#A9EBCD">var</span> is never narrowed, and the checker says so.</p>
+      </div>
+      <div style="display:flex;justify-content:space-between">
+        <span style="font:600 14px Sora,sans-serif;color:#8CA69F;border:1px solid rgba(140,220,196,.2);border-radius:10px;padding:11px 20px">← when</span>
+        <span style="font:600 14px Sora,sans-serif;color:#0B1514;background:#35C8A8;border-radius:10px;padding:11px 20px">Collections &amp; lambdas →</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 1b : Terminal vivant (FR) ============ -->
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Terminal vivant — mono-first, le REPL en héros, version française</div>
+<div class="dv-card" style="width:1240px;background:#0A100F">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:15px 36px;border-bottom:1px solid rgba(59,217,176,.14)">
+    <div style="display:flex;align-items:center;gap:30px">
+      <div style="font:700 20px Quicksand,sans-serif"><span style="color:#3BD9B0;position:relative">k<span style="position:absolute;left:2px;bottom:-6px;width:3px;height:9px;border-radius:2px;background:#3BD9B0"></span></span><span style="color:#B5EFD3">ea</span><span style="color:#3BD9B0">l</span></div>
+      <div style="display:flex;gap:22px;font:500 13px 'IBM Plex Mono',monospace">
+        <span style="color:#D7E8E2">~/docs</span><span style="color:#7E9A92">~/tour</span><span style="color:#7E9A92">~/exemples</span><span style="color:#7E9A92">~/blog</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;font:500 12px 'IBM Plex Mono',monospace">
+      <span style="color:#7E9A92">[fr]</span><span style="color:#3D5B53">[en]</span>
+      <span style="color:#B5EFD3;border:1px solid rgba(59,217,176,.25);border-radius:6px;padding:5px 12px">github ↗</span>
+    </div>
+  </div>
+  <div style="padding:64px 36px 30px;text-align:center">
+    <p style="margin:0 0 10px;font:500 13px 'IBM Plex Mono',monospace;color:#3BD9B0;letter-spacing:.12em">PETIT · TYPÉ STATIQUEMENT · AUTO-HÉBERGÉ</p>
+    <h1 style="margin:0 auto 16px;font:600 44px/1.2 'IBM Plex Sans',sans-serif;color:#E8F4EF;letter-spacing:-.015em;max-width:22ch;text-wrap:pretty">Le langage qui se compile lui-même, sous vos yeux.</h1>
+    <p style="margin:0 auto 36px;font:400 16px/1.6 'IBM Plex Sans',sans-serif;color:#7E9A92;max-width:58ch">Trois moteurs d'exécution qui s'accordent à l'octet près. Un compilateur écrit en Keal, compilé par lui-même. Essayez-le dans la seconde :</p>
+  </div>
+  <div style="max-width:820px;margin:0 auto;padding:0 36px 56px">
+    <div style="background:#0D1615;border:1px solid rgba(59,217,176,.2);border-radius:12px;overflow:hidden;box-shadow:0 30px 70px rgba(0,0,0,.5)">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 16px;background:rgba(59,217,176,.05);border-bottom:1px solid rgba(59,217,176,.14)">
+        <div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:10px;border-radius:99px;background:#2A4A42"></span><span style="width:10px;height:10px;border-radius:99px;background:#2A4A42"></span><span style="width:10px;height:10px;border-radius:99px;background:#3BD9B0"></span></div>
+        <span style="font:500 12px 'IBM Plex Mono',monospace;color:#7E9A92">keal repl — session</span>
+        <span style="font:500 11px 'IBM Plex Mono',monospace;color:#3D5B53">⌘K</span>
+      </div>
+      <pre style="margin:0;padding:24px 26px;font:14px/1.85 'IBM Plex Mono',monospace;color:#C9DED6;white-space:pre;text-align:left"><span style="color:#3D5B53">$</span> keal
+<span style="color:#7E9A92">keal 0.5.0 — tapez :help, Ctrl-D pour quitter</span>
+<span style="color:#3BD9B0">&gt;&gt;&gt;</span> <span style="color:#63D3B4">val</span> xs = [3, 1, 2]
+<span style="color:#3BD9B0">&gt;&gt;&gt;</span> xs.sorted().join(<span style="color:#D9C98B">" "</span>)
+<span style="color:#B5EFD3">"1 2 3"</span>
+<span style="color:#3BD9B0">&gt;&gt;&gt;</span> <span style="color:#D9C98B">"héllo"</span>.length
+<span style="color:#B5EFD3">5</span>
+<span style="color:#3BD9B0">&gt;&gt;&gt;</span> 26 ^/ 3 <span style="color:#3D5B53">// la racine porte le chapeau de la puissance</span>
+<span style="color:#B5EFD3">2</span>
+<span style="color:#3BD9B0">&gt;&gt;&gt;</span> <span style="background:#3BD9B0;color:#3BD9B0">.</span></pre>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:center;margin-top:24px">
+      <span style="font:600 13.5px 'IBM Plex Mono',monospace;color:#0A100F;background:#3BD9B0;border-radius:8px;padding:12px 22px">$ commencer le tour</span>
+      <span style="font:600 13.5px 'IBM Plex Mono',monospace;color:#B5EFD3;border:1px solid rgba(59,217,176,.25);border-radius:8px;padding:12px 22px">$ man keal</span>
+    </div>
+  </div>
+  <div style="border-top:1px solid rgba(59,217,176,.14);padding:36px;max-width:900px;margin:0 auto">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;color:#3D5B53;margin-bottom:18px">$ ls caractéristiques/</div>
+    <div style="display:flex;flex-direction:column;gap:2px;font:400 13.5px/1.6 'IBM Plex Mono',monospace">
+      <div style="display:grid;grid-template-columns:210px 1fr;gap:20px;padding:11px 14px;border-radius:8px;background:rgba(59,217,176,.05)"><span style="color:#3BD9B0">auto-hébergé/</span><span style="color:#9DB8B0">le compilateur, écrit en Keal, reproduit sa propre source à l'octet près</span></div>
+      <div style="display:grid;grid-template-columns:210px 1fr;gap:20px;padding:11px 14px;border-radius:8px"><span style="color:#3BD9B0">sûreté-du-null/</span><span style="color:#9DB8B0">String? est un autre type — ?. ?: !! et des smart casts qui portent loin</span></div>
+      <div style="display:grid;grid-template-columns:210px 1fr;gap:20px;padding:11px 14px;border-radius:8px;background:rgba(59,217,176,.05)"><span style="color:#3BD9B0">interop/</span><span style="color:#9DB8B0">C, C++, Rust, Go, Java et Kotlin — répondent depuis un seul fichier Keal</span></div>
+      <div style="display:grid;grid-template-columns:210px 1fr;gap:20px;padding:11px 14px;border-radius:8px"><span style="color:#3BD9B0">natif/</span><span style="color:#9DB8B0">keal build : ×84 face à la VM, via C11 — les mêmes garanties, vérifiées</span></div>
+      <div style="display:grid;grid-template-columns:210px 1fr;gap:20px;padding:11px 14px;border-radius:8px;background:rgba(59,217,176,.05)"><span style="color:#3BD9B0">acteurs/</span><span style="color:#9DB8B0">spawn, send, run — un ordonnanceur déterministe, même sortie sur chaque moteur</span></div>
+    </div>
+  </div>
+</div>
+<div class="dv-olabel"><span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.05);color:#666;border-radius:5px">tuto</span>Leçons en cartes, éditeur + sortie intégrés</div>
+<div class="dv-card" style="width:1240px;background:#0A100F">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 36px;border-bottom:1px solid rgba(59,217,176,.14)">
+    <div style="display:flex;align-items:center;gap:14px;font:500 13px 'IBM Plex Mono',monospace"><span style="color:#3BD9B0">keal tour</span><span style="color:#3D5B53">·</span><span style="color:#D7E8E2">leçon 3/12</span></div>
+    <div style="display:flex;gap:5px">
+      <span style="width:26px;height:5px;border-radius:99px;background:#3BD9B0"></span><span style="width:26px;height:5px;border-radius:99px;background:#3BD9B0"></span><span style="width:26px;height:5px;border-radius:99px;background:#3BD9B0"></span><span style="width:26px;height:5px;border-radius:99px;background:rgba(59,217,176,.15)"></span><span style="width:26px;height:5px;border-radius:99px;background:rgba(59,217,176,.15)"></span><span style="width:26px;height:5px;border-radius:99px;background:rgba(59,217,176,.15)"></span><span style="width:26px;height:5px;border-radius:99px;background:rgba(59,217,176,.15)"></span><span style="width:26px;height:5px;border-radius:99px;background:rgba(59,217,176,.15)"></span><span style="width:26px;height:5px;border-radius:99px;background:rgba(59,217,176,.15)"></span><span style="width:26px;height:5px;border-radius:99px;background:rgba(59,217,176,.15)"></span><span style="width:26px;height:5px;border-radius:99px;background:rgba(59,217,176,.15)"></span><span style="width:26px;height:5px;border-radius:99px;background:rgba(59,217,176,.15)"></span>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:440px 1fr;gap:0;min-height:560px">
+    <div style="padding:40px 36px;border-right:1px solid rgba(59,217,176,.14)">
+      <div style="font:500 12px 'IBM Plex Mono',monospace;color:#3BD9B0;margin-bottom:10px">LEÇON 3</div>
+      <h2 style="margin:0 0 16px;font:600 27px 'IBM Plex Sans',sans-serif;color:#E8F4EF">fun et proc</h2>
+      <p style="margin:0 0 18px;font:400 14.5px/1.75 'IBM Plex Sans',sans-serif;color:#9DB8B0">Deux mots pour déclarer, et celui que vous choisissez dit s'il y a un résultat. Une <span style="font-family:'IBM Plex Mono',monospace;color:#B5EFD3">fun</span> doit déclarer son type de retour ; une <span style="font-family:'IBM Plex Mono',monospace;color:#B5EFD3">proc</span> ne le peut pas.</p>
+      <p style="margin:0 0 26px;font:400 14.5px/1.75 'IBM Plex Sans',sans-serif;color:#9DB8B0">Conséquence : <span style="font-family:'IBM Plex Mono',monospace;color:#B5EFD3">Unit</span> et <span style="font-family:'IBM Plex Mono',monospace;color:#B5EFD3">void</span> ne s'écrivent jamais, et consommer le non-résultat d'une proc est une erreur, pas un no-op silencieux.</p>
+      <div style="background:rgba(59,217,176,.06);border:1px solid rgba(59,217,176,.18);border-radius:10px;padding:14px 18px;margin-bottom:26px">
+        <div style="font:600 11px 'IBM Plex Mono',monospace;color:#3BD9B0;margin-bottom:6px">✓ À VOUS</div>
+        <p style="margin:0;font:400 13.5px/1.6 'IBM Plex Sans',sans-serif;color:#9DB8B0">Changez <span style="font-family:'IBM Plex Mono',monospace;color:#B5EFD3">greeting</span> par un argument nommé, puis lancez.</p>
+      </div>
+      <div style="display:flex;gap:8px">
+        <span style="font:500 12px 'IBM Plex Mono',monospace;color:#3BD9B0;background:rgba(59,217,176,.1);border-radius:99px;padding:5px 12px">✓ leçon 1</span>
+        <span style="font:500 12px 'IBM Plex Mono',monospace;color:#3BD9B0;background:rgba(59,217,176,.1);border-radius:99px;padding:5px 12px">✓ leçon 2</span>
+        <span style="font:500 12px 'IBM Plex Mono',monospace;color:#7E9A92;border:1px solid rgba(59,217,176,.2);border-radius:99px;padding:5px 12px">● en cours</span>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;background:#0D1615">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 20px;border-bottom:1px solid rgba(59,217,176,.14)">
+        <span style="font:500 12px 'IBM Plex Mono',monospace;color:#7E9A92">exercice.keal</span>
+        <div style="display:flex;gap:8px">
+          <span style="font:600 12px 'IBM Plex Mono',monospace;color:#7E9A92;border:1px solid rgba(59,217,176,.2);border-radius:6px;padding:5px 14px">↺ réinitialiser</span>
+          <span style="font:600 12px 'IBM Plex Mono',monospace;color:#0A100F;background:#3BD9B0;border-radius:6px;padding:5px 16px">▶ exécuter</span>
+        </div>
+      </div>
+      <pre style="margin:0;padding:24px 26px;font:13.5px/1.85 'IBM Plex Mono',monospace;color:#C9DED6;white-space:pre;flex:1"><span style="color:#3D5B53"> 1</span>  <span style="color:#63D3B4">fun</span> greet(name: <span style="color:#B5EFD3">String</span>, greeting: <span style="color:#B5EFD3">String</span> = <span style="color:#D9C98B">"hello"</span>): <span style="color:#B5EFD3">String</span> {
+<span style="color:#3D5B53"> 2</span>      <span style="color:#63D3B4">return</span> <span style="color:#D9C98B">"${greeting}, ${name}!"</span>
+<span style="color:#3D5B53"> 3</span>  }
+<span style="color:#3D5B53"> 4</span>
+<span style="color:#3D5B53"> 5</span>  <span style="color:#63D3B4">proc</span> log(s: <span style="color:#B5EFD3">String</span>, quiet: <span style="color:#B5EFD3">Bool</span>) {
+<span style="color:#3D5B53"> 6</span>      <span style="color:#63D3B4">if</span> (quiet) { <span style="color:#63D3B4">return</span> }
+<span style="color:#3D5B53"> 7</span>      println(s)
+<span style="color:#3D5B53"> 8</span>  }
+<span style="color:#3D5B53"> 9</span>
+<span style="color:#3D5B53">10</span>  log(greet(<span style="color:#D9C98B">"Ada"</span>, greeting = <span style="color:#D9C98B">"hi"</span>), <span style="color:#63D3B4">false</span>)</pre>
+      <div style="border-top:1px solid rgba(59,217,176,.14);padding:16px 26px">
+        <div style="font:500 11px 'IBM Plex Mono',monospace;color:#3D5B53;margin-bottom:8px">SORTIE</div>
+        <div style="font:500 13.5px 'IBM Plex Mono',monospace;color:#B5EFD3">hi, Ada!</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;font:500 12px 'IBM Plex Mono',monospace;color:#3BD9B0"><span>✓</span><span>Étape validée — leçon suivante : contrôle de flux →</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ============ 1c : Blueprint spec (EN) ============ -->
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Blueprint — grille technique, sections numérotées, la table mémoire comme motif</div>
+<div class="dv-card" style="width:1240px;background:#0A1A19;background-image:linear-gradient(rgba(90,200,175,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(90,200,175,.05) 1px,transparent 1px);background-size:48px 48px">
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 44px;border-bottom:1px solid rgba(90,200,175,.2)">
+    <div style="display:flex;align-items:baseline;gap:18px">
+      <div style="font:700 22px Quicksand,sans-serif"><span style="color:#4ADBB5;position:relative">k<span style="position:absolute;left:2px;bottom:-6px;width:3px;height:9px;border-radius:2px;background:#4ADBB5"></span></span><span style="color:#B9F0D6">ea</span><span style="color:#4ADBB5">l</span></div>
+      <span style="font:500 11px 'Space Grotesk',sans-serif;color:#6B8F87;letter-spacing:.18em">LANG · SPEC v0.5.0</span>
+    </div>
+    <div style="display:flex;gap:28px;font:500 13px 'Space Grotesk',sans-serif;letter-spacing:.04em">
+      <span style="color:#DCEFE9">DOCS</span><span style="color:#6B8F87">TOUR</span><span style="color:#6B8F87">MEMORY</span><span style="color:#6B8F87">INTEROP</span><span style="color:#4ADBB5;border-bottom:2px solid #4ADBB5;padding-bottom:2px">GITHUB ↗</span>
+    </div>
+  </div>
+  <div style="padding:80px 44px 60px;border-bottom:1px solid rgba(90,200,175,.2)">
+    <div style="font:500 12px 'JetBrains Mono',monospace;color:#4ADBB5;letter-spacing:.2em;margin-bottom:22px">§0 — ABSTRACT</div>
+    <h1 style="margin:0 0 26px;font:700 76px/1.04 'Space Grotesk',sans-serif;color:#DCEFE9;letter-spacing:-.03em;max-width:14ch;text-wrap:pretty">Typed. Native. Written in itself.</h1>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:40px">
+      <p style="margin:0;font:400 17px/1.7 'Space Grotesk',sans-serif;color:#8FAFA7;max-width:54ch">A statically typed language whose compiler is a Keal program — reproducing its own source byte for byte, a fixed point the test suite proves on every run.</p>
+      <div style="display:flex;gap:12px;flex:none">
+        <span style="font:600 14px 'Space Grotesk',sans-serif;color:#0A1A19;background:#4ADBB5;padding:13px 26px;letter-spacing:.03em">TAKE THE TOUR</span>
+        <span style="font:600 14px 'Space Grotesk',sans-serif;color:#DCEFE9;border:1px solid rgba(90,200,175,.35);padding:13px 26px;letter-spacing:.03em">INSTALL</span>
+      </div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr">
+    <div style="padding:36px 40px;border-right:1px solid rgba(90,200,175,.2)">
+      <div style="font:500 13px 'JetBrains Mono',monospace;color:#4ADBB5;margin-bottom:14px">§1 SELF-HOSTING</div>
+      <p style="margin:0 0 18px;font:400 14px/1.7 'Space Grotesk',sans-serif;color:#8FAFA7">Lexer, parser, checker, C backend — each exists twice, Rust and Keal, held to byte-for-byte agreement.</p>
+      <pre style="margin:0;font:12px/1.7 'JetBrains Mono',monospace;color:#9FC4BA;white-space:pre"><span style="color:#4A6B63">$</span> ./bootstrap.sh
+<span style="color:#4A6B63">3/4</span> verifying the fixed point…
+<span style="color:#B9F0D6">dist/kealc ✓</span></pre>
+    </div>
+    <div style="padding:36px 40px;border-right:1px solid rgba(90,200,175,.2)">
+      <div style="font:500 13px 'JetBrains Mono',monospace;color:#4ADBB5;margin-bottom:14px">§2 MEMORY, ON THE TABLE</div>
+      <p style="margin:0 0 18px;font:400 14px/1.7 'Space Grotesk',sans-serif;color:#8FAFA7">Reference counting, declaration-order fields. <span style="font-family:'JetBrains Mono',monospace;color:#B9F0D6">keal layout</span> prints the truth:</p>
+      <pre style="margin:0;font:11.5px/1.65 'JetBrains Mono',monospace;color:#9FC4BA;white-space:pre"><span style="color:#B9F0D6">record Point</span> — 24 bytes, align 8
+offset  size  field        as
+     0     8  &lt;refcount&gt;   usize
+     8     8  x: Float     f64
+    16     8  y: Float     f64</pre>
+    </div>
+    <div style="padding:36px 40px">
+      <div style="font:500 13px 'JetBrains Mono',monospace;color:#4ADBB5;margin-bottom:14px">§3 THREE ENGINES, ONE OUTPUT</div>
+      <p style="margin:0 0 18px;font:400 14px/1.7 'Space Grotesk',sans-serif;color:#8FAFA7">Tree-walker (the spec), bytecode VM (the default), native via C11 — every byte compared.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;font:500 12.5px 'JetBrains Mono',monospace">
+        <div style="display:grid;grid-template-columns:90px 1fr 46px;gap:12px;align-items:center"><span style="color:#8FAFA7">walker</span><div style="height:6px;background:rgba(90,200,175,.15)"><div style="width:100%;height:100%;background:rgba(90,200,175,.4)"></div></div><span style="color:#8FAFA7">6.14s</span></div>
+        <div style="display:grid;grid-template-columns:90px 1fr 46px;gap:12px;align-items:center"><span style="color:#8FAFA7">vm</span><div style="height:6px;background:rgba(90,200,175,.15)"><div style="width:41%;height:100%;background:rgba(90,200,175,.6)"></div></div><span style="color:#8FAFA7">2.51s</span></div>
+        <div style="display:grid;grid-template-columns:90px 1fr 46px;gap:12px;align-items:center"><span style="color:#B9F0D6">native</span><div style="height:6px;background:rgba(90,200,175,.15)"><div style="width:2%;height:100%;background:#4ADBB5"></div></div><span style="color:#B9F0D6">0.03s</span></div>
+      </div>
+      <div style="margin-top:14px;font:400 12px 'Space Grotesk',sans-serif;color:#6B8F87">fib(35) — same program, same bytes out.</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 44px;border-top:1px solid rgba(90,200,175,.2)">
+    <span style="font:500 13px 'JetBrains Mono',monospace;color:#8FAFA7">$ cargo build --release &amp;&amp; keal repl</span>
+    <span style="font:500 12px 'Space Grotesk',sans-serif;color:#6B8F87;letter-spacing:.14em">C · C++ · RUST · GO · JAVA · KOTLIN — ONE FILE</span>
+  </div>
+</div>
+<div class="dv-olabel"><span style="font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.05);color:#666;border-radius:5px">tuto</span>Longue page, sommaire numéroté collant</div>
+<div class="dv-card" style="width:1240px;background:#0A1A19">
+  <div style="display:grid;grid-template-columns:300px 1fr;min-height:600px">
+    <div style="border-right:1px solid rgba(90,200,175,.2);padding:34px 0">
+      <div style="padding:0 32px 20px;border-bottom:1px solid rgba(90,200,175,.15);margin-bottom:18px">
+        <div style="font:700 17px Quicksand,sans-serif"><span style="color:#4ADBB5">k</span><span style="color:#B9F0D6">ea</span><span style="color:#4ADBB5">l</span> <span style="font:500 12px 'Space Grotesk',sans-serif;color:#6B8F87;letter-spacing:.14em">/ A TOUR</span></div>
+      </div>
+      <div style="display:flex;flex-direction:column;font:500 13px 'JetBrains Mono',monospace">
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>00</span><span style="font-family:'Space Grotesk',sans-serif">Getting it running</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>01</span><span style="font-family:'Space Grotesk',sans-serif">Values &amp; bindings</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>02</span><span style="font-family:'Space Grotesk',sans-serif">fun and proc</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>03</span><span style="font-family:'Space Grotesk',sans-serif">Control flow</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#DCEFE9;background:rgba(74,219,181,.1);border-right:2px solid #4ADBB5"><span style="color:#4ADBB5">04</span><span style="font-family:'Space Grotesk',sans-serif;font-weight:600">when — switch &amp; match</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>05</span><span style="font-family:'Space Grotesk',sans-serif">Null safety</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>06</span><span style="font-family:'Space Grotesk',sans-serif">Collections &amp; lambdas</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>07</span><span style="font-family:'Space Grotesk',sans-serif">Records &amp; classes</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>08</span><span style="font-family:'Space Grotesk',sans-serif">Generics &amp; traits</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>09</span><span style="font-family:'Space Grotesk',sans-serif">Eight connectives</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>10</span><span style="font-family:'Space Grotesk',sans-serif">Modules</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>11</span><span style="font-family:'Space Grotesk',sans-serif">Errors</span></div>
+        <div style="display:grid;grid-template-columns:36px 1fr;gap:10px;padding:8px 32px;color:#6B8F87"><span>11½</span><span style="font-family:'Space Grotesk',sans-serif">Native code &amp; C</span></div>
+      </div>
+    </div>
+    <div style="padding:46px 60px;max-width:780px">
+      <div style="font:500 12px 'JetBrains Mono',monospace;color:#4ADBB5;letter-spacing:.2em;margin-bottom:14px">§4 · EVERY SNIPPET RUNS — CHECKED BY THE TEST SUITE</div>
+      <h2 style="margin:0 0 20px;font:700 40px 'Space Grotesk',sans-serif;color:#DCEFE9;letter-spacing:-.02em">when: the switch and the match</h2>
+      <p style="margin:0 0 28px;font:400 15.5px/1.75 'Space Grotesk',sans-serif;color:#8FAFA7">One branching-on-shape construct. No fall-through, first arm wins, and it is an expression. With a subject, arms compare against it:</p>
+      <div style="border:1px solid rgba(90,200,175,.25);margin-bottom:24px">
+        <div style="display:flex;justify-content:space-between;padding:9px 18px;border-bottom:1px solid rgba(90,200,175,.2);background:rgba(74,219,181,.05)">
+          <span style="font:500 11.5px 'JetBrains Mono',monospace;color:#6B8F87">describe.keal — fig. 4.1</span>
+          <span style="font:600 11.5px 'JetBrains Mono',monospace;color:#4ADBB5">▶ RUN</span>
+        </div>
+        <pre style="margin:0;padding:20px 24px;font:13.5px/1.8 'JetBrains Mono',monospace;color:#C4DBD3;white-space:pre"><span style="color:#63D3B4">fun</span> describe(n: <span style="color:#B9F0D6">Int</span>): <span style="color:#B9F0D6">String</span> {
+    <span style="color:#63D3B4">return when</span> (n) {
+        0 -&gt; <span style="color:#D9C98B">"zero"</span>
+        1, 2, 3 -&gt; <span style="color:#D9C98B">"small"</span>       <span style="color:#4A6B63">// several values, one arm</span>
+        <span style="color:#63D3B4">in</span> 4..10 -&gt; <span style="color:#D9C98B">"medium"</span>     <span style="color:#4A6B63">// a range</span>
+        <span style="color:#63D3B4">else</span> -&gt; <span style="color:#D9C98B">"large"</span>
+    }
+}</pre>
+      </div>
+      <p style="margin:0 0 24px;font:400 15.5px/1.75 'Space Grotesk',sans-serif;color:#8FAFA7"><span style="font-family:'JetBrains Mono',monospace;color:#B9F0D6">is</span> tests the type and narrows the subject inside the arm — and an arm may carry a guard, judged after its bindings are in scope.</p>
+      <div style="display:flex;gap:0;border:1px solid rgba(90,200,175,.25)">
+        <div style="flex:1;padding:16px 22px;border-right:1px solid rgba(90,200,175,.2)"><div style="font:500 11px 'JetBrains Mono',monospace;color:#6B8F87;margin-bottom:6px">PREV — §3</div><div style="font:600 14.5px 'Space Grotesk',sans-serif;color:#DCEFE9">← Control flow</div></div>
+        <div style="flex:1;padding:16px 22px;text-align:right;background:rgba(74,219,181,.07)"><div style="font:500 11px 'JetBrains Mono',monospace;color:#4ADBB5;margin-bottom:6px">NEXT — §5</div><div style="font:600 14.5px 'Space Grotesk',sans-serif;color:#DCEFE9">Null safety →</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">À essayer : « développe <a class="dv-oid" href="#1a">1a</a> en site complet avec la page docs » · « le tuto de <a class="dv-oid" href="#1b">1b</a> avec la landing de <a class="dv-oid" href="#1a">1a</a> » · « la même chose en clair pour comparer »</p>
+</section>
+</x-dc>
+</body>
+</html>
