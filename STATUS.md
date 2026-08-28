@@ -62,6 +62,15 @@ Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 unwinding), the six-language polyglot demo AND the ternary family are
 **DONE and pushed**. See NEXT.
 
+**Actors-on-threads: designed, staged (docs/threads.md).** Key call:
+cross-actor ordering is unspecified, so the deterministic round-robin is
+a LEGAL schedule — interpreters keep it forever; threads are native-only
+behind the same run(). Messages deep-copy (generated copy_M, monomorph);
+M must be closure/cell-free (checker predicate, refuse by name). Stage 1
+DONE: runtime.c unwind + deinit state is _Thread_local (embed regen).
+Stage 2 next: copy_M + message-safety check. Stage 3: the pthread
+scheduler (locks/join/panic paths, TSan). JNI: AttachCurrentThread lazily.
+
 **deinit (latest):** `proc deinit()` runs at refcount zero — queued,
 drained at statement boundaries (Op::DrainDrops / keal_drain_drops();
 runtime.rs shares one queue via Runtime::call_method and Instance's Drop

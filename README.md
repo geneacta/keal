@@ -518,10 +518,14 @@ Keal file in [`examples/interop/polyglot/`](examples/interop/polyglot/),
 and [`docs/interop.md`](docs/interop.md) tells that whole story. Exceptions
 used to live here too; all three engines catch them now.)
 
-* **Actors on real threads** — the model ships and is deterministic today;
-  the threaded scheduler (one heap per actor, counts stay non-atomic,
-  exactly as the memory model planned) is the next runtime project. No
-  API changes.
+* **Actors on real threads** — the model ships and is deterministic
+  today, and the road is now decided in [`docs/threads.md`](docs/threads.md):
+  the deterministic round-robin is a *legal schedule*, so the interpreters
+  keep it while the native backend grows a pthread scheduler behind the
+  same `run()` — one heap per actor, messages deep-copied, closure-free
+  message types enforced at compile time. Groundwork (thread-local
+  unwind and `deinit` state) is in; the scheduler is the next runtime
+  project. No API changes.
 * **`Any` in native code** — the one construct the C backend still refuses
   (by name, as always). It needs run-time type information; the tagged
   representation is already designed in [`docs/memory.md`](docs/memory.md) §4.

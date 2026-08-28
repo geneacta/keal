@@ -44,9 +44,11 @@ typedef struct KealStr {
  * checks `keal_unwinding` before acting on any result. The backend only
  * emits those checks when the program contains a `try` at all, so programs
  * without one pay nothing and `keal_panic` still ends the process. */
-static int64_t keal_try_depth = 0;
-static bool keal_unwinding = false;
-static char keal_unwind_msg[1024];
+/* Per-thread, so each future actor thread panics, catches and unwinds
+ * on its own (docs/threads.md). Single-threaded programs see no change. */
+static _Thread_local int64_t keal_try_depth = 0;
+static _Thread_local bool keal_unwinding = false;
+static _Thread_local char keal_unwind_msg[1024];
 
 KEAL_FN void keal_panic(const char* what, int64_t line) {
     if (keal_try_depth > 0) {
@@ -1471,9 +1473,9 @@ typedef struct KealPendingDrop {
     struct KealPendingDrop* next;
 } KealPendingDrop;
 
-static KealPendingDrop* keal_drops_head = NULL;
-static KealPendingDrop* keal_drops_tail = NULL;
-static bool keal_draining = false;
+static _Thread_local KealPendingDrop* keal_drops_head = NULL;
+static _Thread_local KealPendingDrop* keal_drops_tail = NULL;
+static _Thread_local bool keal_draining = false;
 
 KEAL_FN void keal_queue_drop(void* obj, void (*run)(void*)) {
     KealPendingDrop* n = (KealPendingDrop*)keal_alloc(sizeof(KealPendingDrop));
