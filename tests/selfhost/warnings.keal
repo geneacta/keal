@@ -1,0 +1,9 @@
+val x = true
+val y = false
+println(!(x and y))
+println(not (x or y))
+println(!(x xor y))
+println(!(x nand y))
+println(not (x nor y))
+println(!(x xnor y))
+println(!(x implies y))

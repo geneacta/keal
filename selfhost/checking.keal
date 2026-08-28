@@ -316,6 +316,7 @@ class Checker() {
     var thisTy: List<Ty> = []
     var loopDepth: Int = 0
     var errors: List<DiagN> = []
+    var warnings: List<DiagN> = []
     var typeParams: List<List<PDef>> = []
     var traits: Map<String, TrInfo> = {}
     var impls: Map<String, List<String>> = {}
@@ -331,6 +332,14 @@ class Checker() {
         val d = DiagN(file, line, col, msg)
         d.note = note
         this.errors.add(d)
+    }
+
+    /// A finding worth saying that fails nothing: printed, exit code
+    /// untouched. The first ones suggest the negated connectives' names.
+    proc warnNote(file: Int, line: Int, col: Int, msg: String, note: String) {
+        val d = DiagN(file, line, col, msg)
+        d.note = note
+        this.warnings.add(d)
     }
 
     // ---- scopes --------------------------------------------------------
@@ -1705,6 +1714,38 @@ class Checker() {
                     return Ty("Error")
                 }
                 return t
+            }
+            // `!(a and b)` already has a name. Suggest it — and the way
+            // back, when someone negates a negated one.
+            // A desugared `unless` negation reuses its condition's span;
+            // only a negation the user wrote has one of its own, and only
+            // that one is theirs to respell.
+            if (rhs.kind == "logical") {
+                if (e.file == rhs.file and e.line == rhs.line and e.col == rhs.col) {
+                    this.expectAssignable(t, Ty("Bool"), rhs.file, rhs.line, rhs.col, "operand of `!`")
+                    return Ty("Bool")
+                }
+                val to = when (rhs.text) {
+                    "and" -> "nand"
+                    "or" -> "nor"
+                    "xor" -> "xnor"
+                    "nand" -> "and"
+                    "nor" -> "or"
+                    "xnor" -> "xor"
+                    else -> ""
+                }
+                unless (to == "") {
+                    val note = if (rhs.text == "and" or rhs.text == "or" or rhs.text == "xor") {
+                        "the negated connectives have first-class names: nand, nor, xnor"
+                    } else {
+                        "double negation cancels: the plain connective says it straight"
+                    }
+                    this.warnNote(
+                        e.file, e.line, e.col,
+                        "`not (a ${rhs.text} b)` is `a ${to} b`",
+                        note
+                    )
+                }
             }
             this.expectAssignable(t, Ty("Bool"), rhs.file, rhs.line, rhs.col, "operand of `!`")
             return Ty("Bool")

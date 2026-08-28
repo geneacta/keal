@@ -16,8 +16,10 @@ use crate::builtins;
 use crate::span::{Diag, Span};
 use crate::types::{self_subst, FunType, ParamType, Subst, Type};
 
-pub fn check(program: &mut Program) -> Vec<Diag> {
-    Checker::new().check_program(program).0
+pub fn check(program: &mut Program) -> (Vec<Diag>, Vec<Diag>) {
+    let mut c = Checker::new();
+    let (errors, _) = c.check_program(program);
+    (errors, c.warnings)
 }
 
 /// What introduced a binding. Only `Var` can be assigned to; the rest each
@@ -138,6 +140,8 @@ pub struct Checker {
     this_ty: Vec<Type>,
     loop_depth: usize,
     errors: Vec<Diag>,
+    /// Non-fatal findings, printed but never failing the check.
+    pub warnings: Vec<Diag>,
     /// Type parameters currently in scope, innermost last. A name found here
     /// resolves to `Type::Param` rather than to a class.
     type_params: Vec<Vec<ParamDef>>,
@@ -166,6 +170,7 @@ impl Checker {
             this_ty: Vec::new(),
             loop_depth: 0,
             errors: Vec::new(),
+            warnings: Vec::new(),
             type_params: Vec::new(),
             traits: HashMap::new(),
             impls: HashMap::new(),
@@ -215,6 +220,12 @@ impl Checker {
 
     fn error(&mut self, span: Span, msg: impl Into<String>) {
         self.errors.push(Diag::new(span, msg));
+    }
+
+    /// A finding worth saying that fails nothing: printed, exit code
+    /// untouched. The first ones suggest the negated connectives' names.
+    fn warn_note(&mut self, span: Span, msg: impl Into<String>, note: impl Into<String>) {
+        self.warnings.push(Diag::new(span, msg).with_note(note));
     }
 
     fn error_note(&mut self, span: Span, msg: impl Into<String>, note: impl Into<String>) {
@@ -1605,6 +1616,43 @@ impl Checker {
                         t
                     }
                     UnOp::Not => {
+                        // `!(a and b)` already has a name. Suggest it — and
+                        // the way back, when someone negates a negated one.
+                        // A desugared `unless` negation reuses its
+                        // condition's span; only a negation the user wrote
+                        // has one of its own, and only that one is theirs
+                        // to respell.
+                        if let ExprKind::Logical { op: lop, .. } = &rhs.kind {
+                            if span == rhs.span {
+                                self.expect_assignable(&t, &Type::Bool, rhs.span, "operand of `!`");
+                                return Type::Bool;
+                            }
+                            let to = match lop {
+                                LogicalOp::And => Some("nand"),
+                                LogicalOp::Or => Some("nor"),
+                                LogicalOp::Xor => Some("xnor"),
+                                LogicalOp::Nand => Some("and"),
+                                LogicalOp::Nor => Some("or"),
+                                LogicalOp::Xnor => Some("xor"),
+                                LogicalOp::Implies => None,
+                            };
+                            if let Some(to) = to {
+                                let from = lop.symbol();
+                                let note = if matches!(
+                                    lop,
+                                    LogicalOp::And | LogicalOp::Or | LogicalOp::Xor
+                                ) {
+                                    "the negated connectives have first-class names: nand, nor, xnor"
+                                } else {
+                                    "double negation cancels: the plain connective says it straight"
+                                };
+                                self.warn_note(
+                                    span,
+                                    format!("`not (a {} b)` is `a {} b`", from, to),
+                                    note,
+                                );
+                            }
+                        }
                         self.expect_assignable(&t, &Type::Bool, rhs.span, "operand of `!`");
                         Type::Bool
                     }

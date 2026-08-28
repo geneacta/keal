@@ -165,6 +165,11 @@ engines, which must agree on every byte they print.
 - **Guarded returns.** `return if (a > b) a` returns only when the guard
   holds and falls through otherwise — and the guard narrows, so
   `return unless (s == null) s` hands back a plain `String`.
+- **A checker that suggests, not just refuses.** Warnings that never fail
+  the build: write `!(a and b)` and it answers *"`not (a and b)` is
+  `a nand b`"* — the negated connectives have first-class names, and the
+  checker teaches them (and the way back: `!(a nand b)` suggests plain
+  `and`).
 - **Exceptions, the honest way.** `throw "message"` raises the same panic
   every built-in failure raises, and `try { ... } catch (e) { ... }` binds
   the message and continues — one form covers your throws, overflow,

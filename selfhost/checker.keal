@@ -29,6 +29,14 @@ if (checker.errors.size > 0) {
     exit(1)
 }
 
+for (d in checker.warnings.sortedBy({ w ->
+    (w.file * 1048576 + w.line) * 1048576 + w.col
+})) {
+    var wline = "warning ${loaded.paths[d.file]}:${d.line}:${d.col} ${d.msg}"
+    unless (d.note == "") { wline += " -- ${d.note}" }
+    println(wline)
+}
+
 typedDump = true
 val shown = ProgramN()
 for (i in loaded.program.items) {

@@ -419,7 +419,7 @@ fn dump_types(path: &str) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let errors = checker::check(&mut program);
+    let (errors, warnings) = checker::check(&mut program);
     if !errors.is_empty() {
         for d in &errors {
             let mut line = format!(
@@ -435,6 +435,19 @@ fn dump_types(path: &str) -> ExitCode {
             println!("{}", line);
         }
         return ExitCode::FAILURE;
+    }
+    for d in &warnings {
+        let mut line = format!(
+            "warning {}:{}:{} {}",
+            sources.path(d.span.file),
+            d.span.line,
+            d.span.col,
+            d.msg
+        );
+        if let Some(note) = &d.note {
+            line.push_str(&format!(" -- {}", note));
+        }
+        println!("{}", line);
     }
     let prelude: Vec<u32> = (0..sources.len() as u32)
         .filter(|id| sources.path(*id) == "<prelude>")
@@ -477,6 +490,9 @@ fn dump_cgen(path: &str) -> ExitCode {
             println!("{}", compact(&sources, d));
         }
         return ExitCode::FAILURE;
+    }
+    for d in &checker.warnings {
+        println!("{}", compact_warning(&sources, d));
     }
     match cbackend::emit(&program, &checker.class_shapes()) {
         Ok(c) => {
@@ -638,6 +654,21 @@ fn emit_header(path: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// One warning per line, same shape as the compact errors but labeled.
+fn compact_warning(sources: &Sources, d: &crate::span::Diag) -> String {
+    let mut line = format!(
+        "warning {}:{}:{} {}",
+        sources.path(d.span.file),
+        d.span.line,
+        d.span.col,
+        d.msg
+    );
+    if let Some(note) = &d.note {
+        line.push_str(&format!(" -- {}", note));
+    }
+    line
+}
+
 fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {
     let mut sources = Sources::new();
 
@@ -649,7 +680,7 @@ fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {
         }
     };
 
-    let errors = checker::check(&mut program);
+    let (errors, warnings) = checker::check(&mut program);
     if !errors.is_empty() {
         for d in &errors {
             eprint!("{}", sources.render("error", d));
@@ -660,6 +691,9 @@ fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {
             if errors.len() == 1 { "" } else { "s" }
         );
         return ExitCode::FAILURE;
+    }
+    for d in &warnings {
+        eprint!("{}", sources.render("warning", d));
     }
     if check_only {
         println!("{}: no errors", path);
