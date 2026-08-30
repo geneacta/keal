@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://geneacta.github.io/keal/sitemap.xml

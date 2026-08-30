@@ -194,6 +194,12 @@ FOOTER = {
 
 SWITCH = {"en": ("fr/", "Français"), "fr": ("../", "English")}
 
+# Where the site is served from. Canonical links, the language alternates
+# and the sitemap all need an absolute address; a search engine reading a
+# page cannot work out which of the two languages it is looking at, nor
+# that the other one exists, from relative links alone.
+BASE_URL = "https://geneacta.github.io/keal/"
+
 
 def page(lang, filename, title, description, body, active=None, sidebar=None, toc=None):
     """One complete HTML page, in the site's dress."""
@@ -233,6 +239,21 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>%(title)s</title>
 <meta name="description" content="%(desc)s">
+<link rel="canonical" href="%(canonical)s">
+<link rel="alternate" hreflang="en" href="%(alt_en)s">
+<link rel="alternate" hreflang="fr" href="%(alt_fr)s">
+<link rel="alternate" hreflang="x-default" href="%(alt_en)s">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Keal">
+<meta property="og:locale" content="%(locale)s">
+<meta property="og:title" content="%(title)s">
+<meta property="og:description" content="%(desc)s">
+<meta property="og:url" content="%(canonical)s">
+<meta property="og:image" content="%(image)s">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="%(title)s">
+<meta name="twitter:description" content="%(desc)s">
+<meta name="twitter:image" content="%(image)s">
 <link rel="icon" type="image/png" href="%(prefix)sassets/keal3.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -271,6 +292,11 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
         "title": html.escape(title),
         "desc": html.escape(description),
         "prefix": prefix,
+        "canonical": BASE_URL + ("" if lang == "en" else "fr/") + filename,
+        "alt_en": BASE_URL + filename,
+        "alt_fr": BASE_URL + "fr/" + filename,
+        "locale": "en_GB" if lang == "en" else "fr_FR",
+        "image": BASE_URL + "assets/keal.png",
         "home": "index.html",
         "links": "".join(nav_links),
         "other": other,
@@ -530,7 +556,28 @@ def main():
             written.append(write(lang, "stdlib.html", stdlib(lang)))
         except Exception as e:  # a missing binary should not stop the rest
             print("  (stdlib skipped: %s)" % e)
-    print("%d pages written" % len(written))
+    pages = sorted(
+        (os.path.relpath(w, SITE).replace(os.sep, "/") for w in written),
+        key=lambda p: (p.startswith("fr/"), p),
+    )
+    with open(os.path.join(SITE, "robots.txt"), "w") as f:
+        f.write("User-agent: *\nAllow: /\n\nSitemap: %ssitemap.xml\n" % BASE_URL)
+    # One entry per page, each naming its counterpart in the other language,
+    # so neither is read as a duplicate of the other.
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>',
+             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"'
+             ' xmlns:xhtml="http://www.w3.org/1999/xhtml">']
+    for rel in pages:
+        name = rel[3:] if rel.startswith("fr/") else rel
+        lines.append("  <url>")
+        lines.append("    <loc>%s%s</loc>" % (BASE_URL, rel))
+        lines.append('    <xhtml:link rel="alternate" hreflang="en" href="%s%s"/>' % (BASE_URL, name))
+        lines.append('    <xhtml:link rel="alternate" hreflang="fr" href="%sfr/%s"/>' % (BASE_URL, name))
+        lines.append("  </url>")
+    lines.append("</urlset>")
+    with open(os.path.join(SITE, "sitemap.xml"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print("%d pages written, plus robots.txt and sitemap.xml" % len(written))
 
 
 if __name__ == "__main__":

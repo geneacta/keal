@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://geneacta.github.io/keal/coming-from.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/coming-from.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/coming-from.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/contributing.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/contributing.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/contributing.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/deinit.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/deinit.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/deinit.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/docs.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/docs.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/docs.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/from-c.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-c.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-c.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/from-cpp.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-cpp.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-cpp.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/from-csharp.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-csharp.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-csharp.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/from-go.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-go.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-go.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/from-java.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-java.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-java.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/from-javascript.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-javascript.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-javascript.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/from-kotlin.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-kotlin.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-kotlin.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/from-python.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-python.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-python.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/from-rust.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-rust.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-rust.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/index.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/index.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/index.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/interop.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/interop.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/interop.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/language.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/language.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/language.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/memory.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/memory.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/memory.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/stdlib.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/stdlib.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/stdlib.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/threads.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/threads.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/threads.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/tour.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/tour.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/tour.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/types.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/types.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/types.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/coming-from.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/coming-from.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/coming-from.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/contributing.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/contributing.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/contributing.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/deinit.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/deinit.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/deinit.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/docs.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/docs.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/docs.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/from-c.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-c.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-c.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/from-cpp.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-cpp.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-cpp.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/from-csharp.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-csharp.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-csharp.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/from-go.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-go.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-go.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/from-java.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-java.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-java.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/from-javascript.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-javascript.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-javascript.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/from-kotlin.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-kotlin.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-kotlin.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/from-python.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-python.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-python.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/from-rust.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/from-rust.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/from-rust.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/index.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/index.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/index.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/interop.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/interop.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/interop.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/language.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/language.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/language.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/memory.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/memory.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/memory.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/stdlib.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/stdlib.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/stdlib.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/threads.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/threads.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/threads.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/tour.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/tour.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/tour.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/types.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/types.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/types.html"/>
+  </url>
+</urlset>
