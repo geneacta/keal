@@ -422,8 +422,10 @@ it into a `val` first, and the checker will say so.
 
 ### `is`
 
-`is` tests a value's outer type at run time. Because type arguments are not
-observable at run time, `is List<Int>` is rejected and `is List` accepted:
+`is` tests a value's outer type at run time; `!is` is its negation. Only
+what survives to run time can be tested — the outer shape — so
+`is List<Int>`, `is T` and `is (Int) -> Int` are each rejected with the
+reason, while `is List` and a bare class name are accepted:
 
 ```keal
 fun describe(v: Any): String {
@@ -989,9 +991,14 @@ sizes, field offsets, what `T?` costs, what crosses into C — run
 
 ## 20. What is not here yet
 
-Class inheritance · exceptions and `try`/`catch` · destructuring a record in
-a `when` or a binding ·
-indexing and call operators (`Index`, `Invoke`) · associated types on traits ·
-a module namespace (imports are flat) · and the native backend: pointers,
-`constexpr`, macros, C interop and LLVM code generation. The evaluator walks
-the AST.
+Class inheritance (a non-goal) · indexing and call operators (`Index`,
+`Invoke`) · associated types on traits · a module namespace (imports are
+flat) · typed exceptions (`catch` binds the message as a `String`) ·
+`constexpr` and macros · a package manager.
+
+Shipped since this list was first written, and no longer on it: `throw` /
+`try` / `catch` on all three engines, destructuring a record in a `when`
+or a binding, the native backend through C11 (with C, C++, Rust, Go, Java
+and Kotlin interop), actors on real OS threads, `deinit`, and `Any`
+natively. What the C backend still refuses, it refuses **by name** —
+`keal build` never mis-compiles.

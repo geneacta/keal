@@ -16,3 +16,4 @@ examples/interop/polyglot/kotlin/greeter.jar
 examples/interop/polyglot/.jbind/
 # scratch binaries from local runs
 /mini
+.DS_Store

@@ -1056,6 +1056,16 @@ impl Checker {
                 return Type::Error;
             }
         }
+        // A function's signature is as unobservable as a type argument;
+        // saying yes to any callable would be a lie the arity contradicts.
+        if matches!(&te.kind, TypeExprKind::Fun { .. }) {
+            self.error_note(
+                te.span,
+                "`is` cannot test a function type",
+                "a function's signature has no run-time identity to check against",
+            );
+            return Type::Error;
+        }
         self.resolve(te)
     }
 

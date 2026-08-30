@@ -94,6 +94,11 @@ Facts flow from conditions into the scopes they dominate:
 * `x is C` narrows `x` to `C` in the true branch (and with `is C(a, b)`
   binds fields); `not` flips the branches; `x == null` / `x != null`
   narrow nullables to `Null` / `T`.
+* **`is` sees only what survives to run time**: the outer shape. Type
+  arguments do not (`is List` yes, `is List<Int>` no), type parameters
+  do not (`is T`), and neither does a function's signature
+  (`is (Int) -> Int`) — each is refused with the reason. A class tests
+  as itself, and its fields come back as `Any`.
 * `and` narrows its right operand by its left; a condition's facts
   reach `if`/`while` bodies and, negated, the code after a branch that
   always leaves (`return`/`throw`/`break` — the guard idiom, including

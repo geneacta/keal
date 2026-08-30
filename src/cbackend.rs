@@ -54,6 +54,9 @@ enum Elem {
     Float,
     /// The C type pointed at, and the prefix of its retain/release/show.
     Ptr(String, String),
+    /// An `Any` behind one counted `KealAnyBox*`: two words do not fit in
+    /// a one-word slot, so the box carries them and the count.
+    Any,
 }
 
 impl Elem {
@@ -64,6 +67,7 @@ impl Elem {
             Elem::Bool => format!("(KealWord){{ .i = (int64_t)({}) }}", v),
             Elem::Float => format!("(KealWord){{ .d = {} }}", v),
             Elem::Ptr(ctype, _) => format!("(KealWord){{ .p = ({}*){} }}", ctype, v),
+            Elem::Any => format!("(KealWord){{ .p = keal_any_box({}) }}", v),
         }
     }
 
@@ -74,6 +78,7 @@ impl Elem {
             Elem::Bool => format!("(bool){}.i", w),
             Elem::Float => format!("{}.d", w),
             Elem::Ptr(ctype, _) => format!("(({}*){}.p)", ctype, w),
+            Elem::Any => format!("(((KealAnyBox*){}.p)->a)", w),
         }
     }
 }
@@ -157,9 +162,17 @@ struct CBackend {
     /// Top-level bindings, which become C globals so that functions and
     /// lambdas see them — as the interpreters' single global scope does.
     global_vars: std::collections::HashSet<String>,
+    /// The top-level bindings whose declared type is `Any` — an `is` can
+    /// narrow one inside any function, and the reader must still unwrap.
+    any_globals: std::collections::HashSet<String>,
     global_decls: String,
     /// True while the outermost statements are being emitted into `main`.
     at_top_level: bool,
+    /// Set just before a statement's expression is emitted: its value is
+    /// discarded, so a branch join of `Any` — which the checker only ever
+    /// produces where using the value would be refused — needs no slot.
+    /// The branch emitters clear it, so nested expressions never see it.
+    discard_join: bool,
     /// Bodies of generated lambda functions, emitted after everything else.
     lambda_defs: String,
     next_lambda: usize,
@@ -228,8 +241,10 @@ impl CBackend {
             locals: Vec::new(),
             global_funs: std::collections::HashSet::new(),
             global_vars: std::collections::HashSet::new(),
+            any_globals: std::collections::HashSet::new(),
             global_decls: String::new(),
             at_top_level: false,
+            discard_join: false,
             lambda_defs: String::new(),
             next_lambda: 0,
             capture_env: None,
@@ -301,6 +316,8 @@ impl CBackend {
             Type::Bool => Some("bool".to_string()),
             Type::Str => Some("KealStr*".to_string()),
             Type::Unit => Some("void".to_string()),
+            // A tag and a payload, two words — `keal layout`'s promise.
+            Type::Any => Some("KealAny".to_string()),
             Type::Class(name, args) if self.shapes.contains_key(&**name) => {
                 if args.is_empty() {
                     Some(format!("{}*", struct_name(name)))
@@ -360,6 +377,8 @@ impl CBackend {
             Type::Str | Type::Class(_, _) | Type::List(_) | Type::Map(_, _) | Type::Fun(_) => {
                 true
             }
+            // Whether an `Any` counts depends on its tag; the calls decide.
+            Type::Any => true,
             Type::Nullable(inner) => Self::counted(inner),
             _ => false,
         }
@@ -373,6 +392,7 @@ impl CBackend {
             Type::List(_) => Some("keal_list_retain".to_string()),
             Type::Fun(_) => Some("keal_fn_retain".to_string()),
             Type::Map(_, _) => Some("keal_map_retain".to_string()),
+            Type::Any => Some("keal_any_retain".to_string()),
             // Retain and release both accept null, so a nullable needs no
             // special case beyond reaching through it.
             Type::Nullable(inner) => Self::retain_fn(inner),
@@ -388,6 +408,7 @@ impl CBackend {
             Type::List(_) => Some("keal_list_release".to_string()),
             Type::Fun(_) => Some("keal_fn_release".to_string()),
             Type::Map(_, _) => Some("keal_map_release".to_string()),
+            Type::Any => Some("keal_any_release".to_string()),
             Type::Nullable(inner) => Self::release_fn(inner),
             _ => None,
         }
@@ -442,6 +463,7 @@ impl CBackend {
             Type::Nullable(inner) if is_reference(inner) => {
                 return self.elem_kind(inner, span);
             }
+            Type::Any => Elem::Any,
             other => {
                 self.unsupported(span, &format!("lists of `{}`", other));
                 return None;
@@ -475,6 +497,7 @@ impl CBackend {
     fn releaser_thunk(&mut self, elem: &Elem) -> String {
         match elem {
             Elem::Int | Elem::Bool | Elem::Float => "NULL".to_string(),
+            Elem::Any => "keal_any_box_release".to_string(),
             Elem::Ptr(ctype, prefix) => {
                 let name = format!("rel_{}", prefix);
                 if !self.thunks.contains(&name) {
@@ -500,6 +523,21 @@ impl CBackend {
                 Item::Fun(f) => {
                     self.global_funs.insert(f.name.clone());
                     self.fun_decls.insert(f.name.clone(), f.clone());
+                }
+                // A top-level `Any` binding is known before any function
+                // body compiles: an `is` inside one can narrow it, and the
+                // reader must know to unwrap the tagged pair.
+                Item::Stmt(st) => {
+                    if let StmtKind::Let { name, ty, init, .. } = &st.kind {
+                        let says_any = matches!(
+                            ty.as_ref().map(|t| &t.kind),
+                            Some(TypeExprKind::Named { name, args })
+                                if name == "Any" && args.is_empty()
+                        );
+                        if says_any || init.ty() == Some(&Type::Any) {
+                            self.any_globals.insert(name.clone());
+                        }
+                    }
                 }
                 Item::Class(c) => {
                     self.class_decls.insert(c.name.clone(), c.clone());
@@ -1423,6 +1461,7 @@ impl CBackend {
                 "Bool" => Some(Type::Bool),
                 "String" => Some(Type::Str),
                 "Unit" => Some(Type::Unit),
+                "Any" => Some(Type::Any),
                 other if self.tsubst.contains_key(other) => {
                     Some(self.tsubst[other].clone())
                 }
@@ -1621,8 +1660,12 @@ impl CBackend {
         for o in &released {
             self.line(format!("{}({});", o.release, o.name));
             if self.catch_mode {
-                // The unwind label still lists the name; NULL keeps it safe.
-                self.line(format!("{} = NULL;", o.name));
+                // The unwind label still lists the name; empty keeps it safe.
+                if o.release == "keal_any_release" {
+                    self.line(format!("{} = keal_any_null();", o.name));
+                } else {
+                    self.line(format!("{} = NULL;", o.name));
+                }
             }
         }
         self.line("keal_drain_drops();");
@@ -1660,7 +1703,9 @@ impl CBackend {
             return;
         };
         let Some(mark) = self.unwind_marks.last_mut() else { return };
-        mark.hoisted.push(format!("{}{} {} = NULL;", mark.pad, ctype, name));
+        // A tagged pair is a struct; its empty value is the null `Any`.
+        let init = if ctype.trim() == "KealAny" { "keal_any_null()" } else { "NULL" };
+        mark.hoisted.push(format!("{}{} {} = {};", mark.pad, ctype, name, init));
         self.body.pop();
         if let Some(r) = replacement {
             self.body.push(r);
@@ -1784,6 +1829,9 @@ impl CBackend {
                 // nothing releases it.
                 if self.at_top_level && self.scopes.len() == 1 {
                     self.global_vars.insert(name.clone());
+                    if ty == Type::Any {
+                        self.any_globals.insert(name.clone());
+                    }
                     self.declare_local(name, &ty, *mutable);
                     let _ = writeln!(self.global_decls, "static {} {};", c, var);
                     let value = self.coerced_to(init, &ty);
@@ -1813,7 +1861,9 @@ impl CBackend {
                 }
             }
             StmtKind::Expr(e) => {
+                self.discard_join = true;
                 let value = self.expr(e);
+                self.discard_join = false;
                 // A call for its effect still has to be emitted; a bare value
                 // does not, and C would warn about it.
                 if value.ends_with(')') || value.starts_with("_t") {
@@ -2152,6 +2202,26 @@ impl CBackend {
                         }
                     }
                 }
+                // An `is` narrowed this `Any`: the C local is still the
+                // tagged pair, and the payload is read out borrowed — the
+                // variable keeps its reference for the narrowed scope.
+                let declared_any = declared.as_ref() == Some(&Type::Any)
+                    || (declared.is_none() && self.any_globals.contains(name.as_str()));
+                if declared_any {
+                    if let Some(t) = self.ety(e) {
+                        if t != Type::Any && t != Type::Error {
+                            let v = self.var_ref(name);
+                            let Some(read) = self.any_payload(&t, &v, e.span) else {
+                                return "0".to_string();
+                            };
+                            if Self::counted(&t) {
+                                let call = Self::retained(&t, &read);
+                                return self.own_temp_of(&t, call);
+                            }
+                            return read;
+                        }
+                    }
+                }
                 if let Some((ty, kind)) = self.celled.get(name).cloned() {
                     let access = kind.unword(&format!("{}->w", self.var_ref(name)));
                     if Self::counted(&ty) {
@@ -2189,6 +2259,17 @@ impl CBackend {
             ExprKind::Null => "NULL".to_string(),
             ExprKind::Elvis { lhs, rhs } => self.elvis(e, lhs, rhs),
             ExprKind::NotNull(inner) => {
+                if self.ety(inner) == Some(Type::Any) {
+                    let v = self.expr(inner);
+                    let t = self.temp();
+                    self.line(format!("const KealAny {} = {};", t, v));
+                    self.line(format!(
+                        "if ({}.ti == NULL) {{ keal_panic(\"`!!` was applied to a null value\", {}); }}",
+                        t, e.span.line
+                    ));
+                    self.check_unwind();
+                    return t;
+                }
                 if let Some(Type::Nullable(it)) = self.ety(inner) {
                     if is_value_opt(&Type::Nullable(it.clone())) {
                         let v = self.expr(inner);
@@ -2225,6 +2306,20 @@ impl CBackend {
                 self.method_call(e, obj, name, args, *safe)
             }
             ExprKind::When { subject, arms } => self.when(e, subject.as_deref(), arms),
+            ExprKind::Is { value, ty, negated } => {
+                if self.ety(value) != Some(Type::Any) {
+                    self.unsupported(e.span, "`is` on anything but an `Any`");
+                    return "0".to_string();
+                }
+                let v = self.expr(value);
+                let Some(target) = self.is_target(ty, e.span) else { return "0".to_string() };
+                let test = self.any_is_test(&target, &v, e.span);
+                if *negated {
+                    format!("(!{})", test)
+                } else {
+                    test
+                }
+            }
             other => {
                 self.unsupported(e.span, describe_expr(other));
                 "0".to_string()
@@ -3103,6 +3198,8 @@ impl CBackend {
             // exactly what the interpreters' `values_equal` does — and a
             // pointer is a word.
             Type::Class(_, _) | Type::Fun(_) => Some("keal_key_eq_word"),
+            // Boxed `Any`s compare through their tags, recursively.
+            Type::Any => Some("keal_any_box_eq"),
             Type::Nullable(inner) => match &**inner {
                 Type::Str => Some("keal_key_eq_opt_str"),
                 Type::Class(_, _) | Type::Fun(_) => Some("keal_key_eq_word"),
@@ -3369,7 +3466,7 @@ impl CBackend {
         self.own(&t, &Type::map(kt.clone(), vt.clone()));
         for (k, v) in entries {
             let kv = self.expr(k);
-            let vv = self.expr(v);
+            let vv = self.coerced_to(v, &vt);
             let sk = Self::retained(&kt, &kv);
             let sv = Self::retained(&vt, &vv);
             self.line(format!("keal_map_set({}, {}, {});", t, kk.word(&sk), vk.word(&sv)));
@@ -3395,6 +3492,7 @@ impl CBackend {
     /// list and map show generators alike.
     fn repr_call(&mut self, ty: &Type, expr: &str, span: Span) -> Option<String> {
         Some(match ty {
+            Type::Any => format!("keal_any_repr({})", expr),
             Type::Str => format!("keal_str_repr(keal_str_retain({}))", expr),
             Type::Int => format!("keal_str_from_int({})", expr),
             Type::Float => format!("keal_str_from_float({})", expr),
@@ -3457,7 +3555,7 @@ impl CBackend {
         self.line(format!("KealList* {} = keal_list_new({});", t, thunk));
         self.own(&t, &Type::list((*elem_ty).clone()));
         for item in items {
-            let v = self.expr(item);
+            let v = self.coerced_to(item, &elem_ty);
             // The list takes its own reference; the temp the element came
             // from is still released by this block.
             let stored = Self::retained(&elem_ty, &v);
@@ -3555,7 +3653,7 @@ impl CBackend {
                 self.line("} else {");
                 self.indent += 1;
                 self.open_scope();
-                let fv = self.expr(fb);
+                let fv = self.coerced_to(fb, &vt);
                 self.line(format!("{} = {};", slot, Self::retained(&vt, &fv)));
                 self.close_scope();
                 self.indent -= 1;
@@ -3563,9 +3661,9 @@ impl CBackend {
                 slot
             }
             None => {
-                // Without a fallback the result is `V?`, which only a
-                // reference can represent.
-                if !is_reference(&vt) {
+                // Without a fallback the result is `V?`, which a reference
+                // carries as its null pointer and an `Any` as its null tag.
+                if !is_reference(&vt) && vt != Type::Any {
                     self.unsupported(
                         e.span,
                         &format!("`m[k]` where the values are `{}` and no `?:` follows", vt),
@@ -3574,7 +3672,8 @@ impl CBackend {
                 }
                 let Some(ct) = self.ctype(&vt, e.span) else { return "0".to_string() };
                 let slot = self.temp();
-                self.line(format!("{} {} = NULL;", ct, slot));
+                let empty = if vt == Type::Any { "keal_any_null()" } else { "NULL" };
+                self.line(format!("{} {} = {};", ct, slot, empty));
                 self.own(&slot, &vt);
                 self.line(format!("if ({} >= 0) {{", at));
                 self.indent += 1;
@@ -3594,6 +3693,26 @@ impl CBackend {
             if matches!(self.ety(obj), Some(Type::Map(_, _))) {
                 return self.map_get(e, obj, index, Some(rhs));
             }
+        }
+        // An `Any` holding null takes the fallback, boxed to `Any` too.
+        if self.ety(lhs) == Some(Type::Any) {
+            let a = self.expr(lhs);
+            let slot = self.temp();
+            self.line(format!("KealAny {};", slot));
+            self.own(&slot, &Type::Any);
+            self.line(format!("if ({}.ti != NULL) {{", a));
+            self.indent += 1;
+            self.line(format!("{} = keal_any_retain({});", slot, a));
+            self.indent -= 1;
+            self.line("} else {");
+            self.indent += 1;
+            self.open_scope();
+            let fb = self.coerced_to(rhs, &Type::Any);
+            self.line(format!("{} = keal_any_retain({});", slot, fb));
+            self.close_scope();
+            self.indent -= 1;
+            self.line("}");
+            return slot;
         }
         // A tagged value: test the tag, take the value or the fallback.
         if let Some(Type::Nullable(inner)) = self.ety(lhs) {
@@ -3713,11 +3832,17 @@ impl CBackend {
             let elem_ty = elem_ty.clone();
             if let Some(elem) = self.elem_kind(&elem_ty, e.span) {
                 let l = self.expr(obj);
-                let v = self.expr(&args[0].value);
+                let v = self.coerced_to(&args[0].value, &elem_ty);
                 let stored = Self::retained(&elem_ty, &v);
                 self.line(format!("keal_list_push({}, {});", l, elem.word(&stored)));
                 return "0".to_string();
             }
+            return "0".to_string();
+        }
+        // An `Any` answers `toString` through the builtin path below; the
+        // guarded `?.` machinery is pointer-shaped, so it is refused here.
+        if receiver_ty == Some(Type::Any) && safe {
+            self.unsupported(e.span, "`?.` on an `Any`");
             return "0".to_string();
         }
         // The map methods the subset covers.
@@ -3823,16 +3948,26 @@ impl CBackend {
     /// its body and jumps out — which is what a `do { } while (0)` with
     /// `break`s spells in plain C.
     fn when(&mut self, e: &Expr, subject: Option<&Expr>, arms: &[WhenArm]) -> String {
-        // A branch join of `Any` can only sit in statement position — using
-        // the value would have been refused where it was used — so like
-        // `Unit` it needs no slot.
-        let produces =
-            !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never) | Some(Type::Any));
+        // A branch join of `Any` is a value like any other — the slot is
+        // the tagged pair, and each branch boxes into it on the way in —
+        // except in statement position, where the value is discarded and
+        // the branches may not even be values.
+        let discard = std::mem::replace(&mut self.discard_join, false);
+        let produces = !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never))
+            && !(discard && self.ety(e) == Some(Type::Any));
         let slot = if produces {
             let Some(ty) = self.ety(e) else { return "0".to_string() };
             let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
             let t = self.temp();
-            self.line(format!("{} {};", c, t));
+            // An `Any` slot starts empty: a branch whose last statement is
+            // not a value — which the join makes `Any` and the checker then
+            // refuses to *use* — simply leaves it null, and releasing a
+            // null tag is nothing.
+            if ty == Type::Any {
+                self.line(format!("{} {} = keal_any_null();", c, t));
+            } else {
+                self.line(format!("{} {};", c, t));
+            }
             if Self::counted(&ty) {
                 self.own(&t, &ty);
             }
@@ -3860,6 +3995,12 @@ impl CBackend {
         self.line("do {");
         self.indent += 1;
         for arm in arms {
+            // `is C(a, b)` binds fields the guard and body both see, so it
+            // cannot ride the plain condition chain; it gets its own shape.
+            if let WhenPattern::Is { ty, negated: false, binds: Some(d) } = &arm.pattern {
+                self.is_arm_with_binds(arm, ty, d, subject_slot.as_ref(), slot.as_deref().zip(slot_ty.as_ref()));
+                continue;
+            }
             // The test gets a scope of its own, closed before the branch, so
             // anything it allocated — a string candidate, say — is released
             // whether or not the arm is taken. Only the boolean crosses over.
@@ -3897,6 +4038,89 @@ impl CBackend {
         slot.unwrap_or_else(|| "0".to_string())
     }
 
+    /// `is C(a, b)`: the tag test opens the arm, the payload is cast once,
+    /// and each field binds borrowed — the subject's own temp keeps the
+    /// instance alive for the whole `when`. The guard runs after the binds,
+    /// inside the tag test; when it fails, the chain simply falls through.
+    fn is_arm_with_binds(
+        &mut self,
+        arm: &WhenArm,
+        te: &TypeExpr,
+        d: &Destructuring,
+        subject: Option<&(String, Type)>,
+        filled: Option<(&str, &Type)>,
+    ) {
+        let Some((sslot, sty)) = subject else {
+            self.unsupported(te.span, "`is` without a `when` subject");
+            return;
+        };
+        if *sty != Type::Any {
+            self.unsupported(te.span, "`is` on anything but an `Any` subject");
+            return;
+        }
+        let Some(target) = self.is_target(te, te.span) else { return };
+        let Type::Class(cname, cargs) = &target else {
+            self.unsupported(te.span, "destructuring a value that is not a class");
+            return;
+        };
+        let Some(decl) = self.class_decls.get(&**cname).cloned() else { return };
+        let mut subst: HashMap<std::rc::Rc<str>, Type> = HashMap::new();
+        for (p, a) in decl.type_params.iter().zip(cargs.iter()) {
+            subst.insert(std::rc::Rc::from(p.name.as_str()), a.clone());
+        }
+        let fields: Vec<(String, Type)> = self
+            .shapes
+            .get(&**cname)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(n, t)| (n, t.substitute(&subst)))
+            .collect();
+        let sn = if cargs.is_empty() {
+            struct_name(cname)
+        } else {
+            match self.instantiate_class(cname, cargs, te.span) {
+                Some(sn) => sn,
+                None => return,
+            }
+        };
+        let test = self.any_is_test(&target, sslot, te.span);
+        self.line(format!("if ({}) {{", test));
+        self.indent += 1;
+        self.open_scope();
+        let p = self.temp();
+        self.line(format!("{sn}* {p} = ({sn}*){s}.w.p;", sn = sn, p = p, s = sslot));
+        for (bind, (fname, fty)) in d.binds.iter().zip(fields.iter()) {
+            let Some(bname) = bind else { continue };
+            let Some(ct) = self.ctype(fty, te.span) else { continue };
+            self.line(format!("const {} {} = {}->{};", ct, mangle(bname), p, mangle(fname)));
+            self.declare_local(bname, fty, false);
+        }
+        let guard = arm.guard.as_ref().map(|g| {
+            self.open_scope();
+            let c = self.expr(g);
+            let t = self.temp();
+            self.line(format!("const bool {} = {};", t, c));
+            self.close_scope();
+            t
+        });
+        if let Some(g) = &guard {
+            self.line(format!("if ({}) {{", g));
+            self.indent += 1;
+        }
+        self.open_scope();
+        self.branch_body(&arm.body.stmts, filled);
+        self.close_scope();
+        self.line("break;");
+        if guard.is_some() {
+            self.indent -= 1;
+            self.line("}");
+        }
+        self.close_scope();
+        self.indent -= 1;
+        self.line("}");
+    }
+
     /// Emits an arm's test against the subject, returning the condition to
     /// branch on, or `None` for an unguarded `else`.
     fn arm_test(&mut self, arm: &WhenArm, subject: Option<&(String, Type)>) -> Option<String> {
@@ -3916,12 +4140,26 @@ impl CBackend {
                 }
                 conds.push(format!("({})", hits.join(" || ")));
             }
-            WhenPattern::Is { ty, .. } => {
-                self.unsupported(
-                    ty.span,
-                    "`is` in a `when` arm, which needs run-time type information",
-                );
-                conds.push("false".to_string());
+            WhenPattern::Is { ty, negated, .. } => {
+                match subject {
+                    Some((slot, sty)) if *sty == Type::Any => {
+                        match self.is_target(ty, ty.span) {
+                            Some(target) => {
+                                let test = self.any_is_test(&target, slot, ty.span);
+                                conds.push(if *negated {
+                                    format!("(!{})", test)
+                                } else {
+                                    test
+                                });
+                            }
+                            None => conds.push("false".to_string()),
+                        }
+                    }
+                    _ => {
+                        self.unsupported(ty.span, "`is` on anything but an `Any` subject");
+                        conds.push("false".to_string());
+                    }
+                }
             }
             WhenPattern::In { range, negated } => {
                 let Some((slot, _)) = subject else { return Some("false".to_string()) };
@@ -3950,6 +4188,11 @@ impl CBackend {
         match ty {
             Type::Str => format!("(keal_str_cmp({}, {}) == 0)", slot, rhs),
             Type::Int | Type::Float | Type::Bool => format!("({} == {})", slot, rhs),
+            Type::Any => {
+                let rt = self.ety(at);
+                let r = self.any_of(rt.as_ref(), rhs.to_string(), at.span);
+                format!("keal_any_eq({}, {})", slot, r)
+            }
             other => {
                 self.unsupported(at.span, &format!("matching on a value of type `{}`", other));
                 "false".to_string()
@@ -4018,6 +4261,26 @@ impl CBackend {
             ));
             self.check_unwind();
             return t;
+        }
+        // `Any` equality is dynamic: same tag, then the interpreters'
+        // values_equal — structure for data, identity for instances. A null
+        // literal against an `Any` is a tag test.
+        if matches!(op, BinOp::Eq | BinOp::Ne) {
+            let rty = self.ety(rhs);
+            let l_any = lty.as_ref() == Some(&Type::Any);
+            let r_any = rty.as_ref() == Some(&Type::Any);
+            if l_any || r_any {
+                let test = if matches!(rhs.kind, ExprKind::Null) {
+                    format!("({}.ti == NULL)", a)
+                } else if matches!(lhs.kind, ExprKind::Null) {
+                    format!("({}.ti == NULL)", b)
+                } else {
+                    let av = if l_any { a } else { self.any_of(lty.as_ref(), a, lhs.span) };
+                    let bv = if r_any { b } else { self.any_of(rty.as_ref(), b, rhs.span) };
+                    format!("keal_any_eq({}, {})", av, bv)
+                };
+                return if op == BinOp::Ne { format!("(!{})", test) } else { test };
+            }
         }
         // `x == null` on a tagged value is a presence test, not a compare.
         if matches!(op, BinOp::Eq | BinOp::Ne) {
@@ -4132,6 +4395,7 @@ impl CBackend {
         let v = self.expr(e);
         let call = match ty {
             Some(Type::Str) => return v,
+            Some(Type::Any) => format!("keal_any_display({})", v),
             Some(Type::Int) => format!("keal_str_from_int({})", v),
             Some(Type::Float) => format!("keal_str_from_float({})", v),
             Some(Type::Bool) => format!("keal_str_from_bool({})", v),
@@ -4253,13 +4517,22 @@ impl CBackend {
     /// slot mechanics, with expressions for branches. The condition is
     /// emitted once; a `Comp` reads its sign into a temp for the split.
     fn ternary(&mut self, e: &Expr, cond: &Expr, branches: &[Expr]) -> String {
-        let produces =
-            !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never) | Some(Type::Any));
+        let discard = std::mem::replace(&mut self.discard_join, false);
+        let produces = !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never))
+            && !(discard && self.ety(e) == Some(Type::Any));
         let slot = if produces {
             let Some(ty) = self.ety(e) else { return "0".to_string() };
             let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
             let t = self.temp();
-            self.line(format!("{} {};", c, t));
+            // An `Any` slot starts empty: a branch whose last statement is
+            // not a value — which the join makes `Any` and the checker then
+            // refuses to *use* — simply leaves it null, and releasing a
+            // null tag is nothing.
+            if ty == Type::Any {
+                self.line(format!("{} {} = keal_any_null();", c, t));
+            } else {
+                self.line(format!("{} {};", c, t));
+            }
             if Self::counted(&ty) {
                 self.own(&t, &ty);
             }
@@ -4313,16 +4586,26 @@ impl CBackend {
     }
 
     fn if_expr(&mut self, e: &Expr, cond: &Expr, then: &Block, els: Option<&Else>) -> String {
-        // A branch join of `Any` can only sit in statement position — using
-        // the value would have been refused where it was used — so like
-        // `Unit` it needs no slot.
-        let produces =
-            !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never) | Some(Type::Any));
+        // A branch join of `Any` is a value like any other — the slot is
+        // the tagged pair, and each branch boxes into it on the way in —
+        // except in statement position, where the value is discarded and
+        // the branches may not even be values.
+        let discard = std::mem::replace(&mut self.discard_join, false);
+        let produces = !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never))
+            && !(discard && self.ety(e) == Some(Type::Any));
         let slot = if produces {
             let Some(ty) = self.ety(e) else { return "0".to_string() };
             let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
             let t = self.temp();
-            self.line(format!("{} {};", c, t));
+            // An `Any` slot starts empty: a branch whose last statement is
+            // not a value — which the join makes `Any` and the checker then
+            // refuses to *use* — simply leaves it null, and releasing a
+            // null tag is nothing.
+            if ty == Type::Any {
+                self.line(format!("{} {} = keal_any_null();", c, t));
+            } else {
+                self.line(format!("{} {};", c, t));
+            }
             if Self::counted(&ty) {
                 self.own(&t, &ty);
             }
@@ -4384,16 +4667,203 @@ impl CBackend {
             self.expr(e);
             return;
         };
+        // A statement-shaped expression cannot fill an `Any` slot; it runs
+        // for its effect and the slot stays as it started.
+        if *slot_ty == Type::Any
+            && matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never))
+        {
+            let v = self.expr(e);
+            if v.ends_with(')') || v.starts_with("_t") {
+                self.line(format!("(void)({});", v));
+            }
+            return;
+        }
         let counted = self.ety(e).map(|t| Self::counted(&t)).unwrap_or(false);
         if counted {
-            let v = self.expr(e);
-            match self.ety(e) {
+            let v = self.coerced_to(e, slot_ty);
+            // Boxed into an `Any` slot, the retain is the `Any`'s own;
+            // otherwise the value keeps its type's retain, as before.
+            let ty = if *slot_ty == Type::Any { Some(Type::Any) } else { self.ety(e) };
+            match ty {
                 Some(ty) => self.line(format!("{} = {};", t, Self::retained(&ty, &v))),
                 None => self.line(format!("{} = {};", t, v)),
             }
         } else {
             let v = self.coerced_to(e, slot_ty);
             self.line(format!("{} = {};", t, v));
+        }
+    }
+
+    /// The static type-info an `Any` tags this type's values with — what
+    /// `is` compares, what `typeOf` names. Only types whose every value has
+    /// one layout get a tag: scalars, strings, `List<Any>`, and classes at
+    /// their all-`Any` (or arg-free) instantiation. That rule is what keeps
+    /// native narrowing honest — the payload always is what the tag says.
+    fn any_ti_of(&mut self, ty: &Type, span: Span) -> Option<String> {
+        match ty {
+            Type::Int => Some("&keal_ti_int".to_string()),
+            Type::Float => Some("&keal_ti_float".to_string()),
+            Type::Bool => Some("&keal_ti_bool".to_string()),
+            Type::Str => Some("&keal_ti_str".to_string()),
+            Type::List(inner) if **inner == Type::Any => Some("&keal_ti_list".to_string()),
+            Type::Class(name, args)
+                if self.shapes.contains_key(&**name)
+                    && (args.is_empty() || args.iter().all(|a| *a == Type::Any)) =>
+            {
+                let sn = if args.is_empty() {
+                    struct_name(name)
+                } else {
+                    self.instantiate_class(name, args, span)?
+                };
+                self.ensure_class_ti(&sn, name);
+                Some(format!("&{}_ti", sn))
+            }
+            _ => None,
+        }
+    }
+
+    /// Emits (once) a class's type-info: its show and retain behind the
+    /// word-shaped signatures the info wants, identity equality — exactly
+    /// how the interpreters compare dynamic instances.
+    fn ensure_class_ti(&mut self, sn: &str, bare: &str) {
+        let key = format!("ti|{}", sn);
+        if self.thunks.contains(&key) {
+            return;
+        }
+        self.thunks.insert(key);
+        let rel = self.releaser_thunk(&Elem::Ptr(sn.to_string(), sn.to_string()));
+        let _ = write!(
+            self.helpers,
+            "static KealStr* {sn}_ti_show(KealWord w) {{ return {sn}_show(({sn}*)w.p); }}\n\
+             static void {sn}_ti_retain(void* p) {{ {sn}_retain(({sn}*)p); }}\n\
+             static const KealTypeInfo {sn}_ti = {{ {name}, {sn}_ti_retain, {rel}, {sn}_ti_show, keal_any_ptr_eq }};\n",
+            sn = sn,
+            name = c_string(bare),
+            rel = rel
+        );
+    }
+
+    /// A value crossing into an `Any` hole, borrowed in, borrowed out.
+    /// What has no tag is refused by name, where it tries to cross.
+    fn any_of(&mut self, source: Option<&Type>, v: String, span: Span) -> String {
+        let Some(src) = source else { return v };
+        match src {
+            Type::Any | Type::Error => v,
+            Type::Never => "keal_any_null()".to_string(),
+            Type::Null => "keal_any_null()".to_string(),
+            Type::Int => format!("((KealAny){{ .ti = &keal_ti_int, .w = {{ .i = {} }} }})", v),
+            Type::Bool => format!(
+                "((KealAny){{ .ti = &keal_ti_bool, .w = {{ .i = (int64_t)({}) }} }})",
+                v
+            ),
+            Type::Float => {
+                format!("((KealAny){{ .ti = &keal_ti_float, .w = {{ .d = {} }} }})", v)
+            }
+            Type::Nullable(inner) => match &**inner {
+                Type::Int => format!("keal_any_of_opt_i64({})", v),
+                Type::Float => format!("keal_any_of_opt_f64({})", v),
+                Type::Bool => format!("keal_any_of_opt_bool({})", v),
+                other => match self.any_ti_of(&other.clone(), span) {
+                    Some(ti) => format!("keal_any_of_ptr({}, (void*){})", ti, v),
+                    None => {
+                        self.refuse(
+                            span,
+                            &format!("a `{}` into an `Any`", src),
+                            "only a value whose layout its tag can name crosses; a container crosses at its `<Any>` element type",
+                        );
+                        "keal_any_null()".to_string()
+                    }
+                },
+            },
+            other => match self.any_ti_of(other, span) {
+                Some(ti) => format!("keal_any_of_ptr({}, (void*){})", ti, v),
+                None => {
+                    self.refuse(
+                        span,
+                        &format!("a `{}` into an `Any`", other),
+                        "only a value whose layout its tag can name crosses; a container crosses at its `<Any>` element type",
+                    );
+                    "keal_any_null()".to_string()
+                }
+            },
+        }
+    }
+
+    /// Reads a narrowed `Any`'s payload, borrowed — the tagged variable
+    /// keeps its reference for as long as the narrowed scope runs.
+    fn any_payload(&mut self, ty: &Type, v: &str, span: Span) -> Option<String> {
+        Some(match ty {
+            Type::Int => format!("({}.w.i)", v),
+            Type::Bool => format!("((bool){}.w.i)", v),
+            Type::Float => format!("({}.w.d)", v),
+            Type::Str => format!("((KealStr*){}.w.p)", v),
+            Type::List(inner) if **inner == Type::Any => format!("((KealList*){}.w.p)", v),
+            Type::Class(name, args)
+                if self.shapes.contains_key(&**name)
+                    && (args.is_empty() || args.iter().all(|a| *a == Type::Any)) =>
+            {
+                let sn = if args.is_empty() {
+                    struct_name(name)
+                } else {
+                    self.instantiate_class(name, args, span)?
+                };
+                format!("(({}*){}.w.p)", sn, v)
+            }
+            other => {
+                self.unsupported(span, &format!("narrowing an `Any` to `{}`", other));
+                return None;
+            }
+        })
+    }
+
+    /// What the checker resolved an `is` target to: bare containers test
+    /// the container alone, a bare class tests the class alone — its
+    /// arguments, if any, read back as `Any`.
+    fn is_target(&mut self, te: &TypeExpr, span: Span) -> Option<Type> {
+        match &te.kind {
+            TypeExprKind::Named { name, args } if args.is_empty() => Some(match name.as_str() {
+                "Int" => Type::Int,
+                "Float" => Type::Float,
+                "Bool" => Type::Bool,
+                "String" => Type::Str,
+                "Any" => Type::Any,
+                "Unit" => Type::Unit,
+                "Nothing" => Type::Never,
+                "Range" => Type::Range,
+                "List" => Type::list(Type::Any),
+                "Map" => Type::map(Type::Any, Type::Any),
+                other if self.class_decls.contains_key(other) => {
+                    let n = self.class_decls[other].type_params.len();
+                    Type::class(other, vec![Type::Any; n])
+                }
+                other => {
+                    self.unsupported(span, &format!("`is {}`", other));
+                    return None;
+                }
+            }),
+            _ => {
+                self.unsupported(span, "`is` on this type");
+                None
+            }
+        }
+    }
+
+    /// The `is` test itself: a tag compare. A type no value can carry
+    /// natively — a payload the backend refused at every entry — tests
+    /// false, which is exactly what it would have answered.
+    fn any_is_test(&mut self, target: &Type, v: &str, span: Span) -> String {
+        match target {
+            Type::Any => format!("({}.ti != NULL)", v),
+            Type::Unit | Type::Never | Type::Range | Type::Map(_, _) | Type::Fun(_) => {
+                "false".to_string()
+            }
+            other => match self.any_ti_of(other, span) {
+                Some(ti) => format!("({}.ti == {})", v, ti),
+                None => {
+                    self.unsupported(span, &format!("`is {}`", other));
+                    "false".to_string()
+                }
+            },
         }
     }
 
@@ -4606,6 +5076,53 @@ impl CBackend {
             // the whole process at once.
             self.line(format!("exit((int)({}));", c));
             return "0".to_string();
+        }
+        // `typeOf`: dynamic for an `Any` — the tag names itself — and a
+        // compile-time constant for everything else, spelled exactly as the
+        // interpreters' `type_name` spells it.
+        if name == "typeOf" && args.len() == 1 {
+            let t = self.ety(&args[0].value);
+            if t == Some(Type::Any) {
+                let v = self.expr(&args[0].value);
+                let call = format!("keal_any_type_name({})", v);
+                return self.own_temp_of(&Type::Str, call);
+            }
+            let named = match &t {
+                Some(Type::Int) => Some("Int"),
+                Some(Type::Float) => Some("Float"),
+                Some(Type::Bool) => Some("Bool"),
+                Some(Type::Str) => Some("String"),
+                Some(Type::List(_)) => Some("List"),
+                Some(Type::Map(_, _)) => Some("Map"),
+                Some(Type::Range) => Some("Range"),
+                Some(Type::Fun(_)) => Some("Function"),
+                Some(Type::Null) => Some("Null"),
+                Some(Type::Class(n, _)) => {
+                    let bare: &str = n;
+                    let owned = bare.to_string();
+                    let v = self.expr(&args[0].value);
+                    if v.ends_with(')') || v.starts_with("_t") {
+                        self.line(format!("(void)({});", v));
+                    }
+                    let call = format!(
+                        "keal_str_static({}, {})",
+                        c_string(&owned),
+                        owned.len()
+                    );
+                    return self.own_temp_of(&Type::Str, call);
+                }
+                _ => None,
+            };
+            let Some(n) = named else {
+                self.unsupported(e.span, "`typeOf` of this value");
+                return "0".to_string();
+            };
+            let v = self.expr(&args[0].value);
+            if v.ends_with(')') || v.starts_with("_t") {
+                self.line(format!("(void)({});", v));
+            }
+            let call = format!("keal_str_static({}, {})", c_string(n), n.len());
+            return self.own_temp_of(&Type::Str, call);
         }
         // `assert`: the message, when given, is evaluated eagerly — the
         // interpreters evaluate arguments before the call, and so does this.
@@ -4920,6 +5437,11 @@ impl CBackend {
     /// absent form. Everywhere a plain value meets a nullable slot goes
     /// through here, so the wrapping exists in exactly one place.
     fn coerced_to(&mut self, e: &Expr, target: &Type) -> String {
+        if *target == Type::Any {
+            let src = self.ety(e);
+            let v = self.expr(e);
+            return self.any_of(src.as_ref(), v, e.span);
+        }
         if is_value_opt(target) {
             let Type::Nullable(inner) = target else { unreachable!() };
             if matches!(e.kind, ExprKind::Null) {
@@ -4970,7 +5492,7 @@ impl CBackend {
                 let Some((kt, vt, kk, vk)) = self.map_parts(obj, span) else { return };
                 let m = self.expr(obj);
                 let k = self.expr(index);
-                let v = self.expr(value);
+                let v = self.coerced_to(value, &vt);
                 let sk = Self::retained(&kt, &k);
                 let sv = Self::retained(&vt, &v);
                 self.line(format!(
@@ -4995,7 +5517,7 @@ impl CBackend {
             let Some(elem) = self.elem_kind(&elem_ty, span) else { return };
             let l = self.expr(obj);
             let i = self.expr(index);
-            let v = self.expr(value);
+            let v = self.coerced_to(value, &elem_ty);
             let stored = if self.catch_mode && Self::counted(&elem_ty) {
                 // The set can panic before it takes the reference; owning
                 // it in a temp keeps the unwind path exact, and a clean
@@ -5017,9 +5539,18 @@ impl CBackend {
                     ));
                     self.check_unwind();
                     if self.catch_mode {
-                        self.line(format!("{} = NULL;", stored));
+                        if *elem_ty == Type::Any {
+                            self.line(format!("{} = keal_any_null();", stored));
+                        } else {
+                            self.line(format!("{} = NULL;", stored));
+                        }
                     }
-                    self.line(format!("{}({});", release, elem.unword(&old)));
+                    // A boxed element's displaced word is the box itself.
+                    if matches!(elem, Elem::Any) {
+                        self.line(format!("keal_any_box_release({}.p);", old));
+                    } else {
+                        self.line(format!("{}({});", release, elem.unword(&old)));
+                    }
                 }
                 None => {
                     // Nothing to release, so the displaced word is discarded.
@@ -5039,7 +5570,7 @@ impl CBackend {
             if let Some((cty, kind)) = self.celled.get(name).cloned() {
                 // Compound assignment reads through the same cell first.
                 let v = match op {
-                    None => self.expr(value),
+                    None => self.coerced_to(value, &cty),
                     Some(binop) => {
                         let synthetic = Expr {
                             kind: ExprKind::Binary {
@@ -5055,7 +5586,9 @@ impl CBackend {
                     }
                 };
                 let cell = self.var_ref(name);
-                if let Some(rel) = Self::release_fn(&cty) {
+                if matches!(kind, Elem::Any) {
+                    self.line(format!("keal_any_box_release({}->w.p);", cell));
+                } else if let Some(rel) = Self::release_fn(&cty) {
                     self.line(format!("{}({});", rel, kind.unword(&format!("{}->w", cell))));
                 }
                 let stored = Self::retained(&cty, &v);
@@ -5085,7 +5618,10 @@ impl CBackend {
         let ty = self.ety(target);
         match op {
             None => {
-                let v = self.expr(value);
+                let v = match &ty {
+                    Some(t) => self.coerced_to(value, t),
+                    None => self.expr(value),
+                };
                 match ty.as_ref().filter(|t| Self::counted(t)) {
                     Some(t) => {
                         let release = Self::release_fn(t).expect("a counted type releases");
@@ -5632,9 +6168,10 @@ fn mangle_type(ty: &Type) -> String {
             parts.push(mangle_type(&ft.ret));
             format!("Fn_{}", parts.join("_"))
         }
+        Type::Any => "Any".into(),
         // Reaching here with one of these is a bug upstream; the name only
         // has to be distinct enough to fail loudly in the C compiler.
-        Type::Any | Type::Null | Type::Never | Type::Error | Type::Param(_) | Type::SelfTy => {
+        Type::Null | Type::Never | Type::Error | Type::Param(_) | Type::SelfTy => {
             "Unrepresentable".into()
         }
     }
@@ -5824,10 +6361,18 @@ fn program_uses_actors(p: &Program) -> bool {
         });
         found
     }
+    // The prelude *declares* the actor classes, so mentioning them there is
+    // not using them: the file that declares `ActorSystem` is excluded, and
+    // a program that never names an actor keeps plain counts and no pthread.
+    let prelude_file = p.items.iter().find_map(|i| match i {
+        Item::Class(c) if c.name == "ActorSystem" => Some(c.span.file),
+        _ => None,
+    });
+    let outside = |sp: Span| prelude_file.map(|f| sp.file != f).unwrap_or(true);
     p.items.iter().any(|i| match i {
-        Item::Stmt(s) => in_stmt(s),
-        Item::Fun(f) => in_fun(f),
-        Item::Class(c) => in_class(c),
+        Item::Stmt(s) => outside(s.span) && in_stmt(s),
+        Item::Fun(f) => outside(f.span) && in_fun(f),
+        Item::Class(c) => outside(c.span) && in_class(c),
         _ => false,
     })
 }

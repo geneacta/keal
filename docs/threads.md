@@ -150,5 +150,11 @@ for weekdays from its own thread; the suite runs it under a JDK.
 *Cost, as it turned out: stages 1–5 changed no line of user code. The
 scheduler is four generated method bodies and one runtime section behind
 a `#define` — in a program without actors the define is absent, the
-count macros collapse to plain `++`/`--`, and no pthread is included:
-the zero-cost claim is one preprocessor pass from checkable.*
+count macros collapse to plain `++`/`--`, and no pthread is included.
+That claim was checkable, so it got checked, and the first check failed:
+the switch scanned the whole program for the actor names, and the
+**prelude declares them**, so every program was compiling with atomic
+counts. Declaring is not using — the file that declares `ActorSystem` is
+now excluded from the scan, and `grep KEAL_ACTORS` on the emitted C is
+the one-line audit. (The bug cost about 15% on a refcount-saturated
+microbenchmark and nothing measurable elsewhere; it was wrong regardless.)*

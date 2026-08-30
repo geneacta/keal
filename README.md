@@ -478,10 +478,12 @@ by monomorphisation**: the checker records the solved type arguments on every
 call, and the backend emits one C copy of the function or class per distinct
 set, on demand. `firstOr<T>` used at `Int` and `String` becomes two plain C
 functions; `Boxed<T>` and the tuples become one struct per instantiation,
-each with its own retain, release, equality and rendering. What does
-not compile natively is now exactly one thing: `Any`, the dynamically-typed
-escape hatch, which needs run-time type information that scalar native code
-does not carry. Everything else landed — `Map`, default and named arguments,
+each with its own retain, release, equality and rendering. `Any` compiles
+too, as the tag-and-payload pair [`docs/memory.md`](docs/memory.md) §4
+always priced it at: `is` is a tag compare, `typeOf` reads the tag's name,
+and narrowing casts the payload. What a tag cannot name — a `List<Int>`,
+whose elements have their own stride — is refused at the boundary rather
+than mis-shaped. Everything else landed — `Map`, default and named arguments,
 generic methods, `var` capture through shared heap cells, `Int?` as the
 tagged struct `keal layout` always priced it at, and the host trio
 (`args()`, `readFile`, `writeFile`, `exit`) that self-hosting stands on.
@@ -537,11 +539,9 @@ Keal file in [`examples/interop/polyglot/`](examples/interop/polyglot/),
 and [`docs/interop.md`](docs/interop.md) tells that whole story. Exceptions
 used to live here too; all three engines catch them now. So did actors on
 real threads: `keal build` runs one OS thread per actor today, TSan-clean,
-and [`docs/threads.md`](docs/threads.md) is the record of how.)
+and [`docs/threads.md`](docs/threads.md) is the record of how. And so did
+`Any` natively — the tag-and-payload pair, `is` as a tag compare.)
 
-* **`Any` in native code** — the one construct the C backend still refuses
-  (by name, as always). It needs run-time type information; the tagged
-  representation is already designed in [`docs/memory.md`](docs/memory.md) §4.
 * **Cycle handling** — reference counting leaks cycles; the three candidate
   answers (documented leak, weak references, cycle collector) are weighed in
   [`docs/memory.md`](docs/memory.md) §5 and not yet chosen.

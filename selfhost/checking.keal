@@ -1172,6 +1172,16 @@ class Checker() {
                 return Ty("Error")
             }
         }
+        // A function's signature is as unobservable as a type argument;
+        // saying yes to any callable would be a lie the arity contradicts.
+        if (te.kind == "fun") {
+            this.errorNote(
+                te.file, te.line, te.col,
+                "`is` cannot test a function type",
+                "a function's signature has no run-time identity to check against"
+            )
+            return Ty("Error")
+        }
         return this.resolve(te)
     }
 

@@ -1,0 +1,62 @@
+fun render(v: Any): String {
+    return when (v) {
+        is Int -> "int:${v + 1}"
+        is String -> "str:${v.toUpper()}"
+        is List -> "list:${v.size}"
+        else -> "other:" + typeOf(v)
+    }
+}
+println(render(1))
+println(render("ab"))
+println(render(1.5))
+println(render(true))
+println(render(null))
+
+record Circle(val r: Float)
+record Duo(val a: Int, val b: String)
+fun area(shape: Any): Float {
+    return when (shape) {
+        is Circle(r) if (r > 10.0) -> r
+        is Circle(r) -> r * 2.0
+        is Duo(a, b) -> a.toFloat()
+        else -> 0.0
+    }
+}
+println(area(Circle(3.0)))
+println(area(Circle(12.0)))
+println(area(Duo(7, "x")))
+
+val inner: List<Any> = [4]
+val xs: List<Any> = [1, "two", 3.5, null, inner]
+println(xs)
+println(xs[1])
+val d: Any = xs[0]
+println(d is Int)
+println(d !is String)
+println(d == 1)
+println(d == xs[0])
+val expect: List<Any> = [1, "two", 3.5, null, inner]
+println(xs == expect)
+var total = 0
+for (v in xs) {
+    if (v is Int) { total += v }
+}
+println(total)
+
+val g: Any = "hidden"
+fun peek(): String {
+    if (g is String) { return "${g.length}" }
+    return "?"
+}
+println(peek())
+println("mix: " + d)
+println("${d} et ${g}")
+val maybe: Any = null
+println(maybe ?: "fallback")
+println(when (d) { 1 -> "one" else -> "no" })
+val m: Map<String, Any> = {"a": 1, "b": "two"}
+println(m["a"])
+println(m["zz"])
+println(d.toString())
+val t: Any = true ? 1 : "x"
+println(t)

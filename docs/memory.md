@@ -97,12 +97,25 @@ language will not pretend otherwise.
 ## 4. `Any`
 
 A value whose type is not known statically is a tag and a payload, two words
-in all. The tag says what the payload is, which is what `is` tests read and
-what tells the release path whether the payload owns a reference.
+in all — and this is now what the native backend emits, not just what the
+layout table priced. The tag is a pointer to the type's static info: its
+name (what `typeOf` reads), how to retain and release the payload, how to
+render it, how to compare it. `is` is a tag comparison and nothing more;
+narrowing casts the payload back to the type the tag names, borrowed —
+the tagged variable keeps the reference for the narrowed scope. A null
+`Any` is a null tag, which is why `Any?` costs nothing beyond `Any`.
 
-A value wider than one word — a `Range`, say — is boxed on the way into an
-`Any`. That is what keeps `Any` one size whatever it holds, which is what lets
+What crosses into an `Any` is exactly what one tag can name: `Int`,
+`Float`, `Bool`, `String`, a class at its argument-free or all-`Any`
+instantiation, and `List<Any>`. A `List<Int>` does **not** cross — its
+elements have their own stride, and an `Any` container holds `Any`
+elements — so the backend refuses it by name at the boundary rather than
+mis-shaping it. Inside a container, where a slot is one word and an `Any`
+is two, the pair lives behind one counted box; that is what lets
 `List<Any>` have a stride at all.
+
+Two costs, stated: an `Any` is 16 bytes wherever it is stored, and an
+`Any` inside a list is one allocation per element.
 
 ---
 

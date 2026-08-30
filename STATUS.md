@@ -1,6 +1,6 @@
 # STATUS — where the work stands, and how to resume it
 
-*Updated: 2026-08-28. This file is the hand-off: if a session dies, the next
+*Updated: 2026-08-30. This file is the hand-off: if a session dies, the next
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
@@ -24,7 +24,7 @@ commit that leaves work in flight.*
    included); `tests/native/*` runs on all three engines.
 5. **Verification loop** (run before every commit):
    - the four-corpora loop (see below), `cargo test --release` (currently
-     27 green incl. bootstrap fixed point and the actor TSan check), `./bootstrap.sh`.
+     28 green incl. bootstrap fixed point, actor TSan, actor-thread JNI), `./bootstrap.sh`.
    - corpora loop, for each cmd/driver pair above:
      `for f in tests/programs/*.keal examples/*.keal tests/native/*.keal
      tests/native-extern/*.keal tests/selfhost/*.keal selfhost/*.keal
@@ -61,6 +61,66 @@ Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 (`throw` / `try`-`catch` on all three engines incl. native checked
 unwinding), the six-language polyglot demo AND the ternary family are
 **DONE and pushed**. See NEXT.
+
+**`Any` natively — the last construct the C backend refused. DONE.**
+Representation is memory.md §4 made real: `KealAny { const KealTypeInfo* ti;
+KealWord w; }` — 16 bytes, tag + payload. KealTypeInfo = { name, retain,
+release, show, eq }; statics keal_ti_int/float/bool/str/list in runtime.c,
+per-class `K_X_ti` generated once by ensure_class_ti (identity eq, like the
+interpreters compare dynamic instances). NULL ti == null Any (that's why
+Any? collapses to Any). Inside containers a slot is one word and an Any is
+two, so it boxes: KealAnyBox { rc; KealAny } with keal_any_box /
+keal_any_box_release / keal_any_box_eq — Elem::Any (twin CElem kind "any")
+carries this in elemWord/elemUnword/releaserThunk/elemEqFn.
+ENTRY RULE (any_of/anyOf): only what one tag can name crosses — scalars,
+String, List<Any>, class at arg-free-or-all-Any instantiation, and the
+value-optionals via keal_any_of_opt_i64/f64/bool. A List<Int> is REFUSED
+by name at the boundary ("only a value whose layout its tag can name
+crosses") — that is the honest edge, pinned by native-unsupported/covered.
+EXIT RULE (any_payload): `is` narrowing casts the payload BORROWED; the
+tagged variable keeps the reference for the narrowed scope. Ident reads
+consult declared==Any (locals) or the new `any_globals` set, filled by a
+prepass over top-level Lets in program() because a function body compiles
+before main's statements.
+Wiring: coerced_to gained the Any arm (that's the single funnel — Let,
+Return, args, fill_slot, list/map literals, add(), assign, map value,
+elvis fallback all route through it); binary == on Any -> keal_any_eq
+(null literal -> tag test); equality() Any arm for when-value arms;
+elvis/notnull Any arms; to_string_value -> keal_any_display (bare string
+stays bare), repr_call -> keal_any_repr (quoted, like the interpreters);
+typeOf is dynamic on Any, a compile-time constant string elsewhere;
+`?.` on an Any refused by name (pointer-shaped machinery).
+when-arms: plain `is` = tag compare in arm_test; `is C(a,b)` needs its
+own emitter (is_arm_with_binds / isArmWithBinds) because binds must be
+visible to the guard AND the body — cast once, bind borrowed, guard
+inside the tag test, `break` at the end.
+JOIN SUBTLETY (cost me the first green): Any joins now take a slot, but
+NOT in statement position — an if/else whose branches are statements
+joins to Any and its "value" is never legitimately read (the checker
+refuses using it). New `discard_join` flag set around a statement's
+expression and cleared by the three join emitters; Any slots also
+initialize to keal_any_null() and fill_slot runs valueless branches for
+effect only. Without this, prelude flatMap failed to compile.
+Checker: `is` on a FUNCTION TYPE is now refused ("a function's signature
+has no run-time identity") — it was a real oracle/twin divergence the
+map found: VM said true for any callable, interp always false.
+FOUND+FIXED (serious, pre-existing since the scheduler commit):
+program_uses_actors scanned the WHOLE program for ActorSystem/ActorRef/
+copyClosure — and THE PRELUDE DECLARES THEM, so KEAL_ACTORS was defined
+for every program and every native binary ran atomic refcounts. Declaring
+is not using: the file that declares ActorSystem is excluded from the
+scan now (oracle + twin). Audit is `grep KEAL_ACTORS` on emitted C:
+core.keal 0, actors.keal 1. Measured cost of the bug: ~15% on a
+refcount-saturated microbench, nothing measurable elsewhere — wrong
+regardless; threads.md records it.
+Tests: tests/native/any.keal + .expected (three engines: when/is arms,
+is C(r) with guards, List<Any> incl. nested, ==, for+narrow, global
+narrow inside a function, interpolation, ?: on Any, map values, typeOf,
+ternary join), covered.keal rewritten to the new boundary. Verified:
+corpora byte-identical four ways, 28/28, bootstrap fixed point, fuzz
+3000 clean, 0 leaks. Docs: memory.md §4 rewritten (with its two costs),
+types.md narrowing rules, language.md §20 (was badly stale) + `is`,
+README.
 
 **Threads stage 5 COMPLETE — the pthread scheduler. Actors run on real
 OS threads under `keal build`.** The shape that made it small: the actor
@@ -328,8 +388,9 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
 2. Closure callbacks at the C boundary (interop 1d) once a consumer fixes
    the `userdata` convention.
 3. Threaded actors — DONE through stage 6 (scheduler, JNI attach,
-   measurements recorded in threads.md). Then `Any` natively (RTTI);
-   cycles decision; `constexpr`; macros last. See README "What remains".
+   measurements recorded in threads.md). `Any` natively — DONE too.
+   Then: the cycles decision; typed exceptions; `constexpr`; macros last.
+   See README "What remains".
 
 ## Key file map
 

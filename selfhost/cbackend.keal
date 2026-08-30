@@ -88,6 +88,7 @@ fun mangleType(t: Ty): String {
             parts += mangleType(t.ret!!)
             "Fn_" + parts
         }
+        "Any" -> "Any"
         else -> "Unrepresentable"
     }
 }
@@ -211,6 +212,8 @@ fun cComment(s: String): String {
 fun countedC(t: Ty): Bool {
     return when (t.kind) {
         "Str", "Class", "List", "Map", "Fun" -> true
+        // Whether an `Any` counts depends on its tag; the calls decide.
+        "Any" -> true
         "Nullable" -> countedC(t.args[0])
         else -> false
     }
@@ -224,6 +227,7 @@ fun retainFn(t: Ty): String? {
         "List" -> "keal_list_retain"
         "Fun" -> "keal_fn_retain"
         "Map" -> "keal_map_retain"
+        "Any" -> "keal_any_retain"
         "Nullable" -> retainFn(t.args[0])
         else -> null
     }
@@ -237,6 +241,7 @@ fun releaseFn(t: Ty): String? {
         "List" -> "keal_list_release"
         "Fun" -> "keal_fn_release"
         "Map" -> "keal_map_release"
+        "Any" -> "keal_any_release"
         "Nullable" -> releaseFn(t.args[0])
         else -> null
     }
@@ -607,6 +612,7 @@ fun elemWord(e: CElem, v: String): String {
         "int" -> "(KealWord){ .i = ${v} }"
         "bool" -> "(KealWord){ .i = (int64_t)(${v}) }"
         "float" -> "(KealWord){ .d = ${v} }"
+        "any" -> "(KealWord){ .p = keal_any_box(${v}) }"
         else -> "(KealWord){ .p = (${e.ctype}*)${v} }"
     }
 }
@@ -616,6 +622,7 @@ fun elemUnword(e: CElem, w: String): String {
         "int" -> "${w}.i"
         "bool" -> "(bool)${w}.i"
         "float" -> "${w}.d"
+        "any" -> "(((KealAnyBox*)${w}.p)->a)"
         else -> "((${e.ctype}*)${w}.p)"
     }
 }
@@ -698,8 +705,16 @@ class CBackend() {
     var locals: List<List<LocalC>> = []
     var globalFuns: Map<String, Bool> = {}
     var globalVars: Map<String, Bool> = {}
+    /// The top-level bindings whose declared type is `Any` — an `is` can
+    /// narrow one inside any function, and the reader must still unwrap.
+    var anyGlobals: Map<String, Bool> = {}
     var globalDecls: String = ""
     var atTopLevel: Bool = false
+    /// Set just before a statement's expression is emitted: its value is
+    /// discarded, so a branch join of `Any` — which the checker only ever
+    /// produces where using the value would be refused — needs no slot.
+    /// The branch emitters clear it, so nested expressions never see it.
+    var discardJoin: Bool = false
     var lambdaDefs: String = ""
     var nextLambda: Int = 0
     var currentRet: Ty? = null
@@ -770,6 +785,8 @@ class CBackend() {
         if (t.kind == "Bool") { return "bool" }
         if (t.kind == "Str") { return "KealStr*" }
         if (t.kind == "Unit") { return "void" }
+        // A tag and a payload, two words — `keal layout`'s promise.
+        if (t.kind == "Any") { return "KealAny" }
         if (t.kind == "Class" and this.shapes.contains(t.name)) {
             if (t.args.size == 0) {
                 return structName(t.name) + "*"
@@ -857,6 +874,7 @@ class CBackend() {
         if (t.kind == "Nullable" and isReference(t.args[0])) {
             return this.elemKind(t.args[0], file, atLine, col)
         }
+        if (t.kind == "Any") { return CElem("any", "", "") }
         this.unsupported(file, atLine, col, "lists of `${tyShow(t)}`")
         return null
     }
@@ -866,6 +884,160 @@ class CBackend() {
     /// value for scalars, a retain for immutable strings, a generated
     /// per-type function for anything with structure. `null` when the type
     /// cannot cross, which the checker already refused.
+    /// The static type-info an `Any` tags this type's values with — what
+    /// `is` compares, what `typeOf` names. Only types whose every value has
+    /// one layout get a tag: scalars, strings, `List<Any>`, and classes at
+    /// their all-`Any` (or arg-free) instantiation. That rule is what keeps
+    /// native narrowing honest — the payload always is what the tag says.
+    fun anyTiOf(t: Ty, file: Int, atLine: Int, col: Int): String? {
+        if (t.kind == "Int") { return "&keal_ti_int" }
+        if (t.kind == "Float") { return "&keal_ti_float" }
+        if (t.kind == "Bool") { return "&keal_ti_bool" }
+        if (t.kind == "Str") { return "&keal_ti_str" }
+        if (t.kind == "List" and t.args[0].kind == "Any") { return "&keal_ti_list" }
+        if (t.kind == "Class" and this.shapes.contains(t.name)) {
+            var allAny = true
+            for (a in t.args) {
+                unless (a.kind == "Any") { allAny = false }
+            }
+            unless (allAny) { return null }
+            var sn = structName(t.name)
+            if (t.args.size > 0) {
+                val inst = this.instantiateClass(t.name, t.args, file, atLine, col)
+                if (inst == null) { return null }
+                sn = inst
+            }
+            this.ensureClassTi(sn, t.name)
+            return "&${sn}_ti"
+        }
+        return null
+    }
+
+    /// Emits (once) a class's type-info: its show and retain behind the
+    /// word-shaped signatures the info wants, identity equality — exactly
+    /// how the interpreters compare dynamic instances.
+    proc ensureClassTi(sn: String, bare: String) {
+        val key = "ti|" + sn
+        if (this.thunks.contains(key)) { return }
+        this.thunks[key] = true
+        val rel = this.releaserThunk(CElem("ptr", sn, sn))
+        this.helpers += "static KealStr* ${sn}_ti_show(KealWord w) { return ${sn}_show((${sn}*)w.p); }\nstatic void ${sn}_ti_retain(void* p) { ${sn}_retain((${sn}*)p); }\nstatic const KealTypeInfo ${sn}_ti = { ${cString(bare)}, ${sn}_ti_retain, ${rel}, ${sn}_ti_show, keal_any_ptr_eq };\n"
+    }
+
+    /// A value crossing into an `Any` hole, borrowed in, borrowed out.
+    /// What has no tag is refused by name, where it tries to cross.
+    fun anyOf(source: Ty?, v: String, file: Int, atLine: Int, col: Int): String {
+        val src = source
+        if (src == null) { return v }
+        if (src.kind == "Any" or src.kind == "Error") { return v }
+        if (src.kind == "Never" or src.kind == "Null") { return "keal_any_null()" }
+        if (src.kind == "Int") {
+            return "((KealAny){ .ti = &keal_ti_int, .w = { .i = ${v} } })"
+        }
+        if (src.kind == "Bool") {
+            return "((KealAny){ .ti = &keal_ti_bool, .w = { .i = (int64_t)(${v}) } })"
+        }
+        if (src.kind == "Float") {
+            return "((KealAny){ .ti = &keal_ti_float, .w = { .d = ${v} } })"
+        }
+        if (src.kind == "Nullable") {
+            val inner = src.args[0]
+            if (inner.kind == "Int") { return "keal_any_of_opt_i64(${v})" }
+            if (inner.kind == "Float") { return "keal_any_of_opt_f64(${v})" }
+            if (inner.kind == "Bool") { return "keal_any_of_opt_bool(${v})" }
+            val ti = this.anyTiOf(inner, file, atLine, col)
+            if (ti != null) { return "keal_any_of_ptr(${ti}, (void*)${v})" }
+            this.refuse(
+                file, atLine, col,
+                "a `${tyShow(src)}` into an `Any`",
+                "only a value whose layout its tag can name crosses; a container crosses at its `<Any>` element type"
+            )
+            return "keal_any_null()"
+        }
+        val ti = this.anyTiOf(src, file, atLine, col)
+        if (ti != null) { return "keal_any_of_ptr(${ti}, (void*)${v})" }
+        this.refuse(
+            file, atLine, col,
+            "a `${tyShow(src)}` into an `Any`",
+            "only a value whose layout its tag can name crosses; a container crosses at its `<Any>` element type"
+        )
+        return "keal_any_null()"
+    }
+
+    /// Reads a narrowed `Any`'s payload, borrowed — the tagged variable
+    /// keeps its reference for as long as the narrowed scope runs.
+    fun anyPayload(t: Ty, v: String, file: Int, atLine: Int, col: Int): String? {
+        if (t.kind == "Int") { return "(${v}.w.i)" }
+        if (t.kind == "Bool") { return "((bool)${v}.w.i)" }
+        if (t.kind == "Float") { return "(${v}.w.d)" }
+        if (t.kind == "Str") { return "((KealStr*)${v}.w.p)" }
+        if (t.kind == "List" and t.args[0].kind == "Any") { return "((KealList*)${v}.w.p)" }
+        if (t.kind == "Class" and this.shapes.contains(t.name)) {
+            var allAny = true
+            for (a in t.args) {
+                unless (a.kind == "Any") { allAny = false }
+            }
+            if (allAny) {
+                var sn = structName(t.name)
+                if (t.args.size > 0) {
+                    val inst = this.instantiateClass(t.name, t.args, file, atLine, col)
+                    if (inst == null) { return null }
+                    sn = inst
+                }
+                return "((${sn}*)${v}.w.p)"
+            }
+        }
+        this.unsupported(file, atLine, col, "narrowing an `Any` to `${tyShow(t)}`")
+        return null
+    }
+
+    /// What the checker resolved an `is` target to: bare containers test
+    /// the container alone, a bare class tests the class alone — its
+    /// arguments, if any, read back as `Any`.
+    fun isTarget(te: TypeEx, file: Int, atLine: Int, col: Int): Ty? {
+        unless (te.kind == "named" and te.args.size == 0) {
+            this.unsupported(file, atLine, col, "`is` on this type")
+            return null
+        }
+        val name = te.name
+        if (name == "Int") { return Ty("Int") }
+        if (name == "Float") { return Ty("Float") }
+        if (name == "Bool") { return Ty("Bool") }
+        if (name == "String") { return Ty("Str") }
+        if (name == "Any") { return Ty("Any") }
+        if (name == "Unit") { return Ty("Unit") }
+        if (name == "Nothing") { return Ty("Never") }
+        if (name == "Range") { return Ty("Range") }
+        if (name == "List") { return tyList(Ty("Any")) }
+        if (name == "Map") { return tyMap(Ty("Any"), Ty("Any")) }
+        val decl = this.classDecls[name]
+        if (decl != null) {
+            val args: List<Ty> = []
+            var i = 0
+            while (i < decl.typeParams.size) {
+                args.add(Ty("Any"))
+                i += 1
+            }
+            return tyClass(name, args)
+        }
+        this.unsupported(file, atLine, col, "`is ${name}`")
+        return null
+    }
+
+    /// The `is` test itself: a tag compare. A type no value can carry
+    /// natively — a payload the backend refused at every entry — tests
+    /// false, which is exactly what it would have answered.
+    fun anyIsTest(target: Ty, v: String, file: Int, atLine: Int, col: Int): String {
+        if (target.kind == "Any") { return "(${v}.ti != NULL)" }
+        if (target.kind == "Unit" or target.kind == "Never" or target.kind == "Range" or target.kind == "Map" or target.kind == "Fun") {
+            return "false"
+        }
+        val ti = this.anyTiOf(target, file, atLine, col)
+        if (ti != null) { return "(${v}.ti == ${ti})" }
+        this.unsupported(file, atLine, col, "`is ${tyShow(target)}`")
+        return "false"
+    }
+
     fun copyExprOf(t: Ty, v: String, depth: String, file: Int, atLine: Int, col: Int): String? {
         val k = t.kind
         if (k == "Int" or k == "Float" or k == "Bool" or k == "Unit" or k == "Range") {
@@ -1003,6 +1175,7 @@ class CBackend() {
 
     /// The thunk handed to `keal_list_new`, generated once per pointer kind.
     fun releaserThunk(elem: CElem): String {
+        if (elem.kind == "any") { return "keal_any_box_release" }
         unless (elem.kind == "ptr") { return "NULL" }
         val name = "rel_" + elem.prefix
         unless (this.thunks.contains(name)) {
@@ -1026,6 +1199,22 @@ class CBackend() {
             if (item.kind == "class") {
                 val c = item.classDecl!!
                 this.classDecls[c.name] = c
+            }
+            // A top-level `Any` binding is known before any function body
+            // compiles: an `is` inside one can narrow it, and the reader
+            // must know to unwrap the tagged pair.
+            if (item.kind == "stmt") {
+                val st = item.stmt!!
+                if (st.kind == "let") {
+                    var saysAny = false
+                    val te = st.tyEx
+                    if (te != null and te.kind == "named" and te.args.size == 0 and te.name == "Any") {
+                        saysAny = true
+                    }
+                    val it0 = st.init
+                    if (it0 != null and it0.ty != null and it0.ty!!.kind == "Any") { saysAny = true }
+                    if (saysAny) { this.anyGlobals[st.name] = true }
+                }
             }
             // A `native` block goes into the output verbatim, before the
             // program's own declarations, so the externs' symbols exist.
@@ -1904,6 +2093,7 @@ class CBackend() {
             if (name == "Bool") { return Ty("Bool") }
             if (name == "String") { return Ty("Str") }
             if (name == "Unit") { return Ty("Unit") }
+            if (name == "Any") { return Ty("Any") }
             if (this.tsubst.contains(name)) {
                 return this.tsubst[name]!!
             }
@@ -2096,7 +2286,9 @@ class CBackend() {
             return
         }
         val mark = this.unwindMarks[this.unwindMarks.size - 1]
-        mark.hoisted.add("${mark.pad}${ctype} ${name} = NULL;")
+        // A tagged pair is a struct; its empty value is the null `Any`.
+        val init = if (ctype.trim() == "KealAny") { "keal_any_null()" } else { "NULL" }
+        mark.hoisted.add("${mark.pad}${ctype} ${name} = ${init};")
         this.body.removeAt(this.body.size - 1)
         if (hasReplacement) { this.body.add(replacement) }
     }
@@ -2246,8 +2438,12 @@ class CBackend() {
         for (o in released) {
             this.line("${o.release}(${o.name});")
             if (this.catchMode) {
-                // The unwind label still lists the name; NULL keeps it safe.
-                this.line("${o.name} = NULL;")
+                // The unwind label still lists the name; empty keeps it safe.
+                if (o.release == "keal_any_release") {
+                    this.line("${o.name} = keal_any_null();")
+                } else {
+                    this.line("${o.name} = NULL;")
+                }
             }
         }
         this.line("keal_drain_drops();")
@@ -2279,6 +2475,7 @@ class CBackend() {
             // the program; nothing releases it.
             if (this.atTopLevel and this.scopes.size == 1) {
                 this.globalVars[s.name] = true
+                if (ty.kind == "Any") { this.anyGlobals[s.name] = true }
                 this.declareLocal(s.name, ty, s.mutable)
                 this.globalDecls += "static ${c} ${varName};\n"
                 val value = this.coercedTo(init, ty)
@@ -2310,7 +2507,9 @@ class CBackend() {
             return
         }
         if (s.kind == "expr") {
+            this.discardJoin = true
             val value = this.expr(s.ex!!)
+            this.discardJoin = false
             // A call for its effect still has to be emitted; a bare value
             // does not, and C would warn about it.
             if (value.endsWith(")") or value.startsWith("_t")) {
@@ -2656,6 +2855,24 @@ class CBackend() {
                     }
                 }
             }
+            // An `is` narrowed this `Any`: the C local is still the
+            // tagged pair, and the payload is read out borrowed — the
+            // variable keeps its reference for the narrowed scope.
+            var declaredAny = declTy != null and declTy.kind == "Any"
+            if (declTy == null and this.anyGlobals.contains(name)) { declaredAny = true }
+            if (declaredAny) {
+                val t = this.ety(e)
+                if (t != null and t.kind != "Any" and t.kind != "Error") {
+                    val v = this.varRef(name)
+                    val read = this.anyPayload(t, v, e.file, e.line, e.col)
+                    if (read == null) { return "0" }
+                    if (countedC(t)) {
+                        val call = retained(t, read)
+                        return this.ownTempOf(t, call)
+                    }
+                    return read
+                }
+            }
             val cell = this.celled[name]
             if (cell != null) {
                 val access = elemUnword(cell.elem, "${this.varRef(name)}->w")
@@ -2693,6 +2910,14 @@ class CBackend() {
         if (e.kind == "notnull") {
             val inner = e.kids[0]
             val it0 = this.ety(inner)
+            if (it0 != null and it0.kind == "Any") {
+                val v = this.expr(inner)
+                val t = this.temp()
+                this.line("const KealAny ${t} = ${v};")
+                this.line("if (${t}.ti == NULL) { keal_panic(\"`!!` was applied to a null value\", ${e.line}); }")
+                this.checkUnwind()
+                return t
+            }
             if (it0 != null and it0.kind == "Nullable") {
                 if (isValueOpt(it0)) {
                     val it = it0.args[0]
@@ -2719,6 +2944,20 @@ class CBackend() {
         if (e.kind == "field") { return this.field(e) }
         if (e.kind == "method") { return this.methodCall(e) }
         if (e.kind == "when") { return this.whenExpr(e) }
+        if (e.kind == "is") {
+            val value = e.kids[0]
+            val vt = this.ety(value)
+            unless (vt != null and vt.kind == "Any") {
+                this.unsupported(e.file, e.line, e.col, "`is` on anything but an `Any`")
+                return "0"
+            }
+            val v = this.expr(value)
+            val target = this.isTarget(e.tyEx!!, e.file, e.line, e.col)
+            if (target == null) { return "0" }
+            val test = this.anyIsTest(target, v, e.file, e.line, e.col)
+            if (e.negated) { return "(!${test})" }
+            return test
+        }
         this.unsupported(e.file, e.line, e.col, describeExprC(e))
         return "0"
     }
@@ -3461,6 +3700,8 @@ class CBackend() {
         // exactly what the interpreters' `values_equal` does — and a
         // pointer is a word.
         if (elemTy.kind == "Class" or elemTy.kind == "Fun") { return "keal_key_eq_word" }
+        // Boxed `Any`s compare through their tags, recursively.
+        if (elemTy.kind == "Any") { return "keal_any_box_eq" }
         if (elemTy.kind == "Nullable") {
             val inner = elemTy.args[0]
             if (inner.kind == "Str") { return "keal_key_eq_opt_str" }
@@ -3679,7 +3920,7 @@ class CBackend() {
         var i = 0
         while (i < e.keys.size) {
             val kv = this.expr(e.keys[i])
-            val vv = this.expr(e.values[i])
+            val vv = this.coercedTo(e.values[i], vt)
             val sk = retained(kt, kv)
             val sv = retained(vt, vv)
             this.line("keal_map_set(${t}, ${elemWord(kk, sk)}, ${elemWord(vk, sv)});")
@@ -3702,6 +3943,7 @@ class CBackend() {
     /// How a value of `t` is rendered *inside* another value — quoted for
     /// strings, recursive for containers.
     fun reprCall(t: Ty, expr: String, file: Int, atLine: Int, col: Int): String? {
+        if (t.kind == "Any") { return "keal_any_repr(${expr})" }
         if (t.kind == "Str") { return "keal_str_repr(keal_str_retain(${expr}))" }
         if (t.kind == "Int") { return "keal_str_from_int(${expr})" }
         if (t.kind == "Float") { return "keal_str_from_float(${expr})" }
@@ -3754,7 +3996,7 @@ class CBackend() {
         this.line("KealList* ${t} = keal_list_new(${thunk});")
         this.own(t, tyList(elemTy))
         for (item in e.kids) {
-            val v = this.expr(item)
+            val v = this.coercedTo(item, elemTy)
             // The list takes its own reference; the temp the element came
             // from is still released by this block.
             val stored = retained(elemTy, v)
@@ -3845,23 +4087,24 @@ class CBackend() {
             this.line("} else {")
             this.indent += 1
             this.openScope()
-            val fv = this.expr(fallback)
+            val fv = this.coercedTo(fallback, vt)
             this.line("${slot} = ${retained(vt, fv)};")
             this.closeScope()
             this.indent -= 1
             this.line("}")
             return slot
         }
-        // Without a fallback the result is `V?`, which only a reference can
-        // represent.
-        unless (isReference(vt)) {
+        // Without a fallback the result is `V?`, which a reference carries
+        // as its null pointer and an `Any` as its null tag.
+        unless (isReference(vt) or vt.kind == "Any") {
             this.unsupported(e.file, e.line, e.col, "`m[k]` where the values are `${tyShow(vt)}` and no `?:` follows")
             return "0"
         }
         val ct = this.ctype(vt, e.file, e.line, e.col)
         if (ct == null) { return "0" }
         val slot = this.temp()
-        this.line("${ct} ${slot} = NULL;")
+        val empty = if (vt.kind == "Any") { "keal_any_null()" } else { "NULL" }
+        this.line("${ct} ${slot} = ${empty};")
         this.own(slot, vt)
         this.line("if (${at} >= 0) {")
         this.indent += 1
@@ -3883,6 +4126,27 @@ class CBackend() {
             if (iot != null and iot.kind == "Map") {
                 return this.mapGet(e, iobj, lhs.kids[1], rhs)
             }
+        }
+        // An `Any` holding null takes the fallback, boxed to `Any` too.
+        val lt0 = this.ety(lhs)
+        if (lt0 != null and lt0.kind == "Any") {
+            val a = this.expr(lhs)
+            val slot = this.temp()
+            this.line("KealAny ${slot};")
+            this.own(slot, Ty("Any"))
+            this.line("if (${a}.ti != NULL) {")
+            this.indent += 1
+            this.line("${slot} = keal_any_retain(${a});")
+            this.indent -= 1
+            this.line("} else {")
+            this.indent += 1
+            this.openScope()
+            val fb = this.coercedTo(rhs, Ty("Any"))
+            this.line("${slot} = keal_any_retain(${fb});")
+            this.closeScope()
+            this.indent -= 1
+            this.line("}")
+            return slot
         }
         // A tagged value: test the tag, take the value or the fallback.
         val lt = this.ety(lhs)
@@ -4001,11 +4265,17 @@ class CBackend() {
             val elem = this.elemKind(elemTy, e.file, e.line, e.col)
             if (elem != null) {
                 val l = this.expr(obj)
-                val v = this.expr(e.args[0].value)
+                val v = this.coercedTo(e.args[0].value, elemTy)
                 val stored = retained(elemTy, v)
                 this.line("keal_list_push(${l}, ${elemWord(elem, stored)});")
                 return "0"
             }
+            return "0"
+        }
+        // An `Any` answers `toString` through the builtin path below; the
+        // guarded `?.` machinery is pointer-shaped, so it is refused here.
+        if (receiverTy != null and receiverTy.kind == "Any" and safe) {
+            this.unsupported(e.file, e.line, e.col, "`?.` on an `Any`")
             return "0"
         }
         // The map methods the subset covers.
@@ -4122,11 +4392,15 @@ class CBackend() {
 
     /// A `when` compiles to a chain of tests inside `do { } while (0)`.
     fun whenExpr(e: Ex): String {
-        // A branch join of `Any` can only sit in statement position — using
-        // the value would have been refused where it was used — so like
-        // `Unit` it needs no slot.
+        // A branch join of `Any` is a value like any other — the slot is
+        // the tagged pair, and each branch boxes into it on the way in —
+        // except in statement position, where the value is discarded and
+        // the branches may not even be values.
+        val discard = this.discardJoin
+        this.discardJoin = false
         val ety0 = this.ety(e)
-        val produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never" and ety0.kind != "Any"
+        var produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never"
+        if (discard and ety0 != null and ety0.kind == "Any") { produces = false }
         var slot = ""
         if (produces) {
             val ty = ety0
@@ -4134,7 +4408,15 @@ class CBackend() {
             val c = this.ctype(ty, e.file, e.line, e.col)
             if (c == null) { return "0" }
             val t = this.temp()
-            this.line("${c} ${t};")
+            // An `Any` slot starts empty: a branch whose last statement is
+            // not a value — which the join makes `Any` and the checker then
+            // refuses to *use* — simply leaves it null, and releasing a
+            // null tag is nothing.
+            if (ty.kind == "Any") {
+                this.line("${c} ${t} = keal_any_null();")
+            } else {
+                this.line("${c} ${t};")
+            }
             if (countedC(ty)) {
                 this.own(t, ty)
             }
@@ -4163,6 +4445,13 @@ class CBackend() {
         this.line("do {")
         this.indent += 1
         for (arm in e.arms) {
+            // `is C(a, b)` binds fields the guard and body both see, so it
+            // cannot ride the plain condition chain; it gets its own shape.
+            val binds0 = arm.binds
+            if (arm.patternKind == "is" and not arm.patNegated and binds0 != null) {
+                this.isArmWithBinds(arm, arm.patTyEx!!, binds0, subjectSlot, subjectTy, slot, slotTy)
+                continue
+            }
             // The test gets a scope of its own, closed before the branch;
             // only the boolean crosses over.
             this.openScope()
@@ -4199,6 +4488,90 @@ class CBackend() {
         return slot
     }
 
+    /// `is C(a, b)`: the tag test opens the arm, the payload is cast once,
+    /// and each field binds borrowed — the subject's own temp keeps the
+    /// instance alive for the whole `when`. The guard runs after the binds,
+    /// inside the tag test; when it fails, the chain simply falls through.
+    proc isArmWithBinds(arm: ArmN, te: TypeEx, d: DestrN, subjectSlot: String, subjectTy: Ty?, slot: String, slotTy: Ty?) {
+        if (subjectSlot == "") {
+            this.unsupported(te.file, te.line, te.col, "`is` without a `when` subject")
+            return
+        }
+        unless (subjectTy != null and subjectTy.kind == "Any") {
+            this.unsupported(te.file, te.line, te.col, "`is` on anything but an `Any` subject")
+            return
+        }
+        val target = this.isTarget(te, te.file, te.line, te.col)
+        if (target == null) { return }
+        unless (target.kind == "Class") {
+            this.unsupported(te.file, te.line, te.col, "destructuring a value that is not a class")
+            return
+        }
+        val decl = this.classDecls[target.name]
+        if (decl == null) { return }
+        val subst: Map<String, Ty> = {}
+        var pi = 0
+        while (pi < decl.typeParams.size and pi < target.args.size) {
+            subst[decl.typeParams[pi].name] = target.args[pi]
+            pi += 1
+        }
+        val raw = this.shapes[target.name]
+        val fields: List<SField> = []
+        if (raw != null) {
+            for (f in raw) { fields.add(SField(f.name, substitute(f.ty, subst))) }
+        }
+        var sn = structName(target.name)
+        if (target.args.size > 0) {
+            val inst = this.instantiateClass(target.name, target.args, te.file, te.line, te.col)
+            if (inst == null) { return }
+            sn = inst
+        }
+        val test = this.anyIsTest(target, subjectSlot, te.file, te.line, te.col)
+        this.line("if (${test}) {")
+        this.indent += 1
+        this.openScope()
+        val p = this.temp()
+        this.line("${sn}* ${p} = (${sn}*)${subjectSlot}.w.p;")
+        var bi = 0
+        while (bi < d.binds.size and bi < fields.size) {
+            val bname = d.binds[bi]
+            val f = fields[bi]
+            unless (bname == "_") {
+                val ct = this.ctype(f.ty, te.file, te.line, te.col)
+                if (ct != null) {
+                    this.line("const ${ct} ${mangle(bname)} = ${p}->${mangle(f.name)};")
+                    this.declareLocal(bname, f.ty, false)
+                }
+            }
+            bi += 1
+        }
+        var guardSlot = ""
+        val g = arm.guard
+        if (g != null) {
+            this.openScope()
+            val c = this.expr(g)
+            val t = this.temp()
+            this.line("const bool ${t} = ${c};")
+            this.closeScope()
+            guardSlot = t
+        }
+        unless (guardSlot == "") {
+            this.line("if (${guardSlot}) {")
+            this.indent += 1
+        }
+        this.openScope()
+        this.branchBody(arm.body.stmts, slot, slotTy)
+        this.closeScope()
+        this.line("break;")
+        unless (guardSlot == "") {
+            this.indent -= 1
+            this.line("}")
+        }
+        this.closeScope()
+        this.indent -= 1
+        this.line("}")
+    }
+
     /// Emits an arm's test against the subject, returning the condition to
     /// branch on, or "" for an unguarded `else`.
     fun armTest(arm: ArmN, subjectSlot: String, subjectTy: Ty?): String {
@@ -4216,8 +4589,18 @@ class CBackend() {
             conds.add("(${hits.join(" || ")})")
         } else if (arm.patternKind == "is") {
             val te = arm.patTyEx!!
-            this.unsupported(te.file, te.line, te.col, "`is` in a `when` arm, which needs run-time type information")
-            conds.add("false")
+            if (subjectTy != null and subjectTy.kind == "Any") {
+                val target = this.isTarget(te, te.file, te.line, te.col)
+                if (target == null) {
+                    conds.add("false")
+                } else {
+                    val test = this.anyIsTest(target, subjectSlot, te.file, te.line, te.col)
+                    conds.add(if (arm.patNegated) { "(!${test})" } else { test })
+                }
+            } else {
+                this.unsupported(te.file, te.line, te.col, "`is` on anything but an `Any` subject")
+                conds.add("false")
+            }
         } else if (arm.patternKind == "in") {
             val range = arm.values[0]
             if (subjectSlot == "") { return "false" }
@@ -4244,6 +4627,11 @@ class CBackend() {
         if (t.kind == "Int" or t.kind == "Float" or t.kind == "Bool") {
             return "(${slot} == ${rhs})"
         }
+        if (t.kind == "Any") {
+            val rt = this.ety(at)
+            val r = this.anyOf(rt, rhs, at.file, at.line, at.col)
+            return "keal_any_eq(${slot}, ${r})"
+        }
         this.unsupported(at.file, at.line, at.col, "matching on a value of type `${tyShow(t)}`")
         return "false"
     }
@@ -4267,13 +4655,31 @@ class CBackend() {
     /// takes a reference of its own before this branch's is released, and a
     /// value meeting a tagged nullable slot wraps on the way in.
     proc fillSlot(e: Ex, slot: String, slotTy: Ty?) {
+        // A statement-shaped expression cannot fill an `Any` slot; it runs
+        // for its effect and the slot stays as it started.
+        val ity0 = this.ety(e)
+        if (slotTy != null and slotTy.kind == "Any" and (ity0 == null or ity0.kind == "Unit" or ity0.kind == "Never")) {
+            val v0 = this.expr(e)
+            if (v0.endsWith(")") or v0.startsWith("_t")) {
+                this.line("(void)(${v0});")
+            }
+            return
+        }
         val ity = this.ety(e)
         val counted = ity != null and countedC(ity)
         if (counted) {
-            val v = this.expr(e)
-            val ty2 = this.ety(e)
-            if (ty2 != null) {
-                this.line("${slot} = ${retained(ty2, v)};")
+            val v = if (slotTy != null) {
+                this.coercedTo(e, slotTy)
+            } else {
+                this.expr(e)
+            }
+            // Boxed into an `Any` slot, the retain is the `Any`'s own;
+            // otherwise the value keeps its type's retain, as before.
+            var ty2: Ty? = this.ety(e)
+            if (slotTy != null and slotTy.kind == "Any") { ty2 = Ty("Any") }
+            val rt = ty2
+            if (rt != null) {
+                this.line("${slot} = ${retained(rt, v)};")
             } else {
                 this.line("${slot} = ${v};")
             }
@@ -4326,6 +4732,30 @@ class CBackend() {
             this.line("const int64_t ${t} = ${helper}(${a}, ${b}, ${e.line});")
             this.checkUnwind()
             return t
+        }
+        // `Any` equality is dynamic: same tag, then the interpreters'
+        // values_equal — structure for data, identity for instances. A null
+        // literal against an `Any` is a tag test.
+        if (op == "==" or op == "!=") {
+            val rty = this.ety(rhs)
+            val lAny = lty != null and lty.kind == "Any"
+            val rAny = rty != null and rty.kind == "Any"
+            if (lAny or rAny) {
+                var test = ""
+                if (rhs.kind == "null") {
+                    test = "(${a}.ti == NULL)"
+                } else if (lhs.kind == "null") {
+                    test = "(${b}.ti == NULL)"
+                } else {
+                    var av = a
+                    unless (lAny) { av = this.anyOf(lty, a, lhs.file, lhs.line, lhs.col) }
+                    var bv = b
+                    unless (rAny) { bv = this.anyOf(rty, b, rhs.file, rhs.line, rhs.col) }
+                    test = "keal_any_eq(${av}, ${bv})"
+                }
+                if (op == "!=") { return "(!${test})" }
+                return test
+            }
         }
         // `x == null` on a tagged value is a presence test, not a compare.
         if (op == "==" or op == "!=") {
@@ -4450,7 +4880,9 @@ class CBackend() {
         }
         if (ty.kind == "Str") { return v }
         var call = ""
-        if (ty.kind == "Int") {
+        if (ty.kind == "Any") {
+            call = "keal_any_display(${v})"
+        } else if (ty.kind == "Int") {
             call = "keal_str_from_int(${v})"
         } else if (ty.kind == "Float") {
             call = "keal_str_from_float(${v})"
@@ -4569,8 +5001,11 @@ class CBackend() {
     /// slot mechanics, with expressions for branches. The condition is
     /// emitted once; a `Comp` reads its sign into a temp for the split.
     fun ternary(e: Ex): String {
+        val discard = this.discardJoin
+        this.discardJoin = false
         val ety0 = this.ety(e)
-        val produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never" and ety0.kind != "Any"
+        var produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never"
+        if (discard and ety0 != null and ety0.kind == "Any") { produces = false }
         var slot = ""
         if (produces) {
             val ty = ety0
@@ -4578,7 +5013,15 @@ class CBackend() {
             val c = this.ctype(ty, e.file, e.line, e.col)
             if (c == null) { return "0" }
             val t = this.temp()
-            this.line("${c} ${t};")
+            // An `Any` slot starts empty: a branch whose last statement is
+            // not a value — which the join makes `Any` and the checker then
+            // refuses to *use* — simply leaves it null, and releasing a
+            // null tag is nothing.
+            if (ty.kind == "Any") {
+                this.line("${c} ${t} = keal_any_null();")
+            } else {
+                this.line("${c} ${t};")
+            }
             if (countedC(ty)) {
                 this.own(t, ty)
             }
@@ -4634,11 +5077,15 @@ class CBackend() {
     }
 
     fun ifExpr(e: Ex): String {
-        // A branch join of `Any` can only sit in statement position — using
-        // the value would have been refused where it was used — so like
-        // `Unit` it needs no slot.
+        // A branch join of `Any` is a value like any other — the slot is
+        // the tagged pair, and each branch boxes into it on the way in —
+        // except in statement position, where the value is discarded and
+        // the branches may not even be values.
+        val discard = this.discardJoin
+        this.discardJoin = false
         val ety0 = this.ety(e)
-        val produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never" and ety0.kind != "Any"
+        var produces = ety0 != null and ety0.kind != "Unit" and ety0.kind != "Never"
+        if (discard and ety0 != null and ety0.kind == "Any") { produces = false }
         var slot = ""
         if (produces) {
             val ty = ety0
@@ -4646,7 +5093,15 @@ class CBackend() {
             val c = this.ctype(ty, e.file, e.line, e.col)
             if (c == null) { return "0" }
             val t = this.temp()
-            this.line("${c} ${t};")
+            // An `Any` slot starts empty: a branch whose last statement is
+            // not a value — which the join makes `Any` and the checker then
+            // refuses to *use* — simply leaves it null, and releasing a
+            // null tag is nothing.
+            if (ty.kind == "Any") {
+                this.line("${c} ${t} = keal_any_null();")
+            } else {
+                this.line("${c} ${t};")
+            }
             if (countedC(ty)) {
                 this.own(t, ty)
             }
@@ -4754,6 +5209,40 @@ class CBackend() {
             // the whole process at once.
             this.line("exit((int)(${c}));")
             return "0"
+        }
+        // `typeOf`: dynamic for an `Any` — the tag names itself — and a
+        // compile-time constant for everything else, spelled exactly as the
+        // interpreters' `type_name` spells it.
+        if (name == "typeOf" and args.size == 1) {
+            val t = this.ety(args[0].value)
+            if (t != null and t.kind == "Any") {
+                val v = this.expr(args[0].value)
+                return this.ownTempOf(Ty("Str"), "keal_any_type_name(${v})")
+            }
+            var named = ""
+            var hasName = false
+            if (t != null) {
+                if (t.kind == "Int") { named = "Int" }
+                if (t.kind == "Float") { named = "Float" }
+                if (t.kind == "Bool") { named = "Bool" }
+                if (t.kind == "Str") { named = "String" }
+                if (t.kind == "List") { named = "List" }
+                if (t.kind == "Map") { named = "Map" }
+                if (t.kind == "Range") { named = "Range" }
+                if (t.kind == "Fun") { named = "Function" }
+                if (t.kind == "Null") { named = "Null" }
+                if (t.kind == "Class") { named = t.name }
+                hasName = named != ""
+            }
+            unless (hasName) {
+                this.unsupported(e.file, e.line, e.col, "`typeOf` of this value")
+                return "0"
+            }
+            val v = this.expr(args[0].value)
+            if (v.endsWith(")") or v.startsWith("_t")) {
+                this.line("(void)(${v});")
+            }
+            return this.ownTempOf(Ty("Str"), "keal_str_static(${cString(named)}, ${named.length})")
         }
         // `assert`: the message, when given, is evaluated eagerly — the
         // interpreters evaluate arguments before the call, and so does this.
@@ -5084,6 +5573,11 @@ class CBackend() {
     /// absent form. Everywhere a plain value meets a nullable slot goes
     /// through here.
     fun coercedTo(e: Ex, target: Ty): String {
+        if (target.kind == "Any") {
+            val src = this.ety(e)
+            val v = this.expr(e)
+            return this.anyOf(src, v, e.file, e.line, e.col)
+        }
         if (isValueOpt(target)) {
             val inner = target.args[0]
             if (e.kind == "null") {
@@ -5142,7 +5636,7 @@ class CBackend() {
                 if (vk == null) { return }
                 val m = this.expr(obj)
                 val k = this.expr(index)
-                val v = this.expr(value)
+                val v = this.coercedTo(value, vt)
                 val sk = retained(kt, k)
                 val sv = retained(vt, v)
                 this.line("keal_map_set(${m}, ${elemWord(kk, sk)}, ${elemWord(vk, sv)});")
@@ -5164,7 +5658,7 @@ class CBackend() {
             if (elem == null) { return }
             val l = this.expr(obj)
             val i = this.expr(index)
-            val v = this.expr(value)
+            val v = this.coercedTo(value, elemTy)
             val stored = if (this.catchMode and countedC(elemTy)) {
                 // The set can panic before it takes the reference; owning
                 // it in a temp keeps the unwind path exact, and a clean
@@ -5179,9 +5673,18 @@ class CBackend() {
                 this.line("const KealWord ${old} = keal_list_set(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
                 this.checkUnwind()
                 if (this.catchMode) {
-                    this.line("${stored} = NULL;")
+                    if (elemTy.kind == "Any") {
+                        this.line("${stored} = keal_any_null();")
+                    } else {
+                        this.line("${stored} = NULL;")
+                    }
                 }
-                this.line("${release}(${elemUnword(elem, old)});")
+                // A boxed element's displaced word is the box itself.
+                if (elem.kind == "any") {
+                    this.line("keal_any_box_release(${old}.p);")
+                } else {
+                    this.line("${release}(${elemUnword(elem, old)});")
+                }
             } else {
                 // Nothing to release; the displaced word is discarded.
                 this.line("(void)keal_list_set(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
@@ -5194,7 +5697,7 @@ class CBackend() {
             if (cell != null) {
                 // Compound assignment reads through the same cell first.
                 val v = if (op == "=") {
-                    this.expr(value)
+                    this.coercedTo(value, cell.ty)
                 } else {
                     val synthetic = Ex("binary", e.line, e.col)
                     synthetic.file = e.file
@@ -5204,9 +5707,13 @@ class CBackend() {
                     this.expr(synthetic)
                 }
                 val cellRef = this.varRef(target.text)
-                val rel = releaseFn(cell.ty)
-                if (rel != null) {
-                    this.line("${rel}(${elemUnword(cell.elem, "${cellRef}->w")});")
+                if (cell.elem.kind == "any") {
+                    this.line("keal_any_box_release(${cellRef}->w.p);")
+                } else {
+                    val rel = releaseFn(cell.ty)
+                    if (rel != null) {
+                        this.line("${rel}(${elemUnword(cell.elem, "${cellRef}->w")});")
+                    }
                 }
                 val stored = retained(cell.ty, v)
                 this.line("${cellRef}->w = ${elemWord(cell.elem, stored)};")
@@ -5232,7 +5739,11 @@ class CBackend() {
         }
         val ty = this.ety(target)
         if (op == "=") {
-            val v = this.expr(value)
+            val v = if (ty != null) {
+                this.coercedTo(value, ty)
+            } else {
+                this.expr(value)
+            }
             if (ty != null and countedC(ty)) {
                 val release = releaseFn(ty)!!
                 this.line("${release}(${varC});")
@@ -5551,13 +6062,23 @@ fun actorInExpr(e: Ex): Bool {
 }
 
 fun programUsesActors(program: ProgramN): Bool {
+    // The prelude *declares* the actor classes, so mentioning them there is
+    // not using them: the file that declares `ActorSystem` is excluded, and
+    // a program that never names an actor keeps plain counts and no pthread.
+    var preludeFile = -1
+    for (item in program.items) {
+        val c0 = item.classDecl
+        if (c0 != null and c0.name == "ActorSystem" and preludeFile < 0) {
+            preludeFile = c0.file
+        }
+    }
     for (item in program.items) {
         val s = item.stmt
-        if (s != null and actorInStmt(s)) { return true }
+        if (s != null and s.file != preludeFile and actorInStmt(s)) { return true }
         val f = item.funDecl
-        if (f != null and actorInFun(f)) { return true }
+        if (f != null and f.file != preludeFile and actorInFun(f)) { return true }
         val c = item.classDecl
-        if (c != null and actorInClass(c)) { return true }
+        if (c != null and c.file != preludeFile and actorInClass(c)) { return true }
     }
     return false
 }

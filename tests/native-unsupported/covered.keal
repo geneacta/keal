@@ -1,14 +1,16 @@
 // Everything here is beyond the C backend for now. Each one must be named
 // rather than silently mis-compiled, so the snapshot is the promise.
 
-// `when` compiles, except an `is` arm, which needs run-time type information.
-fun useIsArm(v: Any): String {
-    return when (v) {
-        is Int -> "int"
-        else -> "other"
-    }
+// `Any` itself compiles now — a tag and a payload — but only values whose
+// layout the tag can name cross into one. A `List<Int>` cannot: `Any`
+// containers hold `Any` elements, so there would be no one stride.
+fun hide(xs: List<Int>): Any {
+    return xs
 }
 
-fun useMethodOnBuiltin(s: String): Int { s.length }
+// The guarded call is pointer-shaped; an `Any` is a pair.
+fun guarded(v: Any): String {
+    return v?.toString() ?: "none"
+}
 
-println(useIsArm(1))
+println(hide([1, 2]))

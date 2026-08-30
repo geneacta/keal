@@ -1233,6 +1233,188 @@ KEAL_FN KealStr* keal_str_repr(KealStr* s) {
     return keal_buf_finish(&b);
 }
 
+/* ---- Any --------------------------------------------------------------- */
+
+/* A value whose type is not known statically: a tag and a payload, two
+ * words in all, exactly as `keal layout` prices it. The tag is a pointer
+ * to the type's info — what `is` compares, what `typeOf` names, and what
+ * tells retain/release whether the payload owns a reference. NULL tag
+ * means the `Any` holds null. Only same-layout values enter an `Any`
+ * natively (the backend refuses the rest by name), so what the tag says
+ * is always what the payload is. */
+typedef struct KealTypeInfo {
+    const char* name;
+    void (*retain)(void* p);
+    void (*release)(void* p);
+    KealStr* (*show)(KealWord w);
+    bool (*eq)(KealWord a, KealWord b);
+} KealTypeInfo;
+
+typedef struct KealAny {
+    const KealTypeInfo* ti;
+    KealWord w;
+} KealAny;
+
+/* A list or map element slot is one word, and an `Any` is two — so inside
+ * a container an `Any` lives behind one counted pointer. */
+typedef struct KealAnyBox {
+    keal_rc_t rc;
+    KealAny a;
+} KealAnyBox;
+
+KEAL_FN KealAny keal_any_retain(KealAny a) {
+    if (a.ti != NULL && a.ti->retain != NULL) {
+        a.ti->retain(a.w.p);
+    }
+    return a;
+}
+
+KEAL_FN void keal_any_release(KealAny a) {
+    if (a.ti != NULL && a.ti->release != NULL) {
+        a.ti->release(a.w.p);
+    }
+}
+
+KEAL_FN KealAny keal_any_null(void) {
+    KealAny a;
+    a.ti = NULL;
+    a.w.i = 0;
+    return a;
+}
+
+/* A pointer payload whose value may be null: a null pointer in, null out. */
+KEAL_FN KealAny keal_any_of_ptr(const KealTypeInfo* ti, void* p) {
+    if (p == NULL) {
+        return keal_any_null();
+    }
+    KealAny a;
+    a.ti = ti;
+    a.w.p = p;
+    return a;
+}
+
+KEAL_FN void* keal_any_box(KealAny a) {
+    KealAnyBox* b = (KealAnyBox*)keal_alloc(sizeof(KealAnyBox));
+    b->rc = 1;
+    b->a = a;
+    return b;
+}
+
+KEAL_FN void keal_any_box_release(void* p) {
+    KealAnyBox* b = (KealAnyBox*)p;
+    if (b == NULL) {
+        return;
+    }
+    if (KEAL_RC_DROP(b->rc)) {
+        return;
+    }
+    keal_any_release(b->a);
+    free(b);
+}
+
+/* Equality the way the interpreters' values_equal answers it: same tag,
+ * then by structure for data and by identity for instances and boxes'
+ * contents follow the same rule. Two nulls are equal. */
+KEAL_FN bool keal_any_eq(KealAny a, KealAny b) {
+    if (a.ti != b.ti) {
+        return false;
+    }
+    if (a.ti == NULL) {
+        return true;
+    }
+    return a.ti->eq(a.w, b.w);
+}
+
+KEAL_FN bool keal_any_box_eq(KealWord a, KealWord b) {
+    return keal_any_eq(((KealAnyBox*)a.p)->a, ((KealAnyBox*)b.p)->a);
+}
+
+/* Rendering inside a container: strings quoted, like the interpreters. */
+KEAL_FN KealStr* keal_any_repr(KealAny a) {
+    if (a.ti == NULL) {
+        return keal_str_static("null", 4);
+    }
+    return a.ti->show(a.w);
+}
+
+/* What `println` and `${...}` produce: a bare string stays bare. */
+KEAL_FN KealStr* keal_any_display(KealAny a);
+
+KEAL_FN KealStr* keal_any_type_name(KealAny a) {
+    if (a.ti == NULL) {
+        return keal_str_static("Null", 4);
+    }
+    return keal_str_static(a.ti->name, (int64_t)strlen(a.ti->name));
+}
+
+static void keal_any_ti_retain_str(void* p) { keal_str_retain((KealStr*)p); }
+static void keal_any_ti_release_str(void* p) { keal_str_release((KealStr*)p); }
+static KealStr* keal_any_ti_show_int(KealWord w) { return keal_str_from_int(w.i); }
+static KealStr* keal_any_ti_show_float(KealWord w) { return keal_str_from_float(w.d); }
+static KealStr* keal_any_ti_show_bool(KealWord w) { return keal_str_from_bool((bool)w.i); }
+static KealStr* keal_any_ti_show_str(KealWord w) {
+    return keal_str_repr(keal_str_retain((KealStr*)w.p));
+}
+static bool keal_any_ti_eq_word(KealWord a, KealWord b) { return a.i == b.i; }
+static bool keal_any_ti_eq_float(KealWord a, KealWord b) { return a.d == b.d; }
+static bool keal_any_ti_eq_str(KealWord a, KealWord b) {
+    return keal_str_cmp((KealStr*)a.p, (KealStr*)b.p) == 0;
+}
+/* Instances compare by identity inside an `Any`, exactly as the
+ * interpreters compare dynamic values; the structural `==` a record
+ * enjoys is the checker's rewrite to `equals`, which `Any` never takes. */
+KEAL_FN bool keal_any_ptr_eq(KealWord a, KealWord b) { return a.p == b.p; }
+
+static const KealTypeInfo keal_ti_int = {
+    "Int", NULL, NULL, keal_any_ti_show_int, keal_any_ti_eq_word
+};
+static const KealTypeInfo keal_ti_float = {
+    "Float", NULL, NULL, keal_any_ti_show_float, keal_any_ti_eq_float
+};
+static const KealTypeInfo keal_ti_bool = {
+    "Bool", NULL, NULL, keal_any_ti_show_bool, keal_any_ti_eq_word
+};
+static const KealTypeInfo keal_ti_str = {
+    "String", keal_any_ti_retain_str, keal_any_ti_release_str,
+    keal_any_ti_show_str, keal_any_ti_eq_str
+};
+
+/* The one list that fits in an `Any` is `List<Any>` — same layout seen
+ * from every side, which is what keeps `is List` honest natively. */
+static void keal_any_ti_retain_list(void* p) { keal_list_retain((KealList*)p); }
+static void keal_any_ti_release_list(void* p) { keal_list_release((KealList*)p); }
+static KealStr* keal_any_ti_show_list(KealWord w) {
+    KealList* l = (KealList*)w.p;
+    KealBuf b;
+    keal_buf_init(&b);
+    keal_buf_lit(&b, "[");
+    for (int64_t i = 0; i < l->len; i++) {
+        if (i > 0) {
+            keal_buf_lit(&b, ", ");
+        }
+        keal_buf_str(&b, keal_any_repr(((KealAnyBox*)l->data[i].p)->a));
+    }
+    keal_buf_lit(&b, "]");
+    return keal_buf_finish(&b);
+}
+static bool keal_any_ti_eq_list(KealWord a, KealWord b) {
+    return keal_list_eq((KealList*)a.p, (KealList*)b.p, keal_any_box_eq);
+}
+static const KealTypeInfo keal_ti_list = {
+    "List", keal_any_ti_retain_list, keal_any_ti_release_list,
+    keal_any_ti_show_list, keal_any_ti_eq_list
+};
+
+KEAL_FN KealStr* keal_any_display(KealAny a) {
+    if (a.ti == NULL) {
+        return keal_str_static("null", 4);
+    }
+    if (a.ti == &keal_ti_str) {
+        return keal_str_retain((KealStr*)a.w.p);
+    }
+    return a.ti->show(a.w);
+}
+
 /* Comparing two strings either of which may be absent. Two absent strings
  * are equal; an absent one equals nothing else. */
 KEAL_FN bool keal_opt_str_eq(KealStr* a, KealStr* b) {
@@ -1256,6 +1438,38 @@ typedef struct KealOptF64 {
     bool has;
     double v;
 } KealOptF64;
+
+/* Tagged optionals flowing into an `Any`: present becomes the value's own
+ * tag, absent becomes the null `Any` — one more case the tag had free. */
+KEAL_FN KealAny keal_any_of_opt_i64(KealOptI64 o) {
+    KealAny a;
+    if (!o.has) {
+        return keal_any_null();
+    }
+    a.ti = &keal_ti_int;
+    a.w.i = o.v;
+    return a;
+}
+
+KEAL_FN KealAny keal_any_of_opt_f64(KealOptF64 o) {
+    KealAny a;
+    if (!o.has) {
+        return keal_any_null();
+    }
+    a.ti = &keal_ti_float;
+    a.w.d = o.v;
+    return a;
+}
+
+KEAL_FN KealAny keal_any_of_opt_bool(int8_t o) {
+    KealAny a;
+    if (o == 2) {
+        return keal_any_null();
+    }
+    a.ti = &keal_ti_bool;
+    a.w.i = (int64_t)o;
+    return a;
+}
 
 /* `String.toInt`: trimmed, an optional sign, digits, nothing else, and no
  * overflow — the grammar Rust's `i64::from_str` accepts, which is what the
