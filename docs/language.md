@@ -71,6 +71,12 @@ be made executable and run directly.
 | `Any` | anything non-null | narrow it with `is` before use |
 | `Nothing` | — | the type of an expression that never returns |
 
+Inside a method, the receiver is **`this`**. That is the only receiver
+keyword: there is no `self` and no `that`, and both remain ordinary
+names a program may use for its own bindings — a lambda parameter called
+`self`, as actor handlers conventionally have, is a name and not a
+keyword.
+
 ### Values and references
 
 There is no `int` versus `Integer` in Keal, and nothing to box or unbox. But

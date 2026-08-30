@@ -166,6 +166,12 @@ def markdown(text):
                 and not re.match(r"^---+\s*$", lines[i]):
             para.append(lines[i])
             i += 1
+        if not para:
+            # A line that opens no block and cannot start a paragraph — a
+            # stray table row, a `#` without its space — would otherwise be
+            # read forever. Take it as text and move on.
+            para.append(lines[i])
+            i += 1
         out.append("<p>%s</p>" % inline(" ".join(para)))
     return "\n".join(out), toc
 
@@ -241,7 +247,7 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
     <div class="nav-links">%(links)s</div>
   </div>
   <div class="nav-right">
-    <span class="badge">v0.5.0</span>
+    <span class="badge">v0.6.0</span>
     <a class="btn-lang" href="%(other)s">%(other_label)s</a>
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>

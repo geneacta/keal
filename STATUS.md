@@ -1,6 +1,6 @@
 # STATUS — where the work stands, and how to resume it
 
-*Updated: 2026-08-30. This file is the hand-off: if a session dies, the next
+*Updated: 2026-08-30 (version 0.6.0). This file is the hand-off: if a session dies, the next
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
@@ -24,7 +24,8 @@ commit that leaves work in flight.*
    included); `tests/native/*` runs on all three engines.
 5. **Verification loop** (run before every commit):
    - the four-corpora loop (see below), `cargo test --release` (currently
-     28 green incl. bootstrap fixed point, actor TSan, actor-thread JNI), `./bootstrap.sh`.
+     29 green incl. bootstrap fixed point, actor TSan, actor-thread JNI,
+     the site tour's printed outputs), `./bootstrap.sh`.
    - corpora loop, for each cmd/driver pair above:
      `for f in tests/programs/*.keal examples/*.keal tests/native/*.keal
      tests/native-extern/*.keal tests/selfhost/*.keal selfhost/*.keal
@@ -59,8 +60,63 @@ commit that leaves work in flight.*
 Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 `import java.time.LocalDate`, the verified Go demo, exceptions
 (`throw` / `try`-`catch` on all three engines incl. native checked
-unwinding), the six-language polyglot demo AND the ternary family are
-**DONE and pushed**. See NEXT.
+unwinding), the six-language polyglot demo, the ternary family AND
+`weak` are **DONE and pushed**. See NEXT.
+
+**The site, the editors, the release machinery — and two bugs the site
+found. Version 0.6.0.** `site/build.py` generates all 42 pages from one
+place, in English and in French with nothing said in one language that is
+not said in the other: landing, tour (12 chapters), the `docs/*.md`
+reference documents through a small markdown converter, one "coming from
+X" page for each of ten languages (`site/coming.py`), and the standard
+library re-dressed from `keal doc`'s own output. `site/content.py` holds
+the authored prose. `editors/README.md` says how to install the VS Code
+extension (a symlink into `~/.vscode/extensions`, or a `.vsix`), how
+JetBrains reads the same folder as a TextMate bundle, and what a
+TextMate grammar cannot do (structural editing — that wants a language
+server, still unwritten); the extension is 0.2.0, Apache-2.0, and its
+grammar knows `weak` and `deinit`. `ci/` holds the two workflows the
+tooling cannot push itself (no `workflow` scope): `pages.yml`, installed,
+and `release.yml`, not yet. `RELEASING.md` states what a version means
+here, the four criteria a tag must meet, and what is deliberately not
+automated (crates.io, Homebrew, signing).
+
+TWO REAL BUGS, both found by running the tour's twelve snippets on all
+three engines rather than trusting the page that says they are checked:
+1. **A widened literal kept its old type.** `val r: Float = 1 / 2` gave
+   0.5 on both interpreters and **0.0 natively** — a silent
+   mis-compilation, the one thing the backend promises never to do.
+   `widen` rewrote the `Int` leaves into `Float` nodes but left
+   `e.ty = Int` on them, so the C backend emitted `keal_div(1.0, 2.0, 1)`
+   into an `int64_t`. Fixed in `widen` (oracle `src/checker.rs`, twin
+   `selfhost/checking.keal`): every node it touches now records `Float`.
+   The `keal types` dumps change on both sides identically.
+2. **`?.` to a value member did not compile at all.** `b?.n` with
+   `n: Int` emitted `KealOptI64 _t = NULL;` — a `cc` error, not a refusal
+   by name; and `s?.length` emitted `_t->k_length` on a `KealStr`,
+   because the built-in property was looked up under the receiver's
+   *nullable* type. Fixed in `cbackend` `guarded()` (the absent value is
+   `opt_null(inner)`, the present one `opt_wrap`) and `field()` (the
+   property is looked up under `non_null()`, and goes through the guard).
+   Twin mirrored byte-for-byte.
+   Tests: `tests/native/safe-chain.keal` + `.expected` (three engines:
+   `?.` to Int/Float/Bool/String fields and methods, built-in `length`
+   and `size`, `?:` after each, and the widened literals), plus asserts
+   in `tests/programs/numbers.keal` and `nullability.keal`.
+Also fixed: `docs/language.md` had a paragraph inserted inside the type
+table, which cut the `Nothing` row off its header AND sent
+`site/build.py` into an infinite loop (a line starting with `|` that
+opens no table matched no branch and never advanced). The document is
+repaired and the converter now consumes such a line as text.
+The tour's own promise is now checked rather than asserted: it says every
+snippet is a real program printing exactly what is beside it, so
+`site/checktour.py` runs all twelve on both interpreters — and natively
+wherever the backend accepts them — against the outputs on the page, and
+the suite calls it (`the_site_tour_prints_what_it_promises`, skipped
+without python3).
+Verified: corpora 4x162 = 648/648 byte-identical, suite 29/29, bootstrap
+fixed point, fuzz 3000 clean, 0 leaks on the new native test. Version
+0.6.0 in `Cargo.toml`, the README header and the site badge.
 
 **Community + legal files, and THE CYCLES DECISION.** CODE_OF_CONDUCT.md
 (Rust's, reformulated: acceptance-of-all promoted to the first rule and
@@ -95,10 +151,18 @@ class (suggesting `weak`), and an opt-in exit audit naming what survived
 by type. A collector stays possible later — the weak header is most of
 what it needs. Demonstrated first: a cycle's deinit never runs on any
 engine (tests in /tmp only; the demo belongs in the weak commit).
-NEXT: implement `weak` (parser keyword on class fields, checker rule +
-the cycle-capable warning, Rc::downgrade in interp/VM, native strong/
-weak header gated on program-uses-weak, twin mirror, three-engine test
-where a cycle's deinit DOES run once the back edge is weak).
+DONE in `56a20ce`: `weak` is a contextual keyword on a class field whose
+type is `T?` over a class; reading upgrades (`Rc::downgrade`/`upgrade` in
+interp and VM, a strong/weak header behind `KEAL_WEAK` natively, emitted
+only for programs that write the word), writing never retains, a class
+holding one cannot be copied and so cannot cross into an actor. Two
+things fell out: statement temps are on the same short leash under
+`weak` as under `deinit` (a weak field makes *when* an object dies
+observable), and rendering a cyclic value is a depth-capped panic on
+every engine instead of a stack overflow. The checker cautions about one
+shape: a class with a `deinit` and a mutable field able to point back at
+its own object. Still open, as designed: the opt-in exit audit naming
+what survived by type.
 
 **`Any` natively — the last construct the C backend refused. DONE.**
 Representation is memory.md §4 made real: `KealAny { const KealTypeInfo* ti;

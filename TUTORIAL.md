@@ -855,6 +855,14 @@ tallyDown(steps)
 assert(steps.drain() == [8, 12, 14, 15], "8, then self-sent 4, 2, 1")
 ```
 
+A word on that first parameter. Keal's receiver keyword is **`this`**,
+and only `this` — there is no `self` and no `that` in the language. The
+`self` above is an ordinary lambda parameter, named by whoever wrote the
+handler, because a handler is given its own address as its first
+argument; call it `me` or `here` and nothing changes. (`this` would not
+work there anyway: a handler is refused if it reaches for `this`, since
+an actor may not carry the object that spawned it.)
+
 `send` enqueues and returns; `run` delivers until every mailbox is empty.
 The checker holds the rules: a handler cannot reach a global `var`, a
 mutable global `val`, or `this`, and everything it captures must be

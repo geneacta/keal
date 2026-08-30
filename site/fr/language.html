@@ -19,7 +19,7 @@
     <div class="nav-links"><a href="index.html">Accueil</a><a href="tour.html">Le tour</a><a href="docs.html" class="tab-active">Docs</a><a href="coming-from.html">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
   </div>
   <div class="nav-right">
-    <span class="badge">v0.5.0</span>
+    <span class="badge">v0.6.0</span>
     <a class="btn-lang" href="../language.html">English</a>
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>
@@ -51,6 +51,7 @@ fun g()
 <hr>
 <h2 id="2-values-and-types">2. Values and types</h2>
 <div class="tablewrap"><table><thead><tr><th>Type</th><th>Values</th><th>Notes</th></tr></thead><tbody><tr><td><code>Int</code></td><td><code>0</code>, <code>-7</code>, <code>1_000_000</code></td><td>64-bit signed; overflow is an error, not a wrap</td></tr><tr><td><code>Float</code></td><td><code>1.5</code>, <code>-0.25</code>, <code>6.02e23</code></td><td>64-bit IEEE 754</td></tr><tr><td><code>Bool</code></td><td><code>true</code>, <code>false</code></td><td></td></tr><tr><td><code>String</code></td><td><code>"text"</code></td><td>immutable, indexed by character</td></tr><tr><td><code>Unit</code></td><td>—</td><td>what a <code>proc</code> produces: nothing. Never written by hand</td></tr><tr><td><code>List&lt;T&gt;</code></td><td><code>[1, 2, 3]</code></td><td>mutable, ordered</td></tr><tr><td><code>Map&lt;K, V&gt;</code></td><td><code>{"a": 1}</code></td><td>mutable, insertion-ordered</td></tr><tr><td><code>Range</code></td><td><code>0..10</code></td><td>half-open: contains 0 through 9</td></tr><tr><td><code>T?</code></td><td><code>null</code> or a <code>T</code></td><td>see <a href="#6-null-safety">null safety</a></td></tr><tr><td><code>(A, B) -&gt; C</code></td><td>lambdas, functions</td><td>first-class function values</td></tr><tr><td><code>Any</code></td><td>anything non-null</td><td>narrow it with <code>is</code> before use</td></tr><tr><td><code>Nothing</code></td><td>—</td><td>the type of an expression that never returns</td></tr></tbody></table></div>
+<p>Inside a method, the receiver is <strong><code>this</code></strong>. That is the only receiver keyword: there is no <code>self</code> and no <code>that</code>, and both remain ordinary names a program may use for its own bindings — a lambda parameter called <code>self</code>, as actor handlers conventionally have, is a name and not a keyword.</p>
 <h3 id="values-and-references">Values and references</h3>
 <p>There is no <code>int</code> versus <code>Integer</code> in Keal, and nothing to box or unbox. But the types do divide in two, and the difference shows:</p>
 <div class="tablewrap"><table><thead><tr><th></th><th>Types</th><th>Assigning one</th></tr></thead><tbody><tr><td><strong>Values</strong></td><td><code>Int</code>, <code>Float</code>, <code>Bool</code>, <code>Unit</code></td><td>copies it</td></tr><tr><td><strong>References</strong></td><td><code>String</code>, <code>List&lt;T&gt;</code>, <code>Map&lt;K, V&gt;</code>, class and record instances</td><td>shares it</td></tr></tbody></table></div>

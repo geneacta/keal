@@ -2,7 +2,7 @@
 
 # Keal — a statically typed, self-hosting language with a small surface
 
-**Version 0.5.0** · `keal version` prints the toolchain's own.
+**Version 0.6.0** · `keal version` prints the toolchain's own.
 
 *Small* means the surface, not the reach: a handful of concepts —
 values, functions, classes and traits, `when`, null safety — carried
@@ -128,9 +128,19 @@ $ dist/kealc program.keal > program.c && cc -O2 -std=c11 -o program program.c
 
 `kealc` compiles the whole nine-module Keal compiler in about 0.2 seconds.
 
-**Editing Keal?** [`editors/vscode`](editors/vscode) has a VS Code extension:
-highlighting, snippets, and the compiler's own errors reported inline. The
-grammar is a plain TextMate file, so Sublime, Zed and others can read it too.
+**Editing Keal?** [`editors/`](editors/README.md) has a VS Code extension —
+highlighting for the whole language, snippets, and the compiler's own errors
+reported inline. Installing it is one symlink, and it then follows the
+repository:
+
+```sh
+ln -s "$PWD/editors/vscode" ~/.vscode/extensions/keal
+```
+
+Reload VS Code and open any `.keal` file. The grammar is a plain TextMate
+file, which JetBrains IDEs and Sublime Text read as well;
+[`editors/README.md`](editors/README.md) has the steps for each, the `.vsix`
+package, and the check task that puts diagnostics in the Problems panel.
 
 **New to the language? Start with the [tutorial](TUTORIAL.md)** — a guided
 walk through everything, in about half an hour. Every snippet in it is

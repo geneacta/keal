@@ -1,0 +1,81 @@
+# Releasing
+
+A release of Keal is a git tag, a set of binaries, and a page that says
+what changed. Nothing about the language depends on it — the repository
+is always buildable from source — but a tag is what lets somebody run the
+compiler without installing Rust first, and what lets a bug report say
+*which* Keal.
+
+## What a version means here
+
+The project is pre-1.0, so the middle number carries the meaning:
+
+* **0.x.0** — new language surface, or a change to what a program means.
+  `weak`, actors on threads, `Any` natively: each of those was a minor.
+* **0.x.y** — fixes and internals with no visible change to a correct
+  program.
+* **1.0** will mean the semantics are frozen, which they are not: the
+  cycle audit, typed exceptions and a module namespace are all still
+  open, and each could change how a program is written.
+
+## The release criteria
+
+A tag is only cut when all four are green on the machine cutting it, and
+the release workflow runs them again on every platform it builds for:
+
+```sh
+cargo test --release     # the whole suite, three engines, all corpora
+./bootstrap.sh           # the self-hosted compiler, to its fixed point
+python3 tests/fuzz/fuzz.py ./target/release/keal 3000
+leaks --atExit -- ./some-native-binary   # macOS; zero leaks
+```
+
+Plus the two rules that are not commands: `STATUS.md` describes the state
+the tag is in, and every claim added to `README.md` or `docs/` since the
+last tag is one the suite actually checks.
+
+## Cutting one
+
+1. **Bump the version** in `Cargo.toml`, and in the site's badge
+   (`site/build.py`, the `v0.x.y` badge string) — then
+   `python3 site/build.py`, which rewrites all 42 pages.
+2. **Update `STATUS.md`**: what shipped, what is in flight, what is next.
+3. Commit, as ever authored `Tony Renard <contact@geneacta.com>`.
+4. **Tag and push:**
+
+   ```sh
+   git tag -a v0.6.0 -m "weak references, Any natively, actors on threads"
+   git push origin v0.6.0
+   ```
+
+5. The `release` workflow (see [`ci/README.md`](ci/README.md)) builds the
+   compiler for macOS arm64, macOS x86_64 and Linux x86_64, runs the
+   suite and the bootstrap on each, and opens a **draft** release with
+   the three archives attached.
+6. **Write the notes and publish.** GitHub's generated list of commits is
+   the raw material, not the notes: say what changed for someone writing
+   Keal, in the order that matters to them, and name what is still
+   missing. The commit messages in this repository are written to make
+   that easy.
+
+## What ships in an archive
+
+`keal` (the compiler and the runner), `README.md` and `LICENSE`. That is
+all a user needs: the prelude and the C runtime are compiled into the
+binary, so there is nothing to install beside it. A C compiler is only
+needed for `keal build`, and `keal doctor` will say whether one is there.
+
+## What is not automated, and why
+
+**Publishing to crates.io** — the crate is the compiler, not a library
+anyone depends on, so it would carry a promise about API stability the
+project cannot yet keep. `cargo install --git` works today.
+
+**Homebrew, apt, winget** — worth doing when there is a 1.0 to package.
+A formula that installs a moving pre-release ages badly.
+
+**Signing and notarisation** — macOS will quarantine an unsigned
+download, and users will have to clear it by hand
+(`xattr -d com.apple.quarantine keal`). Fixing that needs an Apple
+Developer account; it is on the list, and it is honest to say the
+download is unsigned until then.

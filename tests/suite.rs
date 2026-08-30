@@ -1041,6 +1041,31 @@ fn kealdoc_matches_snapshot() {
     assert_eq!(expected, out.stdout, "the generated documentation changed");
 }
 
+/// The site's tour tells the reader that every snippet on it is a real
+/// program and every output beside it is what that program prints. This is
+/// what makes the sentence true. Skipped without Python, which is what reads
+/// the page's own source of snippets.
+#[test]
+fn the_site_tour_prints_what_it_promises() {
+    let python = "python3";
+    if Command::new(python).arg("--version").output().is_err() {
+        eprintln!("skipping: no `{}` to read the tour with", python);
+        return;
+    }
+    let out = Command::new(python)
+        .current_dir(root())
+        .arg("site/checktour.py")
+        .arg(BIN)
+        .output()
+        .expect("cannot run the tour check");
+    assert!(
+        out.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 #[test]
 fn cli_reports_missing_files() {
     let out = keal(&["run", "does/not/exist.keal"]);
