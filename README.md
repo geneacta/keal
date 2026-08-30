@@ -555,14 +555,23 @@ and [`docs/interop.md`](docs/interop.md) tells that whole story. Exceptions
 used to live here too; all three engines catch them now. So did actors on
 real threads: `keal build` runs one OS thread per actor today, TSan-clean,
 and [`docs/threads.md`](docs/threads.md) is the record of how. And so did
-`Any` natively — the tag-and-payload pair, `is` as a tag compare.)
+`Any` natively — the tag-and-payload pair, `is` as a tag compare. And
+`weak`, which is how the back edge of a cycle is written so that the whole
+cycle dies on schedule and every `deinit` runs.)
 
+* **A module cannot keep anything to itself.** `import` splices every file
+  into one flat namespace: everything a file declares is visible to
+  everyone who imports it, two files cannot both declare `parse`, and
+  there is no way to say that a helper is nobody else's business. This is
+  the next piece of work, and it is two joined halves — packages and
+  imports that name what they bring in, and a visibility a declaration can
+  state, private being what it says when it says nothing.
 * **Cycles across several classes still leak silently** — `weak` breaks
-  the ones you can see (below), and the checker cautions about the shape
-  that voids a `deinit`; a cycle nobody marked is still never freed. The
-  next step is an opt-in run-time audit that names what outlived the
-  program, by type — evidence rather than guesswork. Why there is no
-  cycle collector is argued in [`docs/memory.md`](docs/memory.md) §5.
+  the ones you can see, and the checker cautions about the shape that
+  voids a `deinit`; a cycle nobody marked is still never freed. The next
+  step is an opt-in run-time audit that names what outlived the program,
+  by type — evidence rather than guesswork. Why there is no cycle
+  collector is argued in [`docs/memory.md`](docs/memory.md) §5.
 * **Typed exceptions** — `catch (e)` binds the message as a `String`
   today; catching by kind (and letting `throw` carry a value) is the
   natural second step now that all three engines unwind.
@@ -571,7 +580,9 @@ and [`docs/threads.md`](docs/threads.md) is the record of how. And so did
   evaluator.
 * **Macros** — deliberately last: the language keeps earning features the
   hard way first.
-* Smaller items: indexing/call operator overloads, namespaced imports,
+* Smaller items: indexing/call operator overloads, a language server (one
+  would serve VS Code, JetBrains, Neovim and Zed at once — the TextMate
+  grammar in [`editors/`](editors/README.md) cannot go to a definition),
   native `try` catching C stack exhaustion (the VM's depth panic is
   catchable, a native segfault is not), a register-based VM if the
   bytecode engine ever needs to be faster than it is.
