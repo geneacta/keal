@@ -1,0 +1,83 @@
+# Cuts a release when a version tag is pushed: builds the compiler for
+# macOS (Apple silicon and Intel) and Linux, runs the whole suite on each,
+# and attaches the binaries to a GitHub Release.
+#
+# Copy this file to .github/workflows/release.yml — see ci/README.md for
+# why it does not live there already.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (must already exist)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            name: keal-macos-arm64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            name: keal-macos-x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: keal-linux-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # The suite is the release criterion: three engines agreeing, the
+      # self-hosted twins byte-identical, and the bootstrap fixed point.
+      - name: Test
+        run: cargo test --release
+
+      - name: Bootstrap to its fixed point
+        run: ./bootstrap.sh
+
+      - name: Package
+        run: |
+          mkdir -p dist-release
+          cp target/${{ matrix.target }}/release/keal dist-release/keal
+          cp README.md LICENSE dist-release/
+          tar -czf ${{ matrix.name }}.tar.gz -C dist-release .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}.tar.gz
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: artifacts/**/*.tar.gz
+          generate_release_notes: true
+          draft: true
