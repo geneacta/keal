@@ -62,6 +62,44 @@ Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 unwinding), the six-language polyglot demo AND the ternary family are
 **DONE and pushed**. See NEXT.
 
+**Community + legal files, and THE CYCLES DECISION.** CODE_OF_CONDUCT.md
+(Rust's, reformulated: acceptance-of-all promoted to the first rule and
+extended to *level of experience* — "not knowing a word is an ordinary
+state, asking is the right move"; concrete review conduct; report to
+contact@geneacta.com). SECURITY.md with a real threat model: compiling
+Keal source RUNS its author's code (native blocks + extern + cc
+invocation), so the boundary is the operator's sandbox; in scope =
+safe-program-to-unsafe-binary, checker unsoundness the native backend
+trusts, compiler panics on any input, path escapes. Cargo.toml gained
+license/repository; README gained "Taking part" + License sections.
+TONY MUST FLIP ONE SETTING: Settings -> Security -> Private vulnerability
+reporting -> Enable (the gh token lacks admin scope).
+CYCLES — DECIDED (memory.md §5 rewritten with the full argument):
+**weak references, NOT a collector.** Tony proposed the collector; the
+challenge that won: (1) `deinit` is observable output, so a collector
+the interpreters cannot run breaks three-engine agreement — and they
+cannot run one, their values are Rust `Rc` whose decrements we do not
+own (same rewrite threads.md declined); (2) trial deletion taxes every
+decrement-that-misses-zero, i.e. cycle-free programs pay, and it cannot
+be gated the way KEAL_ACTORS/try/deinit modes are; (3) deinit order
+inside a cycle is arbitrary by construction, carving an exception into
+the determinism deinit sells; (4) actors now run on real threads with
+atomic counts — concurrent trial deletion is research-grade, stop-the-
+world is the pause counting exists to avoid. weak wins because it is
+implementable IDENTICALLY on all three engines: Rc::downgrade/upgrade in
+interp+VM, strong/weak header natively (husk survives until the last
+weak read; second count word paid only by programs that write `weak`).
+The gap weak leaves (accidental cycles) is answered by DIAGNOSIS not
+collection: a checker note where a `var` field's type can reach its own
+class (suggesting `weak`), and an opt-in exit audit naming what survived
+by type. A collector stays possible later — the weak header is most of
+what it needs. Demonstrated first: a cycle's deinit never runs on any
+engine (tests in /tmp only; the demo belongs in the weak commit).
+NEXT: implement `weak` (parser keyword on class fields, checker rule +
+the cycle-capable warning, Rc::downgrade in interp/VM, native strong/
+weak header gated on program-uses-weak, twin mirror, three-engine test
+where a cycle's deinit DOES run once the back edge is weak).
+
 **`Any` natively — the last construct the C backend refused. DONE.**
 Representation is memory.md §4 made real: `KealAny { const KealTypeInfo* ti;
 KealWord w; }` — 16 bytes, tag + payload. KealTypeInfo = { name, retain,
@@ -389,8 +427,9 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
    the `userdata` convention.
 3. Threaded actors — DONE through stage 6 (scheduler, JNI attach,
    measurements recorded in threads.md). `Any` natively — DONE too.
-   Then: the cycles decision; typed exceptions; `constexpr`; macros last.
-   See README "What remains".
+   Cycles — DECIDED (weak references; see IN FLIGHT top), implementation
+   pending. Then: typed exceptions; `constexpr`; macros last. See README
+   "What remains".
 
 ## Key file map
 

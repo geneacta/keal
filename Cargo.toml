@@ -3,6 +3,8 @@ name = "keal"
 version = "0.5.0"
 edition = "2021"
 description = "Keal — a statically typed scripting language"
+license = "Apache-2.0"
+repository = "https://github.com/geneacta/keal"
 
 [[bin]]
 name = "keal"

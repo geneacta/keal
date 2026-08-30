@@ -542,9 +542,13 @@ real threads: `keal build` runs one OS thread per actor today, TSan-clean,
 and [`docs/threads.md`](docs/threads.md) is the record of how. And so did
 `Any` natively — the tag-and-payload pair, `is` as a tag compare.)
 
-* **Cycle handling** — reference counting leaks cycles; the three candidate
-  answers (documented leak, weak references, cycle collector) are weighed in
-  [`docs/memory.md`](docs/memory.md) §5 and not yet chosen.
+* **Cycle handling** — reference counting leaks cycles, and since `deinit`
+  shipped that means a cycle's destructors never run. Now decided in
+  [`docs/memory.md`](docs/memory.md) §5, with the reasoning: **weak
+  references**, plus a checker warning where a field makes a cycle
+  possible. Not a collector — it cannot run on the interpreters without
+  replacing `Rc` there, it taxes every cycle-free program, and it would
+  make `deinit` order arbitrary inside a cycle. Decided, not yet built.
 * **Typed exceptions** — `catch (e)` binds the message as a `String`
   today; catching by kind (and letting `throw` carry a value) is the
   natural second step now that all three engines unwind.
@@ -560,3 +564,20 @@ and [`docs/threads.md`](docs/threads.md) is the record of how. And so did
 
 Class inheritance is a **non-goal**: composition, traits with default
 methods and records cover the territory without the diamond.
+
+## Taking part
+
+* [CONTRIBUTING.md](CONTRIBUTING.md) — the whole procedure: the rules
+  every change must respect, and the three commands that verify them.
+* [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — everyone is welcome here,
+  at every level of experience. Not knowing a word yet is an ordinary
+  state to be in, and asking is the right move.
+* [SECURITY.md](SECURITY.md) — the threat model stated plainly (compiling
+  a Keal program runs its author's code), and how to report privately.
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE). It grants the patent licence
+an MIT-style notice leaves unsaid, which is what a compiler wants: code
+that goes through Keal comes out the other side as C, and everyone
+involved should know where they stand.

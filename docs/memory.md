@@ -158,21 +158,96 @@ val a = Node(null)
 a.next = a          // a cycle; its memory is never returned
 ```
 
-The interpreter has the same behaviour, since it is built on Rust's `Rc`, so
-this is not a regression — but it is a gap, and it wants a decision rather
-than silence. The options, in rough order of cost:
+The interpreter has the same behaviour, since it is built on Rust's `Rc`,
+so this is not a regression — but it is a gap, and since `deinit` shipped
+the gap grew teeth. **A cycle does not merely leak memory; its `deinit`
+never runs.** Both engines and the native backend agree on that today,
+silently:
 
-1. **Leave it.** Document it and let programs avoid cycles. Cheapest, and
-   defensible for a language whose data is mostly records.
-2. **Weak references.** A `weak Node?` that does not keep its target alive,
-   which is how Swift handles it. Puts the problem in the author's hands, and
-   gives them a tool.
-3. **A cycle collector** alongside the counts, which is what CPython does. It
-   catches everything, and brings back some of the runtime that counting was
-   chosen to avoid.
+```
+built            # the cycle: no deinit, ever
+chain built
+deinit chain-a   # the acyclic pair dies on schedule
+deinit chain-b
+done
+```
 
-This is not settled. It does not block the layout work, which is why it has
-been recorded rather than resolved.
+So the question is no longer only "how much memory", it is "which
+destructors a program can count on". That deserves an answer, and here
+is the reasoning behind the one this project takes.
+
+**The three options, weighed against what Keal has already promised.**
+
+1. **Leave it, documented.** Cheapest, and honest as far as it goes. But
+   with `deinit` in the language, "you may not get your destructor" is a
+   correctness hole in a feature people are told to rely on.
+2. **Weak references.** A `weak Node?` field that does not keep its
+   target alive; reading one gives `Node?`, null once the target died.
+   The author names the back edge.
+3. **A cycle collector**, trial deletion alongside the counts, as CPython
+   does. Catches accidental cycles with no annotation at all.
+
+The collector looks like the complete answer, and for CPython it is. For
+Keal it collides with four commitments this language has already made:
+
+* **Three engines, one behaviour.** `deinit` is *observable output*. A
+  collector in the native runtime that the interpreters cannot run would
+  make the same program print different things on different engines —
+  the one rule the test suite exists to enforce. And the interpreters
+  cannot run one: their values are Rust `Rc`, whose decrements we do not
+  own. Collecting there means replacing `Rc` throughout the evaluator
+  and the VM — the same ground-up rewrite [`docs/threads.md`](threads.md)
+  declined for thread-safety, for the same reason: it taxes every program
+  to serve a few.
+* **Cycle-free programs must not pay.** Trial deletion works by treating
+  every decrement that does *not* reach zero as a cycle candidate: colour
+  bits in the header, a candidate buffer, a traversal. That is a cost on
+  all programs, including the overwhelming majority that never build a
+  cycle. Keal's pattern for optional machinery is a switch the compiler
+  throws only when the program needs it (`KEAL_ACTORS`, the `try` mode,
+  the `deinit` mode) — and a collector cannot be switched off by a
+  program that merely *might* cycle.
+* **Destruction is deterministic here.** Values die at statement
+  boundaries in reverse declaration order, on every engine. Inside a
+  collected cycle there is no last member, so the order of `deinit` calls
+  is arbitrary by construction. A collector would carve an exception into
+  the one guarantee `deinit` sells.
+* **Actors run on real threads now.** Counts go atomic, each actor owns
+  its heap. Concurrent trial deletion across those threads is a
+  research-grade problem, and the alternative — stopping every actor to
+  collect — is exactly the pause a counted language is chosen to avoid.
+
+**The decision: weak references, plus diagnosis for what they miss.**
+
+`weak` is implementable *identically* on all three engines, which is the
+argument that settles it. The interpreters get it almost free —
+`Rc::downgrade` is the semantics exactly, and `upgrade()` returning
+`None` is the null a dead target reads back as. Natively it is the
+standard strong/weak header: when the strong count reaches zero the
+object runs its `deinit` and releases its fields, and the allocation
+survives as a husk until the last weak reference goes, so a weak read is
+always a safe read. That second count word is paid only by programs that
+write `weak` — the same gating the rest of the runtime already uses.
+
+What weak references do not do is catch the cycle its author did not see.
+That is a real gap, and the answer to it is to make cycles *visible*
+rather than to collect them:
+
+* the checker can see which class fields are cycle-*capable* — a `var`
+  field whose type can reach its own class — and say so where the shape
+  is introduced, with `weak` as the suggested fix;
+* an opt-in audit at exit can name what was still alive, by type, turning
+  "leaked silently" into "leaked, and here is the type to look at".
+
+Neither of those forecloses a collector. If real programs later show that
+accidental cycles dominate deliberate ones, trial deletion can still be
+added underneath — the header the weak counts introduce is most of what
+it would need. That is the order this project prefers: the honest,
+cheap, deterministic mechanism first, the automatic one only against
+evidence.
+
+*Status: decided, not yet implemented. `weak` is the next memory-model
+change; the checker warning ships with it.*
 
 ---
 
