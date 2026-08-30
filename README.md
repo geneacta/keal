@@ -559,13 +559,14 @@ and [`docs/threads.md`](docs/threads.md) is the record of how. And so did
 `weak`, which is how the back edge of a cycle is written so that the whole
 cycle dies on schedule and every `deinit` runs.)
 
-* **A module cannot keep anything to itself.** `import` splices every file
-  into one flat namespace: everything a file declares is visible to
-  everyone who imports it, two files cannot both declare `parse`, and
-  there is no way to say that a helper is nobody else's business. This is
-  the next piece of work, and it is two joined halves — packages and
-  imports that name what they bring in, and a visibility a declaration can
-  state, private being what it says when it says nothing.
+* **Imports still bring in one flat namespace.** Visibility landed — a
+  declaration is private to its file unless it says `package` (the files
+  in its directory) or `public` — so a module keeps its helpers to itself
+  now, and the compiler's own 250-odd declarations turned out to need only
+  60 of them open. What is left is the other half: two files still cannot
+  both declare `parse`, because an import brings names in unqualified.
+  Named imports (`import "./geometry.keal" as geometry`) are the next
+  piece.
 * **Cycles across several classes still leak silently** — `weak` breaks
   the ones you can see, and the checker cautions about the shape that
   voids a `deinit`; a cycle nobody marked is still never freed. The next

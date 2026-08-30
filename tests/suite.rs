@@ -652,7 +652,7 @@ int64_t unnamed_params(int64_t a, double b) { return a + (int64_t)b; }
     // But Vec2 is Keal's to declare: the record the mirror struct reflects.
     std::fs::write(
         dir.join("prog.keal"),
-        r#"record Vec2(val x: Float, val y: Float)
+        r#"public record Vec2(val x: Float, val y: Float)
 import "./bindings.keal"
 println(add64(40, triple(1)))
 println(scale(2.5, 4.0))

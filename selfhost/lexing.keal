@@ -16,7 +16,7 @@ fun isAlnum(c: String): Bool { isAlpha(c) or isDigit(c) }
 
 /// How many bytes this character occupies in UTF-8 — the unit the reference
 /// lexer counts columns in.
-fun byteWidth(c: String): Int {
+package fun byteWidth(c: String): Int {
     val n = c.code()
     if (n < 128) { return 1 }
     if (n < 2048) { return 2 }
@@ -25,7 +25,7 @@ fun byteWidth(c: String): Int {
 }
 
 /// The dump's escaping, matching `keal tokens` exactly.
-fun esc(s: String): String {
+package fun esc(s: String): String {
     var out = ""
     for (c in s) {
         out += when (c) {
@@ -72,7 +72,7 @@ var lexErrorPrefix = ""
 record Part(val isLit: Bool, val text: String, val line: Int, val col: Int)
 
 /// One token. `parts` is only ever filled for `str`.
-record Token(
+package record Token(
     val kind: String,
     val text: String,
     val line: Int,
@@ -545,21 +545,21 @@ fun hexToInt(hex: String): Int? {
 
 
 /// Lexes a whole file.
-fun lexFile(source: String): List<Token> {
+package fun lexFile(source: String): List<Token> {
     val lx = Lexer(source, 1, 1, true)
     lx.run()
     return lx.out
 }
 
 /// Lexes an interpolation hole, whose text starts at the given position.
-fun lexFragment(source: String, atLine: Int, atCol: Int): List<Token> {
+package fun lexFragment(source: String, atLine: Int, atCol: Int): List<Token> {
     val lx = Lexer(source, atLine, atCol, false)
     lx.run()
     return lx.out
 }
 
 /// The one line `keal tokens` prints for this token.
-fun tokenDumpLine(t: Token): String {
+package fun tokenDumpLine(t: Token): String {
     if (t.kind == "str") {
         var lineOut = "${t.line}:${t.col} str"
         for (p in t.parts) {
@@ -577,7 +577,7 @@ fun tokenDumpLine(t: Token): String {
 }
 
 /// How a token reads in an error message — `describe` in the reference.
-fun describeToken(t: Token): String {
+package fun describeToken(t: Token): String {
     return when (t.kind) {
         "int" -> "integer `${t.text}`"
         "float" -> "float `${t.text}`"

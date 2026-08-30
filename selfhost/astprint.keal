@@ -29,7 +29,7 @@ fun indentBlock(s: String): String {
 
 fun wrapNode(tag: String, child: String): String { tag + "\n" + indentBlock(child) }
 
-fun printProgram(p: ProgramN): String {
+package fun printProgram(p: ProgramN): String {
     var out = "program"
     for (i in p.items) {
         out += "\n" + indentBlock(pItem(i))
@@ -84,8 +84,15 @@ fun pItem(i: ItemN): String {
     }
 }
 
+/// The modifier as it was written, or nothing when the declaration said
+/// nothing and is therefore private to its file.
+fun visPrefix(vis: String): String {
+    if (vis == "") { return "" }
+    return vis + " "
+}
+
 fun pFun(tag: String, f: FunN): String {
-    var out = "${tag} ${f.name} ${f.line}:${f.col}"
+    var out = "${visPrefix(f.vis)}${tag} ${f.name} ${f.line}:${f.col}"
     for (tp in f.typeParams) { out += "\n" + indentBlock(pTParam(tp)) }
     for (p in f.params) { out += "\n" + indentBlock(pParam(p)) }
     val ret = f.ret
@@ -118,7 +125,7 @@ fun pParam(p: ParamN): String {
 
 fun pClass(c: ClassN): String {
     val tag = if (c.isRecord) { "record" } else { "class" }
-    var out = "${tag} ${c.name} ${c.line}:${c.col}"
+    var out = "${visPrefix(c.vis)}${tag} ${c.name} ${c.line}:${c.col}"
     for (tp in c.typeParams) { out += "\n" + indentBlock(pTParam(tp)) }
     for (t in c.traits) { out += "\n" + indentBlock("impl " + typeLine(t)) }
     for (p in c.ctor) {
@@ -128,7 +135,8 @@ fun pClass(c: ClassN): String {
             else -> ""
         }
         val weakKw = if (p.weak) { "weak " } else { "" }
-        var head = "ctor ${weakKw}${kw}${p.name}: ${typeLine(p.tyEx!!)} ${p.line}:${p.col}"
+        var head =
+            "ctor ${visPrefix(p.vis)}${weakKw}${kw}${p.name}: ${typeLine(p.tyEx!!)} ${p.line}:${p.col}"
         val d = p.default
         if (d != null) { head += "\n" + indentBlock(pEx(d)) }
         out += "\n" + indentBlock(head)
@@ -136,7 +144,7 @@ fun pClass(c: ClassN): String {
     for (f in c.fields) {
         val kw = if (f.mutable) { "var" } else { "val" }
         val weakKw = if (f.weak) { "weak " } else { "" }
-        var head = "field ${weakKw}${kw} ${f.name}"
+        var head = "field ${visPrefix(f.vis)}${weakKw}${kw} ${f.name}"
         val t = f.tyEx
         if (t != null) { head += ": " + typeLine(t) }
         head += " ${f.line}:${f.col}"
@@ -149,7 +157,7 @@ fun pClass(c: ClassN): String {
 }
 
 fun pTrait(t: TraitN): String {
-    var out = "trait ${t.name} ${t.line}:${t.col}"
+    var out = "${visPrefix(t.vis)}trait ${t.name} ${t.line}:${t.col}"
     for (m in t.methods) {
         val tag = if (m.hasDefault) { "default" } else { "required" }
         out += "\n" + indentBlock(pFun(tag, m.decl))
@@ -158,7 +166,7 @@ fun pTrait(t: TraitN): String {
 }
 
 fun pExtern(x: ExternN): String {
-    var out = "extern ${x.name} = ${esc(x.symbol)} ${x.line}:${x.col}"
+    var out = "${visPrefix(x.vis)}extern ${x.name} = ${esc(x.symbol)} ${x.line}:${x.col}"
     for (p in x.params) { out += "\n" + indentBlock(pParam(p)) }
     val ret = x.ret
     if (ret != null) { out += "\n" + indentBlock("ret " + typeLine(ret)) }
@@ -178,7 +186,7 @@ fun pStmt(s: StmtN): String {
     return when (s.kind) {
         "let" -> {
             val kw = if (s.mutable) { "var" } else { "val" }
-            var head = "let ${kw} ${s.name}"
+            var head = "${visPrefix(s.vis)}let ${kw} ${s.name}"
             val t = s.tyEx
             if (t != null) { head += ": " + typeLine(t) }
             head + " " + sp + "\n" + indentBlock(pEx(s.init!!))

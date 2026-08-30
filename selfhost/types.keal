@@ -15,9 +15,9 @@
 // too; `tyEq` reproduces that exactly, because `assignableTo` leans on where
 // the Rust code uses `==` and where it deliberately does not.
 
-class PTy(val name: String, val ty: Ty, val hasDefault: Bool)
+package class PTy(val name: String, val ty: Ty, val hasDefault: Bool)
 
-class Ty(val kind: String) {
+package class Ty(val kind: String) {
     var name: String = ""
     var args: List<Ty> = []
     var params: List<PTy> = []
@@ -26,32 +26,32 @@ class Ty(val kind: String) {
 
 fun ty(kind: String): Ty { Ty(kind) }
 
-fun tyList(inner: Ty): Ty {
+package fun tyList(inner: Ty): Ty {
     val t = Ty("List")
     t.args = [inner]
     return t
 }
 
-fun tyMap(k: Ty, v: Ty): Ty {
+package fun tyMap(k: Ty, v: Ty): Ty {
     val t = Ty("Map")
     t.args = [k, v]
     return t
 }
 
-fun tyClass(name: String, args: List<Ty>): Ty {
+package fun tyClass(name: String, args: List<Ty>): Ty {
     val t = Ty("Class")
     t.name = name
     t.args = args
     return t
 }
 
-fun tyParam(name: String): Ty {
+package fun tyParam(name: String): Ty {
     val t = Ty("Param")
     t.name = name
     return t
 }
 
-fun tyFun(params: List<PTy>, ret: Ty): Ty {
+package fun tyFun(params: List<PTy>, ret: Ty): Ty {
     val t = Ty("Fun")
     t.params = params
     t.ret = ret
@@ -59,7 +59,7 @@ fun tyFun(params: List<PTy>, ret: Ty): Ty {
 }
 
 /// A function type whose parameters are positional and nameless.
-fun tyFunOf(params: List<Ty>, ret: Ty): Ty {
+package fun tyFunOf(params: List<Ty>, ret: Ty): Ty {
     val ps: List<PTy> = []
     for (p in params) { ps.add(PTy("", p, false)) }
     return tyFun(ps, ret)
@@ -67,7 +67,7 @@ fun tyFunOf(params: List<Ty>, ret: Ty): Ty {
 
 /// How many elements a tuple record holds, if this name is one.
 /// Mirrors `strip_prefix("Tuple")` + `parse::<usize>`: digits only.
-fun tupleArity(name: String): Int? {
+package fun tupleArity(name: String): Int? {
     unless (name.startsWith("Tuple")) { return null }
     val rest = name.drop(5)
     if (rest == "") { return null }
@@ -80,7 +80,7 @@ fun tupleArity(name: String): Int? {
 
 /// Wraps in `Nullable`, collapsing `T??` and leaving the types that already
 /// admit null alone.
-fun tyNullable(t: Ty): Ty {
+package fun tyNullable(t: Ty): Ty {
     return when (t.kind) {
         "Nullable", "Any", "Null", "Never", "Error" -> t
         else -> {
@@ -92,7 +92,7 @@ fun tyNullable(t: Ty): Ty {
 }
 
 /// Strips one level of `?`; `Null` becomes `Never`.
-fun tyNonNull(t: Ty): Ty {
+package fun tyNonNull(t: Ty): Ty {
     return when (t.kind) {
         "Nullable" -> t.args[0]
         "Null" -> Ty("Never")
@@ -100,18 +100,18 @@ fun tyNonNull(t: Ty): Ty {
     }
 }
 
-fun tyIsNullable(t: Ty): Bool {
+package fun tyIsNullable(t: Ty): Bool {
     return when (t.kind) {
         "Nullable", "Null", "Any", "Error" -> true
         else -> false
     }
 }
 
-fun tyIsNumeric(t: Ty): Bool { t.kind == "Int" or t.kind == "Float" }
+package fun tyIsNumeric(t: Ty): Bool { t.kind == "Int" or t.kind == "Float" }
 
 /// Structural equality, matching Rust's derived `PartialEq` — including
 /// function parameter names and defaults.
-fun tyEq(a: Ty, b: Ty): Bool {
+package fun tyEq(a: Ty, b: Ty): Bool {
     if (a.kind != b.kind) { return false }
     return when (a.kind) {
         "Class" -> (a.name == b.name) and tyArgsEq(a.args, b.args)
@@ -148,7 +148,7 @@ fun funEq(a: Ty, b: Ty): Bool {
 }
 
 /// Can a value of `a` be used where `b` is expected?
-fun assignableTo(a: Ty, b: Ty): Bool {
+package fun assignableTo(a: Ty, b: Ty): Bool {
     if (tyEq(a, b)) { return true }
     if (a.kind == "Error" or b.kind == "Error") { return true }
     if (a.kind == "Never") { return true }
@@ -205,7 +205,7 @@ fun hasParams(t: Ty): Bool {
 
 /// Rewrites every type parameter named in `subst`; absent names stay as they
 /// are. `Self` substitutes under its reserved key like any parameter.
-fun substitute(t: Ty, subst: Map<String, Ty>): Ty {
+package fun substitute(t: Ty, subst: Map<String, Ty>): Ty {
     return when (t.kind) {
         "Param" -> subst[t.name] ?: t
         "Self" -> subst["Self"] ?: t
@@ -226,14 +226,14 @@ fun substitute(t: Ty, subst: Map<String, Ty>): Ty {
     }
 }
 
-fun substituteFun(ft: Ty, subst: Map<String, Ty>): Ty {
+package fun substituteFun(ft: Ty, subst: Map<String, Ty>): Ty {
     val ps: List<PTy> = []
     for (p in ft.params) { ps.add(PTy(p.name, substitute(p.ty, subst), p.hasDefault)) }
     return tyFun(ps, substitute(ft.ret!!, subst))
 }
 
 /// A substitution that only replaces `Self`.
-fun selfSubst(t: Ty): Map<String, Ty> {
+package fun selfSubst(t: Ty): Map<String, Ty> {
     val s: Map<String, Ty> = {}
     s["Self"] = t
     return s
@@ -241,7 +241,7 @@ fun selfSubst(t: Ty): Map<String, Ty> {
 
 /// Matches a declared type against an actual one, recording what each type
 /// parameter must be. Returns false only when the shapes cannot correspond.
-fun unify(declared: Ty, actual: Ty, subst: Map<String, Ty>): Bool {
+package fun unify(declared: Ty, actual: Ty, subst: Map<String, Ty>): Bool {
     if (actual.kind == "Error" or actual.kind == "Never") { return true }
     if (declared.kind == "Self") { return true }
     if (declared.kind == "Param") {
@@ -296,7 +296,7 @@ fun unify(declared: Ty, actual: Ty, subst: Map<String, Ty>): Bool {
 }
 
 /// The least type both `a` and `b` fit into.
-fun tyJoin(a: Ty, b: Ty): Ty {
+package fun tyJoin(a: Ty, b: Ty): Ty {
     if (tyEq(a, b)) { return a }
     if (a.kind == "Error" or b.kind == "Error") { return Ty("Error") }
     if (a.kind == "Never") { return b }
@@ -311,7 +311,7 @@ fun tyJoin(a: Ty, b: Ty): Ty {
 }
 
 /// Element type produced by `for (x in this)`, if iterable.
-fun iterElem(t: Ty): Ty? {
+package fun iterElem(t: Ty): Ty? {
     return when (t.kind) {
         "List" -> t.args[0]
         "Range" -> Ty("Int")
@@ -322,7 +322,7 @@ fun iterElem(t: Ty): Ty? {
 }
 
 /// Renders a type the way diagnostics and the typed dump spell it.
-fun tyShow(t: Ty): String {
+package fun tyShow(t: Ty): String {
     return when (t.kind) {
         "Int" -> "Int"
         "Float" -> "Float"

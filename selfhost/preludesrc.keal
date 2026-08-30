@@ -3,7 +3,7 @@
 // the Rust tree. If src/prelude.keal changes and this copy does not, the
 // checker oracle test will fail; regenerate rather than edit.
 
-fun preludeSource(): String {
+package fun preludeSource(): String {
     return """// The prelude: traits every program can rely on, loaded before its own code.
 //
 // These are ordinary Keal traits — there is nothing the compiler knows about
@@ -21,51 +21,51 @@ fun preludeSource(): String {
 // types alike. Operators on built-in types are evaluated directly; the
 // rewrite only happens for a class or a bounded type parameter.
 
-trait Add {
+public trait Add {
     fun plus(other: Self): Self
 }
 
-trait Sub {
+public trait Sub {
     fun minus(other: Self): Self
 }
 
-trait Mul {
+public trait Mul {
     fun times(other: Self): Self
 }
 
-trait Div {
+public trait Div {
     fun div(other: Self): Self
 }
 
-trait Rem {
+public trait Rem {
     fun rem(other: Self): Self
 }
 
-trait Neg {
+public trait Neg {
     fun negate(): Self
 }
 
 /// `a ** b` is `a.pow(b)` — power, right-associative, tighter than `*`.
-trait Pow {
+public trait Pow {
     fun pow(other: Self): Self
 }
 
 /// `a ^/ b` is `a.root(b)` — the b-th root, the inverse of `**`. (`//`
 /// belongs to comments, so the root wears the power's hat.)
-trait Root {
+public trait Root {
     fun root(other: Self): Self
 }
 
 /// Structural equality. Without it, `==` on two instances compares identity,
 /// so two separately built values are never equal.
-trait Eq {
+public trait Eq {
     fun equals(other: Self): Bool
 }
 
 /// A total order. `compareTo` returns a negative number, zero, or a positive
 /// number according as the receiver is less than, equal to, or greater than
 /// `other` — the same convention as `Int.compareTo`.
-trait Ord {
+public trait Ord {
     fun compareTo(other: Self): Int
 }
 
@@ -76,7 +76,7 @@ trait Ord {
 // it: a three-valued answer, the way Bool is a two-valued one.
 
 /// The outcome of a comparison: less, equal or greater — exactly one.
-record Comp(val sign: Int) {
+public record Comp(val sign: Int) {
     fun isLess(): Bool { return this.sign < 0 }
     fun isEqual(): Bool { return this.sign == 0 }
     fun isGreater(): Bool { return this.sign > 0 }
@@ -92,7 +92,7 @@ record Comp(val sign: Int) {
 
 /// Compares two values of any ordered type — `Int`, `Float`, `String`, or
 /// your own `: Ord` class — as a `Comp`.
-fun compare<T: Ord>(a: T, b: T): Comp {
+public fun compare<T: Ord>(a: T, b: T): Comp {
     val sign = a.compareTo(b)
     if (sign < 0) { return Comp(-1) }
     if (sign > 0) { return Comp(1) }
@@ -108,13 +108,13 @@ fun compare<T: Ord>(a: T, b: T): Comp {
 // Beyond five, declare a record: past that many, positions stop being
 // memorable and names start earning their keep.
 
-record Tuple2<A, B>(val first: A, val second: B)
+public record Tuple2<A, B>(val first: A, val second: B)
 
-record Tuple3<A, B, C>(val first: A, val second: B, val third: C)
+public record Tuple3<A, B, C>(val first: A, val second: B, val third: C)
 
-record Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+public record Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
 
-record Tuple5<A, B, C, D, E>(
+public record Tuple5<A, B, C, D, E>(
     val first: A,
     val second: B,
     val third: C,
@@ -137,11 +137,11 @@ record Tuple5<A, B, C, D, E>(
 
 /// One pass over a sequence: whether an element remains, and the next one.
 /// Calling `nextFn` without a true `hasNextFn` first is the caller's bug.
-class SeqIter<T>(val hasNextFn: () -> Bool, val nextFn: () -> T)
+public class SeqIter<T>(val hasNextFn: () -> Bool, val nextFn: () -> T)
 
 /// A recipe for iteration. Each terminal operation asks `iterFn` for a
 /// fresh pass, so a sequence built from a stable source can be walked twice.
-class Sequence<T>(val iterFn: () -> SeqIter<T>) {
+public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     fun iterator(): SeqIter<T> {
         val make = this.iterFn
         return make()
@@ -394,7 +394,7 @@ class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
 /// A sequence over a list. The list is read as the sequence is pulled, one
 /// index at a time.
-fun seq<T>(xs: List<T>): Sequence<T> {
+public fun seq<T>(xs: List<T>): Sequence<T> {
     return Sequence({ ->
         var i = 0
         SeqIter({ -> i < xs.size }, { ->
@@ -407,7 +407,7 @@ fun seq<T>(xs: List<T>): Sequence<T> {
 
 /// The infinite sequence `seed, step(seed), step(step(seed)), ...`. Pair it
 /// with `take` or `takeWhile`; a plain `toList` on it will not come back.
-fun iterate<T>(seed: T, step: (T) -> T): Sequence<T> {
+public fun iterate<T>(seed: T, step: (T) -> T): Sequence<T> {
     return Sequence({ ->
         var current = seed
         var started = false
@@ -441,7 +441,7 @@ fun iterate<T>(seed: T, step: (T) -> T): Sequence<T> {
 
 /// The address of an actor: something to `send` to. Holds only the mailbox,
 /// so references never form cycles through the system.
-class ActorRef<M>(val mailbox: List<M>) {
+public class ActorRef<M>(val mailbox: List<M>) {
     /// Enqueues a **copy** of the message and returns immediately;
     /// delivery happens inside `run`. Messages cross by copy on every
     /// engine — under real threads they cross heaps, and the semantics
@@ -458,7 +458,7 @@ class ActorRef<M>(val mailbox: List<M>) {
 /// actors post into the same box the spawner drains after `run`. Under a
 /// threaded scheduler the posts interleave; treat the contents as a bag
 /// unless one actor alone is posting.
-class Outbox<T>(val items: List<T>) {
+public class Outbox<T>(val items: List<T>) {
     proc post(v: T) {
         this.items.add(copy(v))
     }
@@ -476,14 +476,14 @@ class Outbox<T>(val items: List<T>) {
 }
 
 /// An empty outbox; `Outbox<Int>([])` written the readable way.
-fun outbox<T>(): Outbox<T> {
+public fun outbox<T>(): Outbox<T> {
     val items: List<T> = []
     return Outbox(items)
 }
 
 /// A set of actors and their mailboxes. `spawn` registers a handler; `run`
 /// delivers until every mailbox is empty.
-class ActorSystem<M>() {
+public class ActorSystem<M>() {
     var handlers: List<(ActorRef<M>, M) -> Unit> = []
     var mailboxes: List<List<M>> = []
 

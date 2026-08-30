@@ -823,15 +823,51 @@ Only a class or a bounded type parameter goes through a method call. `1 + 2`
 is added directly; the built-in implementations exist so that generic code —
 which *is* rewritten — has something to land on.
 
-## 13. Modules
+## 13. Modules and visibility
 
 ```keal
 import "./geometry.keal"
 ```
 
-Paths are relative to the importing file. Everything the imported file
-declares becomes visible; there is one flat namespace. A file is loaded at
-most once, so diamond imports and cycles are both fine.
+Paths are relative to the importing file. A file is loaded at most once, so
+diamond imports and cycles are both fine, and what an import brings in is
+one flat namespace — there is no `geometry.` prefix yet.
+
+What it brings in is what the imported file **let** it bring in. A
+declaration that says nothing about who may name it is private to its own
+file:
+
+```keal
+fun rounded(x: Float): Int { ... }        // this file's business
+package fun parse(src: String): Ast { ... }  // the files beside it
+public class Ast(val root: Node) { ... }     // anyone who imports it
+```
+
+| Written | Who may name it |
+|---|---|
+| nothing, or `private` | the file that declares it |
+| `package` | every file in the same directory |
+| `public` | every file that imports it |
+
+A **package is a directory**. Nothing declares it and nothing names it: the
+files that sit together are the ones that can see each other's `package`
+declarations, which is what lets a group of files collaborate without
+promising anything to the outside.
+
+The modifier goes on a top-level `fun`, `proc`, `class`, `record`, `trait`,
+`extern fun`, `val` or `var`. It is contextual, like `record` and `weak`: a
+program that already has a variable called `public` keeps working, because
+the word is only a modifier where a declaration follows it.
+
+Inside a body, nothing takes a modifier — a local is reachable exactly where
+it is in scope, which is what a scope already says. And a type parameter
+named like a class is still a type parameter: `record Pair<A, B>` does not
+reach for a class called `A`.
+
+Two consequences worth stating. A private class cannot be *named* either, so
+a public function must not return one — the checker refuses the type where
+it is written, not later. And the prelude and `lib/jvm.keal` say `public` on
+everything, because a standard library is nothing but its public surface.
 
 ---
 

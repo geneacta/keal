@@ -443,7 +443,7 @@ fn emit_class(p: &ParsedClass, simple: &str, bound: &[(String, String)]) -> Stri
     out.push_str(&format!("\n// ---- {} ----\n\n", p.fqcn));
     out.push_str(&format!(
         "var jbindCls{} = 0\n\
-         fun {}(): Int {{\n    \
+         public fun {}(): Int {{\n    \
          if (jbindCls{} == 0) {{ jbindCls{} = jvmClass(\"{}\") }}\n    \
          return jbindCls{}\n\
          }}\n\n",
@@ -455,7 +455,7 @@ fn emit_class(p: &ParsedClass, simple: &str, bound: &[(String, String)]) -> Stri
         simple
     ));
     out.push_str(&format!(
-        "class {}(val handle: Int){} {{\n",
+        "public class {}(val handle: Int){} {{\n",
         simple,
         if is_ord { " : Ord" } else { "" }
     ));
@@ -517,7 +517,7 @@ fn emit_member(
                 simple, accessor, sig
             ));
             Emitted::Toplevel(format!(
-                "fun {}({}): {} {{\n{}}}\n",
+                "public fun {}({}): {} {{\n{}}}\n",
                 fname,
                 params_list(&crossed),
                 simple,
@@ -560,7 +560,7 @@ fn emit_member(
                 let recv = format!("{}()", accessor);
                 let (kw, ret_ty, body) = call(&rk, &recv, &name, &sig, true, &crossed);
                 Emitted::Toplevel(format!(
-                    "{} {}({}){} {{\n{}}}\n",
+                    "public {} {}({}){} {{\n{}}}\n",
                     kw,
                     fname,
                     params_list(&crossed),

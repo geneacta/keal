@@ -3,7 +3,7 @@
 // tree. If src/runtime.c changes and this copy does not, the emitter oracle
 // test will fail; regenerate rather than edit.
 
-fun runtimeSource(): String {
+package fun runtimeSource(): String {
     return """/* The runtime the generated C is compiled against.
  *
  * This is the memory model of docs/memory.md made real, for the part of the

@@ -17,8 +17,10 @@ commit that leaves work in flight.*
 3. **Generated embeds**: after editing `src/prelude.keal` or
    `src/runtime.c`, regenerate `selfhost/preludesrc.keal` /
    `selfhost/runtimesrc.keal` (python one-liners wrapping the file in a
-   raw-string `fun ...Source(): String`), **after** `cargo build --release`
-   (the binary embeds them via `include_str!`).
+   raw-string `package fun ...Source(): String` — `package`, since
+   visibility landed and the twin's files read them from beside them),
+   **after** `cargo build --release` (the binary embeds them via
+   `include_str!`).
 4. **Match or refuse**: the native backend never mis-compiles — it refuses
    by name. Runtime behavior must match the interpreters (messages
    included); `tests/native/*` runs on all three engines.
@@ -56,6 +58,55 @@ commit that leaves work in flight.*
   (`examples/interop/java/`). Plan in `docs/interop.md`.
 
 ## IN FLIGHT
+
+**Visibility, stage A — top-level declarations. DONE, and stage B (class
+members) is what remains of what Tony asked for.** A declaration that
+says nothing is **private to its own file**; `package` opens it to every
+file in the same directory — a package IS a directory, nothing declares
+one — and `public` opens it to whoever imports the file. The three words
+are contextual, like `record` and `weak`, so no program that used one as
+a name broke. Written on a top-level `fun`/`proc`/`class`/`record`/
+`trait`/`extern fun`/`val`/`var`; inside a body there is nothing to write
+it on, and `public` before anything else is refused by name.
+MECHANISM: `Vis` on the AST (oracle `src/ast.rs`, twin `var vis: String`
+where "" is private); the parser reads the modifier before the
+declaration keyword, so a declaration's span still starts at its keyword
+(that alignment cost one corpus divergence on ctor params); astdump
+prints the modifier only when it is not private, so every un-annotated
+program dumps exactly as before. The checker learns each file's package
+from `Sources` (`learn_packages`, called at ALL FOUR entry points — the
+three `Checker::new()` sites in main.rs plus `check()`; missing three of
+them is why the first bindgen run said "another file"), records vis+home
+on Binding/ClassInfo/TraitInfo, and refuses at three points: a name
+written as a value, a class named to construct one, and every class or
+trait named inside a written type (`check_type_names`, which must skip
+names that are type parameters in scope — the prelude's `Tuple3<A, B, C>`
+otherwise collided with a user class named `C`).
+MIGRATION: driven by the compiler itself
+(`scratchpad/migrate.py`): check, read back every "is private to" it
+reports, mark exactly those `package` (all readers in the same
+directory) or `public`, repeat to a fixed point. Result worth keeping:
+of ~250 declarations in `selfhost/`, only ~60 needed opening —
+`cbackend.keal`'s 65 are ALL private. Prelude and `lib/jvm.keal` are
+public throughout (a standard library is its public surface); `keal
+jbind` and `keal bindgen` now GENERATE `public` declarations, since a
+generated module exists to be imported.
+Tests: `tests/selfhost/type-errors/visibility.keal` (+ its
+`visibility-lib/`) covers private, package-across-directories and a
+private class named as a type; the modules program test now reads
+`package class Vec2`. Verified: corpora 4x162 = 648/648, suite 29/29,
+bootstrap fixed point, fuzz 3000 clean, the site tour still prints what
+it promises. Docs: language.md §13 rewritten as "Modules and
+visibility", TUTORIAL §10, README "What remains".
+STAGE B, still to do: the same on class members — `public val n`,
+private-by-default fields and methods. The parser and both AST already
+carry `vis` on `CtorParam`/`FieldDecl`/methods and the dumps print it;
+what is missing is the checker refusing a hidden member at a field
+access or a method call, and the migration of every record whose fields
+are read from another file. Note the consequence Tony should weigh: a
+`record` is its fields, so every record used across a file boundary will
+need `public` on each one unless records are given the rule that their
+fields follow the record's own visibility.
 
 Nothing — operators/Comp/guarded-return, `keal jbind`, the loader sugar
 `import java.time.LocalDate`, the verified Go demo, exceptions

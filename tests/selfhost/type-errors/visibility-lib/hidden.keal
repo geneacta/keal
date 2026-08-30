@@ -1,0 +1,4 @@
+public fun open(): Int { secret() }
+fun secret(): Int { 42 }
+package fun shared(): Int { 7 }
+class Kept(val n: Int)

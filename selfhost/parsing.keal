@@ -86,7 +86,7 @@ fun assignOpName(kind: String): String {
 /// oracle prints them bare; the checker and emitter oracles print the note.
 var parseNoteMode = false
 
-class Parser(val toks: List<Token>) {
+package class Parser(val toks: List<Token>) {
     var pos: Int = 0
     var quiet: Int = 0
     var failed: Bool = false
@@ -164,6 +164,41 @@ class Parser(val toks: List<Token>) {
     /// True when the token after this one could name a declaration.
     fun namesDeclaration(): Bool { this.peekAt(1).kind == "ident" }
 
+    /// A visibility modifier, when one is written.
+    ///
+    /// `public`, `package` and `private` are contextual, like `record` and
+    /// `weak`: they are modifiers only where a declaration follows, so a
+    /// program that already uses one as a name keeps working.
+    fun visibility(): String {
+        val t = this.peek()
+        if (t.kind != "ident") { return "" }
+        val isMod = t.text == "public" or t.text == "package" or t.text == "private"
+        unless (isMod) { return "" }
+        unless (this.opensDeclaration(1)) { return "" }
+        this.advance()
+        if (t.text == "private") { return "" }
+        return t.text
+    }
+
+    /// True when the token at `n` opens something a modifier can precede.
+    fun opensDeclaration(n: Int): Bool {
+        val t = this.peekAt(n)
+        val k = t.kind
+        if (k == "fun" or k == "proc" or k == "class" or k == "val" or k == "var") {
+            return true
+        }
+        unless (k == "ident") { return false }
+        if (t.text == "record" or t.text == "trait") {
+            return this.peekAt(n + 1).kind == "ident"
+        }
+        if (t.text == "extern") { return this.peekAt(n + 1).kind == "fun" }
+        if (t.text == "weak") {
+            val after = this.peekAt(n + 1).kind
+            return after == "val" or after == "var"
+        }
+        return false
+    }
+
     // ---- program --------------------------------------------------------
 
     fun program(): ProgramN {
@@ -177,26 +212,31 @@ class Parser(val toks: List<Token>) {
     }
 
     fun item(): ItemN {
+        val vis = this.visibility()
+        return this.itemAfterVis(vis)
+    }
+
+    fun itemAfterVis(vis: String): ItemN {
         val t = this.peek()
         if (t.kind == "fun" or t.kind == "proc") {
             val i = ItemN("fun", t.line, t.col)
-            i.funDecl = this.funDecl()
+            i.funDecl = this.funDecl(vis)
             return i
         }
         if (t.kind == "class") {
             val i = ItemN("class", t.line, t.col)
-            i.classDecl = this.classDecl(false)
+            i.classDecl = this.classDecl(false, vis)
             return i
         }
         if (t.kind == "ident" and t.text == "record" and this.namesDeclaration()) {
             this.advance()
             val i = ItemN("class", t.line, t.col)
-            i.classDecl = this.classDecl(true)
+            i.classDecl = this.classDecl(true, vis)
             return i
         }
         if (t.kind == "ident" and t.text == "trait" and this.namesDeclaration()) {
             val i = ItemN("trait", t.line, t.col)
-            i.traitDecl = this.traitDecl()
+            i.traitDecl = this.traitDecl(vis)
             return i
         }
         if (t.kind == "ident" and t.text == "native" and this.peekAt(1).kind == "str") {
@@ -215,7 +255,7 @@ class Parser(val toks: List<Token>) {
         }
         if (t.kind == "ident" and t.text == "extern" and this.peekAt(1).kind == "fun") {
             val i = ItemN("extern", t.line, t.col)
-            i.externDecl = this.externDecl()
+            i.externDecl = this.externDecl(vis)
             return i
         }
         if (t.kind == "import") {
@@ -279,18 +319,31 @@ class Parser(val toks: List<Token>) {
             return ItemN("import", t.line, t.col)
         }
         val i = ItemN("stmt", t.line, t.col)
-        i.stmt = this.stmt()
+        val st = this.stmt()
+        if (st.kind == "let") {
+            st.vis = vis
+        } else {
+            unless (vis == "") {
+                this.failNote(
+                    t.line, t.col,
+                    "`${vis}` can only precede a declaration",
+                    "a visibility is written on a `fun`, `proc`, `class`, `record`, `trait`, `val` or `var`"
+                )
+            }
+        }
+        i.stmt = st
         return i
     }
 
     // ---- declarations ---------------------------------------------------
 
-    fun funDecl(): FunN {
+    fun funDecl(vis: String): FunN {
         val start = this.peek()
         val isFun = this.at("fun")
         this.advance() // fun or proc
         val name = this.expectIdent(if (isFun) { "a function name" } else { "a name" })
         val f = FunN(name, start.line, start.col)
+        f.vis = vis
         f.typeParams = this.typeParamList()
         f.params = this.paramList()
         f.ret = this.returnType(isFun, name)
@@ -366,18 +419,20 @@ class Parser(val toks: List<Token>) {
         return out
     }
 
-    fun classDecl(isRecord: Bool): ClassN {
+    fun classDecl(isRecord: Bool, vis: String): ClassN {
         val start = this.peek()
         unless (isRecord) { this.expect("class", "to start a class declaration") }
         val name = this.expectIdent(
             if (isRecord) { "a record name" } else { "a class name" }
         )
         val c = ClassN(name, isRecord, start.line, start.col)
+        c.vis = vis
         c.typeParams = this.typeParamList()
 
         if (this.at("(")) {
             this.advance()
             while (not this.at(")")) {
+                val pvis = this.visibility()
                 val pstart = this.peek()
                 // `weak` is contextual, like `record`: it is a modifier only
                 // where a field is being declared, and stays a usable name
@@ -405,6 +460,7 @@ class Parser(val toks: List<Token>) {
                 val pname = this.expectIdent("a constructor parameter name")
                 this.expect(":", "after a constructor parameter name")
                 val cp = CtorN(pname, pstart.line, pstart.col)
+                cp.vis = pvis
                 cp.fieldKind = kw
                 cp.weak = isWeak
                 cp.tyEx = this.typeExpr()
@@ -431,9 +487,10 @@ class Parser(val toks: List<Token>) {
         while (true) {
             this.skipSemis()
             if (this.at("}") or this.at("eof")) { break }
+            val mvis = this.visibility()
             val m = this.peek()
             if (m.kind == "fun" or m.kind == "proc") {
-                c.methods.add(this.funDecl())
+                c.methods.add(this.funDecl(mvis))
             } else if (m.kind == "val" or m.kind == "var" or (m.kind == "ident" and m.text == "weak" and (this.peekAt(1).kind == "val" or this.peekAt(1).kind == "var"))) {
                 val isWeak = m.kind == "ident"
                 if (isWeak) { this.advance() }
@@ -446,6 +503,7 @@ class Parser(val toks: List<Token>) {
                 }
                 val fname = this.expectIdent("a field name")
                 val fd = FieldN(fname, m.line, m.col)
+                fd.vis = mvis
                 fd.mutable = mutable
                 fd.weak = isWeak
                 if (this.eat(":")) {
@@ -472,11 +530,12 @@ class Parser(val toks: List<Token>) {
         return c
     }
 
-    fun traitDecl(): TraitN {
+    fun traitDecl(vis: String): TraitN {
         val start = this.peek()
         this.advance() // trait
         val name = this.expectIdent("a trait name")
         val t = TraitN(name, start.line, start.col)
+        t.vis = vis
         this.expect("{", "to open the trait body")
         while (true) {
             this.skipSemis()
@@ -503,12 +562,13 @@ class Parser(val toks: List<Token>) {
         return t
     }
 
-    fun externDecl(): ExternN {
+    fun externDecl(vis: String): ExternN {
         val start = this.peek()
         this.advance() // extern
         this.expect("fun", "after `extern`")
         val name = this.expectIdent("a function name")
         val x = ExternN(name, start.line, start.col)
+        x.vis = vis
         x.params = this.paramList()
         x.ret = this.returnType(true, name)
         x.symbol = name
@@ -704,12 +764,12 @@ class Parser(val toks: List<Token>) {
         }
         if (t.kind == "fun" or t.kind == "proc") {
             val s = StmtN("fun", t.line, t.col)
-            s.funDecl = this.funDecl()
+            s.funDecl = this.funDecl("")
             return s
         }
         if (t.kind == "class") {
             val s = StmtN("class", t.line, t.col)
-            s.classDecl = this.classDecl(false)
+            s.classDecl = this.classDecl(false, "")
             return s
         }
 

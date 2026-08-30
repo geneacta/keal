@@ -140,6 +140,15 @@ fn type_line(te: &TypeExpr) -> String {
 
 // ---- items --------------------------------------------------------------
 
+/// The modifier as it was written, or nothing when the declaration said
+/// nothing and is therefore private to its file.
+fn vis_prefix(vis: Vis) -> String {
+    match vis.keyword() {
+        Some(k) => format!("{} ", k),
+        None => String::new(),
+    }
+}
+
 fn item_node(item: &Item) -> String {
     match item {
         Item::Fun(f) => fun_node("fun", f),
@@ -153,7 +162,7 @@ fn item_node(item: &Item) -> String {
 }
 
 fn fun_node(tag: &str, f: &FunDecl) -> String {
-    let mut out = format!("{} {} {}\n", tag, f.name, at(f.span));
+    let mut out = format!("{}{} {} {}\n", vis_prefix(f.vis), tag, f.name, at(f.span));
     for tp in &f.type_params {
         out.push_str(&indent(&tparam_node(tp)));
         out.push('\n');
@@ -193,7 +202,7 @@ fn param_node(p: &Param) -> String {
 
 fn class_node(c: &ClassDecl) -> String {
     let tag = if c.is_record { "record" } else { "class" };
-    let mut out = format!("{} {} {}\n", tag, c.name, at(c.span));
+    let mut out = format!("{}{} {} {}\n", vis_prefix(c.vis), tag, c.name, at(c.span));
     for tp in &c.type_params {
         out.push_str(&indent(&tparam_node(tp)));
         out.push('\n');
@@ -209,8 +218,15 @@ fn class_node(c: &ClassDecl) -> String {
             None => "",
         };
         let weak = if p.weak { "weak " } else { "" };
-        let mut head =
-            format!("ctor {}{}{}: {} {}", weak, kw, p.name, type_line(&p.ty), at(p.span));
+        let mut head = format!(
+            "ctor {}{}{}{}: {} {}",
+            vis_prefix(p.vis),
+            weak,
+            kw,
+            p.name,
+            type_line(&p.ty),
+            at(p.span)
+        );
         if let Some(d) = &p.default {
             head = format!("{}\n{}", head, indent(&expr_node(d)));
         }
@@ -220,7 +236,7 @@ fn class_node(c: &ClassDecl) -> String {
     for f in &c.fields {
         let kw = if f.mutable { "var" } else { "val" };
         let weak = if f.weak { "weak " } else { "" };
-        let mut head = format!("field {}{} {}", weak, kw, f.name);
+        let mut head = format!("field {}{}{} {}", vis_prefix(f.vis), weak, kw, f.name);
         if let Some(t) = &f.ty {
             head.push_str(&format!(": {}", type_line(t)));
         }
@@ -239,7 +255,7 @@ fn class_node(c: &ClassDecl) -> String {
 }
 
 fn trait_node(t: &TraitDecl) -> String {
-    let mut out = format!("trait {} {}\n", t.name, at(t.span));
+    let mut out = format!("{}trait {} {}\n", vis_prefix(t.vis), t.name, at(t.span));
     for m in &t.methods {
         let tag = if m.has_default { "default" } else { "required" };
         out.push_str(&indent(&fun_node(tag, &m.decl)));
@@ -249,7 +265,8 @@ fn trait_node(t: &TraitDecl) -> String {
 }
 
 fn extern_node(x: &ExternDecl) -> String {
-    let mut out = format!("extern {} = {} {}\n", x.name, esc(&x.symbol), at(x.span));
+    let mut out =
+        format!("{}extern {} = {} {}\n", vis_prefix(x.vis), x.name, esc(&x.symbol), at(x.span));
     for p in &x.params {
         out.push_str(&indent(&param_node(p)));
         out.push('\n');
@@ -274,9 +291,9 @@ fn block_node(tag: &str, b: &Block) -> String {
 
 fn stmt_node(s: &Stmt) -> String {
     match &s.kind {
-        StmtKind::Let { name, ty, init, mutable } => {
+        StmtKind::Let { name, ty, init, mutable, vis } => {
             let kw = if *mutable { "var" } else { "val" };
-            let mut head = format!("let {} {}", kw, name);
+            let mut head = format!("{}let {} {}", vis_prefix(*vis), kw, name);
             if let Some(t) = ty {
                 head.push_str(&format!(": {}", type_line(t)));
             }

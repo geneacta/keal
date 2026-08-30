@@ -897,6 +897,7 @@ impl Compiler {
             ExprKind::Lambda { params, body } => {
                 let decl = FunDecl {
                     name: "<lambda>".to_string(),
+                    vis: Vis::Private,
                     type_params: Vec::new(),
                     params: params.clone(),
                     ret: None,

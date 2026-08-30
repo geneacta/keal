@@ -142,6 +142,38 @@ impl Parser {
         matches!(self.peek_at(1), Tok::Ident(_))
     }
 
+    /// A visibility modifier, when one is written.
+    ///
+    /// `public`, `package` and `private` are contextual, like `record` and
+    /// `weak`: they are modifiers only where a declaration follows, so a
+    /// program that already uses one as a name keeps working.
+    fn visibility(&mut self) -> Vis {
+        let level = match self.peek() {
+            Tok::Ident(w) if w == "public" => Vis::Public,
+            Tok::Ident(w) if w == "package" => Vis::Package,
+            Tok::Ident(w) if w == "private" => Vis::Private,
+            _ => return Vis::Private,
+        };
+        if !self.opens_declaration(1) {
+            return Vis::Private;
+        }
+        self.advance();
+        level
+    }
+
+    /// True when the token at `n` opens something a modifier can precede.
+    fn opens_declaration(&self, n: usize) -> bool {
+        match self.peek_at(n) {
+            Tok::Fun | Tok::Proc | Tok::Class | Tok::Val | Tok::Var => true,
+            Tok::Ident(w) if w == "record" || w == "trait" => {
+                matches!(self.peek_at(n + 1), Tok::Ident(_))
+            }
+            Tok::Ident(w) if w == "extern" => matches!(self.peek_at(n + 1), Tok::Fun),
+            Tok::Ident(w) if w == "weak" => matches!(self.peek_at(n + 1), Tok::Val | Tok::Var),
+            _ => false,
+        }
+    }
+
     fn err_here(&self, msg: impl Into<String>) -> Diag {
         Diag::new(self.span(), msg)
     }
@@ -167,18 +199,24 @@ impl Parser {
     }
 
     fn item(&mut self) -> Result<Item, Diag> {
+        let vis_span = self.span();
+        let vis = self.visibility();
+        self.item_after_vis(vis, vis_span)
+    }
+
+    fn item_after_vis(&mut self, vis: Vis, vis_span: Span) -> Result<Item, Diag> {
         match self.peek() {
-            Tok::Fun | Tok::Proc => Ok(Item::Fun(self.fun_decl()?)),
-            Tok::Class => Ok(Item::Class(self.class_decl(false)?)),
+            Tok::Fun | Tok::Proc => Ok(Item::Fun(self.fun_decl(vis)?)),
+            Tok::Class => Ok(Item::Class(self.class_decl(false, vis)?)),
             // `trait` and `record` are contextual: they only introduce a
             // declaration when a name follows, so `record("a")` is still a
             // call to a function named `record`.
             Tok::Ident(name) if name == "trait" && self.names_a_declaration() => {
-                Ok(Item::Trait(self.trait_decl()?))
+                Ok(Item::Trait(self.trait_decl(vis)?))
             }
             Tok::Ident(name) if name == "record" && self.names_a_declaration() => {
                 self.advance();
-                Ok(Item::Class(self.class_decl(true)?))
+                Ok(Item::Class(self.class_decl(true, vis)?))
             }
             // `native "..."`: contextual, like `record` and `trait`.
             Tok::Ident(name) if name == "native" && matches!(self.peek_at(1), Tok::Str(_)) => {
@@ -192,7 +230,7 @@ impl Parser {
                 }
             }
             Tok::Ident(name) if name == "extern" && matches!(self.peek_at(1), Tok::Fun) => {
-                self.extern_decl()
+                self.extern_decl(vis)
             }
             Tok::Import => {
                 let span = self.span();
@@ -254,13 +292,33 @@ impl Parser {
                     )),
                 }
             }
-            _ => Ok(Item::Stmt(self.stmt()?)),
+            _ => {
+                let mut stmt = self.stmt()?;
+                match &mut stmt.kind {
+                    StmtKind::Let { vis: v, .. } => *v = vis,
+                    _ if vis != Vis::Private => {
+                        return Err(Diag::new(
+                            vis_span,
+                            format!(
+                                "`{}` can only precede a declaration",
+                                vis.keyword().unwrap_or("private")
+                            ),
+                        )
+                        .with_note(
+                            "a visibility is written on a `fun`, `proc`, `class`, `record`, \
+                             `trait`, `val` or `var`",
+                        ))
+                    }
+                    _ => {}
+                }
+                Ok(Item::Stmt(stmt))
+            }
         }
     }
 
     /// `extern fun name(params): Ret [= "symbol"]` — a body would be C's
     /// business, so there is none.
-    fn extern_decl(&mut self) -> Result<Item, Diag> {
+    fn extern_decl(&mut self, vis: Vis) -> Result<Item, Diag> {
         let span = self.span();
         self.advance(); // extern
         self.expect(Tok::Fun, "after `extern`")?;
@@ -285,7 +343,7 @@ impl Parser {
         } else {
             name.clone()
         };
-        Ok(Item::Extern(ExternDecl { name, symbol, params, ret, span }))
+        Ok(Item::Extern(ExternDecl { name, vis, symbol, params, ret, span }))
     }
 
     /// Reads a `fun` or a `proc`.
@@ -293,7 +351,7 @@ impl Parser {
     /// The two differ only in what they return: a `fun` must say, and a `proc`
     /// returns nothing. Keeping them apart at the declaration removes the
     /// need for a `Unit` or `void` annotation anywhere.
-    fn fun_decl(&mut self) -> Result<FunDecl, Diag> {
+    fn fun_decl(&mut self, vis: Vis) -> Result<FunDecl, Diag> {
         let span = self.span();
         let returns_value = self.at(&Tok::Fun);
         if !returns_value {
@@ -312,6 +370,7 @@ impl Parser {
         let body = self.block()?;
         Ok(FunDecl {
             name,
+            vis,
             type_params,
             params: Rc::new(params),
             ret,
@@ -426,7 +485,7 @@ impl Parser {
     ///
     /// `trait` is a contextual keyword: it only introduces a declaration at
     /// the start of an item, so existing code using it as a name still works.
-    fn trait_decl(&mut self) -> Result<TraitDecl, Diag> {
+    fn trait_decl(&mut self, vis: Vis) -> Result<TraitDecl, Diag> {
         let span = self.span();
         self.advance();
         let (name, _) = self.expect_ident("a trait name")?;
@@ -453,6 +512,9 @@ impl Parser {
             methods.push(TraitMethod {
                 decl: FunDecl {
                     name: mname,
+                    // A trait's methods are named through the trait, never on
+                    // their own, so they carry no visibility of their own.
+                    vis: Vis::Private,
                     type_params,
                     params: Rc::new(params),
                     ret,
@@ -463,7 +525,7 @@ impl Parser {
             });
         }
         self.expect(Tok::RBrace, "to close the trait body")?;
-        Ok(TraitDecl { name, methods, span })
+        Ok(TraitDecl { name, vis, methods, span })
     }
 
     /// Reads a `class` or a `record`.
@@ -471,7 +533,7 @@ impl Parser {
     /// A record is a class with the data-carrying defaults already chosen:
     /// every constructor parameter is a field, all of them immutable, and
     /// `equals` compares them one by one.
-    fn class_decl(&mut self, is_record: bool) -> Result<ClassDecl, Diag> {
+    fn class_decl(&mut self, is_record: bool, vis: Vis) -> Result<ClassDecl, Diag> {
         let span = self.span();
         if !is_record {
             self.expect(Tok::Class, "to start a class declaration")?;
@@ -487,6 +549,7 @@ impl Parser {
         if self.at(&Tok::LParen) {
             self.advance();
             while !self.at(&Tok::RParen) {
+                let pvis = self.visibility();
                 let pspan = self.span();
                 // `weak` is contextual, like `record`: it is a modifier only
                 // where a field is being declared, and stays a usable name
@@ -521,7 +584,7 @@ impl Parser {
                 self.expect(Tok::Colon, "after a constructor parameter name")?;
                 let ty = self.type_expr()?;
                 let default = if self.eat(&Tok::Assign) { Some(self.expr()?) } else { None };
-                ctor.push(CtorParam { name: pname, ty, default, field, weak, span: pspan });
+                ctor.push(CtorParam { name: pname, vis: pvis, ty, default, field, weak, span: pspan });
                 if !self.eat(&Tok::Comma) {
                     break;
                 }
@@ -543,7 +606,7 @@ impl Parser {
         let mut methods = Vec::new();
         // A class whose state is entirely in its constructor needs no body.
         if !self.at(&Tok::LBrace) {
-            return Ok(ClassDecl { name, is_record, type_params, traits, ctor, fields, methods, span });
+            return Ok(ClassDecl { name, vis, is_record, type_params, traits, ctor, fields, methods, span });
         }
         self.expect(Tok::LBrace, "to open the class body")?;
         loop {
@@ -551,8 +614,9 @@ impl Parser {
             if self.at(&Tok::RBrace) || self.at(&Tok::Eof) {
                 break;
             }
+            let mvis = self.visibility();
             match self.peek() {
-                Tok::Fun | Tok::Proc => methods.push(self.fun_decl()?),
+                Tok::Fun | Tok::Proc => methods.push(self.fun_decl(mvis)?),
                 Tok::Val | Tok::Var | Tok::Ident(_)
                     if matches!(self.peek(), Tok::Val | Tok::Var)
                         || (matches!(self.peek(), Tok::Ident(n) if n == "weak")
@@ -577,7 +641,7 @@ impl Parser {
                             format!("field `{}` needs either a type or an initializer", fname),
                         ));
                     }
-                    fields.push(FieldDecl { name: fname, ty, init, mutable, weak, span: fspan });
+                    fields.push(FieldDecl { name: fname, vis: mvis, ty, init, mutable, weak, span: fspan });
                 }
                 other => {
                     return Err(Diag::new(
@@ -591,7 +655,7 @@ impl Parser {
             }
         }
         self.expect(Tok::RBrace, "to close the class body")?;
-        Ok(ClassDecl { name, is_record, type_params, traits, ctor, fields, methods, span })
+        Ok(ClassDecl { name, vis, is_record, type_params, traits, ctor, fields, methods, span })
     }
 
     // ---- statements ----------------------------------------------------
@@ -656,7 +720,7 @@ impl Parser {
                 let ty = if self.eat(&Tok::Colon) { Some(self.type_expr()?) } else { None };
                 self.expect(Tok::Assign, "in a variable declaration")?;
                 let init = self.expr()?;
-                StmtKind::Let { name, ty, init, mutable }
+                StmtKind::Let { name, ty, init, mutable, vis: Vis::Private }
             }
             Tok::Return => {
                 self.advance();
@@ -770,8 +834,8 @@ impl Parser {
                 let body = self.block()?;
                 StmtKind::For { var, ty, iter, body }
             }
-            Tok::Fun | Tok::Proc => StmtKind::Fun(self.fun_decl()?),
-            Tok::Class => StmtKind::Class(self.class_decl(false)?),
+            Tok::Fun | Tok::Proc => StmtKind::Fun(self.fun_decl(Vis::Private)?),
+            Tok::Class => StmtKind::Class(self.class_decl(false, Vis::Private)?),
             _ => {
                 let target = self.expr()?;
                 // `x++` and `x--` are statements, as Go has them: sugar for

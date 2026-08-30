@@ -537,9 +537,25 @@ cannot, and always evaluate both sides.
 import "./geometry.keal"
 ```
 
-Paths are relative to the importing file, everything the imported file
-declares becomes visible, and a file is loaded at most once — so diamonds and
-cycles are both fine.
+Paths are relative to the importing file, and a file is loaded at most once —
+so diamonds and cycles are both fine. What the import brings in is one flat
+namespace, and what it brings in at all is what the other file allowed:
+
+```keal
+fun rounded(x: Float): Int { ... }           // this file only
+package fun parse(src: String): Ast { ... }  // the files beside it
+public class Ast(val root: Node) { ... }     // whoever imports it
+```
+
+A declaration that says nothing is private to its own file. `package` opens
+it to every file in the same directory — a package is a directory, nothing
+declares it — and `public` opens it to anyone who imports the file. The
+words are contextual, so a program that already calls something `public`
+keeps working.
+
+Write the modifier on a top-level `fun`, `proc`, `class`, `record`, `trait`,
+`extern fun`, `val` or `var`. Inside a body there is nothing to write it on:
+a local is reachable exactly where it is in scope.
 
 ---
 

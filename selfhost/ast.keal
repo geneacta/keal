@@ -8,7 +8,7 @@
 import "./types.keal"
 
 /// A type as written: kind is "named", "nullable" or "fun".
-class TypeEx(val kind: String, val line: Int, val col: Int) {
+package class TypeEx(val kind: String, val line: Int, val col: Int) {
     var file: Int = 0
     var name: String = ""          // named
     var args: List<TypeEx> = []    // named: type arguments; fun: parameters
@@ -17,29 +17,29 @@ class TypeEx(val kind: String, val line: Int, val col: Int) {
 }
 
 /// One piece of an interpolated string.
-class PartN(val isLit: Bool) {
+package class PartN(val isLit: Bool) {
     var text: String = ""          // lit
     var ex: Ex? = null             // hole
 }
 
-class ArgN(val name: String, val value: Ex)
+package class ArgN(val name: String, val value: Ex)
 
-class ParamN(val name: String, val line: Int, val col: Int) {
+package class ParamN(val name: String, val line: Int, val col: Int) {
     var file: Int = 0
     var tyEx: TypeEx? = null
     var default: Ex? = null
 }
 
-class TParamN(val name: String) {
+package class TParamN(val name: String) {
     var bounds: List<TypeEx> = []
 }
 
-class BlockN() {
+package class BlockN() {
     var stmts: List<StmtN> = []
 }
 
 /// `Name(a, _, c)`: "_" stands for a bind that names nothing.
-class DestrN(val typeName: String, val binds: List<String>, val line: Int, val col: Int) {
+package class DestrN(val typeName: String, val binds: List<String>, val line: Int, val col: Int) {
     var file: Int = 0
 }
 
@@ -50,7 +50,7 @@ class DestrN(val typeName: String, val binds: List<String>, val line: Int, val c
 /// `kind` is a `var` because the checker rewrites nodes in place: an integer
 /// literal widens to a float, and an operator on a user type becomes the
 /// method call it stands for.
-class Ex(var kind: String, val line: Int, val col: Int) {
+package class Ex(var kind: String, val line: Int, val col: Int) {
     var file: Int = 0
     var iVal: Int = 0              // int
     var fVal: Float = 0.0          // float
@@ -79,7 +79,7 @@ class Ex(var kind: String, val line: Int, val col: Int) {
 }
 
 /// A `when` arm. Pattern kind: "else", "values", "is", "in".
-class ArmN(val line: Int, val col: Int) {
+package class ArmN(val line: Int, val col: Int) {
     var file: Int = 0
     var patternKind: String = "values"
     var values: List<Ex> = []      // values / in (values[0] is the range)
@@ -92,8 +92,9 @@ class ArmN(val line: Int, val col: Int) {
 
 /// Statements. kind: let destructure expr return while for break continue
 /// fun class
-class StmtN(val kind: String, val line: Int, val col: Int) {
+package class StmtN(val kind: String, val line: Int, val col: Int) {
     var file: Int = 0
+    var vis: String = ""           // only ever set on a top-level let
     var name: String = ""          // let / for: the bound name
     var mutable: Bool = false      // let / destructure
     var tyEx: TypeEx? = null       // let / for: declared type
@@ -106,32 +107,36 @@ class StmtN(val kind: String, val line: Int, val col: Int) {
     var classDecl: ClassN? = null
 }
 
-class FunN(val name: String, val line: Int, val col: Int) {
+package class FunN(val name: String, val line: Int, val col: Int) {
     var file: Int = 0
+    var vis: String = ""           // "", "package" or "public"
     var typeParams: List<TParamN> = []
     var params: List<ParamN> = []
     var ret: TypeEx? = null
     var body: BlockN = BlockN()
 }
 
-class CtorN(val name: String, val line: Int, val col: Int) {
+package class CtorN(val name: String, val line: Int, val col: Int) {
     var file: Int = 0
+    var vis: String = ""
     var tyEx: TypeEx? = null
     var default: Ex? = null
     var fieldKind: String = ""     // "val", "var" or "" for a plain parameter
     var weak: Bool = false         // `weak val parent: Parent?`
 }
 
-class FieldN(val name: String, val line: Int, val col: Int) {
+package class FieldN(val name: String, val line: Int, val col: Int) {
     var file: Int = 0
+    var vis: String = ""
     var tyEx: TypeEx? = null
     var init: Ex? = null
     var mutable: Bool = false
     var weak: Bool = false         // `weak var next: Node?`
 }
 
-class ClassN(val name: String, val isRecord: Bool, val line: Int, val col: Int) {
+package class ClassN(val name: String, val isRecord: Bool, val line: Int, val col: Int) {
     var file: Int = 0
+    var vis: String = ""
     var typeParams: List<TParamN> = []
     var traits: List<TypeEx> = []
     var ctor: List<CtorN> = []
@@ -139,22 +144,24 @@ class ClassN(val name: String, val isRecord: Bool, val line: Int, val col: Int) 
     var methods: List<FunN> = []
 }
 
-class TraitMethodN(val decl: FunN, val hasDefault: Bool)
+package class TraitMethodN(val decl: FunN, val hasDefault: Bool)
 
-class TraitN(val name: String, val line: Int, val col: Int) {
+package class TraitN(val name: String, val line: Int, val col: Int) {
     var file: Int = 0
+    var vis: String = ""
     var methods: List<TraitMethodN> = []
 }
 
-class ExternN(val name: String, val line: Int, val col: Int) {
+package class ExternN(val name: String, val line: Int, val col: Int) {
     var file: Int = 0
+    var vis: String = ""
     var symbol: String = ""
     var params: List<ParamN> = []
     var ret: TypeEx? = null
 }
 
 /// Top-level items. kind: fun class trait native extern import stmt
-class ItemN(val kind: String, val line: Int, val col: Int) {
+package class ItemN(val kind: String, val line: Int, val col: Int) {
     var file: Int = 0
     var funDecl: FunN? = null
     var classDecl: ClassN? = null
@@ -164,6 +171,6 @@ class ItemN(val kind: String, val line: Int, val col: Int) {
     var stmt: StmtN? = null
 }
 
-class ProgramN() {
+package class ProgramN() {
     var items: List<ItemN> = []
 }

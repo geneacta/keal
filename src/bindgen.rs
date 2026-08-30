@@ -343,7 +343,9 @@ fn bind(decl: &str) -> Bound {
         Some(t) => format!(": {}", t),
         None => ": Unit".to_string(),
     };
-    Bound::Fun(format!("extern fun {}({}){}", name, rendered.join(", "), ret_part))
+    // A generated header binding exists to be imported: the whole file is
+    // the boundary someone else is meant to call across.
+    Bound::Fun(format!("public extern fun {}({}){}", name, rendered.join(", "), ret_part))
 }
 
 /// The Keal spelling of a C type, `Ok(None)` for `void`, or the reason it

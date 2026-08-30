@@ -17,7 +17,7 @@ import "./loader.keal"
 import "./builtins.keal"
 import "./astprint.keal"
 
-class DiagN(val file: Int, val line: Int, val col: Int, val msg: String) {
+package class DiagN(val file: Int, val line: Int, val col: Int, val msg: String) {
     var note: String = ""
 }
 
@@ -50,6 +50,11 @@ class PDef(val name: String) {
 
 class Binding(val ty: Ty, val kind: String) {
     var typeParams: List<PDef> = []
+    /// What the declaration said about who may name it, and the file that
+    /// said it. `home` is -1 for anything declared inside a body: a local is
+    /// reachable exactly where it is in scope, which scoping already settles.
+    var vis: String = ""
+    var home: Int = -1
 }
 
 class FInfo(val name: String, var ty: Ty, val mutable: Bool, val weak: Bool)
@@ -57,6 +62,7 @@ class FInfo(val name: String, var ty: Ty, val mutable: Bool, val weak: Bool)
 class MInfo(val typeParams: List<PDef>, val sig: Ty)
 
 class CInfo(val file: Int, val line: Int, val col: Int, val isRecord: Bool) {
+    var vis: String = ""
     var typeParams: List<PDef> = []
     var fields: List<FInfo> = []
     var methods: Map<String, MInfo> = {}
@@ -64,6 +70,8 @@ class CInfo(val file: Int, val line: Int, val col: Int, val isRecord: Bool) {
 }
 
 class TrInfo() {
+    var vis: String = ""
+    var file: Int = 0
     var methods: Map<String, MInfo> = {}
     var required: List<String> = []
 }
@@ -326,7 +334,7 @@ fun cloneFun(f: FunN): FunN {
 
 // ---- the checker --------------------------------------------------------
 
-class Checker() {
+package class Checker() {
     var classes: Map<String, CInfo> = {}
     var scopes: List<Map<String, Binding>> = [{}]
     var returns: List<RetCtx> = []
@@ -340,6 +348,12 @@ class Checker() {
     var lastInst: List<Ty>? = null
     var guardNarrowing: List<Fact>? = null
     var quietDiag: DiagN? = null
+    /// The package each file belongs to, by file id: its directory. Two
+    /// files in one directory are one package, which is what `package`
+    /// visibility opens up.
+    var packages: List<String> = []
+    /// File names, for saying which file a private name belongs to.
+    var fileNames: List<String> = []
 
     proc error(file: Int, line: Int, col: Int, msg: String) {
         this.errors.add(DiagN(file, line, col, msg))
@@ -374,6 +388,61 @@ class Checker() {
         this.scopes[this.scopes.size - 1][name] = Binding(t, kind)
     }
 
+    /// Learns which package each file belongs to: its directory. Called
+    /// once, before checking, from whoever loaded the files.
+    proc learnPackages(paths: List<String>) {
+        this.packages = []
+        this.fileNames = []
+        for (path in paths) {
+            this.packages.add(dirOf(path))
+            this.fileNames.add(path)
+        }
+    }
+
+    fun packageOf(file: Int): String {
+        if (file < 0 or file >= this.packages.size) { return "" }
+        return this.packages[file]
+    }
+
+    fun fileName(file: Int): String {
+        if (file < 0 or file >= this.fileNames.size) { return "another file" }
+        val n = this.fileNames[file]
+        if (n == "") { return "another file" }
+        return n
+    }
+
+    /// Whether a declaration made in `home` at `vis` can be named from
+    /// `here`. A declaration always reaches its own file, whatever it says.
+    fun reachable(vis: String, home: Int, here: Int): Bool {
+        if (vis == "public") { return true }
+        if (vis == "package") {
+            if (home == here) { return true }
+            return this.packageOf(home) == this.packageOf(here)
+        }
+        return home == here
+    }
+
+    /// Checks a written name against what its declaration allows.
+    proc checkVisible(
+        file: Int, line: Int, col: Int, what: String, name: String, vis: String, home: Int
+    ) {
+        if (this.reachable(vis, home, file)) { return }
+        val where = this.fileName(home)
+        if (vis == "package") {
+            this.errorNote(
+                file, line, col,
+                "${what} `${name}` belongs to the package around ${where}",
+                "declare it `public` there to let another package name it"
+            )
+            return
+        }
+        this.errorNote(
+            file, line, col,
+            "${what} `${name}` is private to ${where}",
+            "declare it `public` there, or `package` to share it with the files beside it"
+        )
+    }
+
     fun lookup(name: String): Binding? {
         var i = this.scopes.size - 1
         while (i >= 0) {
@@ -394,7 +463,10 @@ class Checker() {
                 if (this.traits.contains(t.name)) {
                     this.error(t.file, t.line, t.col, "trait `${t.name}` is declared twice")
                 }
-                this.traits[t.name] = TrInfo()
+                val tinfo = TrInfo()
+                tinfo.vis = t.vis
+                tinfo.file = t.file
+                this.traits[t.name] = tinfo
             }
         }
         for (item in program.items) {
@@ -415,6 +487,7 @@ class Checker() {
                     continue
                 }
                 val info = CInfo(c.file, c.line, c.col, c.isRecord)
+                info.vis = c.vis
                 for (p in c.typeParams) { info.typeParams.add(PDef(p.name)) }
                 this.classes[c.name] = info
             }
@@ -614,7 +687,10 @@ class Checker() {
         if (this.scopes[0].contains(x.name)) {
             this.error(x.file, x.line, x.col, "`${x.name}` is declared twice")
         }
-        this.scopes[0][x.name] = Binding(tyFun(params, ret), "fun")
+        val xb = Binding(tyFun(params, ret), "fun")
+        xb.vis = x.vis
+        xb.home = x.file
+        this.scopes[0][x.name] = xb
     }
 
     proc collectFun(f: FunN) {
@@ -632,6 +708,8 @@ class Checker() {
         }
         val b = Binding(ft, "fun")
         b.typeParams = this.paramDefs(f.typeParams)
+        b.vis = f.vis
+        b.home = f.file
         this.scopes[0][f.name] = b
     }
 
@@ -688,6 +766,8 @@ class Checker() {
             info.methods[m.decl.name] = MInfo(tps, sig)
         }
         this.thisTy.removeAt(this.thisTy.size - 1)
+        info.vis = t.vis
+        info.file = t.file
         this.traits[t.name] = info
     }
 
@@ -962,6 +1042,7 @@ class Checker() {
         val ownArgs: List<Ty> = []
         for (p in typeParams) { ownArgs.add(tyParam(p.name)) }
         val info = CInfo(c.file, c.line, c.col, c.isRecord)
+        info.vis = c.vis
         info.typeParams = typeParams
         info.fields = fields
         info.methods = methods
@@ -1095,6 +1176,7 @@ class Checker() {
     // ---- types ---------------------------------------------------------
 
     fun resolve(te: TypeEx): Ty {
+        this.checkTypeNames(te)
         val t = this.resolveQuiet(te)
         if (t == null) {
             val d = this.quietDiag
@@ -1103,6 +1185,37 @@ class Checker() {
             return Ty("Error")
         }
         return t
+    }
+
+    /// Every class and trait a written type names has to be one this file is
+    /// allowed to name — including inside `List<T>` and a function type.
+    proc checkTypeNames(te: TypeEx) {
+        if (te.kind == "boundary") { return }
+        if (te.kind == "nullable") {
+            this.checkTypeNames(te.inner!!)
+            return
+        }
+        if (te.kind == "fun") {
+            for (p in te.args) { this.checkTypeNames(p) }
+            this.checkTypeNames(te.ret!!)
+            return
+        }
+        // A type parameter shadows a class of the same name, and has no
+        // declaration to be visible from anywhere.
+        if (this.typeParamInScope(te.name)) {
+            for (a in te.args) { this.checkTypeNames(a) }
+            return
+        }
+        val ci = this.classes[te.name]
+        if (ci != null) {
+            this.checkVisible(te.file, te.line, te.col, "class", te.name, ci.vis, ci.file)
+        } else {
+            val ti = this.traits[te.name]
+            if (ti != null) {
+                this.checkVisible(te.file, te.line, te.col, "trait", te.name, ti.vis, ti.file)
+            }
+        }
+        for (a in te.args) { this.checkTypeNames(a) }
     }
 
     /// Pure form of `resolve`: a failure sets `quietDiag` and returns null.
@@ -1801,6 +1914,10 @@ class Checker() {
             val name = e.text
             val b = this.lookup(name)
             if (b != null) {
+                if (b.home >= 0) {
+                    val what = if (b.kind == "fun") { "function" } else { "binding" }
+                    this.checkVisible(e.file, e.line, e.col, what, name, b.vis, b.home)
+                }
                 if (b.typeParams.size > 0) {
                     var listed = ""
                     var first = true
@@ -2510,6 +2627,7 @@ class Checker() {
             if (this.lookup(name) == null) {
                 val info = this.classes[name]
                 if (info != null) {
+                    this.checkVisible(e.file, e.line, e.col, "class", name, info.vis, info.file)
                     val result = this.checkArgs(
                         info.ctor, info.typeParams, args, e,
                         "constructor `${name}`", expected
@@ -3524,6 +3642,9 @@ fun synthRecordEquals(c: ClassN): FunN {
     }
 
     val f = FunN("equals", c.line, c.col)
+    // Generated for a record, and as visible as the record itself: a value
+    // nobody can compare is not the data case.
+    f.vis = c.vis
     f.file = c.file
     val other = ParamN("other", c.line, c.col)
     other.file = c.file

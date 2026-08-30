@@ -8,6 +8,31 @@ pub struct Program {
     pub items: Vec<Item>,
 }
 
+/// Who may name a declaration.
+///
+/// `private` is what a declaration says when it says nothing: the file that
+/// declares it, and no other, can name it. `package` widens that to the
+/// files beside it in the same directory — a group that collaborates
+/// without exposing how. `public` is the promise, and it is the only one
+/// that has to be written on purpose.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Vis {
+    Private,
+    Package,
+    Public,
+}
+
+impl Vis {
+    /// How the modifier is spelled, or `None` when nothing is written.
+    pub fn keyword(self) -> Option<&'static str> {
+        match self {
+            Vis::Private => None,
+            Vis::Package => Some("package"),
+            Vis::Public => Some("public"),
+        }
+    }
+}
+
 /// Top-level declarations. Statements are only legal inside function bodies,
 /// except that a script's top level also collects them into `main`-like code.
 #[derive(Clone, Debug)]
@@ -38,6 +63,7 @@ pub struct TypeParam {
 #[derive(Clone, Debug)]
 pub struct ExternDecl {
     pub name: String,
+    pub vis: Vis,
     /// The C symbol; the Keal name when not spelled out.
     pub symbol: String,
     pub params: Vec<Param>,
@@ -48,6 +74,7 @@ pub struct ExternDecl {
 #[derive(Clone, Debug)]
 pub struct FunDecl {
     pub name: String,
+    pub vis: Vis,
     pub type_params: Vec<TypeParam>,
     pub params: Rc<Vec<Param>>,
     pub ret: Option<TypeExpr>,
@@ -68,6 +95,7 @@ pub struct Param {
 #[derive(Clone, Debug)]
 pub struct TraitDecl {
     pub name: String,
+    pub vis: Vis,
     pub methods: Vec<TraitMethod>,
     pub span: Span,
 }
@@ -83,6 +111,7 @@ pub struct TraitMethod {
 #[derive(Clone, Debug)]
 pub struct ClassDecl {
     pub name: String,
+    pub vis: Vis,
     /// A record is a class whose fields are all immutable and which gets a
     /// field-by-field `equals` for free.
     pub is_record: bool,
@@ -99,6 +128,7 @@ pub struct ClassDecl {
 #[derive(Clone, Debug)]
 pub struct CtorParam {
     pub name: String,
+    pub vis: Vis,
     pub ty: TypeExpr,
     pub default: Option<Expr>,
     /// `Some(true)` for `var`, `Some(false)` for `val`, `None` for a plain param.
@@ -113,6 +143,7 @@ pub struct CtorParam {
 #[derive(Clone, Debug)]
 pub struct FieldDecl {
     pub name: String,
+    pub vis: Vis,
     pub ty: Option<TypeExpr>,
     pub init: Option<Expr>,
     pub mutable: bool,
@@ -134,8 +165,10 @@ pub struct Stmt {
 
 #[derive(Clone, Debug)]
 pub enum StmtKind {
-    /// `val`/`var` binding. `mutable` distinguishes them.
-    Let { name: String, ty: Option<TypeExpr>, init: Expr, mutable: bool },
+    /// `val`/`var` binding. `mutable` distinguishes them. `vis` is only
+    /// ever written at the top level; inside a body a binding is the
+    /// block's own and nothing can reach it from outside anyway.
+    Let { name: String, ty: Option<TypeExpr>, init: Expr, mutable: bool, vis: Vis },
     /// `val Point(x, y) = p` — binds the constructor fields by position.
     Destructure { pattern: Destructuring, init: Expr, mutable: bool },
     Expr(Expr),

@@ -28,7 +28,7 @@ fun knownArg(args: List<Ty?>, i: Int): Ty {
 }
 
 /// Properties readable with `.name` and no call parentheses.
-fun propertySig(recv: Ty, name: String): Ty? {
+package fun propertySig(recv: Ty, name: String): Ty? {
     if (recv.kind == "Str" and name == "length") { return Ty("Int") }
     if (recv.kind == "List" and name == "size") { return Ty("Int") }
     if (recv.kind == "Map" and name == "size") { return Ty("Int") }
@@ -59,7 +59,7 @@ fun universalSig(name: String): Ty? {
     return null
 }
 
-fun methodSig(recv: Ty, name: String, args: List<Ty?>): Ty? {
+package fun methodSig(recv: Ty, name: String, args: List<Ty?>): Ty? {
     val specific = when (recv.kind) {
         "Str" -> stringSig(name)
         "Int" -> intSig(name)
@@ -194,7 +194,7 @@ fun rangeSig(name: String): Ty? {
 }
 
 /// Free functions available without any import.
-fun globalSig(name: String, args: List<Ty?>): Ty? {
+package fun globalSig(name: String, args: List<Ty?>): Ty? {
     return when (name) {
         "println", "print" -> tyFun([bopt("value", Ty("Any"))], Ty("Unit"))
         "readLine" -> tyFun([], tyNullable(Ty("Str")))
@@ -236,7 +236,7 @@ fun numericOf(args: List<Ty>): Ty {
 }
 
 /// Result of `expr[index]`, or null when the type is not indexable.
-fun indexResult(recv: Ty): (Ty, Ty)? {
+package fun indexResult(recv: Ty): (Ty, Ty)? {
     if (recv.kind == "List") { return Ty("Int"), recv.args[0] }
     if (recv.kind == "Map") { return recv.args[0], tyNullable(recv.args[1]) }
     if (recv.kind == "Str") { return Ty("Int"), Ty("Str") }
@@ -244,14 +244,14 @@ fun indexResult(recv: Ty): (Ty, Ty)? {
 }
 
 /// Element type stored by `expr[index] = value`.
-fun indexAssignType(recv: Ty): (Ty, Ty)? {
+package fun indexAssignType(recv: Ty): (Ty, Ty)? {
     if (recv.kind == "List") { return Ty("Int"), recv.args[0] }
     if (recv.kind == "Map") { return recv.args[0], recv.args[1] }
     return null
 }
 
 /// Names that cannot be used for user declarations.
-fun isReservedGlobal(name: String): Bool {
+package fun isReservedGlobal(name: String): Bool {
     val two: List<Ty?> = [null, null]
     return globalSig(name, two) != null
 }

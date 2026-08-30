@@ -13,6 +13,7 @@ if (argv.size != 1) {
 parseNoteMode = true
 val loaded = Loader().load(argv[0])
 val checker = Checker()
+checker.learnPackages(loaded.paths)
 checker.checkProgram(loaded.program)
 
 if (checker.errors.size > 0) {

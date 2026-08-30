@@ -13,11 +13,12 @@ use std::rc::Rc;
 
 use crate::ast::*;
 use crate::builtins;
-use crate::span::{Diag, Span};
+use crate::span::{Diag, Sources, Span};
 use crate::types::{self_subst, FunType, ParamType, Subst, Type};
 
-pub fn check(program: &mut Program) -> (Vec<Diag>, Vec<Diag>) {
+pub fn check(program: &mut Program, sources: &Sources) -> (Vec<Diag>, Vec<Diag>) {
     let mut c = Checker::new();
+    c.learn_packages(sources);
     let (errors, _) = c.check_program(program);
     (errors, c.warnings)
 }
@@ -53,6 +54,8 @@ struct ParamDef {
 }
 
 struct TraitInfo {
+    vis: Vis,
+    span: Span,
     methods: HashMap<String, Rc<MethodInfo>>,
     /// Methods the trait declares without a body; an implementer must supply
     /// each one.
@@ -63,6 +66,12 @@ struct TraitInfo {
 struct Binding {
     ty: Type,
     kind: BindKind,
+    /// What the declaration said about who may name it, and the file that
+    /// said it. `None` for anything declared inside a body: a local is
+    /// reachable exactly where it is in scope, which scoping already
+    /// settles.
+    vis: Vis,
+    home: Option<u32>,
     /// Non-empty for a generic function. Because the backend monomorphises,
     /// such a name must be called, not passed around as a value.
     type_params: Vec<ParamDef>,
@@ -70,7 +79,12 @@ struct Binding {
 
 impl Binding {
     fn new(ty: Type, kind: BindKind) -> Binding {
-        Binding { ty, kind, type_params: Vec::new() }
+        Binding { ty, kind, type_params: Vec::new(), vis: Vis::Private, home: None }
+    }
+
+    /// A top-level declaration, which is the only kind visibility applies to.
+    fn global(ty: Type, kind: BindKind, vis: Vis, home: u32) -> Binding {
+        Binding { ty, kind, type_params: Vec::new(), vis, home: Some(home) }
     }
 }
 
@@ -96,6 +110,7 @@ struct MethodInfo {
 
 struct ClassInfo {
     span: Span,
+    vis: Vis,
     is_record: bool,
     /// The class's own type parameters, in declaration order. Member types
     /// are stored with these left as `Type::Param`, and substituted with the
@@ -161,6 +176,13 @@ pub struct Checker {
     /// In the REPL, re-declaring a name replaces the old one instead of
     /// being reported as a duplicate.
     repl: bool,
+    /// The package each file belongs to, by file id: its directory. Two
+    /// files in one directory are one package, which is what `package`
+    /// visibility opens up. Empty when nobody said, and then only `private`
+    /// and `public` can be told apart.
+    packages: Vec<String>,
+    /// File names, for saying which file a private name belongs to.
+    file_names: Vec<String>,
 }
 
 impl Checker {
@@ -180,6 +202,8 @@ impl Checker {
             last_inst: None,
             guard_narrowing: None,
             repl: false,
+            packages: Vec::new(),
+            file_names: Vec::new(),
         }
     }
 
@@ -249,6 +273,73 @@ impl Checker {
         self.scopes.last_mut().unwrap().insert(name.to_string(), Binding::new(ty, kind));
     }
 
+    /// Learns which package each file belongs to: its directory. Called
+    /// once, before checking, from whoever loaded the files.
+    pub fn learn_packages(&mut self, sources: &Sources) {
+        self.packages.clear();
+        self.file_names.clear();
+        for id in 0..sources.len() as u32 {
+            let (pkg, name) = match sources.get(id) {
+                Some(f) => (
+                    f.path
+                        .parent()
+                        .map(|d| d.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                    f.path.to_string_lossy().to_string(),
+                ),
+                None => (String::new(), String::new()),
+            };
+            self.packages.push(pkg);
+            self.file_names.push(name);
+        }
+    }
+
+    fn package_of(&self, file: u32) -> Option<&str> {
+        self.packages.get(file as usize).map(|s| s.as_str())
+    }
+
+    fn file_name(&self, file: u32) -> String {
+        match self.file_names.get(file as usize) {
+            Some(n) if !n.is_empty() => n.clone(),
+            _ => "another file".to_string(),
+        }
+    }
+
+    /// Whether a declaration made in `home` at `vis` can be named from
+    /// `here`. A declaration always reaches its own file, whatever it says.
+    fn reachable(&self, vis: Vis, home: u32, here: u32) -> bool {
+        match vis {
+            Vis::Public => true,
+            Vis::Package => home == here || self.package_of(home) == self.package_of(here),
+            Vis::Private => home == here,
+        }
+    }
+
+    /// Reports a name the current file is not allowed to see, saying what it
+    /// would take to be allowed.
+    fn refuse_hidden(&mut self, span: Span, what: &str, name: &str, vis: Vis, home: u32) {
+        let where_ = self.file_name(home);
+        let (msg, note) = match vis {
+            Vis::Private => (
+                format!("{} `{}` is private to {}", what, name, where_),
+                format!("declare it `public` there, or `package` to share it with the files beside it"),
+            ),
+            Vis::Package => (
+                format!("{} `{}` belongs to the package around {}", what, name, where_),
+                "declare it `public` there to let another package name it".to_string(),
+            ),
+            Vis::Public => return,
+        };
+        self.error_note(span, msg, note);
+    }
+
+    /// Checks a written name against what its declaration allows.
+    fn check_visible(&mut self, span: Span, what: &str, name: &str, vis: Vis, home: u32) {
+        if !self.reachable(vis, home, span.file) {
+            self.refuse_hidden(span, what, name, vis, home);
+        }
+    }
+
     fn lookup(&self, name: &str) -> Option<&Binding> {
         self.scopes.iter().rev().find_map(|s| s.get(name))
     }
@@ -265,7 +356,12 @@ impl Checker {
                 }
                 self.traits.insert(
                     t.name.clone(),
-                    TraitInfo { methods: HashMap::new(), required: Vec::new() },
+                    TraitInfo {
+                        vis: t.vis,
+                        span: t.span,
+                        methods: HashMap::new(),
+                        required: Vec::new(),
+                    },
                 );
             }
         }
@@ -292,6 +388,7 @@ impl Checker {
                     c.name.clone(),
                     ClassInfo {
                         span: c.span,
+                        vis: c.vis,
                         is_record: c.is_record,
                         type_params: c
                             .type_params
@@ -514,7 +611,8 @@ impl Checker {
         if self.scopes[0].contains_key(&x.name) && !self.repl {
             self.error(x.span, format!("`{}` is declared twice", x.name));
         }
-        self.scopes[0].insert(x.name.clone(), Binding { ty, kind: BindKind::Fun, type_params: Vec::new() });
+        self.scopes[0]
+            .insert(x.name.clone(), Binding::global(ty, BindKind::Fun, x.vis, x.span.file));
     }
 
     fn collect_fun(&mut self, f: &FunDecl) {
@@ -531,8 +629,9 @@ impl Checker {
             self.error(f.span, format!("function `{}` is declared twice", f.name));
         }
         let type_params = self.param_defs(&f.type_params);
-        self.scopes[0]
-            .insert(f.name.clone(), Binding { ty, kind: BindKind::Fun, type_params });
+        let mut b = Binding::global(ty, BindKind::Fun, f.vis, f.span.file);
+        b.type_params = type_params;
+        self.scopes[0].insert(f.name.clone(), b);
     }
 
     /// Records a declaration's type parameters without bringing them into
@@ -592,7 +691,8 @@ impl Checker {
             );
         }
         self.this_ty.pop();
-        self.traits.insert(t.name.clone(), TraitInfo { methods, required });
+        self.traits
+            .insert(t.name.clone(), TraitInfo { vis: t.vis, span: t.span, methods, required });
     }
 
     /// Gives every record the `Eq` implementation its shape determines.
@@ -878,6 +978,7 @@ impl Checker {
         );
         let info = ClassInfo {
             span: c.span,
+            vis: c.vis,
             is_record: c.is_record,
             type_params: type_params.clone(),
             fields,
@@ -1000,12 +1101,48 @@ impl Checker {
     // ---- types ---------------------------------------------------------
 
     fn resolve(&mut self, te: &TypeExpr) -> Type {
+        self.check_type_names(te);
         match self.resolve_quiet(te) {
             Ok(t) => t,
             Err(d) => {
                 self.errors.push(d);
                 Type::Error
             }
+        }
+    }
+
+    /// Every class and trait a written type names has to be one this file is
+    /// allowed to name — including inside `List<T>` and a function type.
+    fn check_type_names(&mut self, te: &TypeExpr) {
+        match &te.kind {
+            TypeExprKind::Named { name, args } => {
+                // A type parameter shadows a class of the same name, and has
+                // no declaration to be visible from anywhere.
+                if self.type_param_in_scope(name) {
+                    for a in args {
+                        self.check_type_names(a);
+                    }
+                    return;
+                }
+                if let Some(info) = self.classes.get(&**name) {
+                    let (vis, home) = (info.vis, info.span.file);
+                    self.check_visible(te.span, "class", name, vis, home);
+                } else if let Some(info) = self.traits.get(&**name) {
+                    let (vis, home) = (info.vis, info.span.file);
+                    self.check_visible(te.span, "trait", name, vis, home);
+                }
+                for a in args {
+                    self.check_type_names(a);
+                }
+            }
+            TypeExprKind::Nullable(inner) => self.check_type_names(inner),
+            TypeExprKind::Fun { params, ret } => {
+                for p in params {
+                    self.check_type_names(p);
+                }
+                self.check_type_names(ret);
+            }
+            _ => {}
         }
     }
 
@@ -1338,7 +1475,7 @@ impl Checker {
         // Only a guard that is itself a statement may narrow its successors.
         self.guard_narrowing = None;
         match &mut s.kind {
-            StmtKind::Let { name, ty, init, mutable } => {
+            StmtKind::Let { name, ty, init, mutable, vis: _ } => {
                 let declared = ty.as_ref().map(|t| self.resolve(t));
                 let actual = match &declared {
                     Some(d) => {
@@ -1633,7 +1770,7 @@ impl Checker {
         self.scopes
             .last_mut()
             .unwrap()
-            .insert(f.name.clone(), Binding { ty, kind: BindKind::Fun, type_params });
+            .insert(f.name.clone(), Binding { ty, kind: BindKind::Fun, type_params, vis: Vis::Private, home: None });
     }
 
     // ---- expressions ---------------------------------------------------
@@ -1689,6 +1826,13 @@ impl Checker {
                 }
             },
             ExprKind::Ident(name) => {
+                if let Some(b) = self.lookup(name) {
+                    let hidden = b.home.map(|h| (b.vis, h));
+                    if let Some((vis, home)) = hidden {
+                        let what = if b.kind == BindKind::Fun { "function" } else { "binding" };
+                        self.check_visible(span, what, name, vis, home);
+                    }
+                }
                 if let Some(b) = self.lookup(name) {
                     if !b.type_params.is_empty() {
                         let listed: Vec<String> =
@@ -2459,6 +2603,8 @@ impl Checker {
                 if let Some(info) = self.classes.get(&name) {
                     let ctor = info.ctor.clone();
                     let tps = info.type_params.clone();
+                    let (vis, home) = (info.vis, info.span.file);
+                    self.check_visible(span, "class", &name, vis, home);
                     let result = self.check_args(
                         &ctor,
                         &tps,
@@ -3595,6 +3741,9 @@ fn synth_record_equals(c: &ClassDecl) -> FunDecl {
 
     FunDecl {
         name: "equals".to_string(),
+        // Generated for a record, and as visible as the record itself: a
+        // value nobody can compare is not the data case.
+        vis: c.vis,
         type_params: Vec::new(),
         params: Rc::new(vec![Param {
             name: "other".to_string(),

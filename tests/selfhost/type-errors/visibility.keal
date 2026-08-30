@@ -1,0 +1,12 @@
+// What a file may not name. `private` is what a declaration says when it
+// says nothing, so each of these is refused for a different reason: the
+// helper is nobody else's business, the package one is the group's own, and
+// a modifier where no declaration follows is not a modifier at all.
+
+import "./visibility-lib/hidden.keal"
+
+println(open())
+println(secret())
+println(shared())
+val t: Kept = Kept(1)
+println(t.n)

@@ -8,12 +8,12 @@ import "../../lib/jvm.keal"
 // ---- java.time.LocalDate ----
 
 var jbindClsLocalDate = 0
-fun jbindClassLocalDate(): Int {
+public fun jbindClassLocalDate(): Int {
     if (jbindClsLocalDate == 0) { jbindClsLocalDate = jvmClass("java/time/LocalDate") }
     return jbindClsLocalDate
 }
 
-class LocalDate(val handle: Int) {
+public class LocalDate(val handle: Int) {
     var released: Bool = false
     fun toString(): String { return jvmToString(this.handle) }
     proc free() {
@@ -100,24 +100,24 @@ class LocalDate(val handle: Int) {
     }
 }
 
-fun localDateNow(): LocalDate {
+public fun localDateNow(): LocalDate {
     return LocalDate(jvmStaticObj(jbindClassLocalDate(), "now", "()Ljava/time/LocalDate;"))
 }
 
-fun localDateOf(a0: Int, a1: Int, a2: Int): LocalDate {
+public fun localDateOf(a0: Int, a1: Int, a2: Int): LocalDate {
     jvmArgInt(a0)
     jvmArgInt(a1)
     jvmArgInt(a2)
     return LocalDate(jvmStaticObj(jbindClassLocalDate(), "of", "(III)Ljava/time/LocalDate;"))
 }
 
-fun localDateOfYearDay(a0: Int, a1: Int): LocalDate {
+public fun localDateOfYearDay(a0: Int, a1: Int): LocalDate {
     jvmArgInt(a0)
     jvmArgInt(a1)
     return LocalDate(jvmStaticObj(jbindClassLocalDate(), "ofYearDay", "(II)Ljava/time/LocalDate;"))
 }
 
-fun localDateOfEpochDay(a0: Int): LocalDate {
+public fun localDateOfEpochDay(a0: Int): LocalDate {
     jvmArgLong(a0)
     return LocalDate(jvmStaticObj(jbindClassLocalDate(), "ofEpochDay", "(J)Ljava/time/LocalDate;"))
 }
@@ -249,12 +249,12 @@ fun localDateOfEpochDay(a0: Int): LocalDate {
 // ---- java.util.UUID ----
 
 var jbindClsUUID = 0
-fun jbindClassUUID(): Int {
+public fun jbindClassUUID(): Int {
     if (jbindClsUUID == 0) { jbindClsUUID = jvmClass("java/util/UUID") }
     return jbindClsUUID
 }
 
-class UUID(val handle: Int) : Ord {
+public class UUID(val handle: Int) : Ord {
     var released: Bool = false
     fun toString(): String { return jvmToString(this.handle) }
     proc free() {
@@ -294,17 +294,17 @@ class UUID(val handle: Int) : Ord {
     }
 }
 
-fun uuidNew(a0: Int, a1: Int): UUID {
+public fun uuidNew(a0: Int, a1: Int): UUID {
     jvmArgLong(a0)
     jvmArgLong(a1)
     return UUID(jvmNew(jbindClassUUID(), "(JJ)V"))
 }
 
-fun uuidRandomUUID(): UUID {
+public fun uuidRandomUUID(): UUID {
     return UUID(jvmStaticObj(jbindClassUUID(), "randomUUID", "()Ljava/util/UUID;"))
 }
 
-fun uuidFromString(a0: String): UUID {
+public fun uuidFromString(a0: String): UUID {
     jvmArgStr(a0)
     return UUID(jvmStaticObj(jbindClassUUID(), "fromString", "(Ljava/lang/String;)Ljava/util/UUID;"))
 }

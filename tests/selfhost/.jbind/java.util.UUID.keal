@@ -13,7 +13,7 @@ fun jbindClassUUID(): Int {
     return jbindClsUUID
 }
 
-class UUID(val handle: Int) : Ord {
+public class UUID(val handle: Int) : Ord {
     var released: Bool = false
     fun toString(): String { return jvmToString(this.handle) }
     proc free() {

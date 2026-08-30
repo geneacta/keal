@@ -240,6 +240,7 @@ fn show_layout(path: &str) -> ExitCode {
     };
 
     let mut checker = checker::Checker::new();
+    checker.learn_packages(&sources);
     let (errors, _) = checker.check_program(&mut program);
     if !errors.is_empty() {
         for d in &errors {
@@ -433,7 +434,7 @@ fn dump_types(path: &str) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let (errors, warnings) = checker::check(&mut program);
+    let (errors, warnings) = checker::check(&mut program, &sources);
     if !errors.is_empty() {
         for d in &errors {
             let mut line = format!(
@@ -498,6 +499,7 @@ fn dump_cgen(path: &str) -> ExitCode {
         }
     };
     let mut checker = checker::Checker::new();
+    checker.learn_packages(&sources);
     let (errors, _) = checker.check_program(&mut program);
     if !errors.is_empty() {
         for d in &errors {
@@ -539,6 +541,7 @@ fn emit_header(path: &str) -> ExitCode {
         }
     };
     let mut checker = checker::Checker::new();
+    checker.learn_packages(&sources);
     let (errors, _) = checker.check_program(&mut program);
     if !errors.is_empty() {
         for d in &errors {
@@ -694,7 +697,7 @@ fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {
         }
     };
 
-    let (errors, warnings) = checker::check(&mut program);
+    let (errors, warnings) = checker::check(&mut program, &sources);
     if !errors.is_empty() {
         for d in &errors {
             eprint!("{}", sources.render("error", d));

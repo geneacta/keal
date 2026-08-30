@@ -402,46 +402,46 @@ static void keal_jvm_free_impl(int64_t obj) {
 /// Starts the JVM in this process. `options` is one JVM option string, or
 /// "" for none — typically "-Djava.class.path=lib/foo.jar". Returns whether
 /// a JVM is running; calling again once it is, is a no-op that returns true.
-extern fun jvmStart(options: borrow String): Bool = "keal_jvm_start_impl"
+public extern fun jvmStart(options: borrow String): Bool = "keal_jvm_start_impl"
 
 /// A class handle, by JNI name: "java/time/LocalDate". Panics if missing.
-extern fun jvmClass(name: borrow String): Int = "keal_jvm_class_impl"
+public extern fun jvmClass(name: borrow String): Int = "keal_jvm_class_impl"
 
 // Argument pushes for the next call — match the Java parameter type.
-extern fun jvmArgInt(v: Int): Unit = "keal_jvm_arg_int_impl"
-extern fun jvmArgLong(v: Int): Unit = "keal_jvm_arg_long_impl"
-extern fun jvmArgDouble(v: Float): Unit = "keal_jvm_arg_double_impl"
-extern fun jvmArgBool(v: Bool): Unit = "keal_jvm_arg_bool_impl"
-extern fun jvmArgStr(s: borrow String): Unit = "keal_jvm_arg_str_impl"
-extern fun jvmArgObj(h: Int): Unit = "keal_jvm_arg_obj_impl"
+public extern fun jvmArgInt(v: Int): Unit = "keal_jvm_arg_int_impl"
+public extern fun jvmArgLong(v: Int): Unit = "keal_jvm_arg_long_impl"
+public extern fun jvmArgDouble(v: Float): Unit = "keal_jvm_arg_double_impl"
+public extern fun jvmArgBool(v: Bool): Unit = "keal_jvm_arg_bool_impl"
+public extern fun jvmArgStr(s: borrow String): Unit = "keal_jvm_arg_str_impl"
+public extern fun jvmArgObj(h: Int): Unit = "keal_jvm_arg_obj_impl"
 
 /// Constructs an instance: pushed arguments, then the constructor's JNI
 /// signature (always `(...)V`). Returns a new handle. `keal jbind` calls
 /// this for `public` constructors; JNI names them `<init>`.
-extern fun jvmNew(cls: Int, sig: borrow String): Int = "keal_jvm_new_impl"
+public extern fun jvmNew(cls: Int, sig: borrow String): Int = "keal_jvm_new_impl"
 
 // Static calls, by JNI signature; the pushed arguments are consumed.
 // `Int` and `Long` are separate calls because JNI requires the call to
 // match the method's exact return type — a Java `int` must come back
 // through `CallStaticIntMethodA`, never the long one.
-extern fun jvmStaticInt(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_int_impl"
-extern fun jvmStaticObj(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_obj_impl"
-extern fun jvmStaticLong(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_long_impl"
-extern fun jvmStaticDouble(cls: Int, method: borrow String, sig: borrow String): Float = "keal_jvm_static_double_impl"
-extern fun jvmStaticBool(cls: Int, method: borrow String, sig: borrow String): Bool = "keal_jvm_static_bool_impl"
-extern fun jvmStaticVoid(cls: Int, method: borrow String, sig: borrow String): Unit = "keal_jvm_static_void_impl"
+public extern fun jvmStaticInt(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_int_impl"
+public extern fun jvmStaticObj(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_obj_impl"
+public extern fun jvmStaticLong(cls: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_static_long_impl"
+public extern fun jvmStaticDouble(cls: Int, method: borrow String, sig: borrow String): Float = "keal_jvm_static_double_impl"
+public extern fun jvmStaticBool(cls: Int, method: borrow String, sig: borrow String): Bool = "keal_jvm_static_bool_impl"
+public extern fun jvmStaticVoid(cls: Int, method: borrow String, sig: borrow String): Unit = "keal_jvm_static_void_impl"
 
 // Instance calls on an object handle.
-extern fun jvmCallInt(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_int_impl"
-extern fun jvmCallObj(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_obj_impl"
-extern fun jvmCallLong(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_long_impl"
-extern fun jvmCallDouble(obj: Int, method: borrow String, sig: borrow String): Float = "keal_jvm_call_double_impl"
-extern fun jvmCallBool(obj: Int, method: borrow String, sig: borrow String): Bool = "keal_jvm_call_bool_impl"
-extern fun jvmCallVoid(obj: Int, method: borrow String, sig: borrow String): Unit = "keal_jvm_call_void_impl"
+public extern fun jvmCallInt(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_int_impl"
+public extern fun jvmCallObj(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_obj_impl"
+public extern fun jvmCallLong(obj: Int, method: borrow String, sig: borrow String): Int = "keal_jvm_call_long_impl"
+public extern fun jvmCallDouble(obj: Int, method: borrow String, sig: borrow String): Float = "keal_jvm_call_double_impl"
+public extern fun jvmCallBool(obj: Int, method: borrow String, sig: borrow String): Bool = "keal_jvm_call_bool_impl"
+public extern fun jvmCallVoid(obj: Int, method: borrow String, sig: borrow String): Unit = "keal_jvm_call_void_impl"
 
 /// The object's `toString`, adopted; a null handle reads as "null".
-extern fun jvmToString(h: Int): own String = "keal_jvm_to_string_impl"
+public extern fun jvmToString(h: Int): own String = "keal_jvm_to_string_impl"
 
 /// Releases a handle. Handles are manual in this tier; `keal jbind` will
 /// wrap them in counted classes whose release does this for you.
-extern fun jvmFree(h: Int): Unit = "keal_jvm_free_impl"
+public extern fun jvmFree(h: Int): Unit = "keal_jvm_free_impl"

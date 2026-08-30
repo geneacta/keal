@@ -1923,7 +1923,7 @@ impl CBackend {
 
     fn stmt(&mut self, s: &Stmt) {
         match &s.kind {
-            StmtKind::Let { name, ty: ann, init, mutable } => {
+            StmtKind::Let { name, ty: ann, init, mutable, vis: _ } => {
                 // The declared type wins where it exists: `val x: Int? = 5`
                 // stores a wrapped value, not a bare one.
                 let declared = ann.as_ref().and_then(|t| {
