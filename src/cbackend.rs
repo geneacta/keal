@@ -27,11 +27,14 @@ const RUNTIME: &str = include_str!("runtime.c");
 pub fn emit(program: &Program, shapes: &[ClassShape]) -> Result<String, Vec<Diag>> {
     let mut b = CBackend::new();
     b.catch_mode = program_has_try(program);
+    // A `weak` field observes *when* its target dies, exactly as `deinit`
+    // does, so both put statement temps on the same short leash.
     b.drop_mode = program.items.iter().any(|i| match i {
         Item::Class(c) => c.methods.iter().any(|m| m.name == "deinit"),
         _ => false,
-    });
+    }) || program_uses_weak(program);
     b.actors_mode = program_uses_actors(program);
+    b.weak_mode = program_uses_weak(program);
     for shape in shapes {
         b.shapes.insert(shape.name.clone(), shape.fields.clone());
         if shape.generic {
@@ -168,6 +171,11 @@ struct CBackend {
     global_decls: String,
     /// True while the outermost statements are being emitted into `main`.
     at_top_level: bool,
+    /// True when the program declares a `weak` field: objects then carry a
+    /// second count, and a weak field is stored, read, released and shown
+    /// through the weak entry points. Off, every class keeps one count and
+    /// the emitted C is what it always was.
+    weak_mode: bool,
     /// Set just before a statement's expression is emitted: its value is
     /// discarded, so a branch join of `Any` — which the checker only ever
     /// produces where using the value would be refused — needs no slot.
@@ -244,6 +252,7 @@ impl CBackend {
             any_globals: std::collections::HashSet::new(),
             global_decls: String::new(),
             at_top_level: false,
+            weak_mode: false,
             discard_join: false,
             lambda_defs: String::new(),
             next_lambda: 0,
@@ -632,6 +641,46 @@ impl CBackend {
         self.emit_struct(&name, &fields, c.span, Self::class_has_drop(c));
     }
 
+    /// Whether this class declares that field `weak`. The declaration is
+    /// the single source of truth — the same one the interpreters read.
+    fn field_is_weak(&self, class: &str, field: &str) -> bool {
+        self.class_decls
+            .get(class)
+            .map(|d| crate::value::class_field_is_weak(d, field))
+            .unwrap_or(false)
+    }
+
+    /// A value on its way into a field: a weak field takes the second
+    /// count, everything else takes the first.
+    fn stored_field_value(
+        &mut self,
+        class: &str,
+        field: &str,
+        ty: &Type,
+        v: &str,
+        span: Span,
+    ) -> String {
+        if self.weak_mode && self.field_is_weak(class, field) {
+            if let Some(target) = self.weak_target_of(ty, span) {
+                return format!("{}_weak_retain({})", target, v);
+            }
+        }
+        Self::retained(ty, v)
+    }
+
+    /// The class a weak field points at, as its C struct name.
+    fn weak_target_of(&mut self, ty: &Type, span: Span) -> Option<String> {
+        let inner = match ty {
+            Type::Nullable(inner) => (**inner).clone(),
+            other => other.clone(),
+        };
+        match inner {
+            Type::Class(name, args) if args.is_empty() => Some(struct_name(&name)),
+            Type::Class(name, args) => self.instantiate_class(&name, &args, span),
+            _ => None,
+        }
+    }
+
     /// Whether the class declares the hook the runtime calls at death.
     fn class_has_drop(c: &ClassDecl) -> bool {
         c.methods.iter().any(|m| m.name == "deinit")
@@ -642,6 +691,12 @@ impl CBackend {
         let mut body = String::new();
         let _ = writeln!(body, "struct {} {{", name);
         let _ = writeln!(body, "    keal_rc_t rc;");
+        if self.weak_mode {
+            // How many weak references name this object. The husk it leaves
+            // behind when its strong count reaches zero lives until this
+            // reaches zero too.
+            let _ = writeln!(body, "    keal_rc_t wc;");
+        }
         if has_drop {
             // Set once the object's `drop` has been queued: the hook runs
             // exactly once, resurrection or not.
@@ -886,6 +941,22 @@ impl CBackend {
             "\n{n}* {n}_retain({n}* o) {{\n    if (o != NULL) {{ KEAL_RC_BUMP(o->rc); }}\n    return o;\n}}\n",
             n = name
         );
+        if self.weak_mode {
+            // A weak reference names an object without owning it: it moves
+            // the second count, never the first, and reads back NULL once
+            // the object is dead — which is exactly `rc == 0`, because a
+            // live object always holds at least one strong reference.
+            let _ = writeln!(self.decls, "{}* {}_weak_retain({}* o);", name, name, name);
+            let _ = writeln!(self.decls, "void {}_weak_release({}* o);", name, name);
+            let _ = writeln!(self.decls, "{}* {}_weak_get({}* o);", name, name, name);
+            let _ = write!(
+                self.defs,
+                "\n{n}* {n}_weak_retain({n}* o) {{\n    if (o != NULL) {{ KEAL_RC_BUMP(o->wc); }}\n    return o;\n}}\n\
+                 \nvoid {n}_weak_release({n}* o) {{\n    if (o == NULL) {{ return; }}\n    if (KEAL_RC_DROP(o->wc)) {{ return; }}\n    if (o->rc == 0) {{ free(o); }}\n}}\n\
+                 \n{n}* {n}_weak_get({n}* o) {{\n    if (o == NULL || o->rc == 0) {{ return NULL; }}\n    return {n}_retain(o);\n}}\n",
+                n = name
+            );
+        }
         let mut rel = String::new();
         let _ = write!(
             rel,
@@ -906,12 +977,25 @@ impl CBackend {
         }
         // The last reference to an object is also the last to each of the
         // references it held.
+        let bare = c.name.clone();
         for (fname, ty) in &fields {
+            if self.weak_mode && self.field_is_weak(&bare, fname) {
+                if let Some(target) = self.weak_target_of(ty, c.span) {
+                    let _ = writeln!(rel, "    {}_weak_release(o->{});", target, mangle(fname));
+                }
+                continue;
+            }
             if let Some(f) = Self::release_fn(ty) {
                 let _ = writeln!(rel, "    {}(o->{});", f, mangle(fname));
             }
         }
-        let _ = write!(rel, "    free(o);\n}}\n");
+        if self.weak_mode {
+            // The fields are gone either way; the header waits for the last
+            // weak reference, which is what makes a weak read a safe read.
+            let _ = write!(rel, "    if (o->wc == 0) {{ free(o); }}\n}}\n");
+        } else {
+            let _ = write!(rel, "    free(o);\n}}\n");
+        }
         self.defs.push_str(&rel);
         if Self::class_has_drop(c) {
             let _ = writeln!(self.decls, "void {}_dropper(void* p);", name);
@@ -957,6 +1041,34 @@ impl CBackend {
                     write!(f, "    keal_buf_lit(&b, {});\n", c_string(&format!("{}=", fname)));
             }
             let field = format!("o->{}", mangle(fname));
+            // A weak field shows what it points at only while that is
+            // alive: a husk is `rc == 0`, and reads as `null`.
+            if self.weak_mode && self.field_is_weak(&c.name, fname) {
+                let inner = match ty {
+                    Type::Nullable(i) => (**i).clone(),
+                    other => other.clone(),
+                };
+                match self.try_repr(&inner, &field, c.span) {
+                    Some(present) => {
+                        let _ = write!(
+                            f,
+                            "    if ({fld} == NULL || {fld}->rc == 0) {{\n        keal_buf_lit(&b, \"null\");\n    }} else {{\n        keal_buf_str(&b, {p});\n    }}\n",
+                            fld = field,
+                            p = present
+                        );
+                    }
+                    None => {
+                        let bail = if self.catch_mode { "    return keal_buf_finish(&b);\n" } else { "" };
+                        let _ = write!(
+                            f,
+                            "    keal_panic({}, 0);\n{}",
+                            c_string(&format!("cannot render a value of type `{}` natively", ty)),
+                            bail
+                        );
+                    }
+                }
+                continue;
+            }
             // An absent field renders as `null`, which needs a branch rather
             // than an expression.
             if let Type::Nullable(inner) = ty {
@@ -1142,9 +1254,12 @@ impl CBackend {
             }
         }
         self.line("self->rc = 1;");
+        if self.weak_mode {
+            self.line("self->wc = 0;");
+        }
         for p in &c.ctor {
             let Some((_, ty)) = fields.iter().find(|(n, _)| *n == p.name).cloned() else { return };
-            let v = Self::retained(&ty, &mangle(&p.name));
+            let v = self.stored_field_value(&c.name, &p.name, &ty, &mangle(&p.name), p.span);
             self.line(format!("self->{} = {};", mangle(&p.name), v));
         }
 
@@ -1156,7 +1271,7 @@ impl CBackend {
             match &f.init {
                 Some(e) => {
                     let v = self.expr(e);
-                    let v = Self::retained(&ty, &v);
+                    let v = self.stored_field_value(&c.name, &f.name, &ty, &v, f.span);
                     self.line(format!("self->{} = {};", mangle(&f.name), v));
                 }
                 None => {
@@ -3784,6 +3899,34 @@ impl CBackend {
             }
             _ => {}
         }
+        // A weak field is read by upgrading it: the target while it lives,
+        // NULL from the moment its last strong reference went.
+        if self.weak_mode {
+            if let Some(Type::Class(cname, _)) = self.ety(obj).map(|t| t.non_null()) {
+                if self.field_is_weak(&cname, name) {
+                    let Some(ty) = self.ety(e) else { return "0".to_string() };
+                    let Some(target) = self.weak_target_of(&ty, e.span) else {
+                        return "0".to_string();
+                    };
+                    let receiver = self.expr(obj);
+                    let access = format!("{}->{}", receiver, mangle(name));
+                    let call = format!("{}_weak_get({})", target, access);
+                    if safe {
+                        let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
+                        let slot = self.temp();
+                        self.line(format!("{} {} = NULL;", c, slot));
+                        self.own(&slot, &ty);
+                        self.line(format!("if ({} != NULL) {{", receiver));
+                        self.indent += 1;
+                        self.line(format!("{} = {};", slot, call));
+                        self.indent -= 1;
+                        self.line("}");
+                        return slot;
+                    }
+                    return self.own_temp_of(&ty, call);
+                }
+            }
+        }
         let receiver = self.expr(obj);
         let access = format!("{}->{}", receiver, mangle(name));
         if safe {
@@ -5607,6 +5750,29 @@ impl CBackend {
                 mangle(name)
             }
             ExprKind::Field { obj, name, safe: false } => {
+                // A weak field's assignment moves the second count: the old
+                // target loses a weak reference, the new one gains one, and
+                // neither's life is changed by it.
+                if self.weak_mode {
+                    if let Some(Type::Class(cname, _)) = self.ety(obj).map(|t| t.non_null()) {
+                        if self.field_is_weak(&cname, name) {
+                            if op.is_some() {
+                                self.unsupported(span, "compound assignment to a `weak` field");
+                                return;
+                            }
+                            let Some(ty) = self.ety(target) else { return };
+                            let Some(t) = self.weak_target_of(&ty, span) else { return };
+                            let receiver = self.expr(obj);
+                            let slot = format!("{}->{}", receiver, mangle(name));
+                            let v = self.coerced_to(value, &ty);
+                            let held = self.temp();
+                            self.line(format!("{}* {} = {};", t, held, v));
+                            self.line(format!("{}_weak_release({});", t, slot));
+                            self.line(format!("{} = {}_weak_retain({});", slot, t, held));
+                            return;
+                        }
+                    }
+                }
                 let receiver = self.expr(obj);
                 format!("{}->{}", receiver, mangle(name))
             }
@@ -5665,6 +5831,10 @@ impl CBackend {
             // The one switch that puts actors on real threads: under it the
             // runtime's counts go atomic and its pthread machinery exists.
             out.push_str("#define KEAL_ACTORS 1\n");
+        }
+        if self.weak_mode {
+            // The one switch that gives objects a weak count.
+            out.push_str("#define KEAL_WEAK 1\n");
         }
         out.push_str(RUNTIME);
         out.push('\n');
@@ -6264,6 +6434,16 @@ fn program_has_try(p: &Program) -> bool {
 /// Whether the user program touches the actor machinery — the types, the
 /// system, or the capture-copying primitive `spawn` leans on. The prelude
 /// alone never triggers it: unused generics are not emitted.
+/// Whether any class in the program declares a `weak` field.
+fn program_uses_weak(p: &Program) -> bool {
+    p.items.iter().any(|i| match i {
+        Item::Class(c) => {
+            c.ctor.iter().any(|p| p.field.is_some() && p.weak) || c.fields.iter().any(|f| f.weak)
+        }
+        _ => false,
+    })
+}
+
 fn program_uses_actors(p: &Program) -> bool {
     fn name_hits(n: &str) -> bool {
         n == "ActorSystem" || n == "ActorRef" || n == "copyClosure"

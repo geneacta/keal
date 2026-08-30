@@ -488,6 +488,14 @@ impl Parser {
             self.advance();
             while !self.at(&Tok::RParen) {
                 let pspan = self.span();
+                // `weak` is contextual, like `record`: it is a modifier only
+                // where a field is being declared, and stays a usable name
+                // everywhere else.
+                let weak = matches!(self.peek(), Tok::Ident(n) if n == "weak")
+                    && matches!(self.peek_at(1), Tok::Val | Tok::Var);
+                if weak {
+                    self.advance();
+                }
                 let field = if self.eat(&Tok::Val) {
                     Some(false)
                 } else if self.at(&Tok::Var) {
@@ -513,7 +521,7 @@ impl Parser {
                 self.expect(Tok::Colon, "after a constructor parameter name")?;
                 let ty = self.type_expr()?;
                 let default = if self.eat(&Tok::Assign) { Some(self.expr()?) } else { None };
-                ctor.push(CtorParam { name: pname, ty, default, field, span: pspan });
+                ctor.push(CtorParam { name: pname, ty, default, field, weak, span: pspan });
                 if !self.eat(&Tok::Comma) {
                     break;
                 }
@@ -545,8 +553,16 @@ impl Parser {
             }
             match self.peek() {
                 Tok::Fun | Tok::Proc => methods.push(self.fun_decl()?),
-                Tok::Val | Tok::Var => {
+                Tok::Val | Tok::Var | Tok::Ident(_)
+                    if matches!(self.peek(), Tok::Val | Tok::Var)
+                        || (matches!(self.peek(), Tok::Ident(n) if n == "weak")
+                            && matches!(self.peek_at(1), Tok::Val | Tok::Var)) =>
+                {
                     let fspan = self.span();
+                    let weak = matches!(self.peek(), Tok::Ident(n) if n == "weak");
+                    if weak {
+                        self.advance();
+                    }
                     let mutable = matches!(self.advance().tok, Tok::Var);
                     if mutable && is_record {
                         return Err(Diag::new(fspan, "a record's fields cannot be `var`")
@@ -561,7 +577,7 @@ impl Parser {
                             format!("field `{}` needs either a type or an initializer", fname),
                         ));
                     }
-                    fields.push(FieldDecl { name: fname, ty, init, mutable, span: fspan });
+                    fields.push(FieldDecl { name: fname, ty, init, mutable, weak, span: fspan });
                 }
                 other => {
                     return Err(Diag::new(

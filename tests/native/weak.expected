@@ -1,0 +1,18 @@
+b.prev reaches b
+a.next reaches b
+deinit a
+link to b died
+deinit b
+the cycle is gone
+weak sees temp
+link to temp died
+deinit temp
+after the block: true
+deinit holder
+Watcher(name="w", watched=Leaf(n=5))
+Watcher(name="w2", watched=Leaf(n=9))
+Watcher(name="w2", watched=null)
+child sees p
+child c died
+parent p died
+done

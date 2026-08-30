@@ -127,14 +127,16 @@ fun pClass(c: ClassN): String {
             "val" -> "val "
             else -> ""
         }
-        var head = "ctor ${kw}${p.name}: ${typeLine(p.tyEx!!)} ${p.line}:${p.col}"
+        val weakKw = if (p.weak) { "weak " } else { "" }
+        var head = "ctor ${weakKw}${kw}${p.name}: ${typeLine(p.tyEx!!)} ${p.line}:${p.col}"
         val d = p.default
         if (d != null) { head += "\n" + indentBlock(pEx(d)) }
         out += "\n" + indentBlock(head)
     }
     for (f in c.fields) {
         val kw = if (f.mutable) { "var" } else { "val" }
-        var head = "field ${kw} ${f.name}"
+        val weakKw = if (f.weak) { "weak " } else { "" }
+        var head = "field ${weakKw}${kw} ${f.name}"
         val t = f.tyEx
         if (t != null) { head += ": " + typeLine(t) }
         head += " ${f.line}:${f.col}"

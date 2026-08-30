@@ -21,6 +21,18 @@ fun mangle(name: String): String { "k_" + name }
 fun mangleMethod(name: String): String { "m_" + name }
 
 /// Whether the class declares the hook the runtime calls at death.
+/// Whether this class declares that field `weak`. The declaration is the
+/// single source of truth — the same one the interpreters read.
+fun classFieldIsWeak(c: ClassN, name: String): Bool {
+    for (p in c.ctor) {
+        if (p.fieldKind != "" and p.name == name and p.weak) { return true }
+    }
+    for (f in c.fields) {
+        if (f.name == name and f.weak) { return true }
+    }
+    return false
+}
+
 fun classHasDeinit(c: ClassN): Bool {
     for (m in c.methods) {
         if (m.name == "deinit") { return true }
@@ -710,6 +722,11 @@ class CBackend() {
     var anyGlobals: Map<String, Bool> = {}
     var globalDecls: String = ""
     var atTopLevel: Bool = false
+    /// True when the program declares a `weak` field: objects then carry a
+    /// second count, and a weak field is stored, read, released and shown
+    /// through the weak entry points. Off, every class keeps one count and
+    /// the emitted C is what it always was.
+    var weakMode: Bool = false
     /// Set just before a statement's expression is emitted: its value is
     /// discarded, so a branch join of `Any` — which the checker only ever
     /// produces where using the value would be refused — needs no slot.
@@ -884,6 +901,25 @@ class CBackend() {
     /// value for scalars, a retain for immutable strings, a generated
     /// per-type function for anything with structure. `null` when the type
     /// cannot cross, which the checker already refused.
+    /// The class a weak field points at, as its C struct name.
+    fun weakTargetOf(t: Ty, file: Int, atLine: Int, col: Int): String? {
+        var inner = t
+        if (t.kind == "Nullable") { inner = t.args[0] }
+        unless (inner.kind == "Class") { return null }
+        if (inner.args.size == 0) { return structName(inner.name) }
+        return this.instantiateClass(inner.name, inner.args, file, atLine, col)
+    }
+
+    /// A value on its way into a field: a weak field takes the second
+    /// count, everything else takes the first.
+    fun storedFieldValue(c: ClassN, field: String, t: Ty, v: String, file: Int, atLine: Int, col: Int): String {
+        if (this.weakMode and classFieldIsWeak(c, field)) {
+            val target = this.weakTargetOf(t, file, atLine, col)
+            if (target != null) { return "${target}_weak_retain(${v})" }
+        }
+        return retained(t, v)
+    }
+
     /// The static type-info an `Any` tags this type's values with — what
     /// `is` compares, what `typeOf` names. Only types whose every value has
     /// one layout get a tag: scalars, strings, `List<Any>`, and classes at
@@ -1284,6 +1320,12 @@ class CBackend() {
         this.typesOut += "typedef struct ${name} ${name};\n"
         var sbody = "struct ${name} {\n"
         sbody += "    keal_rc_t rc;\n"
+        if (this.weakMode) {
+            // How many weak references name this object. The husk it leaves
+            // behind when its strong count reaches zero lives until this
+            // reaches zero too.
+            sbody += "    keal_rc_t wc;\n"
+        }
         if (hasDeinit) {
             // Set once the object's `deinit` has been queued: the hook runs
             // exactly once, resurrection or not.
@@ -1561,6 +1603,18 @@ class CBackend() {
         this.decls += "${name}* ${name}_retain(${name}* o);\n"
         this.decls += "void ${name}_release(${name}* o);\n"
         this.defs += "\n${name}* ${name}_retain(${name}* o) {\n    if (o != NULL) { KEAL_RC_BUMP(o->rc); }\n    return o;\n}\n"
+        if (this.weakMode) {
+            // A weak reference names an object without owning it: it moves
+            // the second count, never the first, and reads back NULL once
+            // the object is dead — which is exactly `rc == 0`, because a
+            // live object always holds at least one strong reference.
+            this.decls += "${name}* ${name}_weak_retain(${name}* o);\n"
+            this.decls += "void ${name}_weak_release(${name}* o);\n"
+            this.decls += "${name}* ${name}_weak_get(${name}* o);\n"
+            this.defs += "\n${name}* ${name}_weak_retain(${name}* o) {\n    if (o != NULL) { KEAL_RC_BUMP(o->wc); }\n    return o;\n}\n"
+            this.defs += "\nvoid ${name}_weak_release(${name}* o) {\n    if (o == NULL) { return; }\n    if (KEAL_RC_DROP(o->wc)) { return; }\n    if (o->rc == 0) { free(o); }\n}\n"
+            this.defs += "\n${name}* ${name}_weak_get(${name}* o) {\n    if (o == NULL || o->rc == 0) { return NULL; }\n    return ${name}_retain(o);\n}\n"
+        }
         var rel = "\nvoid ${name}_release(${name}* o) {\n    if (o == NULL) { return; }\n    if (KEAL_RC_DROP(o->rc)) { return; }\n"
         if (classHasDeinit(c)) {
             // The first death queues the hook instead of freeing: the
@@ -1573,12 +1627,25 @@ class CBackend() {
         // The last reference to an object is also the last to each of the
         // references it held.
         for (f in fields) {
-            val rf = releaseFn(f.ty)
-            if (rf != null) {
-                rel += "    ${rf}(o->${mangle(f.name)});\n"
+            if (this.weakMode and classFieldIsWeak(c, f.name)) {
+                val target = this.weakTargetOf(f.ty, c.file, c.line, c.col)
+                if (target != null) {
+                    rel += "    ${target}_weak_release(o->${mangle(f.name)});\n"
+                }
+            } else {
+                val rf = releaseFn(f.ty)
+                if (rf != null) {
+                    rel += "    ${rf}(o->${mangle(f.name)});\n"
+                }
             }
         }
-        rel += "    free(o);\n}\n"
+        if (this.weakMode) {
+            // The fields are gone either way; the header waits for the last
+            // weak reference, which is what makes a weak read a safe read.
+            rel += "    if (o->wc == 0) { free(o); }\n}\n"
+        } else {
+            rel += "    free(o);\n}\n"
+        }
         this.defs += rel
         if (classHasDeinit(c)) {
             this.decls += "void ${name}_dropper(void* p);\n"
@@ -1624,6 +1691,21 @@ class CBackend() {
                 f += "    keal_buf_lit(&b, ${cString(fname + "=")});\n"
             }
             val fieldAccess = "o->${mangle(fname)}"
+            // A weak field shows what it points at only while that is
+            // alive: a husk is `rc == 0`, and reads as `null`.
+            if (this.weakMode and classFieldIsWeak(c, fname)) {
+                var winner = fty
+                if (fty.kind == "Nullable") { winner = fty.args[0] }
+                val present = this.tryRepr(winner, fieldAccess, c.file, c.line, c.col)
+                if (present != null) {
+                    f += "    if (${fieldAccess} == NULL || ${fieldAccess}->rc == 0) {\n        keal_buf_lit(&b, \"null\");\n    } else {\n        keal_buf_str(&b, ${present});\n    }\n"
+                } else {
+                    val bail = if (this.catchMode) { "    return keal_buf_finish(&b);\n" } else { "" }
+                    f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, 0);\n" + bail
+                }
+                i += 1
+                continue
+            }
             // An absent field renders as `null`, which needs a branch.
             if (fty.kind == "Nullable") {
                 val present = this.tryRepr(fty.args[0], fieldAccess, c.file, c.line, c.col)
@@ -1787,6 +1869,9 @@ class CBackend() {
             }
         }
         this.line("self->rc = 1;")
+        if (this.weakMode) {
+            this.line("self->wc = 0;")
+        }
         for (p in c.ctor) {
             var fty: Ty? = null
             for (f in fields) {
@@ -1794,7 +1879,7 @@ class CBackend() {
             }
             val ty0 = fty
             if (ty0 == null) { return }
-            val v = retained(ty0, mangle(p.name))
+            val v = this.storedFieldValue(c, p.name, ty0, mangle(p.name), p.file, p.line, p.col)
             this.line("self->${mangle(p.name)} = ${v};")
         }
 
@@ -1810,7 +1895,7 @@ class CBackend() {
             val init = fd.init
             if (init != null) {
                 val v0 = this.expr(init)
-                val v = retained(ty0, v0)
+                val v = this.storedFieldValue(c, fd.name, ty0, v0, fd.file, fd.line, fd.col)
                 this.line("self->${mangle(fd.name)} = ${v};")
             } else {
                 this.unsupported(fd.file, fd.line, fd.col, "a field with no initializer")
@@ -4220,6 +4305,37 @@ class CBackend() {
                 return "keal_str_length(${sv})"
             }
         }
+        // A weak field is read by upgrading it: the target while it lives,
+        // NULL from the moment its last strong reference went.
+        if (this.weakMode and ot != null) {
+            val base = tyNonNull(ot)
+            if (base.kind == "Class") {
+                val decl = this.classDecls[base.name]
+                if (decl != null and classFieldIsWeak(decl, name)) {
+                    val wty = this.ety(e)
+                    if (wty == null) { return "0" }
+                    val target = this.weakTargetOf(wty, e.file, e.line, e.col)
+                    if (target == null) { return "0" }
+                    val recv = this.expr(obj)
+                    val slotAccess = "${recv}->${mangle(name)}"
+                    val call = "${target}_weak_get(${slotAccess})"
+                    if (e.safe) {
+                        val ct = this.ctype(wty, e.file, e.line, e.col)
+                        if (ct == null) { return "0" }
+                        val slot = this.temp()
+                        this.line("${ct} ${slot} = NULL;")
+                        this.own(slot, wty)
+                        this.line("if (${recv} != NULL) {")
+                        this.indent += 1
+                        this.line("${slot} = ${call};")
+                        this.indent -= 1
+                        this.line("}")
+                        return slot
+                    }
+                    return this.ownTempOf(wty, call)
+                }
+            }
+        }
         val receiver = this.expr(obj)
         val access = "${receiver}->${mangle(name)}"
         if (e.safe) {
@@ -5731,6 +5847,34 @@ class CBackend() {
             }
             varC = mangle(target.text)
         } else if (target.kind == "field" and not target.safe) {
+            // A weak field's assignment moves the second count: the old
+            // target loses a weak reference, the new one gains one, and
+            // neither's life is changed by it.
+            val ot0 = this.ety(target.kids[0])
+            if (this.weakMode and ot0 != null) {
+                val base = tyNonNull(ot0)
+                if (base.kind == "Class") {
+                    val decl = this.classDecls[base.name]
+                    if (decl != null and classFieldIsWeak(decl, target.text)) {
+                        unless (op == "=") {
+                            this.unsupported(e.file, e.line, e.col, "compound assignment to a `weak` field")
+                            return
+                        }
+                        val wty = this.ety(target)
+                        if (wty == null) { return }
+                        val t = this.weakTargetOf(wty, e.file, e.line, e.col)
+                        if (t == null) { return }
+                        val recv = this.expr(target.kids[0])
+                        val slotAccess = "${recv}->${mangle(target.text)}"
+                        val v = this.coercedTo(value, wty)
+                        val held = this.temp()
+                        this.line("${t}* ${held} = ${v};")
+                        this.line("${t}_weak_release(${slotAccess});")
+                        this.line("${slotAccess} = ${t}_weak_retain(${held});")
+                        return
+                    }
+                }
+            }
             val receiver = this.expr(target.kids[0])
             varC = "${receiver}->${mangle(target.text)}"
         } else {
@@ -5778,6 +5922,10 @@ class CBackend() {
             // The one switch that puts actors on real threads: under it the
             // runtime's counts go atomic and its pthread machinery exists.
             out += "#define KEAL_ACTORS 1\n"
+        }
+        if (this.weakMode) {
+            // The one switch that gives objects a weak count.
+            out += "#define KEAL_WEAK 1\n"
         }
         out += runtimeSource()
         out += "\n"
@@ -6083,6 +6231,22 @@ fun programUsesActors(program: ProgramN): Bool {
     return false
 }
 
+/// Whether any class in the program declares a `weak` field.
+fun programUsesWeak(program: ProgramN): Bool {
+    for (item in program.items) {
+        val c = item.classDecl
+        if (item.kind == "class" and c != null) {
+            for (p in c.ctor) {
+                if (p.fieldKind != "" and p.weak) { return true }
+            }
+            for (f in c.fields) {
+                if (f.weak) { return true }
+            }
+        }
+    }
+    return false
+}
+
 val backend = CBackend()
 backend.catchMode = programHasTry(loaded.program)
 for (item in loaded.program.items) {
@@ -6093,7 +6257,11 @@ for (item in loaded.program.items) {
         }
     }
 }
+// A `weak` field observes *when* its target dies, exactly as `deinit`
+// does, so both put statement temps on the same short leash.
+if (programUsesWeak(loaded.program)) { backend.dropMode = true }
 backend.actorsMode = programUsesActors(loaded.program)
+backend.weakMode = programUsesWeak(loaded.program)
 for (name in checker.classes.keys()) {
     val info = checker.classes[name]!!
     val fields: List<SField> = []

@@ -1,0 +1,66 @@
+// `weak` in assertions: a back edge that breaks a cycle, and a reference
+// that reads back null once its target is gone.
+
+class Node(val tag: String) {
+    var next: Node? = null
+    weak var prev: Node? = null
+}
+
+var deaths = 0
+// A cycle across two classes: the owner points at the item, the item
+// points back weakly. Both die when the owner does.
+class Item(val id: Int) {
+    weak var owner: Owner? = null
+    proc deinit() { deaths += 1 }
+}
+class Owner(val id: Int) {
+    var held: Item? = null
+    proc deinit() { deaths += 1 }
+}
+
+proc linked() {
+    val a = Node("a")
+    val b = Node("b")
+    a.next = b
+    b.prev = a
+    val back = b.prev
+    assert(back != null, "a weak field sees a live target")
+    assert(back!!.tag == "a", "and it is the object that was stored")
+}
+linked()
+
+proc cyclePair() {
+    val o = Owner(1)
+    val it = Item(2)
+    o.held = it
+    it.owner = o
+}
+cyclePair()
+assert(deaths == 2, "a cycle whose back edge is weak still dies")
+
+proc outlived() {
+    val keeper = Item(3)
+    if (true) {
+        val short = Owner(4)
+        keeper.owner = short
+        assert(keeper.owner != null, "alive while the block runs")
+    }
+    assert(keeper.owner == null, "and null once the target is gone")
+}
+outlived()
+assert(deaths == 4, "every object died exactly once")
+
+// The one shape the checker cautions about: a mutable field that can
+// point straight back at its own object, in a class whose destructor a
+// cycle would silently skip. Writing it is legal — the caution is that
+// the `deinit` below is only as reliable as the graph the program builds.
+class SelfCycle(val n: Int) {
+    var back: SelfCycle? = null
+    proc deinit() { deaths += 1 }
+}
+proc selfCycle() {
+    val s = SelfCycle(1)
+    assert(s.back == null, "nothing points back yet")
+}
+selfCycle()
+assert(deaths == 5, "the un-cycled object died like any other")

@@ -98,7 +98,10 @@ pub struct Compiler {
     classes: Vec<Rc<RtClass>>,
     functions: Vec<Rc<Function>>,
     fns: Vec<FnState>,
-    /// Whether any class in the program declares `proc drop()`.
+    /// Whether the program can observe *when* a value dies — because a
+    /// class declares `deinit`, or because a `weak` field reads back null
+    /// the moment its target goes. Either way locals must die at the end
+    /// of their block rather than whenever their slot is reused.
     has_drop: bool,
 }
 
@@ -116,11 +119,15 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, program: &crate::ast::Program) -> Result<CompiledUnit, Diag> {
-        // A program with a `drop` anywhere pays one opcode per statement;
-        // one without pays nothing.
+        // A program that can observe a death anywhere pays one opcode per
+        // statement; one that cannot pays nothing.
         self.has_drop = self.has_drop
             || program.items.iter().any(|i| match i {
-                Item::Class(c) => c.methods.iter().any(|m| m.name == "deinit"),
+                Item::Class(c) => {
+                    c.methods.iter().any(|m| m.name == "deinit")
+                        || c.ctor.iter().any(|p| p.field.is_some() && p.weak)
+                        || c.fields.iter().any(|f| f.weak)
+                }
                 _ => false,
             });
         // Declarations are visible before their line, so register the names

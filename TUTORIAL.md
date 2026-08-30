@@ -742,6 +742,66 @@ Calling `deinit` yourself is a checker error — it is the runtime's to
 call. The generated JVM wrappers use it to free their handles, so a
 forgotten `free()` no longer leaks a global reference.
 
+## `weak`: the back edge that does not hold on
+
+Counting references has one blind spot: a **cycle**. If `a` holds `b`
+and `b` holds `a`, neither count ever reaches zero, so neither object is
+freed — and, worse, neither runs its `deinit`. Silently.
+
+`weak` breaks the loop. Written before `val` or `var` on a class field,
+it says *this field points at something without keeping it alive*:
+
+```keal
+class Item(val id: Int) {
+    weak var owner: Owner? = null      // points back, does not hold on
+}
+class Owner(val id: Int) {
+    var held: Item? = null             // holds
+}
+
+val o = Owner(1)
+val it = Item(2)
+o.held = it
+it.owner = o        // a loop on paper; not a loop in the counts
+```
+
+When `o` and `it` go out of scope, both die and both destructors run.
+The strong edge is the one that owns; the weak one is just an address.
+
+Reading a weak field gives you the target **while it lives**, and `null`
+the moment its last strong reference dies — which is why the type has to
+be nullable:
+
+```keal
+class Watcher(val name: String) {
+    weak var watched: Leaf? = null
+}
+val w = Watcher("w")
+if (true) {
+    val leaf = Leaf(9)
+    w.watched = leaf
+    assert(w.watched != null, "alive inside the block")
+}
+assert(w.watched == null, "and gone after it")
+```
+
+Three rules the checker holds you to, each with its reason:
+
+* **`weak` needs a `T?` where `T` is a class.** A weak reference has to
+  be able to read back null, and only a counted object can die while
+  someone still names it. `weak var n: Int?` is refused.
+* **A class with a weak field does not `copy`.** An address is not a
+  value to duplicate — and since actors use the same rule, a weak field
+  cannot travel in a message either.
+* **You are cautioned about the shape that bites.** A class that
+  declares `deinit` and has a mutable field able to point straight back
+  at its own object gets a warning, with `weak` as the suggested fix.
+  It is a caution, not an error: you may know the graph never closes.
+
+Everything else is unchanged. A program that never writes `weak` pays
+nothing for it — natively, objects carry the same single count they
+always did.
+
 ## Lazy sequences
 
 The prelude carries a pull-based pipeline — Keal's `Stream`/`Sequence` —

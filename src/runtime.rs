@@ -96,18 +96,30 @@ pub trait Runtime {
 
 // ---- rendering ---------------------------------------------------------
 
+/// How deep rendering will follow references before deciding the value is
+/// cyclic. A cycle has no bottom, so without this the recursion would end
+/// in a stack overflow — a crash with nothing to catch and nothing to
+/// read. The same cap `copy` uses, refused the same way.
+const RENDER_DEPTH_CAP: usize = 1000;
+
 /// User-facing rendering: what `println` and `${...}` produce.
 pub fn display(rt: &mut dyn Runtime, v: &Value, span: Span) -> R<String> {
-    render(rt, v, span, false)
+    render(rt, v, span, false, 0)
 }
 
 /// Rendering inside a collection, where strings are quoted so that
 /// `["a", "b"]` is distinguishable from `[a, b]`.
-fn repr(rt: &mut dyn Runtime, v: &Value, span: Span) -> R<String> {
-    render(rt, v, span, true)
+fn repr(rt: &mut dyn Runtime, v: &Value, span: Span, depth: usize) -> R<String> {
+    render(rt, v, span, true, depth)
 }
 
-fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool) -> R<String> {
+fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool, depth: usize) -> R<String> {
+    if depth > RENDER_DEPTH_CAP {
+        return err(
+            span,
+            format!("rendering went {} levels deep; is the value cyclic?", RENDER_DEPTH_CAP),
+        );
+    }
     Ok(match v {
         Value::Unit => "Unit".into(),
         Value::Null => "null".into(),
@@ -129,7 +141,7 @@ fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool) -> R<String>
             let snapshot = items.borrow().clone();
             let mut parts = Vec::with_capacity(snapshot.len());
             for item in &snapshot {
-                parts.push(repr(rt, item, span)?);
+                parts.push(repr(rt, item, span, depth + 1)?);
             }
             format!("[{}]", parts.join(", "))
         }
@@ -138,7 +150,7 @@ fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool) -> R<String>
                 m.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             let mut parts = Vec::with_capacity(snapshot.len());
             for (k, v) in &snapshot {
-                parts.push(format!("{}: {}", repr(rt, k, span)?, repr(rt, v, span)?));
+                parts.push(format!("{}: {}", repr(rt, k, span, depth + 1)?, repr(rt, v, span, depth + 1)?));
             }
             format!("{{{}}}", parts.join(", "))
         }
@@ -147,22 +159,22 @@ fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool) -> R<String>
                 let out = rt.call_method(v, "toString", Vec::new(), span)?;
                 return Ok(match out {
                     Value::Str(s) => s.to_string(),
-                    other => render(rt, &other, span, quote)?,
+                    other => render(rt, &other, span, quote, depth + 1)?,
                 });
             }
-            let snapshot: Vec<(Rc<str>, Value)> = inst.fields.borrow().clone();
+            let snapshot: Vec<(Rc<str>, Value)> = inst.field_values();
             // A tuple is a record underneath, but it is written `(1, "a")`,
             // so that is how it reads back.
             if crate::types::tuple_arity(&inst.class.name) == Some(snapshot.len()) {
                 let mut parts = Vec::with_capacity(snapshot.len());
                 for (_, value) in &snapshot {
-                    parts.push(repr(rt, value, span)?);
+                    parts.push(repr(rt, value, span, depth + 1)?);
                 }
                 return Ok(format!("({})", parts.join(", ")));
             }
             let mut parts = Vec::with_capacity(snapshot.len());
             for (name, value) in &snapshot {
-                parts.push(format!("{}={}", name, repr(rt, value, span)?));
+                parts.push(format!("{}={}", name, repr(rt, value, span, depth + 1)?));
             }
             format!("{}({})", inst.class.name, parts.join(", "))
         }

@@ -989,6 +989,35 @@ That is all a program needs to know. If you are interested in the bytes —
 sizes, field offsets, what `T?` costs, what crosses into C — run
 `keal layout file.keal`, and see [`docs/memory.md`](memory.md).
 
+## 19½. `weak` fields
+
+A field may be declared `weak`, before `val` or `var`. It points at its
+target without keeping it alive, which is how a cycle's back edge is
+written — counting alone can never free a cycle, and since `deinit`
+exists a cycle also silently skips its destructors.
+
+```keal
+class Item(val id: Int) {
+    weak var owner: Owner? = null    // points back, does not hold on
+}
+class Owner(val id: Int) {
+    var held: Item? = null           // holds
+}
+```
+
+* The type must be `T?` where `T` is a class: a weak reference has to be
+  able to read back null.
+* Reading gives the target while it lives, `null` from the moment its
+  last strong reference dies. Writing never retains.
+* A class with a weak field cannot be `copy`-ed, and so cannot cross into
+  an actor: an address is not a value to duplicate.
+* `weak` is contextual — it is still an ordinary name anywhere else.
+
+The checker cautions where a class declares `deinit` **and** a mutable
+field can point straight back at its own object, suggesting `weak` on
+the back edge. `docs/memory.md` §5 has the reasoning, the costs and why
+there is no cycle collector.
+
 ## 20. What is not here yet
 
 Class inheritance (a non-goal) · indexing and call operators (`Index`,

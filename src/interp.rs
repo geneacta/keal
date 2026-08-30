@@ -219,7 +219,11 @@ impl Interp {
                         InterpPart::Lit(s) => out.push_str(s),
                         InterpPart::Expr(inner) => {
                             let v = self.eval(inner, env)?;
-                            out.push_str(&runtime::display(self, &v, inner.span)?);
+                            // The rendering itself is attributed to the
+                            // interpolation, not to the part: the VM has
+                            // only that span by the time it renders, and
+                            // the two engines must name the same place.
+                            out.push_str(&runtime::display(self, &v, e.span)?);
                         }
                     }
                 }
@@ -767,7 +771,7 @@ impl Interp {
 
     fn construct(&mut self, class: &Rc<ClassDecl>, provided: Vec<Option<Value>>, span: Span) -> R<Value> {
         let scope = Scope::child(&self.globals);
-        let mut fields: Vec<(Rc<str>, Value)> = Vec::new();
+        let mut fields: Vec<(Rc<str>, crate::value::Slot)> = Vec::new();
 
         for (i, p) in class.ctor.iter().enumerate() {
             let value = match provided.get(i).cloned().flatten() {
@@ -784,7 +788,8 @@ impl Interp {
             };
             scope.define(&p.name, value.clone());
             if p.field.is_some() {
-                fields.push((Rc::from(p.name.as_str()), value));
+                let slot = Instance::slot_for(p.weak, value);
+                fields.push((Rc::from(p.name.as_str()), slot));
             }
         }
 
@@ -800,7 +805,8 @@ impl Interp {
                 Some(e) => self.eval(e, &scope)?,
                 None => Value::Null,
             };
-            instance.fields.borrow_mut().push((Rc::from(f.name.as_str()), value));
+            let slot = Instance::slot_for(f.weak, value);
+            instance.fields.borrow_mut().push((Rc::from(f.name.as_str()), slot));
         }
         Ok(Value::Instance(instance))
     }
@@ -926,7 +932,7 @@ fn destructure(
             format!("`{}` cannot be destructured", v.type_name()),
         );
     };
-    let fields = inst.fields.borrow();
+    let fields = inst.field_values();
     let mut out = Vec::new();
     for (i, bind) in pattern.binds.iter().enumerate() {
         let Some(name) = bind else { continue };

@@ -176,6 +176,11 @@ engines, which must agree on every byte they print.
 - **Guarded returns.** `return if (a > b) a` returns only when the guard
   holds and falls through otherwise — and the guard narrows, so
   `return unless (s == null) s` hands back a plain `String`.
+- **`weak` fields.** A field that points without holding on, so the back
+  edge of a cycle can be written and still die: `weak var owner: Owner?`.
+  Reading gives the target while it lives and `null` the moment it goes.
+  Programs that never write it pay nothing — objects keep their single
+  count.
 - **`keal doctor`.** The interop toolchains found on this machine — C,
   Rust, Go, JDK, Kotlin — next to the versions the test suite was last
   verified against. Versions are pinned, toolchains are not vendored.
@@ -542,13 +547,12 @@ real threads: `keal build` runs one OS thread per actor today, TSan-clean,
 and [`docs/threads.md`](docs/threads.md) is the record of how. And so did
 `Any` natively — the tag-and-payload pair, `is` as a tag compare.)
 
-* **Cycle handling** — reference counting leaks cycles, and since `deinit`
-  shipped that means a cycle's destructors never run. Now decided in
-  [`docs/memory.md`](docs/memory.md) §5, with the reasoning: **weak
-  references**, plus a checker warning where a field makes a cycle
-  possible. Not a collector — it cannot run on the interpreters without
-  replacing `Rc` there, it taxes every cycle-free program, and it would
-  make `deinit` order arbitrary inside a cycle. Decided, not yet built.
+* **Cycles across several classes still leak silently** — `weak` breaks
+  the ones you can see (below), and the checker cautions about the shape
+  that voids a `deinit`; a cycle nobody marked is still never freed. The
+  next step is an opt-in run-time audit that names what outlived the
+  program, by type — evidence rather than guesswork. Why there is no
+  cycle collector is argued in [`docs/memory.md`](docs/memory.md) §5.
 * **Typed exceptions** — `catch (e)` binds the message as a `String`
   today; catching by kind (and letting `throw` carry a value) is the
   natural second step now that all three engines unwind.

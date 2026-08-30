@@ -246,8 +246,79 @@ it would need. That is the order this project prefers: the honest,
 cheap, deterministic mechanism first, the automatic one only against
 evidence.
 
-*Status: decided, not yet implemented. `weak` is the next memory-model
-change; the checker warning ships with it.*
+*Status: **shipped**. What follows is what it does.*
+
+### `weak`, as built
+
+`weak` is a modifier on a class field, before `val` or `var`:
+
+```keal
+class Node(val tag: String) {
+    var next: Link? = null
+    weak var prev: Link? = null      // the back edge
+}
+```
+
+* It is a **contextual** keyword, like `record`: `weak` is still an
+  ordinary name everywhere else, so no existing program broke.
+* The type must be **`T?` where `T` is a class**. A weak reference must
+  be able to read back null, and only a counted object can die while
+  someone still names it; the checker says so where it is not.
+* Reading gives the target while it lives, `null` from the moment its
+  last **strong** reference dies. Writing never retains; overwriting
+  never releases. Weak edges are invisible to lifetime, so a target's
+  `deinit` runs exactly when it would have without them.
+* Rendering follows a weak field only while it is alive:
+  `Watcher(name="w", watched=Leaf(n=5))` becomes
+  `Watcher(name="w", watched=null)` the moment the leaf goes.
+* `copy(value)` **refuses** a class with a weak field, by name: an
+  address is not a value to duplicate. That refusal is the same
+  predicate actors use, so a weak field cannot ride a message either.
+
+How each engine does it:
+
+* **The interpreters** store the slot as a `Weak` handle — reading is
+  `upgrade()`, and `None` is `null`. `Rc::downgrade` is the semantics
+  exactly, which is why both engines got it for the price of one.
+* **The native backend** gates on the program declaring a weak field
+  (`KEAL_WEAK` in the emitted C, next to `KEAL_ACTORS`). Under it every
+  object carries a second count. When the strong count reaches zero the
+  object runs its `deinit` and releases its fields as ever; what changes
+  is the last step — it frees itself only if no weak reference remains.
+  Otherwise it stays as a **husk**: a header with `rc == 0`, which *is*
+  the "dead" test a weak read makes, freed by the last weak release.
+  That is why a weak read is always a safe read: the memory it inspects
+  cannot have been returned while it still names it.
+
+**The costs, stated:** one extra word per object, and a dead husk
+outliving its fields until the last weak reference goes — both paid only
+by programs that write `weak`. A program without one emits the C it
+always did.
+
+### Diagnosing the cycles `weak` does not catch
+
+A cycle nobody wrote `weak` on still leaks, so the checker cautions about
+the one shape where that silently voids something the author asked for:
+a class that declares `deinit` and can point a **mutable** field straight
+back at its own object.
+
+```
+warning: `SelfCycle.back` can point back at its own object, and `SelfCycle` declares `deinit`
+  = note: a cycle is never freed, so that `deinit` would never run;
+    write `weak` on the back edge to break it
+```
+
+The wider rule — *any* field whose type can **reach** the class — was
+implemented first and thrown away: it fired thirty-five times on this
+compiler's own syntax tree, every one of them a tree that never cycles.
+A warning that cries wolf on correct code is worse than no warning. The
+narrow rule fires nowhere in this repository except where it is
+demonstrated on purpose.
+
+That leaves accidental cycles across several classes undiagnosed, which
+is honest rather than solved: an opt-in run-time audit — count what was
+allocated and never freed, by type — is the next step, and it reports
+evidence rather than guessing.
 
 ---
 

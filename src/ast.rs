@@ -103,6 +103,10 @@ pub struct CtorParam {
     pub default: Option<Expr>,
     /// `Some(true)` for `var`, `Some(false)` for `val`, `None` for a plain param.
     pub field: Option<bool>,
+    /// `weak val parent: Parent?` — the field does not keep its target
+    /// alive, and reads back null once the target's last strong reference
+    /// dies. Only a field can be weak.
+    pub weak: bool,
     pub span: Span,
 }
 
@@ -112,6 +116,8 @@ pub struct FieldDecl {
     pub ty: Option<TypeExpr>,
     pub init: Option<Expr>,
     pub mutable: bool,
+    /// `weak var next: Node?` — see `CtorParam::weak`.
+    pub weak: bool,
     pub span: Span,
 }
 

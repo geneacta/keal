@@ -379,6 +379,12 @@ class Parser(val toks: List<Token>) {
             this.advance()
             while (not this.at(")")) {
                 val pstart = this.peek()
+                // `weak` is contextual, like `record`: it is a modifier only
+                // where a field is being declared, and stays a usable name
+                // everywhere else.
+                val nextKind = this.peekAt(1).kind
+                val isWeak = pstart.kind == "ident" and pstart.text == "weak" and (nextKind == "val" or nextKind == "var")
+                if (isWeak) { this.advance() }
                 var kw = ""
                 if (this.eat("val")) {
                     kw = "val"
@@ -400,6 +406,7 @@ class Parser(val toks: List<Token>) {
                 this.expect(":", "after a constructor parameter name")
                 val cp = CtorN(pname, pstart.line, pstart.col)
                 cp.fieldKind = kw
+                cp.weak = isWeak
                 cp.tyEx = this.typeExpr()
                 if (this.eat("=")) {
                     cp.default = this.expr()
@@ -427,7 +434,9 @@ class Parser(val toks: List<Token>) {
             val m = this.peek()
             if (m.kind == "fun" or m.kind == "proc") {
                 c.methods.add(this.funDecl())
-            } else if (m.kind == "val" or m.kind == "var") {
+            } else if (m.kind == "val" or m.kind == "var" or (m.kind == "ident" and m.text == "weak" and (this.peekAt(1).kind == "val" or this.peekAt(1).kind == "var"))) {
+                val isWeak = m.kind == "ident"
+                if (isWeak) { this.advance() }
                 val mutable = this.advance().kind == "var"
                 if (mutable and isRecord) {
                     this.failNote(
@@ -438,6 +447,7 @@ class Parser(val toks: List<Token>) {
                 val fname = this.expectIdent("a field name")
                 val fd = FieldN(fname, m.line, m.col)
                 fd.mutable = mutable
+                fd.weak = isWeak
                 if (this.eat(":")) {
                     fd.tyEx = this.typeExpr()
                 }

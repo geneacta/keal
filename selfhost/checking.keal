@@ -22,6 +22,17 @@ class DiagN(val file: Int, val line: Int, val col: Int, val msg: String) {
 }
 
 /// Why a binding cannot be assigned to, by the kind that introduced it.
+/// Whether this type names `class_` directly — `C` or `C?`, the shape a
+/// field needs to point straight back at its own object.
+fun namesClass(t: Ty, class_: String): Bool {
+    if (t.kind == "Class") { return t.name == class_ }
+    if (t.kind == "Nullable") {
+        val inner = t.args[0]
+        return inner.kind == "Class" and inner.name == class_
+    }
+    return false
+}
+
 fun whyImmutable(kind: String): String {
     return when (kind) {
         "val" -> "it is declared with `val`; use `var` to make it mutable"
@@ -41,7 +52,7 @@ class Binding(val ty: Ty, val kind: String) {
     var typeParams: List<PDef> = []
 }
 
-class FInfo(val name: String, var ty: Ty, val mutable: Bool)
+class FInfo(val name: String, var ty: Ty, val mutable: Bool, val weak: Bool)
 
 class MInfo(val typeParams: List<PDef>, val sig: Ty)
 
@@ -451,6 +462,13 @@ class Checker() {
             if (item.kind == "class" and c != null) { this.verifyImpls(c) }
         }
 
+        // 3c. Where a field makes a cycle possible, say so — a cycle's
+        // memory is never returned and its `deinit` never runs.
+        for (item in program.items) {
+            val c = item.classDecl
+            if (item.kind == "class" and c != null) { this.warnCycleCapableFields(c) }
+        }
+
         // 4. Top-level statements, in order.
         for (item in program.items) {
             val s = item.stmt
@@ -805,6 +823,81 @@ class Checker() {
         }
     }
 
+    /// What a `weak` field may be: a nullable reference to a class. The
+    /// point of a weak reference is to read back null when its target
+    /// dies, so a type that cannot be null, or a value that cannot die
+    /// while someone still names it, has nothing to say weakly.
+    proc checkWeakField(weak: Bool, t: Ty, name: String, file: Int, line: Int, col: Int) {
+        unless (weak) { return }
+        if (t.kind == "Error") { return }
+        var ok = false
+        if (t.kind == "Nullable" and t.args[0].kind == "Class") { ok = true }
+        unless (ok) {
+            this.errorNote(
+                file, line, col,
+                "`weak` needs a nullable class type, but `${name}` is `${tyShow(t)}`",
+                "a weak reference reads back null once its target dies; write the type as `T?`, where `T` is a class"
+            )
+        }
+    }
+
+    /// Warns about the one shape where a cycle silently costs something a
+    /// program was told it could rely on: a class that declares `deinit`
+    /// and can point a **mutable** field straight back at itself.
+    ///
+    /// The wider rule — any field whose type can *reach* the class — was
+    /// tried first and abandoned: it fires on every tree (this compiler's
+    /// own AST lit up thirty-five times), and a warning that cries wolf on
+    /// correct code is worse than no warning. A cycle still leaks whether
+    /// or not `deinit` is declared; what makes this shape worth naming is
+    /// that the destructor the author wrote will not run.
+    proc warnCycleCapableFields(c: ClassN) {
+        var hasDeinit = false
+        for (m in c.methods) {
+            if (m.name == "deinit") { hasDeinit = true }
+        }
+        unless (hasDeinit) { return }
+        val info = this.classes[c.name]
+        if (info == null) { return }
+        val hits: List<FInfo> = []
+        val lines: List<Int> = []
+        val cols: List<Int> = []
+        val files: List<Int> = []
+        for (p in c.ctor) {
+            if (p.fieldKind == "var" and not p.weak) {
+                for (f in info.fields) {
+                    if (f.name == p.name and namesClass(f.ty, c.name)) {
+                        hits.add(f)
+                        files.add(p.file)
+                        lines.add(p.line)
+                        cols.add(p.col)
+                    }
+                }
+            }
+        }
+        for (fd in c.fields) {
+            if (fd.mutable and not fd.weak) {
+                for (f in info.fields) {
+                    if (f.name == fd.name and namesClass(f.ty, c.name)) {
+                        hits.add(f)
+                        files.add(fd.file)
+                        lines.add(fd.line)
+                        cols.add(fd.col)
+                    }
+                }
+            }
+        }
+        var i = 0
+        while (i < hits.size) {
+            this.warnNote(
+                files[i], lines[i], cols[i],
+                "`${c.name}.${hits[i].name}` can point back at its own object, and `${c.name}` declares `deinit`",
+                "a cycle is never freed, so that `deinit` would never run; write `weak` on the back edge to break it"
+            )
+            i += 1
+        }
+    }
+
     proc collectClass(c: ClassN) {
         val typeParams = this.pushTypeParams(c.typeParams)
         val fields: List<FInfo> = []
@@ -822,7 +915,8 @@ class Checker() {
                 if (dup) {
                     this.error(p.file, p.line, p.col, "field `${p.name}` is declared twice")
                 }
-                fields.add(FInfo(p.name, t, p.fieldKind == "var"))
+                this.checkWeakField(p.weak, t, p.name, p.file, p.line, p.col)
+                fields.add(FInfo(p.name, t, p.fieldKind == "var", p.weak))
             }
         }
         for (f in c.fields) {
@@ -836,7 +930,10 @@ class Checker() {
             if (dup) {
                 this.error(f.file, f.line, f.col, "field `${f.name}` is declared twice")
             }
-            fields.add(FInfo(f.name, t, f.mutable))
+            if (f.tyEx != null) {
+                this.checkWeakField(f.weak, t, f.name, f.file, f.line, f.col)
+            }
+            fields.add(FInfo(f.name, t, f.mutable, f.weak))
         }
 
         val methods: Map<String, MInfo> = {}
@@ -3142,6 +3239,9 @@ class Checker() {
             }
             for (f in info.fields) {
                 if (f.mutable) { return "field `${f.name}` of `${t.name}` is a `var`" }
+                if (f.weak) {
+                    return "field `${f.name}` of `${t.name}` is `weak`, and what it points at lives on another schedule"
+                }
                 val ft = substitute(f.ty, subst)
                 val r = this.mutableReason(ft, seen)
                 unless (r == "") {
@@ -3230,6 +3330,9 @@ class Checker() {
                 pi += 1
             }
             for (f in info.fields) {
+                if (f.weak) {
+                    return "field `${f.name}` of `${t.name}` is `weak`, and a weak reference is an address, not a value to duplicate"
+                }
                 val ft = substitute(f.ty, subst)
                 val r = this.copyBlocker(ft, seen)
                 unless (r == "") {

@@ -119,6 +119,7 @@ class CtorN(val name: String, val line: Int, val col: Int) {
     var tyEx: TypeEx? = null
     var default: Ex? = null
     var fieldKind: String = ""     // "val", "var" or "" for a plain parameter
+    var weak: Bool = false         // `weak val parent: Parent?`
 }
 
 class FieldN(val name: String, val line: Int, val col: Int) {
@@ -126,6 +127,7 @@ class FieldN(val name: String, val line: Int, val col: Int) {
     var tyEx: TypeEx? = null
     var init: Ex? = null
     var mutable: Bool = false
+    var weak: Bool = false         // `weak var next: Node?`
 }
 
 class ClassN(val name: String, val isRecord: Bool, val line: Int, val col: Int) {

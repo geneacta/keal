@@ -317,3 +317,35 @@ if (true) {
     assert(tutClosed == 0, "alive while in scope")
 }
 assert(tutClosed == 1, "deinit ran when the block ended")
+
+// ---- weak references (TUTORIAL.md) ---------------------------------------
+
+var tutFreed = 0
+class TutItem(val id: Int) {
+    weak var owner: TutOwner? = null
+    proc deinit() { tutFreed += 1 }
+}
+class TutOwner(val id: Int) {
+    var held: TutItem? = null
+    proc deinit() { tutFreed += 1 }
+}
+proc tutCycle() {
+    val o = TutOwner(1)
+    val it = TutItem(2)
+    o.held = it
+    it.owner = o
+}
+tutCycle()
+assert(tutFreed == 2, "a cycle whose back edge is weak still dies")
+
+class TutLeaf(val n: Int)
+class TutWatcher(val name: String) {
+    weak var watched: TutLeaf? = null
+}
+val tutW = TutWatcher("w")
+if (true) {
+    val leaf = TutLeaf(9)
+    tutW.watched = leaf
+    assert(tutW.watched != null, "alive inside the block")
+}
+assert(tutW.watched == null, "and gone after it")

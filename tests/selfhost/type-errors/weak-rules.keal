@@ -1,0 +1,17 @@
+// What `weak` may be written on, and what it costs elsewhere.
+class Target(val n: Int)
+
+class Bad(val n: Int) {
+    weak var notNullable: Target = Target(1)
+    weak var notAClass: Int? = null
+    weak var alsoFine: Target? = null
+}
+
+// A weak reference is an address: a class that holds one does not copy,
+// and cannot cross into an actor.
+class Holder(val n: Int) {
+    weak var seen: Target? = null
+}
+val h = Holder(1)
+val bad = copy(h)
+

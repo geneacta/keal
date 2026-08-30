@@ -1,0 +1,75 @@
+// A `weak` field does not keep its target alive, so the back edge of a
+// cycle can be written without leaking it — and the destructors the
+// program declared actually run.
+
+// The cycle runs across two classes: `Link` owns the next node, the node
+// points back at its link weakly.
+class Node(val tag: String) {
+    var next: Link? = null
+    weak var prev: Link? = null
+    proc deinit() { println("deinit ${this.tag}") }
+}
+class Link(val to: Node) {
+    proc deinit() { println("link to ${this.to.tag} died") }
+}
+
+proc cycle() {
+    val a = Node("a")
+    val b = Node("b")
+    a.next = Link(b)
+    b.prev = a.next
+    val back = b.prev
+    println("b.prev reaches ${back!!.to.tag}")
+    println("a.next reaches ${a.next!!.to.tag}")
+}
+cycle()
+println("the cycle is gone")
+
+// A weak reference reads back null the moment its target dies.
+proc outlives() {
+    val holder = Node("holder")
+    if (true) {
+        val temp = Link(Node("temp"))
+        holder.prev = temp
+        val seen = holder.prev
+        println("weak sees ${seen!!.to.tag}")
+    }
+    println("after the block: ${holder.prev == null}")
+}
+outlives()
+
+// Rendering follows a weak field only while it is alive.
+class Leaf(val n: Int)
+class Watcher(val name: String) {
+    weak var watched: Leaf? = null
+}
+val kept = Leaf(5)
+val w = Watcher("w")
+w.watched = kept
+println(w)
+proc scoped() {
+    val w2 = Watcher("w2")
+    if (true) {
+        val gone = Leaf(9)
+        w2.watched = gone
+        println(w2)
+    }
+    println(w2)
+}
+scoped()
+
+// A weak field set at construction, on a chain that dies in order.
+class Parent(val label: String) {
+    proc deinit() { println("parent ${this.label} died") }
+}
+class Child(val name: String, weak val parent: Parent?) {
+    proc deinit() { println("child ${this.name} died") }
+}
+proc family() {
+    val p = Parent("p")
+    val c = Child("c", p)
+    val up = c.parent
+    println("child sees ${up!!.label}")
+}
+family()
+println("done")

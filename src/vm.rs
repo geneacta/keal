@@ -624,7 +624,8 @@ impl Vm {
                         } else {
                             self.stack[base + *slot as usize].clone()
                         };
-                        fields.push((name.clone(), v));
+                        let weak = crate::value::class_field_is_weak(&class.decl, name);
+                        fields.push((name.clone(), Instance::slot_for(weak, v)));
                     }
                     let instance = Rc::new(Instance {
                         class: class.decl.clone(),
@@ -638,7 +639,8 @@ impl Vm {
                     let v = self.pop();
                     match &frame!().this {
                         Some(Value::Instance(inst)) => {
-                            inst.fields.borrow_mut().push((name, v));
+                            let weak = inst.field_is_weak(&name);
+                            inst.fields.borrow_mut().push((name, Instance::slot_for(weak, v)));
                         }
                         _ => return err(span, "field initializer ran outside a constructor"),
                     }

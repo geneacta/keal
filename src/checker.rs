@@ -83,6 +83,9 @@ impl Binding {
 struct FieldInfo {
     ty: Type,
     mutable: bool,
+    /// Declared `weak`: the field does not keep its target alive, and
+    /// reads back null once that target's last strong reference dies.
+    weak: bool,
 }
 
 struct MethodInfo {
@@ -353,6 +356,14 @@ impl Checker {
         for item in &program.items {
             if let Item::Class(c) = item {
                 self.verify_impls(c);
+            }
+        }
+
+        // 3c. Where a field makes a cycle possible, say so — a cycle's
+        // memory is never returned and its `deinit` never runs.
+        for item in &program.items {
+            if let Item::Class(c) = item {
+                self.warn_cycle_capable_fields(c);
             }
         }
 
@@ -733,6 +744,78 @@ impl Checker {
         }
     }
 
+    /// What a `weak` field may be: a nullable reference to a class. The
+    /// point of a weak reference is to read back null when its target
+    /// dies, so a type that cannot be null, or a value that cannot die
+    /// while someone still names it, has nothing to say weakly.
+    fn check_weak_field(&mut self, weak: bool, ty: &Type, name: &str, span: Span) {
+        if !weak || *ty == Type::Error {
+            return;
+        }
+        let ok = matches!(ty, Type::Nullable(inner) if matches!(**inner, Type::Class(_, _)));
+        if !ok {
+            self.error_note(
+                span,
+                format!("`weak` needs a nullable class type, but `{}` is `{}`", name, ty),
+                "a weak reference reads back null once its target dies; write the type as `T?`, where `T` is a class",
+            );
+        }
+    }
+
+    /// Warns about the one shape where a cycle silently costs something a
+    /// program was told it could rely on: a class that declares `deinit`
+    /// and can point a **mutable** field straight back at itself.
+    ///
+    /// The wider rule — any field whose type can *reach* the class — was
+    /// tried first and abandoned: it fires on every tree (this compiler's
+    /// own AST lit up thirty-five times), and a warning that cries wolf on
+    /// correct code is worse than no warning. A cycle still leaks whether
+    /// or not `deinit` is declared; what makes this shape worth naming is
+    /// that the destructor the author wrote will not run.
+    fn warn_cycle_capable_fields(&mut self, c: &ClassDecl) {
+        if !c.methods.iter().any(|m| m.name == "deinit") {
+            return;
+        }
+        let mut hits: Vec<(String, Span)> = Vec::new();
+        let names_self = |ty: &Type| match ty {
+            Type::Class(n, _) => &**n == c.name,
+            Type::Nullable(inner) => matches!(&**inner, Type::Class(n, _) if &**n == c.name),
+            _ => false,
+        };
+        for p in &c.ctor {
+            if p.field == Some(true) && !p.weak {
+                if let Some(ty) = self.classes.get(&c.name).and_then(|i| {
+                    i.fields.iter().find(|(n, _)| *n == p.name).map(|(_, f)| f.ty.clone())
+                }) {
+                    if names_self(&ty) {
+                        hits.push((p.name.clone(), p.span));
+                    }
+                }
+            }
+        }
+        for f in &c.fields {
+            if f.mutable && !f.weak {
+                if let Some(ty) = self.classes.get(&c.name).and_then(|i| {
+                    i.fields.iter().find(|(n, _)| *n == f.name).map(|(_, fi)| fi.ty.clone())
+                }) {
+                    if names_self(&ty) {
+                        hits.push((f.name.clone(), f.span));
+                    }
+                }
+            }
+        }
+        for (fname, span) in hits {
+            self.warn_note(
+                span,
+                format!(
+                    "`{}.{}` can point back at its own object, and `{}` declares `deinit`",
+                    c.name, fname, c.name
+                ),
+                "a cycle is never freed, so that `deinit` would never run; write `weak` on the back edge to break it",
+            );
+        }
+    }
+
     fn collect_class(&mut self, c: &ClassDecl) {
         let type_params = self.push_type_params(&c.type_params);
         let mut fields: Vec<(String, FieldInfo)> = Vec::new();
@@ -748,7 +831,8 @@ impl Checker {
                 if fields.iter().any(|(n, _)| *n == p.name) {
                     self.error(p.span, format!("field `{}` is declared twice", p.name));
                 }
-                fields.push((p.name.clone(), FieldInfo { ty, mutable }));
+                self.check_weak_field(p.weak, &ty, &p.name, p.span);
+                fields.push((p.name.clone(), FieldInfo { ty, mutable, weak: p.weak }));
             }
         }
         for f in &c.fields {
@@ -761,7 +845,10 @@ impl Checker {
             if fields.iter().any(|(n, _)| *n == f.name) {
                 self.error(f.span, format!("field `{}` is declared twice", f.name));
             }
-            fields.push((f.name.clone(), FieldInfo { ty, mutable: f.mutable }));
+            if f.ty.is_some() {
+                self.check_weak_field(f.weak, &ty, &f.name, f.span);
+            }
+            fields.push((f.name.clone(), FieldInfo { ty, mutable: f.mutable, weak: f.weak }));
         }
 
         let mut methods = HashMap::new();
@@ -3232,6 +3319,12 @@ impl Checker {
                     if f.mutable {
                         return Err(format!("field `{}` of `{}` is a `var`", fname, name));
                     }
+                    if f.weak {
+                        return Err(format!(
+                            "field `{}` of `{}` is `weak`, and what it points at lives on another schedule",
+                            fname, name
+                        ));
+                    }
                     let ft = f.ty.substitute(&subst);
                     self.deeply_immutable(&ft, seen).map_err(|r| {
                         format!("field `{}` of `{}`: {}", fname, name, r)
@@ -3312,6 +3405,12 @@ impl Checker {
                     .map(|(p, a)| (p.name.clone(), a.clone()))
                     .collect();
                 for (fname, f) in &info.fields {
+                    if f.weak {
+                        return Err(format!(
+                            "field `{}` of `{}` is `weak`, and a weak reference is an address, not a value to duplicate",
+                            fname, name
+                        ));
+                    }
                     let ft = f.ty.substitute(&subst);
                     self.copyable(&ft, seen).map_err(|r| {
                         format!("field `{}` of `{}` blocks it: {}", fname, name, r)

@@ -208,7 +208,9 @@ fn class_node(c: &ClassDecl) -> String {
             Some(false) => "val ",
             None => "",
         };
-        let mut head = format!("ctor {}{}: {} {}", kw, p.name, type_line(&p.ty), at(p.span));
+        let weak = if p.weak { "weak " } else { "" };
+        let mut head =
+            format!("ctor {}{}{}: {} {}", weak, kw, p.name, type_line(&p.ty), at(p.span));
         if let Some(d) = &p.default {
             head = format!("{}\n{}", head, indent(&expr_node(d)));
         }
@@ -217,7 +219,8 @@ fn class_node(c: &ClassDecl) -> String {
     }
     for f in &c.fields {
         let kw = if f.mutable { "var" } else { "val" };
-        let mut head = format!("field {} {}", kw, f.name);
+        let weak = if f.weak { "weak " } else { "" };
+        let mut head = format!("field {}{} {}", weak, kw, f.name);
         if let Some(t) = &f.ty {
             head.push_str(&format!(": {}", type_line(t)));
         }

@@ -174,9 +174,18 @@ pub fn deep_copy(v: &Value, span: Span, depth: usize) -> R<Value> {
             if i.class.name == "ActorRef" || i.class.name == "Outbox" {
                 return Ok(v.clone());
             }
+            // A weak field is an address, not ownership: the copy points at
+            // the same target, weakly. (The checker refuses `copy` on a
+            // class that has one, so this is the belt to that brace.)
             let mut fields = Vec::new();
-            for (n, val) in i.fields.borrow().iter() {
-                fields.push((n.clone(), deep_copy(val, span, depth + 1)?));
+            for (n, slot) in i.fields.borrow().iter() {
+                let copied = match slot {
+                    crate::value::Slot::Weak(w) => crate::value::Slot::Weak(w.clone()),
+                    crate::value::Slot::Strong(val) => {
+                        crate::value::Slot::Strong(deep_copy(val, span, depth + 1)?)
+                    }
+                };
+                fields.push((n.clone(), copied));
             }
             Value::Instance(Rc::new(Instance {
                 class: i.class.clone(),

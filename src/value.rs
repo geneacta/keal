@@ -81,11 +81,34 @@ pub struct Closure {
     pub this: Option<Value>,
 }
 
+/// What one field slot holds. A `weak` field does not keep its target
+/// alive, so it holds a `Weak` handle: reading upgrades it, and a target
+/// whose last strong reference is gone reads back as `null`. Every other
+/// field is an ordinary owned value.
+#[derive(Clone)]
+pub enum Slot {
+    Strong(Value),
+    Weak(std::rc::Weak<Instance>),
+}
+
+impl Slot {
+    /// The value this slot holds right now — a dead weak target is `null`.
+    pub fn value(&self) -> Value {
+        match self {
+            Slot::Strong(v) => v.clone(),
+            Slot::Weak(w) => match w.upgrade() {
+                Some(inst) => Value::Instance(inst),
+                None => Value::Null,
+            },
+        }
+    }
+}
+
 pub struct Instance {
     pub class: Rc<ClassDecl>,
     /// Kept as a vector so fields print in declaration order; classes have
     /// few enough fields that a linear scan beats hashing.
-    pub fields: RefCell<Vec<(Rc<str>, Value)>>,
+    pub fields: RefCell<Vec<(Rc<str>, Slot)>>,
     /// Whether this object's `drop` has already been queued and run — the
     /// hook fires once per object, resurrection or not.
     pub dropped: std::cell::Cell<bool>,
@@ -118,18 +141,48 @@ impl Drop for Instance {
 
 impl Instance {
     pub fn get(&self, name: &str) -> Option<Value> {
-        self.fields.borrow().iter().find(|(n, _)| &**n == name).map(|(_, v)| v.clone())
+        self.fields.borrow().iter().find(|(n, _)| &**n == name).map(|(_, s)| s.value())
     }
 
     pub fn set(&self, name: &str, value: Value) -> bool {
+        let weak = self.field_is_weak(name);
         for (n, slot) in self.fields.borrow_mut().iter_mut() {
             if &**n == name {
-                *slot = value;
+                *slot = Self::slot_for(weak, value);
                 return true;
             }
         }
         false
     }
+
+    /// Whether the class declared this field `weak` — read off the
+    /// declaration, so no side table has to be kept in step with it.
+    pub fn field_is_weak(&self, name: &str) -> bool {
+        class_field_is_weak(&self.class, name)
+    }
+
+    /// Wraps a value for storage: a weak field keeps only a handle, and
+    /// only to an instance — anything else there is a checker bug, and
+    /// storing it strongly is the harmless reading.
+    pub fn slot_for(weak: bool, value: Value) -> Slot {
+        match (weak, &value) {
+            (true, Value::Instance(inst)) => Slot::Weak(Rc::downgrade(inst)),
+            (true, Value::Null) => Slot::Weak(std::rc::Weak::new()),
+            _ => Slot::Strong(value),
+        }
+    }
+
+    /// Every field, upgraded — what rendering, destructuring and equality
+    /// see. Snapshotted so the borrow ends before any user code runs.
+    pub fn field_values(&self) -> Vec<(Rc<str>, Value)> {
+        self.fields.borrow().iter().map(|(n, s)| (n.clone(), s.value())).collect()
+    }
+}
+
+/// The declaration is the single source of truth for weakness.
+pub fn class_field_is_weak(class: &ClassDecl, name: &str) -> bool {
+    class.ctor.iter().any(|p| p.field.is_some() && p.name == name && p.weak)
+        || class.fields.iter().any(|f| f.name == name && f.weak)
 }
 
 /// Map keys are restricted to values with a well-defined identity.

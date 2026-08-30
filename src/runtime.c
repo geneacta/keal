@@ -26,6 +26,21 @@
 #define KEAL_FN static
 #endif
 
+/* ---- what weak references change --------------------------------------- */
+
+/* A `weak` field does not keep its target alive. So an object needs a
+ * second count — how many weak references name it — and the backend
+ * defines KEAL_WEAK above this file exactly when the program declares a
+ * weak field; without it, objects carry one count as they always have.
+ *
+ * When the strong count reaches zero the object runs its `deinit` and
+ * releases its fields, as ever. What changes is the last step: it frees
+ * itself only if no weak reference remains. Otherwise it stays as a
+ * husk — a header with `rc == 0`, which *is* the "dead" test a weak read
+ * makes — until the last weak reference goes and frees it. That is why a
+ * weak read is always a safe read: the memory it inspects cannot have
+ * been returned while it still names it. */
+
 /* ---- what actors change ----------------------------------------------- */
 
 /* An actor program runs its actors on real OS threads (docs/threads.md);
