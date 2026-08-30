@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tour of Keal</title>
+<title>Keal — the tour</title>
+<meta name="description" content="Twelve chapters, every snippet real and its output verified.">
 <link rel="icon" type="image/png" href="assets/keal3.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,216 +13,172 @@
 </head>
 <body>
 <div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Home</a><a href="tour.html" class="tab-active">Tour</a><a href="docs.html">Docs</a><a href="coming-from.html">Coming from…</a><a href="stdlib.html">Library</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="fr/tour.html">Français</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
 
-<div class="tbar">
-  <div class="tbar-l">
-    <a href="index.html"><img src="assets/keal.png" alt="keal"></a>
-    <span class="sl">/</span><span class="tt">Tour of Keal</span>
-  </div>
-  <div class="tbar-r">
-    <span class="cnt" id="tcount">1 / 12</span>
-    <div class="prog"><div id="tfill" style="width:8%"></div></div>
-    <a class="texit" href="index.html">Exit the tour</a>
-  </div>
-</div>
-
-<div class="tgrid">
-  <div class="tside">
-    <div class="lbl">THE TOUR</div>
-    <div style="display:flex;flex-direction:column">
-<div class="tch"><span class="n">1</span><span class="nm">Hello world</span></div>
-<div class="tch"><span class="n">2</span><span class="nm">Values &amp; bindings</span></div>
-<div class="tch"><span class="n">3</span><span class="nm">fun and proc</span></div>
-<div class="tch"><span class="n">4</span><span class="nm">Control flow</span></div>
-<div class="tch"><span class="n">5</span><span class="nm">when</span></div>
-<div class="tch"><span class="n">6</span><span class="nm">Null safety</span></div>
-<div class="tch"><span class="n">7</span><span class="nm">Collections &amp; lambdas</span></div>
-<div class="tch"><span class="n">8</span><span class="nm">Records &amp; classes</span></div>
-<div class="tch"><span class="n">9</span><span class="nm">Generics &amp; traits</span></div>
-<div class="tch"><span class="n">10</span><span class="nm">The eight connectives</span></div>
-<div class="tch"><span class="n">11</span><span class="nm">Errors &amp; diagnostics</span></div>
-<div class="tch"><span class="n">12</span><span class="nm">Native code &amp; C</span></div>
-    </div>
-    <div class="tnote">
-      <div class="h">EVERY SNIPPET RUNS</div>
-      <p>Checked by the test suite, on both engines. If one fails, that is a bug.</p>
-    </div>
-  </div>
-  <div class="tmain">
-<div data-chapter="1">
-<div class="eyebrow">CHAPTER 1 · 2 MIN</div>
-<h2>Hello world</h2>
-<p>One line is a program. No <span class="ic">main</span>, no ceremony — top-level statements run in order, on whichever engine you pick:</p><div class="cwin"><div class="cwin-bar"><span class="f">hello.keal</span><button class="run">▶ Run</button></div><pre>println(<span <span class="k">class</span>="s">"hello, world"</span>)</pre><div class="cout">hello, world</div></div><p>Three engines run the same file: the tree-walking interpreter (the specification), the bytecode VM (the default), and <span class="ic">keal build</span>, which compiles through C11 to a real executable. The test suite requires their outputs to match byte for byte.</p><div class="callout"><span class="st">✦</span><p>Everything in this tour is a real program from the repository, checked by the test suite on every run. If a snippet here fails, that is a bug.</p></div>
-<div class="tnav"><a class="tprev" href="index.html">← Home</a><a class="tnext" href="#2" data-goto="2">Values &amp; bindings →</a></div>
-</div>
-<div data-chapter="2">
-<div class="eyebrow">CHAPTER 2 · 3 MIN</div>
-<h2>Values &amp; bindings</h2>
-<p><span class="ic">val</span> binds a value once; <span class="ic">var</span> can be reassigned. Types are inferred everywhere and written only when you want them:</p><div class="cwin"><div class="cwin-bar"><span class="f">bindings.keal</span><button class="run">▶ Run</button></div><pre><span class="k">val</span> name = <span <span class="k">class</span>="s">"Ada"</span>
-<span class="k">val</span> year: <span class="t">Int</span> = 1815
-<span class="k">var</span> count = 0
+<div class="tourgrid">
+  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Hello, world</a><a class="tch" href="#c2"><span class="n">2</span>Values and bindings</a><a class="tch" href="#c3"><span class="n">3</span>fun and proc</a><a class="tch" href="#c4"><span class="n">4</span>Control flow</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Null safety</a><a class="tch" href="#c7"><span class="n">7</span>Collections and lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Records and classes</a><a class="tch" href="#c9"><span class="n">9</span>Generics and traits</a><a class="tch" href="#c10"><span class="n">10</span>The eight connectives</a><a class="tch" href="#c11"><span class="n">11</span>deinit and weak</a><a class="tch" href="#c12"><span class="n">12</span>Native code and C</a></aside>
+  <div class="tourmain prose">
+    <h1>Tour of Keal</h1>
+    <p class="lede">Half an hour, top to bottom. Every snippet below is a real program and every output is what it actually prints — the suite checks them.</p>
+    <section class="chapter" id="c1"><h2>1. Hello, world</h2><p class="lede">A file is a program: top-level statements run in order, and there is no ceremony to get through first.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter1.keal</span><span class="run">▶ Run</span></div><pre>println(&quot;hello, world&quot;)
+val who = &quot;Ada&quot;
+println(&quot;hello ${who}, ${1 + 2} things&quot;)</pre><div class="cwin-out"><pre>hello, world
+hello Ada, 3 things</pre></div></div></section><section class="chapter" id="c2"><h2>2. Values and bindings</h2><p class="lede"><code>val</code> binds once, <code>var</code> may be reassigned. Numbers copy; lists and maps are shared. There are no implicit numeric conversions.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter2.keal</span><span class="run">▶ Run</span></div><pre>val name = &quot;Ada&quot;
+var count = 0
 count += 1
-count++
 
-println(<span <span class="k">class</span>="s">"${name}, ${year} — count ${count}"</span>)</pre><div class="cout">Ada, 1815 — count 2</div></div><p>Strings interpolate with <span class="ic">${...}</span>. Integers are 64-bit and <strong>checked</strong> — overflow panics rather than wrapping — and there is no implicit conversion between <span class="ic">Int</span> and <span class="ic">Float</span>; only an integer <em>literal</em> widens.</p>
-<div class="tnav"><a class="tprev" href="#1" data-goto="1">← Hello world</a><a class="tnext" href="#3" data-goto="3">fun and proc →</a></div>
-</div>
-<div data-chapter="3">
-<div class="eyebrow">CHAPTER 3 · 3 MIN</div>
-<h2>fun and proc</h2>
-<p>A <span class="ic">fun</span> returns a value and must say what it returns. A <span class="ic">proc</span> returns nothing, and cannot pretend otherwise — the checker holds both to their word:</p><div class="cwin"><div class="cwin-bar"><span class="f">functions.keal</span><button class="run">▶ Run</button></div><pre><span class="k">fun</span> area(w: <span class="t">Float</span>, h: <span class="t">Float</span>): <span class="t">Float</span> {
-    <span class="k">return</span> w * h
+val n = 3
+val good = n.toFloat() / 2.0
+val ratio: Float = 1 / 2   // a literal adapts
+
+val xs = [1, 2]
+val ys = xs
+ys.add(3)
+println(&quot;${good} ${ratio} ${xs}&quot;)</pre><div class="cwin-out"><pre>1.5 0.5 [1, 2, 3]</pre></div></div></section><section class="chapter" id="c3"><h2>3. fun and proc</h2><p class="lede">Which word you use says whether there is a result. A <code>fun</code> must declare what it returns; a <code>proc</code> cannot — so <code>Unit</code> is never written by hand.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter3.keal</span><span class="run">▶ Run</span></div><pre>fun add(a: Int, b: Int): Int { a + b }
+
+proc greet(name: String, greeting: String = &quot;hello&quot;) {
+    println(&quot;${greeting}, ${name}!&quot;)
 }
 
-<span class="k">proc</span> report(label: <span class="t">String</span>, value: <span class="t">Float</span>) {
-    println(<span <span class="k">class</span>="s">"${label}: ${value}"</span>)
+println(add(2, 3))
+greet(&quot;Ada&quot;)
+greet(&quot;Ada&quot;, greeting = &quot;hi&quot;)</pre><div class="cwin-out"><pre>5
+hello, Ada!
+hi, Ada!</pre></div></div></section><section class="chapter" id="c4"><h2>4. Control flow</h2><p class="lede">Braces are mandatory and a block's value is its last expression, which is why <code>if</code> produces one. <code>unless (c)</code> is <code>if (not c)</code>.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter4.keal</span><span class="run">▶ Run</span></div><pre>val n = -2
+val sign = if (n &lt; 0) { &quot;neg&quot; } else { &quot;pos&quot; }
+
+fun lengthOf(s: String?): Int {
+    unless (s != null) { return 0 }
+    return s.length
 }
 
-report(<span <span class="k">class</span>="s">"area"</span>, area(3.0, 4.0))</pre><div class="cout">area: 12.0</div></div><p>A <span class="ic">return</span> can carry its own guard: <span class="ic">return if (a &gt; b) a</span> returns only when the condition holds, and falls through otherwise.</p>
-<div class="tnav"><a class="tprev" href="#2" data-goto="2">← Values &amp; bindings</a><a class="tnext" href="#4" data-goto="4">Control flow →</a></div>
-</div>
-<div data-chapter="4">
-<div class="eyebrow">CHAPTER 4 · 3 MIN</div>
-<h2>Control flow</h2>
-<p><span class="ic">if</span> is an expression; <span class="ic">unless</span> is its mirror. The ternary selects on a <span class="ic">Bool</span> — or, with three branches, on a <span class="ic">Comp</span>, the three-valued comparison the spaceship <span class="ic">&lt;=&gt;</span> answers:</p><div class="cwin"><div class="cwin-bar"><span class="f">flow.keal</span><button class="run">▶ Run</button></div><pre><span class="k">val</span> age = 20
-<span class="k">val</span> label = <span class="k">if</span> (age &gt;= 18) { <span <span class="k">class</span>="s">"adult"</span> } <span class="k">else</span> { <span <span class="k">class</span>="s">"minor"</span> }
-println(label)
-
-println(age &lt; 30 ? <span <span class="k">class</span>="s">"young"</span> : <span <span class="k">class</span>="s">"less young"</span>)
-println(3 &lt;=&gt; 5 ? <span <span class="k">class</span>="s">"less"</span> : <span <span class="k">class</span>="s">"equal"</span> : <span <span class="k">class</span>="s">"greater"</span>)</pre><div class="cout">adult
-young
-less</div></div><p>Loops are <span class="ic">while</span> and <span class="ic">for (x in ...)</span> over lists, maps, strings and ranges — <span class="ic">for (i in 0..10)</span> walks the half-open range.</p>
-<div class="tnav"><a class="tprev" href="#3" data-goto="3">← fun and proc</a><a class="tnext" href="#5" data-goto="5">when →</a></div>
-</div>
-<div data-chapter="5">
-<div class="eyebrow">CHAPTER 5 · 3 MIN</div>
-<h2>when</h2>
-<p><span class="ic">when</span> is the branch that reads like a table — over a subject, values, ranges and types, with the checker demanding an <span class="ic">else</span> whenever a value is produced and the arms do not cover:</p><div class="cwin"><div class="cwin-bar"><span class="f">when.keal</span><button class="run">▶ Run</button></div><pre><span class="k">fun</span> describe(n: <span class="t">Int</span>): <span class="t">String</span> {
-    <span class="k">return</span> <span class="k">when</span> {
-        n &lt; 0 -&gt; <span <span class="k">class</span>="s">"negative"</span>
-        n == 0 -&gt; <span <span class="k">class</span>="s">"zero"</span>
-        n <span class="k">in</span> 1..10 -&gt; <span <span class="k">class</span>="s">"small"</span>
-        <span class="k">else</span> -&gt; <span <span class="k">class</span>="s">"large"</span>
+for (i in 0..3) { println(i) }
+println(&quot;${sign} ${lengthOf(null)} ${lengthOf(&quot;abcd&quot;)}&quot;)</pre><div class="cwin-out"><pre>0
+1
+2
+neg 0 4</pre></div></div></section><section class="chapter" id="c5"><h2>5. when</h2><p class="lede">One construct covers what other languages split between <code>switch</code> and <code>match</code>: no fall-through, first arm wins, and it is an expression.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter5.keal</span><span class="run">▶ Run</span></div><pre>fun describe(n: Int): String {
+    return when (n) {
+        0 -&gt; &quot;zero&quot;
+        1, 2, 3 -&gt; &quot;small&quot;
+        in 4..10 -&gt; &quot;medium&quot;
+        else -&gt; &quot;large&quot;
     }
 }
-println(describe(-4))
-println(describe(7))</pre><div class="cout">negative
-small</div></div><p>With a subject, <span class="ic">when (v) { is Point(x, y) -&gt; ... }</span> both tests the type and destructures it in one arm.</p>
-<div class="tnav"><a class="tprev" href="#4" data-goto="4">← Control flow</a><a class="tnext" href="#6" data-goto="6">Null safety →</a></div>
-</div>
-<div data-chapter="6">
-<div class="eyebrow">CHAPTER 6 · 4 MIN</div>
-<h2>Null safety</h2>
-<p>A type does not admit <span class="ic">null</span> unless you write <span class="ic">?</span> — and the checker will not let you forget. Four ways across:</p><div class="cwin"><div class="cwin-bar"><span class="f">maybe.keal</span></div><pre><span class="k">var</span> maybe: <span class="t">String</span>? = <span class="k">null</span>
+println(describe(2))
+println(describe(7))
+println(describe(99))</pre><div class="cwin-out"><pre>small
+medium
+large</pre></div></div></section><section class="chapter" id="c6"><h2>6. Null safety</h2><p class="lede">A type does not admit <code>null</code> unless you write <code>?</code>. After a check that proves something about an immutable binding, the fact holds — and Keal carries it further than most.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter6.keal</span><span class="run">▶ Run</span></div><pre>var maybe: String? = null
+println(maybe?.length)
+println(maybe ?: &quot;default&quot;)
 
-maybe?.length              <span <span class="k">class</span>="c">// safe call — the result <span class="k">is</span> <span class="t">Int</span>?</span>
-maybe ?: <span <span class="k">class</span>="s">"default"</span>         <span <span class="k">class</span>="c">// a fallback</span>
-maybe!!                    <span <span class="k">class</span>="c">// assert non-<span class="k">null</span></span>
+val s: String? = &quot;abc&quot;
+if (s != null) { println(s.length) }
+println(s != null and s.length &gt; 0)
+println(s != null implies s.length &gt; 0)</pre><div class="cwin-out"><pre>null
+default
+3
+true
+true</pre></div></div></section><section class="chapter" id="c7"><h2>7. Collections and lambdas</h2><p class="lede">Lists and maps are built in, with the higher-order methods you expect, typed generically.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter7.keal</span><span class="run">▶ Run</span></div><pre>val xs = [1, 2, 3, 4]
+println(xs.map({ it * 2 }))
+println(xs.filter({ it % 2 == 0 }))
+println(xs.fold(0, { acc, x -&gt; acc + x }))
 
-<span class="k">if</span> (maybe != <span class="k">null</span>) {
-    maybe.length           <span <span class="k">class</span>="c">// smart cast — plain <span class="t">String</span> here</span>
-}</pre></div><p>That last one is the interesting one. After a check that proves something about an <em>immutable</em> binding, the fact holds for the rest of the branch — and Keal carries it further than most:</p><div class="cwin"><pre><span class="k">if</span> (s == <span class="k">null</span>) { <span class="k">return</span> }
-s.length                    <span <span class="k">class</span>="c">// narrowed <span class="k">for</span> the rest of the block</span>
+val ages = {&quot;ada&quot;: 36, &quot;alan&quot;: 41}
+for (name in ages) { println(&quot;${name} is ${ages[name]!!}&quot;) }</pre><div class="cwin-out"><pre>[2, 4, 6, 8]
+[2, 4]
+10
+ada is 36
+alan is 41</pre></div></div></section><section class="chapter" id="c8"><h2>8. Records and classes</h2><p class="lede">A <code>record</code> is the data case: immutable fields, structural equality, destructuring. A <code>class</code> is the one that can change.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter8.keal</span><span class="run">▶ Run</span></div><pre>record Point(val x: Float, val y: Float)
+val a = Point(1.0, 2.0)
+val b = Point(1.0, 2.0)
+println(a == b)
+val Point(x, y) = a
+println(&quot;${x} ${y}&quot;)
 
-s != <span class="k">null</span> <span class="k">and</span> s.length &gt; 0  <span <span class="k">class</span>="c">// narrowed <span class="k">in</span> the right operand</span>
-
-s != <span class="k">null</span> <span class="k">implies</span> s.length &gt; 0  <span <span class="k">class</span>="c">// <span class="k">and</span> across <span class="k">implies</span></span></pre></div><div class="callout"><span class="st">✦</span><p>A <span class="ic">var</span> is never narrowed — anything the branch calls could reassign it — and the checker says so rather than leaving you to wonder.</p></div>
-<div class="tnav"><a class="tprev" href="#5" data-goto="5">← when</a><a class="tnext" href="#7" data-goto="7">Collections &amp; lambdas →</a></div>
-</div>
-<div data-chapter="7">
-<div class="eyebrow">CHAPTER 7 · 4 MIN</div>
-<h2>Collections &amp; lambdas</h2>
-<p>Lists and maps are literals; lambdas are braces with an arrow. The higher-order basics are methods, and they compile to plain loops natively:</p><div class="cwin"><div class="cwin-bar"><span class="f">collections.keal</span><button class="run">▶ Run</button></div><pre><span class="k">val</span> xs = [3, 1, 4, 1, 5]
-println(xs.sorted())
-println(xs.map({ n -&gt; n * 10 }).filter({ n -&gt; n &gt; 20 }))
-
-<span class="k">val</span> ages = {<span <span class="k">class</span>="s">"ada"</span>: 36, <span <span class="k">class</span>="s">"grace"</span>: 45}
-println(ages[<span <span class="k">class</span>="s">"ada"</span>] ?: 0)</pre><div class="cout">[1, 1, 3, 4, 5]
-[30, 40, 50]
-36</div></div><p>Sequences are lazy where lists are eager: <span class="ic">seq(xs).map(f).take(2)</span> computes exactly two elements. Closures capture their environment — a <span class="ic">var</span> captured by a lambda lives in a cell both sides see.</p>
-<div class="tnav"><a class="tprev" href="#6" data-goto="6">← Null safety</a><a class="tnext" href="#8" data-goto="8">Records &amp; classes →</a></div>
-</div>
-<div data-chapter="8">
-<div class="eyebrow">CHAPTER 8 · 4 MIN</div>
-<h2>Records &amp; classes</h2>
-<p>A <span class="ic">record</span> is data: immutable fields, field-by-field equality for free. A <span class="ic">class</span> may carry <span class="ic">var</span> fields and methods. Both use one constructor syntax:</p><div class="cwin"><div class="cwin-bar"><span class="f">shapes.keal</span><button class="run">▶ Run</button></div><pre><span class="k">record</span> <span class="t">Point</span>(<span class="k">val</span> x: <span class="t">Float</span>, <span class="k">val</span> y: <span class="t">Float</span>)
-
-<span class="k">class</span> <span class="t">Counter</span>(<span class="k">val</span> label: <span class="t">String</span>) {
-    <span class="k">var</span> count = 0
-    <span class="k">proc</span> bump() { <span class="k">this</span>.count += 1 }
+class Counter(var n: Int) {
+    proc bump() { this.n += 1 }
 }
-
-<span class="k">val</span> p = <span class="t">Point</span>(3.0, 4.0)
-println(p == <span class="t">Point</span>(3.0, 4.0))
-
-<span class="k">val</span> c = <span class="t">Counter</span>(<span <span class="k">class</span>="s">"hits"</span>)
+val c = Counter(0)
 c.bump()
-println(<span <span class="k">class</span>="s">"${c.label}: ${c.count}"</span>)</pre><div class="cout">true
-hits: 1</div></div><p>A class may declare <span class="ic">proc deinit()</span> — it runs when the last reference dies, at the next statement boundary, exactly once, identically on all three engines. Inheritance is a non-goal: composition and traits cover the territory without the diamond.</p>
-<div class="tnav"><a class="tprev" href="#7" data-goto="7">← Collections &amp; lambdas</a><a class="tnext" href="#9" data-goto="9">Generics &amp; traits →</a></div>
-</div>
-<div data-chapter="9">
-<div class="eyebrow">CHAPTER 9 · 4 MIN</div>
-<h2>Generics &amp; traits</h2>
-<p>Generics are monomorphized — <span class="ic">Box&lt;Int&gt;</span> compiles to its own struct natively — and traits are capabilities, granted by bounds:</p><div class="cwin"><div class="cwin-bar"><span class="f">traits.keal</span><button class="run">▶ Run</button></div><pre><span class="k">class</span> <span class="t">Box</span>&lt;T&gt;(<span class="k">val</span> v: T)
-
-<span class="k">fun</span> larger&lt;T: <span class="t">Ord</span>&gt;(a: T, b: T): T {
-    <span class="k">return</span> a &lt;=&gt; b ? b : a : a
+println(c.n)</pre><div class="cwin-out"><pre>true
+1.0 2.0
+1</pre></div></div></section><section class="chapter" id="c9"><h2>9. Generics and traits</h2><p class="lede">Generics are monomorphised — no erasure, no boxing. A trait is a capability a type parameter can be required to have, not a type of its own.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter9.keal</span><span class="run">▶ Run</span></div><pre>fun firstOr&lt;T&gt;(xs: List&lt;T&gt;, fallback: T): T {
+    for (x in xs) { return x }
+    return fallback
 }
+println(firstOr([1, 2], 0))
+println(firstOr([&quot;a&quot;], &quot;z&quot;))
 
-<span class="k">record</span> <span class="t">Version</span>(<span class="k">val</span> major: <span class="t">Int</span>, <span class="k">val</span> minor: <span class="t">Int</span>) : <span class="t">Ord</span> {
-    <span class="k">fun</span> compareTo(other: <span class="t">Version</span>): <span class="t">Int</span> {
-        <span class="k">val</span> m = <span class="k">this</span>.major.compareTo(other.major)
-        <span class="k">return</span> <span class="k">if</span> (m != 0) m
-        <span class="k">return</span> <span class="k">this</span>.minor.compareTo(other.minor)
-    }
+fun total&lt;T: Add&gt;(xs: List&lt;T&gt;, zero: T): T {
+    var acc = zero
+    for (x in xs) { acc = acc + x }
+    return acc
 }
-
-println(larger(<span class="t">Version</span>(1, 4), <span class="t">Version</span>(1, 11)))</pre><div class="cout">Version(major=1, minor=11)</div></div><p>The operators are traits too: <span class="ic">+</span> is <span class="ic">Add.plus</span>, <span class="ic">&lt;</span> goes through <span class="ic">Ord.compareTo</span>, <span class="ic">**</span> and <span class="ic">^/</span> are <span class="ic">Pow</span> and <span class="ic">Root</span> — built-ins implement them like any class would.</p>
-<div class="tnav"><a class="tprev" href="#8" data-goto="8">← Records &amp; classes</a><a class="tnext" href="#10" data-goto="10">The eight connectives →</a></div>
-</div>
-<div data-chapter="10">
-<div class="eyebrow">CHAPTER 10 · 3 MIN</div>
-<h2>The eight connectives</h2>
-<p>Boolean logic gets its whole vocabulary: <span class="ic">and or xor xnor nand nor implies not</span> — words, flat precedence, parentheses required where mixing could mislead:</p><div class="cwin"><div class="cwin-bar"><span class="f">logic.keal</span><button class="run">▶ Run</button></div><pre><span class="k">val</span> a = <span class="k">true</span>
-<span class="k">val</span> b = <span class="k">false</span>
-println(a <span class="k">nand</span> b)
-println(a <span class="k">implies</span> b)
-println((a <span class="k">or</span> b) <span class="k">and</span> <span class="k">not</span> (a <span class="k">xor</span> a))</pre><div class="cout">true
+println(total([1, 2, 3], 0))</pre><div class="cwin-out"><pre>1
+a
+6</pre></div></div></section><section class="chapter" id="c10"><h2>10. The eight connectives</h2><p class="lede">Written as words, at one flat precedence, so a mixed expression must say what it means with parentheses.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter10.keal</span><span class="run">▶ Run</span></div><pre>val a = true
+val b = false
+println(a and b)
+println(a or b)
+println(a xor b)
+println(a nand b)
+println(a nor b)
+println(a xnor b)
+println(a implies b)
+println(not a)</pre><div class="cwin-out"><pre>false
+true
+true
+true
 false
-true</div></div><p>Write <span class="ic">!(x and y)</span> and the checker answers with a suggestion — <em>&ldquo;<span class="ic">not (a and b)</span> is <span class="ic">a nand b</span>&rdquo;</em> — a warning, never an error. Every negated connective has its own name, and the checker teaches them.</p>
-<div class="tnav"><a class="tprev" href="#9" data-goto="9">← Generics &amp; traits</a><a class="tnext" href="#11" data-goto="11">Errors &amp; diagnostics →</a></div>
-</div>
-<div data-chapter="11">
-<div class="eyebrow">CHAPTER 11 · 4 MIN</div>
-<h2>Errors &amp; diagnostics</h2>
-<p>Every failure is a panic with a message — a failed <span class="ic">assert</span>, overflow, division by zero, your own <span class="ic">throw</span>. One <span class="ic">catch</span> covers them all, on all three engines, unwinding with zero leaks:</p><div class="cwin"><div class="cwin-bar"><span class="f">errors.keal</span><button class="run">▶ Run</button></div><pre><span class="k">fun</span> parseAge(s: <span class="t">String</span>): <span class="t">Int</span> {
-    <span class="k">val</span> n = s.toInt()
-    <span class="k">if</span> (n == <span class="k">null</span>) { <span class="k">throw</span> <span <span class="k">class</span>="s">"<span class="k">not</span> a number: ${s}"</span> }
-    <span class="k">return</span> n
+false
+false
+false</pre></div></div></section><section class="chapter" id="c11"><h2>11. deinit and weak</h2><p class="lede"><code>deinit</code> runs when the last reference dies, at the next statement boundary. <code>weak</code> writes the back edge of a cycle without holding it alive, so the cycle still dies.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter11.keal</span><span class="run">▶ Run</span></div><pre>var freed = 0
+class Item(val id: Int) {
+    weak var owner: Owner? = null
+    proc deinit() { freed += 1 }
 }
+class Owner(val id: Int) {
+    var held: Item? = null
+    proc deinit() { freed += 1 }
+}
+proc pair() {
+    val o = Owner(1)
+    val it = Item(2)
+    o.held = it
+    it.owner = o
+}
+pair()
+println(&quot;freed ${freed}&quot;)</pre><div class="cwin-out"><pre>freed 2</pre></div></div></section><section class="chapter" id="c12"><h2>12. Native code and C</h2><p class="lede"><code>keal build</code> compiles through C11 to a real executable, and what it cannot compile it refuses by name — it never mis-compiles.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter12.keal</span><span class="run">▶ Run</span></div><pre>native &quot;&quot;&quot;
+#include &lt;math.h&gt;
+static double keal_hypot(double a, double b) { return hypot(a, b); }
+&quot;&quot;&quot;
 
-<span class="k">try</span> {
-    println(parseAge(<span <span class="k">class</span>="s">"nope"</span>))
-} <span class="k">catch</span> (e) {
-    println(<span <span class="k">class</span>="s">"caught: "</span> + e)
-}</pre><div class="cout">caught: not a number: nope</div></div><p>Diagnostics explain and suggest: the note under an error says what to do, not just what went wrong. Even a Java exception arriving through the JVM gateway lands in your <span class="ic">catch</span> inside a native binary.</p>
-<div class="tnav"><a class="tprev" href="#10" data-goto="10">← The eight connectives</a><a class="tnext" href="#12" data-goto="12">Native code &amp; C →</a></div>
-</div>
-<div data-chapter="12">
-<div class="eyebrow">CHAPTER 12 · 4 MIN</div>
-<h2>Native code &amp; C</h2>
-<p><span class="ic">keal build</span> compiles through C11 — reference counting, deterministic layout, zero leaks under the system&rsquo;s own tools. And the boundary is the C ABI, so six languages answer from one file:</p><div class="cwin"><div class="cwin-bar"><span class="f">interop.keal</span><button class="run">▶ Run</button></div><pre><span class="k">extern</span> <span class="k">fun</span> rust_fib(n: <span class="t">Int</span>): <span class="t">Int</span>
-<span class="k">extern</span> <span class="k">fun</span> go_shout(text: <span class="k">borrow</span> <span class="t">String</span>): <span class="k">own</span> <span class="t">String</span>
+extern fun hypot(a: Float, b: Float): Float = &quot;keal_hypot&quot;
 
-println(rust_fib(20))
-println(go_shout(<span <span class="k">class</span>="s">"keal"</span>))</pre><div class="cout">6765
-KEAL!</div></div><p><span class="ic">keal bindgen header.h</span> generates those declarations from any C header; <span class="ic">import java.time.LocalDate</span> generates typed JVM wrappers on the spot. When the backend cannot compile something yet, it <strong>refuses by name</strong> — it never mis-compiles.</p><div class="callout"><span class="st">✦</span><p>That is the whole tour. The <a href="stdlib.html" style="color:var(--mint)">standard library reference</a> and the <a href="docs.html" style="color:var(--mint)">internals docs</a> go deeper — and the repository&rsquo;s TUTORIAL.md is this tour&rsquo;s source of truth.</p></div>
-<div class="tnav"><a class="tprev" href="#11" data-goto="11">← Errors &amp; diagnostics</a><a class="tnext" href="docs.html">Read the docs →</a></div>
-</div>
+println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></section>
   </div>
 </div>
 
+<footer class="foot">
+  <div class="foot-l">A statically typed, self-hosting programming language. Built by Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Source on GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribute</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code of conduct</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Security</a>
+  </div>
+</footer>
 </div>
 <script src="site.js"></script>
 </body>

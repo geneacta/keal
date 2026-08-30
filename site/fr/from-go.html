@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — Je viens de Go</title>
+<meta name="description" content="Les deux langages sont petits à dessein et compilent en natif. Keal diffère sur trois points : la nullité est dans le type au lieu que chaque pointeur">
+<link rel="icon" type="image/png" href="../assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="../assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Accueil</a><a href="tour.html">Le tour</a><a href="docs.html">Docs</a><a href="coming-from.html" class="tab-active">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="../from-go.html">English</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Le tour de Keal</a><a href="stdlib.html">Bibliothèque standard</a><a href="coming-from.html" class="on">Je viens d'un autre langage</a><a href="contributing.html">Contribuer</a><div class="grp">LANGAGE</div><a href="language.html">La référence complète</a><a href="types.html">Types et inférence</a><div class="grp">INTERNES</div><a href="memory.html">Le modèle mémoire</a><a href="deinit.html">deinit déterministe</a><a href="threads.html">Threads et acteurs</a><a href="interop.html">Interop : de C à Kotlin</a></div><div class="dmain prose"><h1>Je viens de Go</h1><p class="lede">Les deux langages sont petits à dessein et compilent en natif. Keal diffère sur trois points : la nullité est dans le type au lieu que chaque pointeur soit nil-able, les génériques compilent vers une copie par instanciation, et l'échec est un <code>throw</code> qu'on attrape plutôt qu'une seconde valeur de retour.</p><div class="tablewrap"><table><thead><tr><th>Concept</th><th>Go</th><th>Keal</th></tr></thead><tbody><tr><td>Liaison</td><td><code>x := 1</code></td><td><code>val x = 1</code></td></tr><tr><td>Mutable</td><td><code>var x = 1</code></td><td><code>var x = 1</code></td></tr><tr><td>Struct</td><td><code>type P struct { X int }</code></td><td><code>record P(val x: Int)</code></td></tr><tr><td>Méthode</td><td><code>func (p P) Len() int</code></td><td><code>fun length(): Int (inside the class)</code></td></tr><tr><td>Interface</td><td><code>type Ord interface { … }</code></td><td><code>trait Ord { … }</code></td></tr><tr><td>Nil</td><td><code>var s *string = nil</code></td><td><code>val s: String? = null</code></td></tr><tr><td>Erreur</td><td><code>v, err := f(); if err != nil</code></td><td><code>try { f() } catch (e) { … }</code></td></tr><tr><td>Slice</td><td><code>[]int{1, 2}</code></td><td><code>[1, 2]</code></td></tr><tr><td>Map</td><td><code>map[string]int{&quot;a&quot;: 1}</code></td><td><code>{&quot;a&quot;: 1}</code></td></tr><tr><td>Goroutine</td><td><code>go work(ch)</code></td><td><code>sys.spawn({ self, msg -&gt; … })</code></td></tr><tr><td>Switch</td><td><code>switch n { case 0: }</code></td><td><code>when (n) { 0 -&gt; … }</code></td></tr></tbody></table></div><h2 id="surprises">Ce qui vous surprendra</h2><h2 id="errors-are-thrown-not-returned">Les erreurs sont lancées, pas retournées</h2><p><code>throw "…"</code> et <code>try { } catch (e) { }</code>, sur les trois moteurs y compris le code natif — où cela compile en déroulement vérifié plutôt qu'en setjmp.</p><h2 id="generics-are-monomorphised">Les génériques sont monomorphisés</h2><p>Une fonction C par instanciation, sans boxing ni passage de dictionnaire. <code>firstOr&lt;T&gt;</code> utilisé en <code>Int</code> et <code>String</code> devient deux fonctions ordinaires.</p><h2 id="actors-instead-of-channels">Des acteurs au lieu de canaux</h2><p>Il n'y a ni <code>select</code> ni type canal. Un acteur possède son état, les messages sont copiés en profondeur à l'entrée, et le vérificateur refuse un gestionnaire qui atteint un état mutable partagé.</p><h2 id="go-is-one-link-line-away">Go n&#x27;est qu&#x27;à une ligne d&#x27;édition de liens</h2><p>Compilez un paquet Go en <code>c-archive</code> et passez-le à <code>keal build</code> ; l'exemple du dépôt fait exactement cela.</p></div></div>
+<footer class="foot">
+  <div class="foot-l">Un langage de programmation typé statiquement et auto-hébergé. Construit par Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Les sources sur GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribuer</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code de conduite</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Sécurité</a>
+  </div>
+</footer>
+</div>
+<script src="../site.js"></script>
+</body>
+</html>

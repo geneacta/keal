@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — Types et inférence</title>
+<meta name="description" content="Types et inférence">
+<link rel="icon" type="image/png" href="../assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="../assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Accueil</a><a href="tour.html">Le tour</a><a href="docs.html" class="tab-active">Docs</a><a href="coming-from.html">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="../types.html">English</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Le tour de Keal</a><a href="stdlib.html">Bibliothèque standard</a><a href="coming-from.html">Je viens d'un autre langage</a><a href="contributing.html">Contribuer</a><div class="grp">LANGAGE</div><a href="language.html">La référence complète</a><a href="types.html" class="on">Types et inférence</a><div class="grp">INTERNES</div><a href="memory.html">Le modèle mémoire</a><a href="deinit.html">deinit déterministe</a><a href="threads.html">Threads et acteurs</a><a href="interop.html">Interop : de C à Kotlin</a></div><div class="dmain prose"><div class="callout"><span class="st">✦</span><p>Ce document de référence est rédigé en anglais, la langue de travail du dépôt. Les pages du site — le tour, les guides « je viens de… » et la bibliothèque — existent intégralement dans les deux langues.</p></div><h1 id="the-type-rules-written-down">The type rules, written down</h1>
+<p>The checker is the law; this file is the law stated. Every rule here is implemented twice (oracle and self-hosted twin, held byte-identical over the corpus) and exercised by a differential fuzzer (<code>tests/fuzz/fuzz.py</code>) that generates well- and ill-typed programs and requires (1) the checker never crashes, only accepts or refuses, and (2) an accepted program means the same thing, byte for byte, to every engine. Its first run found the three engines disagreeing on one panic message; the rules below are kept honest by keeping it running.</p>
+<h2 id="the-types">The types</h2>
+<p><code>Int</code> (64-bit, checked), <code>Float</code> (IEEE 754 double), <code>Bool</code>, <code>String</code> (immutable, UTF-8), <code>Unit</code>, <code>Null</code>, <code>Never</code> (diverges), <code>Any</code> (top), <code>T?</code> (nullable), <code>List&lt;T&gt;</code>, <code>Map&lt;K, V&gt;</code>, <code>Range</code>, function types <code>(A, B) -&gt; R</code>, tuples (2–5), classes/records <code>C&lt;T...&gt;</code>, and <code>Param(T)</code> — a generic parameter, opaque inside the body that declares it.</p>
+<h2 id="assignability-s-flows-into-t">Assignability (<code>S</code> flows into <code>T</code>)</h2>
+<p>Reflexive always. Then, in order:</p>
+<ol><li><code>Error</code> flows anywhere, anywhere flows into <code>Error</code> — one diagnostic per mistake, no cascades.</li><li><code>Never</code> flows into everything (a <code>throw</code>/<code>return</code> fits any hole).</li><li>Everything flows into <code>Any</code>; <strong><code>Any</code> flows into nothing</strong> — the top is a sink, not a wildcard. Coming back down takes <code>is</code> narrowing.</li><li><code>Null</code> flows into any nullable. <code>S? → T?</code> when <code>S → T</code>; <code>S → T?</code> when <code>S → T</code> (values widen into nullability silently, never out).</li><li><strong>Containers are invariant</strong> — <code>List&lt;S&gt; → List&lt;T&gt;</code> only when the two are equal — because they are mutable; the one exception is the empty literal, which types as <code>List&lt;Never&gt;</code> and fits any list (same for <code>{}</code> and maps).</li><li>Functions are <strong>contravariant in parameters, covariant in results</strong>: <code>(A) -&gt; R → (B) -&gt; S</code> when <code>B → A</code> and <code>R → S</code>.</li><li><code>C&lt;X...&gt; → C&lt;Y...&gt;</code> for the same class <code>C</code> with pairwise <em>mutually</em>-assignable arguments (invariance, structurally compared).</li><li>A type parameter is assignable only to itself (and per rule 3 to <code>Any</code>). What it can <em>do</em> comes from its bounds: <code>T: Ord</code> grants exactly the trait's methods.</li></ol>
+<p>There is no <code>as</code> cast and no subtype hierarchy between classes; inheritance is a non-goal. A trait bound is a capability, not a type.</p>
+<h2 id="two-deliberate-wrinkles">Two deliberate wrinkles</h2>
+<ul><li><strong>Integer-literal widening.</strong> An <code>Int</code> <em>literal</em> (or a literal arithmetic expression of them) used where <code>Float</code> is expected is rewritten to the float in place: <code>1.5 + 2</code> is fine, <code>1.5 + n</code> is not. Value-preserving, literal-only, direction Int→Float only.</li><li><strong>Operators are traits.</strong> <code>+ - * / % ** ^/</code>, unary <code>-</code>, <code>==</code>, the comparisons and <code>&lt;=&gt;</code> rewrite to trait-method calls (<code>Add.plus</code>, <code>Ord.compareTo</code>, prelude <code>compare</code>, ...); built-ins implement the traits like any class would. After the rewrite the ordinary rules above apply — there is no separate operator type system.</li></ul>
+<h2 id="inference-generic-calls">Inference (generic calls)</h2>
+<p>Call-site inference is <strong>fill-and-join with congruence</strong>, not full unification — a deliberate simplicity, and its limits are stated:</p>
+<ul><li>Each argument is matched against the declared parameter type structurally: <code>Box&lt;List&lt;T&gt;&gt;</code> against <code>Box&lt;List&lt;Int&gt;&gt;</code> binds <code>T = Int</code> through the nesting (congruence).</li><li>A parameter bound twice <strong>joins</strong>: <code>f&lt;T&gt;(a: T, b: T)</code> on <code>(1, "s")</code> infers <code>T = Any</code> — the join lattice below — and then either fits (both flow into <code>Any</code>) or fails where invariance bites: <code>pair&lt;T&gt;(Box(1), Box("s"))</code> is refused, because <code>Box&lt;String&gt;</code> does not flow into <code>Box&lt;Any&gt;</code>.</li><li>Lambdas are checked against the parameter types the earlier arguments solved, so <code>deep&lt;T, U&gt;(x: Box&lt;T&gt;, z: (T) -&gt; U)</code> types the lambda's parameter and solves <code>U</code> from its body.</li><li>Bounds are checked after solving: <code>T: Ord</code> at <code>T = C</code> demands the class implement the trait, by name.</li></ul>
+<p><strong>The join lattice</strong>: <code>join(a, a) = a</code>; <code>Error</code> wins; <code>Never</code> loses; <code>null</code> adds <code>?</code>; nullability distributes (<code>join(S?, T) = join(S, T)?</code>); otherwise the assignable direction wins, and unrelated types join to <code>Any</code>. This is why <code>if</code>/<code>else</code> branches, ternary branches and <code>T</code>-joins give <code>Any</code> rather than an error — using the <code>Any</code> is what fails, where rule 3 stops it.</p>
+<p><em>The stated debt:</em> fill-and-join cannot express relations <em>between</em> parameters (<code>T</code> must equal <code>U</code>'s element, higher-order returns driving earlier arguments). If those arrive, this section is replaced by real constraint solving — and this file is where that decision will be recorded first.</p>
+<h2 id="narrowing-smart-casts">Narrowing (smart casts)</h2>
+<p>Facts flow from conditions into the scopes they dominate:</p>
+<ul><li><code>x is C</code> narrows <code>x</code> to <code>C</code> in the true branch (and with <code>is C(a, b)</code> binds fields); <code>not</code> flips the branches; <code>x == null</code> / <code>x != null</code> narrow nullables to <code>Null</code> / <code>T</code>.</li><li><strong><code>is</code> sees only what survives to run time</strong>: the outer shape. Type arguments do not (<code>is List</code> yes, <code>is List&lt;Int&gt;</code> no), type parameters do not (<code>is T</code>), and neither does a function's signature (<code>is (Int) -&gt; Int</code>) — each is refused with the reason. A class tests as itself, and its fields come back as <code>Any</code>.</li><li><code>and</code> narrows its right operand by its left; a condition's facts reach <code>if</code>/<code>while</code> bodies and, negated, the code after a branch that always leaves (<code>return</code>/<code>throw</code>/<code>break</code> — the guard idiom, including <code>return if (...)</code>).</li><li><strong>Only <code>val</code>s narrow.</strong> A <code>var</code> could be reassigned between the test and the use (by a closure, by a loop), so it never narrows — copy it to a <code>val</code> first. Fields never narrow for the same reason; read them into a local.</li></ul>
+<h2 id="statement-typing">Statement typing</h2>
+<p>A block's type is its last statement's; <code>return</code>/<code>throw</code>/<code>break</code>/ <code>continue</code> type as <code>Never</code>, and a block that always diverges is <code>Never</code> — which is how <code>try { return a } catch (e) { return b }</code> counts as returning. <code>if</code> without <code>else</code> produces no value. <code>?</code> selects on <code>Bool</code> with two branches or <code>Comp</code> with three, joining the branches.</p></div><div class="dtoc"><div class="h">SUR CETTE PAGE</div><div class="dtoc-items"><a href="#the-types">The types</a><a href="#assignability-s-flows-into-t">Assignability (S flows into T)</a><a href="#two-deliberate-wrinkles">Two deliberate wrinkles</a><a href="#inference-generic-calls">Inference (generic calls)</a><a href="#narrowing-smart-casts">Narrowing (smart casts)</a><a href="#statement-typing">Statement typing</a></div></div></div>
+<footer class="foot">
+  <div class="foot-l">Un langage de programmation typé statiquement et auto-hébergé. Construit par Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Les sources sur GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribuer</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code de conduite</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Sécurité</a>
+  </div>
+</footer>
+</div>
+<script src="../site.js"></script>
+</body>
+</html>

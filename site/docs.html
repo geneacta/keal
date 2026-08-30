@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Keal — Docs / The memory model</title>
+<title>Keal — Documentation</title>
+<meta name="description" content="Everything the language promises, written down: the complete reference, the type rules, and the internals — memory, destruction, threads and the C boundary.">
 <link rel="icon" type="image/png" href="assets/keal3.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,94 +13,27 @@
 </head>
 <body>
 <div class="wrap">
-
 <nav class="nav">
   <div class="nav-left">
-    <a href="index.html"><img class="nav-logo" src="assets/keal.png" alt="keal"></a>
-    <div class="nav-links">
-      <a href="docs.html" class="tab-active">Docs</a>
-      <a href="tour.html">Tour</a>
-      <span class="soon" title="Coming soon">Playground</span>
-      <span class="soon" title="Coming soon">Blog</span>
-    </div>
+    <a href="index.html"><img class="nav-logo" src="assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Home</a><a href="tour.html">Tour</a><a href="docs.html" class="tab-active">Docs</a><a href="coming-from.html">Coming from…</a><a href="stdlib.html">Library</a></div>
   </div>
   <div class="nav-right">
     <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="fr/docs.html">Français</a>
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>
 </nav>
-
-<div class="dgrid">
-  <div class="dside">
-    <div class="grp">GUIDE</div>
-    <a href="index.html#getting-started">Getting started</a>
-    <a href="tour.html">Tour of Keal</a>
-    <a href="stdlib.html">Standard library</a>
-    <div class="grp">LANGUAGE</div>
-    <a href="https://github.com/geneacta/keal/blob/main/docs/language.md">Complete reference</a>
-    <a href="https://github.com/geneacta/keal/blob/main/docs/types.md">Types &amp; inference</a>
-    <a href="tour.html#6">Null safety</a>
-    <a href="tour.html#9">Generics &amp; traits</a>
-    <a href="tour.html#10">The eight connectives</a>
-    <div class="grp">INTERNALS</div>
-    <a class="on" href="docs.html">Memory model</a>
-    <a href="https://github.com/geneacta/keal/blob/main/docs/drop.md">Deterministic deinit</a>
-    <a href="https://github.com/geneacta/keal/blob/main/docs/threads.md">Threads &amp; actors</a>
-    <a href="https://github.com/geneacta/keal/blob/main/docs/interop.md">Interop: C to Kotlin</a>
+<section class="band"><h1>Documentation</h1><p class="lede">Everything the language promises, written down: the complete reference, the type rules, and the internals — memory, destruction, threads and the C boundary.</p></section><section class="cards"><a class="card" href="language.html"><h3>The complete reference</h3><p>LANGUAGE</p></a><a class="card" href="types.html"><h3>Types and inference</h3><p>LANGUAGE</p></a><a class="card" href="memory.html"><h3>The memory model</h3><p>INTERNALS</p></a><a class="card" href="threads.html"><h3>Threads and actors</h3><p>INTERNALS</p></a><a class="card" href="deinit.html"><h3>Deterministic deinit</h3><p>INTERNALS</p></a><a class="card" href="interop.html"><h3>Interop: C to Kotlin</h3><p>INTERNALS</p></a><a class="card" href="contributing.html"><h3>Contributing</h3><p>GUIDE</p></a><a class="card" href="stdlib.html"><h3>The standard library</h3><p>GUIDE</p></a><a class="card" href="coming-from.html"><h3>Coming from another language</h3><p>GUIDE</p></a></section>
+<footer class="foot">
+  <div class="foot-l">A statically typed, self-hosting programming language. Built by Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Source on GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribute</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code of conduct</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Security</a>
   </div>
-
-  <div class="dmain">
-    <div class="crumb">Docs <span class="sl">/</span> Internals <span class="sl">/</span> <span class="here">Memory model</span></div>
-    <h1 id="rc">The memory model</h1>
-    <p>Compiling to native code makes one question unavoidable which an interpreter can dodge — what a value is in bytes, and who frees it. The short version: <strong>reference counting</strong>. Every heap object carries its count. No collector, no ownership annotations, no borrow checker.</p>
-    <p id="bytes">Fields keep declaration order, padding and all — a struct whose shape the author cannot predict is one that cannot be handed to C. <span class="ic">keal layout</span> prints the whole table for any program, so none of it has to be taken on trust:</p>
-
-    <div class="cwin" style="margin-bottom:26px">
-      <div class="cwin-bar">
-        <span class="f">$ keal layout point.keal</span>
-        <span class="mono" style="font:500 11px 'JetBrains Mono',monospace;color:var(--faint);cursor:pointer" data-copy="keal layout point.keal">⧉ copy</span>
-      </div>
-      <pre style="font-size:13px"><span class="t">record Point</span>
-  24 bytes, align 8, 0 of which is padding
-  <span class="c">offset  size  field                as</span>
-       0     8  &lt;reference count&gt;    usize
-       8     8  x: Float             f64
-      16     8  y: Float             f64</pre>
-    </div>
-
-    <h2 id="niches">Nullable niches</h2>
-    <p><span class="ic">T?</span> is free where a spare bit pattern exists — and says so where it is not:</p>
-    <div class="dtable">
-      <div class="hd"><span>TYPE</span><span>SIZE</span><span>WHY</span></div>
-      <div class="row"><span class="mono" style="color:var(--mint)">String?</span><span style="color:var(--prose)">= String</span><span style="color:var(--dim)">the null pointer is the niche</span></div>
-      <div class="row"><span class="mono" style="color:var(--mint)">Int?</span><span style="color:var(--prose)">2 × Int</span><span style="color:var(--dim)">every bit pattern is a valid Int — a tag is added, and priced openly</span></div>
-    </div>
-
-    <div class="callout">
-      <span class="st">✦</span>
-      <p>The layouts of a sample program are snapshotted in the test suite — changing a representation shows up as a diff, not as a surprise.</p>
-    </div>
-
-    <h2 id="cycles">Cycles — the open question</h2>
-    <p>Reference counting leaks cycles; that is its one honest weakness. The three candidate answers — a documented leak, weak references, a cycle collector — are weighed in <a href="https://github.com/geneacta/keal/blob/main/docs/memory.md" style="color:var(--mint)">docs/memory.md</a> and not yet chosen. Until one is, a cyclic value never dies — and never runs its <span class="ic">deinit</span>.</p>
-
-    <div class="tnav" style="margin-top:34px">
-      <a class="tprev" href="https://github.com/geneacta/keal/blob/main/docs/drop.md">← Deterministic deinit</a>
-      <a class="tprev" href="https://github.com/geneacta/keal/blob/main/docs/interop.md">Interop: C to Kotlin →</a>
-    </div>
-  </div>
-
-  <div class="dtoc">
-    <div class="h">ON THIS PAGE</div>
-    <div class="dtoc-items">
-      <a class="on" href="#rc">Reference counting</a>
-      <a href="#bytes">What a value is, in bytes</a>
-      <a href="#niches">Nullable niches</a>
-      <a href="#cycles">Cycles — the open question</a>
-    </div>
-  </div>
-</div>
-
+</footer>
 </div>
 <script src="site.js"></script>
 </body>

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — Interop : de C à Kotlin</title>
+<meta name="description" content="Interop : de C à Kotlin">
+<link rel="icon" type="image/png" href="../assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="../assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Accueil</a><a href="tour.html">Le tour</a><a href="docs.html" class="tab-active">Docs</a><a href="coming-from.html">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="../interop.html">English</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Le tour de Keal</a><a href="stdlib.html">Bibliothèque standard</a><a href="coming-from.html">Je viens d'un autre langage</a><a href="contributing.html">Contribuer</a><div class="grp">LANGAGE</div><a href="language.html">La référence complète</a><a href="types.html">Types et inférence</a><div class="grp">INTERNES</div><a href="memory.html">Le modèle mémoire</a><a href="deinit.html">deinit déterministe</a><a href="threads.html">Threads et acteurs</a><a href="interop.html" class="on">Interop : de C à Kotlin</a></div><div class="dmain prose"><div class="callout"><span class="st">✦</span><p>Ce document de référence est rédigé en anglais, la langue de travail du dépôt. Les pages du site — le tour, les guides « je viens de… » et la bibliothèque — existent intégralement dans les deux langues.</p></div><h1 id="interop-calling-c-c-rust-go-java-and-kotlin-from-keal">Interop: calling C, C++, Rust, Go, Java and Kotlin from Keal</h1>
+<p>Keal compiles to a single C11 translation unit. That one fact is the foundation of this whole plan: <strong>the C ABI is the lingua franca of every runtime worth talking to</strong>. Each language below either speaks it natively (C, C++, Rust), can be told to (Go), or exposes a C doorway into its virtual machine (Java, Kotlin via JNI). So the path is not six bridges — it is one bridge, widened in stages, plus one gateway per foreign runtime.</p>
+<p>This document is the plan: what exists, what each stage adds, what it costs, and in what order to build it.</p>
+<hr>
+<h2 id="where-we-stand-tier-0-shipped">Where we stand (tier 0 — shipped)</h2>
+<p>Working today, tested by the suite (<code>extern_programs_build_and_run</code>):</p>
+<pre class="lang-keal"><code>native &quot;&quot;&quot;
+#include &lt;math.h&gt;
+double hypot3(double a, double b, double c) { return sqrt(a*a + b*b + c*c); }
+&quot;&quot;&quot;
+
+extern fun hypot3(a: Float, b: Float, c: Float): Float
+
+println(hypot3(1.0, 2.0, 2.0))   // 3.0</code></pre>
+<ul><li><code>native "..."</code> — C pasted verbatim into the generated translation unit.</li><li><code>extern fun name(...): Ret [= "symbol"]</code> — a C symbol made callable, with the checker holding callers to the declared signature.</li><li><code>keal build prog.keal extra.c extra.cpp</code> — extra C/C++ sources compiled and linked in; any C++ among them switches the linker to <code>c++</code> so its runtime is present. <strong>This is already C++ interop</strong> for anything wrapped in an <code>extern "C"</code> function.</li><li>The boundary is deliberately narrow: only <code>Int</code>, <code>Float</code> and <code>Bool</code> cross, because they carry no ownership (docs/memory.md §6).</li></ul>
+<p>Everything below widens that boundary or drives it from the other side.</p>
+<hr>
+<h2 id="tier-1-a-richer-c-boundary-the-enabler-for-everything-else">Tier 1 — a richer C boundary (the enabler for everything else)</h2>
+<p>Every other tier stands on this one. <strong>Status: 1a, 1b and 1c are shipped</strong>; 1d is deferred, with the reason recorded below.</p>
+<p><strong>1a. Strings across the boundary — SHIPPED.</strong> The ownership rule the memory model already dictates, explicit in the signature:</p>
+<pre class="lang-keal"><code>extern fun parse(source: borrow String): Int      // C reads, does not keep
+extern fun render(doc: Int): own String           // C hands us a malloc&#x27;d buffer</code></pre>
+<ul><li><code>borrow String</code> passes the NUL-terminated <code>const char*</code>; the callee must not retain it past the call.</li><li><code>own String</code> on a result adopts the buffer: Keal counts it and <code>free()</code>s it with the string (<code>keal_str_adopt</code> in the runtime; a NULL from C reads as the empty string).</li><li>The checker demands a mode on every <code>String</code> crossing, in both directions, and rejects a mode anywhere else — misuse is a checked error with a note saying what to write.</li></ul>
+<p><strong>1b. Structs across the boundary — SHIPPED.</strong> A <code>record</code> whose fields are all <code>Int</code>, <code>Float</code> or <code>Bool</code> crosses <strong>by value</strong>, no annotation needed: the generated C defines a headerless mirror <code>typedef struct Keal_Name { ... }</code> with unmangled field names, before any <code>native</code> block, and the boundary copies fields both ways. The C side just writes functions over <code>Keal_Name</code>:</p>
+<pre class="lang-keal"><code>record Vec2(val x: Float, val y: Float)
+native &quot;&quot;&quot;
+static double vec2_dot(Keal_Vec2 a, Keal_Vec2 b) { return a.x*b.x + a.y*b.y; }
+&quot;&quot;&quot;
+extern fun vec2_dot(a: Vec2, b: Vec2): Float</code></pre>
+<p><strong>1c. Header generation — SHIPPED.</strong> <code>keal emit-header prog.keal &gt; prog.h</code> prints the C face of the boundary: the <code>Keal_Name</code> mirror structs (same text as the generated C, so the two translation units agree) and a <code>k_name</code> prototype for every non-generic function whose signature crosses cleanly. A companion <code>.c</code> file compiled by <code>keal build prog.keal helper.c</code> includes it and calls straight back into Keal — the suite's boundary test does exactly that. This is the prerequisite the Go and JVM gateways needed.</p>
+<p><strong>1d. Closure callbacks — deferred, deliberately.</strong> Passing a Keal <em>closure</em> to C as a bare function pointer needs somewhere to put the environment, and C callback APIs differ on it: most take a <code>void* userdata</code> alongside the pointer, some take nothing. Picking a convention shapes the syntax (<code>extern fun onEach(f: (Int) -&gt; Int)</code> must say which argument is the userdata slot), so it waits for a real consumer instead of guessing. Meanwhile the shipped 1c covers the common need from the other side: C code can call named Keal functions (<code>k_name</code>) directly, today.</p>
+<p><em>What shipped landed the way everything lands here: oracle first, the three self-hosted twins mirrored, byte-equality over the corpus, a build-and-run boundary test with <code>leaks</code> clean, and the bootstrap fixed point re-proven.</em></p>
+<hr>
+<h2 id="tier-2-rust-shipped">Tier 2 — Rust — SHIPPED</h2>
+<p>Rust exports the C ABI natively, and both tools it needed exist now:</p>
+<ul><li><strong>Link inputs — shipped.</strong> <code>keal build prog.keal libx.a -lm -L/opt/lib</code> passes <code>.a</code>/<code>.so</code>/<code>.dylib</code>/<code>.o</code> files and <code>-l</code>/<code>-L</code> flags to the link step, and <code>-I</code>/<code>-D</code> to the compile steps.</li><li><strong><code>keal bindgen header.h</code> — shipped.</strong> Reads a C header, writes the <code>extern fun</code> declarations. It binds only what crosses exactly — <code>int64_t</code>/<code>long long</code>, <code>double</code>, <code>bool</code>, <code>const char*</code> as <code>borrow String</code>, a returned <code>char*</code> as <code>own String</code>, <code>Keal_Name</code> mirrors as records — and <strong>skips everything else with the reason printed</strong>: a 32-bit <code>int</code>, a borrowed <code>const char*</code> return, a variadic, a function-pointer parameter. A guessed binding is a crash with a delay; a skipped one is a wrapper the C author writes in five lines.</li></ul>
+<p>The chain is four commands, demonstrated and verified in <a href="https://github.com/geneacta/keal/blob/main/examples/interop/rust/"><code>examples/interop/rust/</code></a>:</p>
+<pre class="lang-sh"><code>cargo build --release                      # staticlib with extern &quot;C&quot; exports
+cbindgen --lang c --output kealdemo.h      # its header
+keal bindgen kealdemo.h &gt; bindings.keal    # its Keal face
+keal build main.keal target/release/libkealdemo.a -I.</code></pre>
+<p>Rust's ownership marries tier 1a exactly: <code>&amp;CStr</code> ↔ <code>borrow String</code>, <code>CString::into_raw</code> ↔ <code>own String</code> (Keal frees it). No runtime is embedded. The same two tools serve plain C libraries — sqlite, curl — and headers from <code>go build -buildmode=c-archive</code>, which is why tier 3 needs no new machinery.</p>
+<p>A convention worth knowing: a hand-written header that defines a mirror struct should guard it with <code>#ifndef KEAL_MIRROR_Name</code>, the same guard the generated C and <code>keal emit-header</code> emit, so the two definitions coexist.</p>
+<hr>
+<h2 id="tier-3-go-one-gateway-some-weight">Tier 3 — Go (one gateway, some weight)</h2>
+<p>Go compiles to a C-linkable archive: <code>go build -buildmode=c-archive</code> produces <code>libx.a</code> <strong>plus a generated header</strong> — which <code>keal bindgen</code> from tier 2 already consumes. So the mechanism is exactly the Rust path. What is different is the cost, and it should be stated honestly:</p>
+<ul><li>The Go <strong>runtime rides along</strong> (goroutine scheduler, GC — megabytes, and it spawns threads on load).</li><li>Values crossing must be copied: Go's GC may move nothing today, but its pointers must not be retained by C — so strings/slices cross as copies, which tier 1a's <code>borrow</code>/<code>own</code> conventions express already.</li><li>Callbacks into Keal work via the tier 1c header + cgo's <code>//export</code>.</li></ul>
+<p><em>Verdict: supported by the same two tools (link inputs + bindgen); document the weight, add one worked example under <code>examples/interop/go/</code>.</em></p>
+<hr>
+<h2 id="tier-4-java-and-kotlin-a-gateway-into-the-jvm">Tier 4 — Java and Kotlin (a gateway into the JVM)</h2>
+<p>Kotlin/JVM and Java are the same target: <strong>the JVM</strong>, reached through JNI — a C API (<code>jni.h</code>) that the generated C can call directly, because the generated program <em>is</em> C. No new backend capability is needed beyond tier 1; what is needed is a runtime module and a wrapper generator.</p>
+<p><strong>4a. The JVM host module — SHIPPED</strong> (<a href="https://github.com/geneacta/keal/blob/main/lib/jvm.keal"><code>lib/jvm.keal</code></a>): one Keal module, no new compiler capability — a <code>native</code> block of helpers over <code>jni.h</code> plus <code>extern fun</code> declarations riding tier 1's <code>borrow</code>/<code>own</code> strings. Verified end to end by the suite (<code>jvm_gateway_works_end_to_end</code>, skipped when no JDK is installed):</p>
+<pre class="lang-keal"><code>import &quot;lib/jvm.keal&quot;
+
+jvmStart(&quot;&quot;)                              // or &quot;-Djava.class.path=foo.jar&quot;
+val date = jvmClass(&quot;java/time/LocalDate&quot;)
+jvmArgInt(2026)
+jvmArgInt(1)
+jvmArgInt(1)
+val d = jvmStaticObj(date, &quot;of&quot;, &quot;(III)Ljava/time/LocalDate;&quot;)
+jvmArgLong(58)
+println(jvmToString(jvmCallObj(d, &quot;plusDays&quot;, &quot;(J)Ljava/time/LocalDate;&quot;)))
+// 2026-02-28 — java.time, in a native Keal binary</code></pre>
+<p>Build with the JDK on the line (link inputs from tier 2):</p>
+<pre class="lang-sh"><code>JH=$(/usr/libexec/java_home)
+keal build prog.keal -I$JH/include -I$JH/include/darwin \
+    -L$JH/lib/server -ljvm -Wl,-rpath,$JH/lib/server</code></pre>
+<p>The honest v1 shape: objects are opaque <code>Int</code> handles (JNI global refs, freed with <code>jvmFree</code>); arguments are pushed with <code>jvmArg*</code> matching the Java parameter type; calls take JNI signatures verbatim; a Java exception becomes a Keal panic carrying the throwable's <code>toString</code>. The worked example is <a href="https://github.com/geneacta/keal/blob/main/examples/interop/java/"><code>examples/interop/java/</code></a>.</p>
+<p><strong>4b. <code>keal jbind</code> — shipped.</strong> The wrapper generator, and the road to <code>import java.time.LocalDate</code>. <code>keal jbind java.time.LocalDate java.time.DayOfWeek</code> reads each class through <code>javap -public</code> and prints one typed Keal module over exactly the 4a calls:</p>
+<pre class="lang-keal"><code>// generated
+class UUID(val handle: Int) : Ord {
+    fun toString(): String { return jvmToString(this.handle) }
+    proc free() { jvmFree(this.handle) }
+    fun compareTo(a0: UUID): Int { ... }
+}
+fun uuidRandomUUID(): UUID { ... }</code></pre>
+<p>so user code never touches JNI signatures. The bindgen rule holds: only members whose types cross exactly are bound — <code>int</code>, <code>long</code>, <code>double</code>, <code>boolean</code>, <code>String</code>, and any class bound in the same run (bind <code>DayOfWeek</code> alongside <code>LocalDate</code> and <code>getDayOfWeek()</code> comes typed) — everything else is skipped with the reason printed. Statics and constructors become free functions (<code>localDateOf</code>, <code>uuidNew</code>); a representable Java <code>compareTo</code> makes the wrapper <code>Ord</code>, so prelude <code>compare</code> and <code>&lt;</code> reach across the JVM; <code>free()</code> releases the global ref (<code>handle</code> stays visible for calls jbind could not type). <code>--jvm &lt;path&gt;</code> sets the emitted import path, and an argument naming a file is read as saved <code>javap</code> output — which keeps the snapshot test (<code>tests/jbind/</code>) JDK-free; the end-to-end test builds a native binary against live-generated <code>java.time</code> wrappers. Kotlin classes are plain JVM classes: same generator, Kotlin's stdlib on the classpath.</p>
+<p>The endpoint, in three steps that stack — <strong>all three shipped</strong>: <strong>(1)</strong> 4a — you write signatures; <strong>(2)</strong> <code>jbind</code> — a generated <code>LocalDate.keal</code> you import by path; <strong>(3)</strong> loader sugar —</p>
+<pre class="lang-keal"><code>import java.time.LocalDate, java.time.DayOfWeek
+
+jvmStart(&quot;&quot;)
+val d = localDateOf(2026, 1, 1).plusDays(58)
+println(d.toString())               // 2026-02-28
+println(d.getDayOfWeek().toString())  // SATURDAY</code></pre>
+<p>A non-path import desugars to <code>.jbind/&lt;classes&gt;.keal</code> next to the file; classes named in one import are bound together, so they see each other typed. <code>keal run</code>/<code>check</code>/<code>build</code> fill the cache through <code>javap</code> when it is missing (<code>keal jbind --cache .jbind java.time.LocalDate</code> does it by hand), and the directory carries its own copy of the gateway, so a committed <code>.jbind/</code> builds anywhere — no JDK needed until the classes change. The compiler stages themselves never generate: <code>keal tokens</code>/<code>ast</code>/<code>types</code>/<code>cgen</code> and the self-hosted twins read only what is on disk, which keeps the byte-for-byte corpora meaningful.</p>
+<p><strong>4c. Later, if wanted:</strong> GraalVM <code>native-image --shared</code> turns a JVM library into a plain C shared library with its own header — then the JVM disappears entirely and the <em>Rust path</em> carries Java code too. Worth a worked example once 4a exists; not worth building first, because it constrains which libraries work (no dynamic class loading).</p>
+<p><em>Cost to state plainly: the JVM gateway embeds a JVM (or Graal image); it is for programs that need Java libraries, not a default. The determinism story of the test suite stops at the boundary — JVM output is the JVM's.</em></p>
+<hr>
+<h2 id="cross-cutting-rules-all-tiers">Cross-cutting rules (all tiers)</h2>
+<ul><li><strong>Ownership is written down, never guessed</strong> — <code>borrow</code>/<code>own</code> at the boundary, exactly as docs/memory.md §6 demands.</li><li><strong>Match-or-refuse holds at the boundary too</strong>: a signature the emitter cannot represent is refused by name at compile time, never truncated.</li><li><strong>The suite discipline extends</strong>: every tier lands oracle-first in <code>src/cbackend.rs</code>, is mirrored in <code>selfhost/cbackend.keal</code>, and the byte-equality tests plus a worked example under <code>examples/interop/</code> keep it honest. The bootstrapped <code>dist/kealc</code> gets each feature the same day the Rust oracle does, or the fixed-point test fails.</li><li><strong>One manifest, eventually</strong>: once link inputs exist, a <code>keal.toml</code> listing sources, libraries and flags replaces the growing command line.</li></ul>
+<h2 id="suggested-order">Suggested order</h2>
+<div class="tablewrap"><table><thead><tr><th>#</th><th>Item</th><th>Unlocks</th><th>Status</th></tr></thead><tbody><tr><td>1</td><td>Tier 1a strings + 1b structs</td><td>everything</td><td><strong>shipped</strong></td></tr><tr><td>2</td><td>Tier 1c <code>emit-header</code></td><td>Keal as a library; Go/JVM callbacks</td><td><strong>shipped</strong></td></tr><tr><td>3</td><td>Link inputs (<code>.a</code>, <code>-l</code>, <code>-L</code>, <code>-I</code>, <code>-D</code>)</td><td>Rust, Go, C libraries</td><td><strong>shipped</strong></td></tr><tr><td>4</td><td><code>keal bindgen</code> for C headers</td><td>sqlite/curl/every C lib, Rust via cbindgen, Go via c-archive</td><td><strong>shipped, with a verified Rust demo</strong></td></tr><tr><td>5</td><td>Closure callbacks (1d)</td><td>C APIs that take function pointers</td><td>waits for a consumer</td></tr><tr><td>6</td><td>JVM host module (4a)</td><td>Java + Kotlin</td><td><strong>shipped, with a verified java.time demo</strong></td></tr><tr><td>7</td><td><code>keal jbind</code> (4b)</td><td>typed Java/Kotlin imports, then <code>import java.time.LocalDate</code> as loader sugar</td><td>next</td></tr></tbody></table></div>
+<p>Each row is independently shippable and independently testable; nothing in a later row forces rework of an earlier one.</p></div><div class="dtoc"><div class="h">SUR CETTE PAGE</div><div class="dtoc-items"><a href="#where-we-stand-tier-0-shipped">Where we stand (tier 0 — shipped)</a><a href="#tier-1-a-richer-c-boundary-the-enabler-for-everything-else">Tier 1 — a richer C boundary (the enabler for everything else)</a><a href="#tier-2-rust-shipped">Tier 2 — Rust — SHIPPED</a><a href="#tier-3-go-one-gateway-some-weight">Tier 3 — Go (one gateway, some weight)</a><a href="#tier-4-java-and-kotlin-a-gateway-into-the-jvm">Tier 4 — Java and Kotlin (a gateway into the JVM)</a><a href="#cross-cutting-rules-all-tiers">Cross-cutting rules (all tiers)</a><a href="#suggested-order">Suggested order</a></div></div></div>
+<footer class="foot">
+  <div class="foot-l">Un langage de programmation typé statiquement et auto-hébergé. Construit par Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Les sources sur GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribuer</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code de conduite</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Sécurité</a>
+  </div>
+</footer>
+</div>
+<script src="../site.js"></script>
+</body>
+</html>

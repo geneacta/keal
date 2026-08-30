@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — le tour</title>
+<meta name="description" content="Douze chapitres, chaque extrait réel et sa sortie vérifiée.">
+<link rel="icon" type="image/png" href="../assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="../assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Accueil</a><a href="tour.html" class="tab-active">Le tour</a><a href="docs.html">Docs</a><a href="coming-from.html">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="../tour.html">English</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+
+<div class="tourgrid">
+  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Bonjour, monde</a><a class="tch" href="#c2"><span class="n">2</span>Valeurs et liaisons</a><a class="tch" href="#c3"><span class="n">3</span>fun et proc</a><a class="tch" href="#c4"><span class="n">4</span>Flot de contrôle</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Sûreté face à null</a><a class="tch" href="#c7"><span class="n">7</span>Collections et lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Enregistrements et classes</a><a class="tch" href="#c9"><span class="n">9</span>Génériques et traits</a><a class="tch" href="#c10"><span class="n">10</span>Les huit connecteurs</a><a class="tch" href="#c11"><span class="n">11</span>deinit et weak</a><a class="tch" href="#c12"><span class="n">12</span>Code natif et C</a></aside>
+  <div class="tourmain prose">
+    <h1>Le tour de Keal</h1>
+    <p class="lede">Une demi-heure, de haut en bas. Chaque extrait ci-dessous est un vrai programme et chaque sortie est ce qu'il imprime réellement — la suite les vérifie.</p>
+    <section class="chapter" id="c1"><h2>1. Bonjour, monde</h2><p class="lede">Un fichier est un programme : les instructions de haut niveau s'exécutent dans l'ordre, sans cérémonie préalable.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter1.keal</span><span class="run">▶ Exécuter</span></div><pre>println(&quot;hello, world&quot;)
+val who = &quot;Ada&quot;
+println(&quot;hello ${who}, ${1 + 2} things&quot;)</pre><div class="cwin-out"><pre>hello, world
+hello Ada, 3 things</pre></div></div></section><section class="chapter" id="c2"><h2>2. Valeurs et liaisons</h2><p class="lede"><code>val</code> lie une fois, <code>var</code> peut être réaffecté. Les nombres se copient ; listes et maps se partagent. Aucune conversion numérique implicite.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter2.keal</span><span class="run">▶ Exécuter</span></div><pre>val name = &quot;Ada&quot;
+var count = 0
+count += 1
+
+val n = 3
+val good = n.toFloat() / 2.0
+val ratio: Float = 1 / 2   // a literal adapts
+
+val xs = [1, 2]
+val ys = xs
+ys.add(3)
+println(&quot;${good} ${ratio} ${xs}&quot;)</pre><div class="cwin-out"><pre>1.5 0.5 [1, 2, 3]</pre></div></div></section><section class="chapter" id="c3"><h2>3. fun et proc</h2><p class="lede">Le mot employé dit s'il y a un résultat. Un <code>fun</code> doit déclarer ce qu'il retourne ; un <code>proc</code> ne le peut pas — <code>Unit</code> ne s'écrit donc jamais à la main.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter3.keal</span><span class="run">▶ Exécuter</span></div><pre>fun add(a: Int, b: Int): Int { a + b }
+
+proc greet(name: String, greeting: String = &quot;hello&quot;) {
+    println(&quot;${greeting}, ${name}!&quot;)
+}
+
+println(add(2, 3))
+greet(&quot;Ada&quot;)
+greet(&quot;Ada&quot;, greeting = &quot;hi&quot;)</pre><div class="cwin-out"><pre>5
+hello, Ada!
+hi, Ada!</pre></div></div></section><section class="chapter" id="c4"><h2>4. Flot de contrôle</h2><p class="lede">Les accolades sont obligatoires et la valeur d'un bloc est sa dernière expression — c'est pourquoi <code>if</code> en produit une. <code>unless (c)</code> vaut <code>if (not c)</code>.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter4.keal</span><span class="run">▶ Exécuter</span></div><pre>val n = -2
+val sign = if (n &lt; 0) { &quot;neg&quot; } else { &quot;pos&quot; }
+
+fun lengthOf(s: String?): Int {
+    unless (s != null) { return 0 }
+    return s.length
+}
+
+for (i in 0..3) { println(i) }
+println(&quot;${sign} ${lengthOf(null)} ${lengthOf(&quot;abcd&quot;)}&quot;)</pre><div class="cwin-out"><pre>0
+1
+2
+neg 0 4</pre></div></div></section><section class="chapter" id="c5"><h2>5. when</h2><p class="lede">Une seule construction couvre ce que d'autres langages séparent entre <code>switch</code> et <code>match</code> : pas de chute, le premier bras gagne, et c'est une expression.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter5.keal</span><span class="run">▶ Exécuter</span></div><pre>fun describe(n: Int): String {
+    return when (n) {
+        0 -&gt; &quot;zero&quot;
+        1, 2, 3 -&gt; &quot;small&quot;
+        in 4..10 -&gt; &quot;medium&quot;
+        else -&gt; &quot;large&quot;
+    }
+}
+println(describe(2))
+println(describe(7))
+println(describe(99))</pre><div class="cwin-out"><pre>small
+medium
+large</pre></div></div></section><section class="chapter" id="c6"><h2>6. Sûreté face à null</h2><p class="lede">Un type n'admet pas <code>null</code> sans <code>?</code>. Après un test qui prouve quelque chose sur une liaison immuable, le fait tient — et Keal le porte plus loin que la plupart.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter6.keal</span><span class="run">▶ Exécuter</span></div><pre>var maybe: String? = null
+println(maybe?.length)
+println(maybe ?: &quot;default&quot;)
+
+val s: String? = &quot;abc&quot;
+if (s != null) { println(s.length) }
+println(s != null and s.length &gt; 0)
+println(s != null implies s.length &gt; 0)</pre><div class="cwin-out"><pre>null
+default
+3
+true
+true</pre></div></div></section><section class="chapter" id="c7"><h2>7. Collections et lambdas</h2><p class="lede">Listes et maps sont natives, avec les méthodes d'ordre supérieur attendues, typées génériquement.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter7.keal</span><span class="run">▶ Exécuter</span></div><pre>val xs = [1, 2, 3, 4]
+println(xs.map({ it * 2 }))
+println(xs.filter({ it % 2 == 0 }))
+println(xs.fold(0, { acc, x -&gt; acc + x }))
+
+val ages = {&quot;ada&quot;: 36, &quot;alan&quot;: 41}
+for (name in ages) { println(&quot;${name} is ${ages[name]!!}&quot;) }</pre><div class="cwin-out"><pre>[2, 4, 6, 8]
+[2, 4]
+10
+ada is 36
+alan is 41</pre></div></div></section><section class="chapter" id="c8"><h2>8. Enregistrements et classes</h2><p class="lede">Un <code>record</code> est le cas données : champs immuables, égalité structurelle, déstructuration. Une <code>class</code> est celle qui peut changer.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter8.keal</span><span class="run">▶ Exécuter</span></div><pre>record Point(val x: Float, val y: Float)
+val a = Point(1.0, 2.0)
+val b = Point(1.0, 2.0)
+println(a == b)
+val Point(x, y) = a
+println(&quot;${x} ${y}&quot;)
+
+class Counter(var n: Int) {
+    proc bump() { this.n += 1 }
+}
+val c = Counter(0)
+c.bump()
+println(c.n)</pre><div class="cwin-out"><pre>true
+1.0 2.0
+1</pre></div></div></section><section class="chapter" id="c9"><h2>9. Génériques et traits</h2><p class="lede">Les génériques sont monomorphisés — pas d'effacement, pas de boxing. Un trait est une capacité qu'on peut exiger d'un paramètre de type, pas un type en soi.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter9.keal</span><span class="run">▶ Exécuter</span></div><pre>fun firstOr&lt;T&gt;(xs: List&lt;T&gt;, fallback: T): T {
+    for (x in xs) { return x }
+    return fallback
+}
+println(firstOr([1, 2], 0))
+println(firstOr([&quot;a&quot;], &quot;z&quot;))
+
+fun total&lt;T: Add&gt;(xs: List&lt;T&gt;, zero: T): T {
+    var acc = zero
+    for (x in xs) { acc = acc + x }
+    return acc
+}
+println(total([1, 2, 3], 0))</pre><div class="cwin-out"><pre>1
+a
+6</pre></div></div></section><section class="chapter" id="c10"><h2>10. Les huit connecteurs</h2><p class="lede">Écrits en toutes lettres, à une seule précédence, si bien qu'une expression mixte doit dire ce qu'elle veut dire avec des parenthèses.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter10.keal</span><span class="run">▶ Exécuter</span></div><pre>val a = true
+val b = false
+println(a and b)
+println(a or b)
+println(a xor b)
+println(a nand b)
+println(a nor b)
+println(a xnor b)
+println(a implies b)
+println(not a)</pre><div class="cwin-out"><pre>false
+true
+true
+true
+false
+false
+false
+false</pre></div></div></section><section class="chapter" id="c11"><h2>11. deinit et weak</h2><p class="lede"><code>deinit</code> s'exécute quand la dernière référence meurt, à la frontière d'instruction suivante. <code>weak</code> écrit l'arête arrière d'un cycle sans la maintenir en vie — le cycle meurt quand même.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter11.keal</span><span class="run">▶ Exécuter</span></div><pre>var freed = 0
+class Item(val id: Int) {
+    weak var owner: Owner? = null
+    proc deinit() { freed += 1 }
+}
+class Owner(val id: Int) {
+    var held: Item? = null
+    proc deinit() { freed += 1 }
+}
+proc pair() {
+    val o = Owner(1)
+    val it = Item(2)
+    o.held = it
+    it.owner = o
+}
+pair()
+println(&quot;freed ${freed}&quot;)</pre><div class="cwin-out"><pre>freed 2</pre></div></div></section><section class="chapter" id="c12"><h2>12. Code natif et C</h2><p class="lede"><code>keal build</code> compile via C11 vers un vrai exécutable, et ce qu'il ne peut pas compiler, il le refuse en le nommant — il ne compile jamais de travers.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter12.keal</span><span class="run">▶ Exécuter</span></div><pre>native &quot;&quot;&quot;
+#include &lt;math.h&gt;
+static double keal_hypot(double a, double b) { return hypot(a, b); }
+&quot;&quot;&quot;
+
+extern fun hypot(a: Float, b: Float): Float = &quot;keal_hypot&quot;
+
+println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></section>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="foot-l">Un langage de programmation typé statiquement et auto-hébergé. Construit par Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Les sources sur GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribuer</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code de conduite</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Sécurité</a>
+  </div>
+</footer>
+</div>
+<script src="../site.js"></script>
+</body>
+</html>

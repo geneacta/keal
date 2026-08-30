@@ -219,3 +219,104 @@ footer .base { margin: 0 0 14px; font: 400 13px/1.6 Sora, sans-serif; color: var
   .nav { flex-wrap: wrap; gap: 12px; }
   .dtoc { display: none; }
 }
+
+/* ---- generated pages ---------------------------------------------------
+   The site is built by site/build.py; these are the pieces that generator
+   emits which the hand-written prototype did not have. */
+
+.btn-lang { font: 500 13px Sora, sans-serif; color: var(--dim); border: 1px solid var(--line2);
+            border-radius: 8px; padding: 6px 12px; }
+.btn-lang:hover { color: var(--ink); border-color: var(--accent); }
+
+/* Long-form prose, shared by the docs, the tour and the coming-from pages. */
+.prose { max-width: 780px; }
+.prose h1 { font: 700 38px Sora, sans-serif; letter-spacing: -.015em; margin: 0 0 14px; }
+.prose h2 { font: 600 24px Sora, sans-serif; margin: 44px 0 12px; padding-top: 8px;
+            border-top: 1px solid var(--line); letter-spacing: -.01em; }
+.prose h3 { font: 600 18px Sora, sans-serif; margin: 28px 0 8px; }
+.prose h4, .prose h5, .prose h6 { font: 600 15px Sora, sans-serif; margin: 20px 0 6px; }
+.prose p { margin: 12px 0; font: 400 15.5px/1.75 Sora, sans-serif; color: var(--prose); }
+.prose ul, .prose ol { margin: 12px 0 12px 22px; }
+.prose li { margin: 7px 0; font: 400 15.5px/1.7 Sora, sans-serif; color: var(--prose); }
+.prose a { color: var(--mint); text-decoration: underline; text-underline-offset: 3px; }
+.prose a:hover { color: var(--accent); }
+.prose code { font: 13.5px 'JetBrains Mono', monospace; color: var(--mint);
+              background: rgba(53,200,168,.08); padding: 1px 5px; border-radius: 4px; }
+.prose pre { background: var(--panel); border: 1px solid var(--line2); border-radius: 10px;
+             padding: 16px 18px; overflow-x: auto; margin: 16px 0; }
+.prose pre code { background: none; padding: 0; color: var(--code);
+                  font: 13.5px/1.65 'JetBrains Mono', monospace; }
+.prose blockquote { margin: 16px 0; padding: 2px 0 2px 18px; border-left: 3px solid var(--accent);
+                    color: var(--dim); font: 400 15px/1.7 Sora, sans-serif; }
+.prose hr { border: 0; border-top: 1px solid var(--line); margin: 34px 0; }
+.prose strong { color: var(--ink); font-weight: 600; }
+
+.tablewrap { overflow-x: auto; margin: 18px 0; }
+.tablewrap table { border-collapse: collapse; width: 100%; min-width: 460px; }
+.tablewrap th { text-align: left; font: 600 11px 'JetBrains Mono', monospace; color: var(--faint);
+                letter-spacing: .09em; text-transform: uppercase; padding: 8px 14px 8px 0;
+                border-bottom: 1px solid var(--line2); }
+.tablewrap td { padding: 9px 14px 9px 0; border-bottom: 1px solid var(--line);
+                font: 400 14px/1.6 Sora, sans-serif; color: var(--prose); vertical-align: top; }
+.tablewrap td code { white-space: pre; }
+
+/* The tour: a chapter list beside the chapters themselves. */
+.tourgrid { display: grid; grid-template-columns: 264px 1fr; gap: 40px; padding: 30px 0 80px; }
+.tournav { position: sticky; top: 20px; align-self: start; border-right: 1px solid var(--line);
+           padding-right: 16px; }
+.tournav .tch { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px;
+                font: 500 13.5px Sora, sans-serif; color: var(--dim); }
+.tournav .tch:hover { color: var(--ink); background: rgba(53,200,168,.06); }
+.tournav .tch .n { width: 22px; height: 22px; border-radius: 6px; background: var(--panel);
+                   border: 1px solid var(--line2); display: grid; place-items: center;
+                   font: 600 11px 'JetBrains Mono', monospace; color: var(--faint); flex: none; }
+.chapter { scroll-margin-top: 20px; }
+.cwin-out { border-top: 1px solid var(--line2); background: rgba(0,0,0,.18); }
+.cwin-out pre { margin: 0; padding: 12px 18px; color: var(--mint);
+                font: 13px/1.6 'JetBrains Mono', monospace; }
+
+/* The standard library page. */
+.sgrid { display: grid; grid-template-columns: 264px 1fr; gap: 40px; padding: 24px 0 80px; }
+.snav { position: sticky; top: 20px; align-self: start; max-height: 90vh; overflow-y: auto;
+        border-right: 1px solid var(--line); padding-right: 12px; }
+.snav .navmod { font: 600 11px 'JetBrains Mono', monospace; color: var(--faint);
+                letter-spacing: .1em; text-transform: uppercase; padding: 12px 8px 6px; }
+.snav a { display: block; padding: 4px 8px; font: 500 12.5px 'JetBrains Mono', monospace;
+          color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.snav a:hover { color: var(--ink); background: rgba(53,200,168,.06); }
+.snav .k { display: inline-block; width: 50px; color: var(--faint); font-size: 11px; }
+.smain pre.sig { font: 13.5px/1.6 'JetBrains Mono', monospace; color: var(--mint);
+                 background: var(--panel); border: 1px solid var(--line2);
+                 padding: 10px 16px; border-radius: 8px; overflow-x: auto; margin: 0 0 8px; }
+.smain pre.sig.m { background: none; border: 0; border-left: 3px solid var(--line2);
+                   border-radius: 0; padding: 2px 16px; margin: 10px 0 4px; color: var(--code); }
+.smain .members { margin-left: 14px; }
+.smain section { margin: 24px 0; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.chips span { font: 500 12.5px 'JetBrains Mono', monospace; color: var(--mint);
+              border: 1px solid var(--line2); border-radius: 999px; padding: 5px 13px; }
+.bars { margin: 20px 0 6px; display: grid; gap: 10px; max-width: 620px; }
+.barrow { display: grid; grid-template-columns: 120px 1fr 60px; align-items: center; gap: 14px; }
+.bl { font: 500 13px Sora, sans-serif; color: var(--dim); }
+.bar { height: 10px; background: var(--panel); border: 1px solid var(--line2); border-radius: 999px;
+       overflow: hidden; }
+.bar > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--mint));
+             transition: width .9s cubic-bezier(.2,.8,.2,1); }
+.bv { font: 600 12.5px 'JetBrains Mono', monospace; color: var(--mint); text-align: right; }
+
+a.card { text-decoration: none; }
+a.card:hover { border-color: var(--accent); }
+
+@media (max-width: 900px) {
+  .tourgrid, .sgrid, .dgrid { grid-template-columns: 1fr; }
+  .tournav, .snav, .dside, .dtoc { position: static; border-right: 0; max-height: none; }
+}
+.copy { margin-left: auto; font: 500 11px 'JetBrains Mono', monospace; color: var(--faint);
+        cursor: pointer; user-select: none; }
+.copy:hover { color: var(--mint); }
+.cwin-bar { display: flex; align-items: center; gap: 10px; }
+.run { font: 500 11px 'JetBrains Mono', monospace; color: var(--mint); border: 1px solid var(--line2);
+       border-radius: 6px; padding: 2px 8px; }
+.run:hover, .run.on { border-color: var(--accent); color: var(--accent); }
+.dtoc-items a.on { color: var(--accent); }

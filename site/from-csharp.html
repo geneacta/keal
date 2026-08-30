@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — Coming from C#</title>
+<meta name="description" content="C#&#x27;s nullable reference types are opt-in and warn; in Keal they are the type system and they refuse. Beyond that: no inheritance, no properties, no LI">
+<link rel="icon" type="image/png" href="assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Home</a><a href="tour.html">Tour</a><a href="docs.html">Docs</a><a href="coming-from.html" class="tab-active">Coming from…</a><a href="stdlib.html">Library</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="fr/from-csharp.html">Français</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Tour of Keal</a><a href="stdlib.html">Standard library</a><a href="coming-from.html" class="on">Coming from another language</a><a href="contributing.html">Contributing</a><div class="grp">LANGUAGE</div><a href="language.html">The complete reference</a><a href="types.html">Types and inference</a><div class="grp">INTERNALS</div><a href="memory.html">The memory model</a><a href="deinit.html">Deterministic deinit</a><a href="threads.html">Threads and actors</a><a href="interop.html">Interop: C to Kotlin</a></div><div class="dmain prose"><h1>Coming from C#</h1><p class="lede">C#'s nullable reference types are opt-in and warn; in Keal they are the type system and they refuse. Beyond that: no inheritance, no properties, no LINQ — but records, pattern matching and string interpolation will all feel like home.</p><div class="tablewrap"><table><thead><tr><th>Concept</th><th>C#</th><th>Keal</th></tr></thead><tbody><tr><td>Record</td><td><code>record P(double X);</code></td><td><code>record P(val x: Float)</code></td></tr><tr><td>Class</td><td><code>class C { int N { get; set; } }</code></td><td><code>class C(var n: Int)</code></td></tr><tr><td>Nullable</td><td><code>string? s</code></td><td><code>val s: String?</code></td></tr><tr><td>Null-coalescing</td><td><code>s ?? &quot;d&quot;</code></td><td><code>s ?: &quot;d&quot;</code></td></tr><tr><td>Null-conditional</td><td><code>s?.Length</code></td><td><code>s?.length</code></td></tr><tr><td>Pattern switch</td><td><code>n switch { 0 =&gt; … }</code></td><td><code>when (n) { 0 -&gt; … }</code></td></tr><tr><td>Type pattern</td><td><code>if (o is Circle c)</code></td><td><code>when (o) { is Circle(r) -&gt; … }</code></td></tr><tr><td>Generic</td><td><code>T First&lt;T&gt;(List&lt;T&gt; xs)</code></td><td><code>fun first&lt;T&gt;(xs: List&lt;T&gt;): T</code></td></tr><tr><td>Interface</td><td><code>interface IOrd</code></td><td><code>trait Ord</code></td></tr><tr><td>Interpolation</td><td><code>$&quot;hello {name}&quot;</code></td><td><code>&quot;hello ${name}&quot;</code></td></tr><tr><td>Async</td><td><code>async Task&lt;T&gt; / await</code></td><td><code>actors: spawn / send / run</code></td></tr></tbody></table></div><h2 id="surprises">What will surprise you</h2><h2 id="nullability-refuses-it-does-not-warn">Nullability refuses, it does not warn</h2><p><code>String</code> and <code>String?</code> are different types, always, with no flag to turn it off and no annotation to forget.</p><h2 id="no-properties-no-hidden-work">No properties, no hidden work</h2><p>A field access is a field access. If something computes, it is a method and it has parentheses.</p><h2 id="no-linq-but-the-methods-are-there">No LINQ, but the methods are there</h2><p><code>map</code>, <code>filter</code>, <code>fold</code>, and a lazy <code>Sequence</code> pipeline written in Keal itself — nothing runs until a terminal operation pulls.</p><h2 id="no-runtime-to-install">No runtime to install</h2><p><code>keal build</code> produces a native executable with no VM under it, and the compiler itself has zero dependencies.</p></div></div>
+<footer class="foot">
+  <div class="foot-l">A statically typed, self-hosting programming language. Built by Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Source on GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribute</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code of conduct</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Security</a>
+  </div>
+</footer>
+</div>
+<script src="site.js"></script>
+</body>
+</html>

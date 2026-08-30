@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — Je viens de C++</title>
+<meta name="description" content="Si vous écrivez du C++ moderne, l&#x27;essentiel du modèle mémoire de Keal vous est familier : &lt;code&gt;shared_ptr&lt;/code&gt; partout, &lt;code&gt;weak_ptr&lt;/code&gt; pour ">
+<link rel="icon" type="image/png" href="../assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="../assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Accueil</a><a href="tour.html">Le tour</a><a href="docs.html">Docs</a><a href="coming-from.html" class="tab-active">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="../from-cpp.html">English</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Le tour de Keal</a><a href="stdlib.html">Bibliothèque standard</a><a href="coming-from.html" class="on">Je viens d'un autre langage</a><a href="contributing.html">Contribuer</a><div class="grp">LANGAGE</div><a href="language.html">La référence complète</a><a href="types.html">Types et inférence</a><div class="grp">INTERNES</div><a href="memory.html">Le modèle mémoire</a><a href="deinit.html">deinit déterministe</a><a href="threads.html">Threads et acteurs</a><a href="interop.html">Interop : de C à Kotlin</a></div><div class="dmain prose"><h1>Je viens de C++</h1><p class="lede">Si vous écrivez du C++ moderne, l'essentiel du modèle mémoire de Keal vous est familier : <code>shared_ptr</code> partout, <code>weak_ptr</code> pour les cycles, des destructeurs déterministes. Ce qui disparaît, c'est le reste de la surface — pas de templates à instancier à la main, pas de résolution de surcharge, pas d'en-têtes, pas de comportement indéfini.</p><div class="tablewrap"><table><thead><tr><th>Concept</th><th>C++</th><th>Keal</th></tr></thead><tbody><tr><td>Objet partagé</td><td><code>shared_ptr&lt;T&gt;</code></td><td><code>the default</code></td></tr><tr><td>Référence faible</td><td><code>weak_ptr&lt;T&gt;</code></td><td><code>weak var f: T?</code></td></tr><tr><td>Destructeur</td><td><code>~T() { }</code></td><td><code>proc deinit() { }</code></td></tr><tr><td>Struct valeur</td><td><code>struct P { double x; };</code></td><td><code>record P(val x: Float)</code></td></tr><tr><td>Template</td><td><code>template&lt;class T&gt; T f(T)</code></td><td><code>fun f&lt;T&gt;(x: T): T</code></td></tr><tr><td>Concept</td><td><code>template&lt;Ord T&gt;</code></td><td><code>fun f&lt;T: Ord&gt;(x: T)</code></td></tr><tr><td>Optionnel</td><td><code>std::optional&lt;T&gt;</code></td><td><code>T?</code></td></tr><tr><td>Lambda</td><td><code>[&amp;](int x){ return x*2; }</code></td><td><code>{ x -&gt; x * 2 }</code></td></tr><tr><td>Exception</td><td><code>throw / catch</code></td><td><code>throw / catch</code></td></tr><tr><td>Surcharge d&#x27;opérateur</td><td><code>operator+</code></td><td><code>trait Add</code></td></tr><tr><td>Espace de noms</td><td><code>namespace a { }</code></td><td><code>one flat namespace, for now</code></td></tr></tbody></table></div><h2 id="surprises">Ce qui vous surprendra</h2><h2 id="templates-without-the-instantiation-errors">Des templates sans les erreurs d&#x27;instanciation</h2><p>Les génériques sont vérifiés une fois à la déclaration, puis monomorphisés. Un générique qui typecheck compile à chaque instanciation — pas de pages d'erreurs venues d'un en-tête.</p><h2 id="no-overloading-one-name-one-meaning">Pas de surcharge, un nom un sens</h2><p>Les opérateurs viennent des traits, et un nom veut dire une chose dans une portée. Cela coûte un peu d'expressivité et rend la lecture d'un site d'appel possible.</p><h2 id="c-links-in-directly">Le C++ s&#x27;édite de liens directement</h2><p>Passez un <code>.cpp</code> sur la ligne <code>keal build</code> : il compile sous <code>c++</code>, le C généré reste C11, et seul l'édition de liens est partagée.</p><h2 id="deterministic-still">Déterministe, toujours</h2><p><code>deinit</code> s'exécute à la frontière d'instruction suivante, le plus jeune d'abord — l'ordre même où une pile d'objets RAII se déroule.</p></div></div>
+<footer class="foot">
+  <div class="foot-l">Un langage de programmation typé statiquement et auto-hébergé. Construit par Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Les sources sur GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribuer</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code de conduite</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Sécurité</a>
+  </div>
+</footer>
+</div>
+<script src="../site.js"></script>
+</body>
+</html>

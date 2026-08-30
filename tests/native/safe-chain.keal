@@ -1,0 +1,66 @@
+// `?.` where the member is a value, not a pointer. `Int?`, `Float?` and
+// `Bool?` are a tag beside the value rather than a nullable address, so the
+// guarded read has to build the absent one and wrap the present one — the
+// C backend used to write `NULL` into both and hand the C compiler a
+// struct it could not initialise.
+//
+// The built-in properties are here for the same reason: under `?.` the
+// receiver's type is `String?`, and the property belongs to the `String` it
+// points at.
+
+class Box(val n: Int, val ratio: Float, val ok: Bool, val label: String) {
+    fun doubled(): Int { this.n * 2 }
+    fun name(): String { this.label }
+}
+
+val some: Box? = Box(21, 1.5, true, "here")
+val none: Box? = null
+
+println(some?.n)
+println(none?.n)
+println(some?.ratio)
+println(none?.ratio)
+println(some?.ok)
+println(none?.ok)
+println(some?.label)
+println(none?.label)
+
+println(some?.doubled())
+println(none?.doubled())
+println(some?.name())
+println(none?.name())
+
+println(some?.n ?: -1)
+println(none?.n ?: -1)
+println(some?.ratio ?: 0.0)
+println(none?.ratio ?: 0.0)
+println(none?.ok ?: false)
+
+val text: String? = "abcd"
+val noText: String? = null
+println(text?.length)
+println(noText?.length)
+println(text?.length ?: 0)
+println(noText?.length ?: 0)
+
+val xs: List<Int>? = [1, 2, 3]
+val noXs: List<Int>? = null
+println(xs?.size)
+println(noXs?.size)
+println(noXs?.size ?: 0)
+
+val ages: Map<String, Int>? = {"ada": 36}
+println(ages?.size)
+
+// A widened literal is a Float everywhere, including in the C the backend
+// writes: `1 / 2` under a `Float` expectation divides floats, and used to
+// divide integers natively and print 0.0.
+val ratio: Float = 1 / 2
+println(ratio)
+val third: Float = 3 / 2
+println(third)
+fun half(x: Float): Float { x }
+println(half(1 / 2))
+println(half(-1 / 2))
+val mixed: Float = 1 + 1 / 4
+println(mixed)

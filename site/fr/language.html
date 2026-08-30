@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — La référence complète</title>
+<meta name="description" content="La référence complète">
+<link rel="icon" type="image/png" href="../assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="../assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Accueil</a><a href="tour.html">Le tour</a><a href="docs.html" class="tab-active">Docs</a><a href="coming-from.html">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="../language.html">English</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Le tour de Keal</a><a href="stdlib.html">Bibliothèque standard</a><a href="coming-from.html">Je viens d'un autre langage</a><a href="contributing.html">Contribuer</a><div class="grp">LANGAGE</div><a href="language.html" class="on">La référence complète</a><a href="types.html">Types et inférence</a><div class="grp">INTERNES</div><a href="memory.html">Le modèle mémoire</a><a href="deinit.html">deinit déterministe</a><a href="threads.html">Threads et acteurs</a><a href="interop.html">Interop : de C à Kotlin</a></div><div class="dmain prose"><div class="callout"><span class="st">✦</span><p>Ce document de référence est rédigé en anglais, la langue de travail du dépôt. Les pages du site — le tour, les guides « je viens de… » et la bibliothèque — existent intégralement dans les deux langues.</p></div><h1 id="the-keal-language">The Keal language</h1>
+<p>Keal is a small, statically typed, garbage-free-by-construction scripting language. It is close in spirit to Kotlin, with a C-family surface syntax: declared types, mandatory braces, classes with primary constructors, and null safety enforced by the type checker.</p>
+<p>Everything below is implemented and covered by the test suite.</p>
+<hr>
+<h2 id="1-files-statements-and-semicolons">1. Files, statements and semicolons</h2>
+<p>A file is a sequence of declarations (<code>fun</code>, <code>class</code>, <code>import</code>) and statements. Statements at the top level run in order; declarations are visible everywhere in the program, including before the line that declares them.</p>
+<pre class="lang-keal"><code>greet()                       // fine: `greet` is declared below
+
+fun greet() { println(&quot;hi&quot;) }</code></pre>
+<p>Semicolons are optional. A newline ends a statement whenever the line so far could be a complete statement, so this works as written:</p>
+<pre class="lang-keal"><code>val a = 1
+val b = 2
+val c = a +
+        b                     // continues: a line cannot end with `+`</code></pre>
+<p>The one consequence worth remembering: <strong>an opening brace must sit on the same line as the construct it belongs to.</strong></p>
+<pre class="lang-keal"><code>fun f() {                     // correct
+}
+
+fun g()
+{                             // error: the newline ended the declaration
+}</code></pre>
+<p>Newlines inside <code>(...)</code> and <code>[...]</code> never end a statement, so argument lists and list literals may be spread over several lines freely.</p>
+<p>Comments are <code>// line</code>, and <code>/* block */</code>, which nests.</p>
+<p>A file may begin with <code>#!/usr/bin/env keal</code>, which is ignored, so a script can be made executable and run directly.</p>
+<hr>
+<h2 id="2-values-and-types">2. Values and types</h2>
+<div class="tablewrap"><table><thead><tr><th>Type</th><th>Values</th><th>Notes</th></tr></thead><tbody><tr><td><code>Int</code></td><td><code>0</code>, <code>-7</code>, <code>1_000_000</code></td><td>64-bit signed; overflow is an error, not a wrap</td></tr><tr><td><code>Float</code></td><td><code>1.5</code>, <code>-0.25</code>, <code>6.02e23</code></td><td>64-bit IEEE 754</td></tr><tr><td><code>Bool</code></td><td><code>true</code>, <code>false</code></td><td></td></tr><tr><td><code>String</code></td><td><code>"text"</code></td><td>immutable, indexed by character</td></tr><tr><td><code>Unit</code></td><td>—</td><td>what a <code>proc</code> produces: nothing. Never written by hand</td></tr><tr><td><code>List&lt;T&gt;</code></td><td><code>[1, 2, 3]</code></td><td>mutable, ordered</td></tr><tr><td><code>Map&lt;K, V&gt;</code></td><td><code>{"a": 1}</code></td><td>mutable, insertion-ordered</td></tr><tr><td><code>Range</code></td><td><code>0..10</code></td><td>half-open: contains 0 through 9</td></tr><tr><td><code>T?</code></td><td><code>null</code> or a <code>T</code></td><td>see <a href="#6-null-safety">null safety</a></td></tr><tr><td><code>(A, B) -&gt; C</code></td><td>lambdas, functions</td><td>first-class function values</td></tr><tr><td><code>Any</code></td><td>anything non-null</td><td>narrow it with <code>is</code> before use</td></tr><tr><td><code>Nothing</code></td><td>—</td><td>the type of an expression that never returns</td></tr></tbody></table></div>
+<h3 id="values-and-references">Values and references</h3>
+<p>There is no <code>int</code> versus <code>Integer</code> in Keal, and nothing to box or unbox. But the types do divide in two, and the difference shows:</p>
+<div class="tablewrap"><table><thead><tr><th></th><th>Types</th><th>Assigning one</th></tr></thead><tbody><tr><td><strong>Values</strong></td><td><code>Int</code>, <code>Float</code>, <code>Bool</code>, <code>Unit</code></td><td>copies it</td></tr><tr><td><strong>References</strong></td><td><code>String</code>, <code>List&lt;T&gt;</code>, <code>Map&lt;K, V&gt;</code>, class and record instances</td><td>shares it</td></tr></tbody></table></div>
+<pre class="lang-keal"><code>var a = 1
+var b = a
+b += 1
+// a is still 1
+
+val xs = [1, 2]
+val ys = xs
+ys.add(3)
+// xs is [1, 2, 3] — the same list</code></pre>
+<p>Strings are references, but immutable, so nothing can observe the sharing. Records are references too, and also immutable, so the same holds. The distinction only becomes visible for <code>List</code>, <code>Map</code>, and a class with a <code>var</code> field — the three things that can change after they are built. When you need an independent copy, build one: <code>xs.slice(0, xs.size)</code>.</p>
+<h3 id="numbers-do-not-convert-implicitly">Numbers do not convert implicitly</h3>
+<p><code>Int</code> and <code>Float</code> are separate types, and Keal will not silently mix them:</p>
+<pre class="lang-keal"><code>val n = 3
+val bad = n / 2.0            // error: `/` cannot be applied to `Int` and `Float`
+val good = n.toFloat() / 2.0 // 1.5</code></pre>
+<p>The one exception is an integer <em>literal</em>, which adapts to a <code>Float</code> context. This is safe because a literal has no other meaning to lose:</p>
+<pre class="lang-keal"><code>val x: Float = 3             // 3.0
+val y: Float = 1 / 2         // 0.5 — the whole literal expression is Float
+val z = 2.0 * 3              // 6.0 — the literal 3 adapts to its neighbour</code></pre>
+<hr>
+<h2 id="3-bindings">3. Bindings</h2>
+<p><code>val</code> binds once; <code>var</code> may be reassigned. The type is inferred from the initializer unless you write it down.</p>
+<pre class="lang-keal"><code>val name = &quot;Ada&quot;             // String
+var count = 0                // Int
+val ratio: Float = 1         // 1.0, thanks to literal adaptation
+count += 1</code></pre>
+<p>An initializer is always required. Parameters and loop variables are immutable, like <code>val</code>.</p>
+<hr>
+<h2 id="4-expressions">4. Expressions</h2>
+<h3 id="operators-tightest-binding-last">Operators, tightest binding last</h3>
+<pre><code>not and or xor xnor nand nor implies
+==  !=   &lt;  &lt;=  &gt;  &gt;=   is   in   ?:   ..   +  -   *  /  %   unary -   . ?. [] ()</code></pre>
+<p><code>+</code> on a <code>String</code> appends the rendered form of whatever is on the right (<code>"n = " + 3</code>).</p>
+<h3 id="the-eight-logical-connectives">The eight logical connectives</h3>
+<p>Keal has a native operator for each of the eight two-valued connectives. The recommended spelling is the word; the familiar symbols are accepted aliases for four of them, and mean exactly the same thing.</p>
+<div class="tablewrap"><table><thead><tr><th></th><th>Written</th><th>Alias</th><th>True when</th></tr></thead><tbody><tr><td>NOT</td><td><code>not a</code></td><td><code>!a</code></td><td><code>a</code> is false</td></tr><tr><td>AND</td><td><code>a and b</code></td><td><code>a &amp;&amp; b</code></td><td>both</td></tr><tr><td>OR</td><td><code>a or b</code></td><td>`a \</td><td>\</td><td>b`</td><td>either</td></tr><tr><td>XOR</td><td><code>a xor b</code></td><td><code>a ^ b</code></td><td>exactly one</td></tr><tr><td>XNOR</td><td><code>a xnor b</code></td><td>—</td><td>both or neither</td></tr><tr><td>NAND</td><td><code>a nand b</code></td><td>—</td><td>not both</td></tr><tr><td>NOR</td><td><code>a nor b</code></td><td>—</td><td>neither</td></tr><tr><td>IMPLIES</td><td><code>a implies b</code></td><td>—</td><td><code>b</code> holds whenever <code>a</code> does</td></tr></tbody></table></div>
+<p>All eight are reserved words.</p>
+<p><strong>No relative precedence.</strong> This is the rule that most distinguishes Keal from its neighbours: <strong>no connective binds tighter than any other.</strong> Two different ones side by side is a syntax error, and the parentheses are required even in the case every other language settles silently:</p>
+<pre class="lang-koda"><code>a or b and c            // error: `or` and `and` need parentheses
+(a or b) and c          // fine
+a or (b and c)          // fine — and a different value</code></pre>
+<p>Most languages give <code>and</code> precedence over <code>or</code> by convention inherited from arithmetic. With eight connectives in play that convention stops carrying its weight: nobody reliably knows how <code>nand</code> ranks against <code>implies</code>. Rather than invent an order and expect it to be remembered, Keal asks.</p>
+<p>Repeating one connective is allowed exactly where it cannot change the meaning — that is, where the operator is associative:</p>
+<pre class="lang-koda"><code>a and b and c           // fine
+a xor b xor c           // fine
+a nand b nand c         // error: `nand` does not chain
+a implies b implies c   // error: group it explicitly</code></pre>
+<p><code>nand</code> and <code>nor</code> are not associative: <code>(a nand b) nand c</code> and <code>a nand (b nand c)</code> differ. <code>implies</code> is right-associative in logic, but that is a convention Keal declines to assume on your behalf.</p>
+<p>Comparison and arithmetic still bind tighter than every connective, so the ordinary case needs no parentheses at all:</p>
+<pre class="lang-koda"><code>1 &lt; 2 and 3 &gt; 2         // (1 &lt; 2) and (3 &gt; 2)</code></pre>
+<p><code>not</code> is unary and binds as tightly as <code>!</code> always has, tighter than any binary connective: <code>not a and b</code> is <code>(not a) and b</code>.</p>
+<p><strong>Short-circuiting.</strong> <code>and</code>, <code>or</code>, <code>nand</code>, <code>nor</code> and <code>implies</code> stop as soon as the left operand settles the answer:</p>
+<pre class="lang-koda"><code>false nand slow()      // true, slow() never runs
+true nor slow()        // false
+false implies slow()   // true — an implication with a false premise holds</code></pre>
+<p><code>xor</code> and <code>xnor</code> <strong>always</strong> evaluate both operands: neither can be decided from one side alone.</p>
+<p><strong><code>implies</code> and null checks.</strong> Because the right operand of <code>implies</code> is only reached when the left one is true, a null check on the left carries across it:</p>
+<pre class="lang-koda"><code>fun nonEmpty(s: String?): Bool { s != null implies s.length &gt; 0 }</code></pre>
+<h3 id="blocks-are-expressions">Blocks are expressions</h3>
+<p>The value of a block is the value of its last expression. This is why <code>if</code> and <code>when</code> can produce values, and why <code>return</code> is optional at the end of a function.</p>
+<pre class="lang-keal"><code>val size = if (n &lt; 10) { &quot;small&quot; } else { &quot;large&quot; }
+
+val computed = if (ready) {
+    val a = 2
+    val b = 3
+    a * b                    // the block&#x27;s value
+} else {
+    0
+}
+
+fun double(n: Int): Int { n * 2 }   // no `return` needed</code></pre>
+<p>Braces are mandatory on <code>if</code>, <code>while</code> and <code>for</code> bodies. An <code>if</code> used as a value must have an <code>else</code>.</p>
+<h3 id="unless"><code>unless</code></h3>
+<p><code>unless (c)</code> is <code>if (not c)</code>, and is the same construct in every other respect: it takes an <code>else</code>, it works as an expression, and it narrows types the same way.</p>
+<pre class="lang-keal"><code>proc log(s: String, quiet: Bool) {
+    unless (quiet) { println(s) }
+}
+
+val parity = unless (n % 2 == 0) { &quot;odd&quot; } else { &quot;even&quot; }</code></pre>
+<p>It reads best as a guard, where <code>if (not ...)</code> needs a moment's thought:</p>
+<pre class="lang-keal"><code>fun lengthOf(s: String?): Int {
+    unless (s != null) { return 0 }
+    return s.length              // narrowed, exactly as after an `if`
+}</code></pre>
+<p>Chains mix the two freely:</p>
+<pre class="lang-keal"><code>if (n &gt; 100) {
+    &quot;huge&quot;
+} else unless (n &gt; 10) {
+    &quot;small&quot;
+} else {
+    &quot;medium&quot;
+}</code></pre>
+<h3 id="when"><code>when</code></h3>
+<p>With a subject, <code>when</code> compares against it; without one, it is a chain of conditions. The first matching arm wins.</p>
+<pre class="lang-keal"><code>when (n) {
+    0 -&gt; &quot;zero&quot;
+    1, 2, 3 -&gt; &quot;small&quot;       // several values in one arm
+    in 4..10 -&gt; &quot;medium&quot;     // a range
+    is String -&gt; &quot;text&quot;      // a type test
+    else -&gt; &quot;other&quot;
+}
+
+when {
+    n &lt; 0 -&gt; &quot;negative&quot;
+    n == 0 -&gt; &quot;zero&quot;
+    else -&gt; &quot;positive&quot;
+}</code></pre>
+<p>An arm's body is a single expression, or a <code>{ ... }</code> block.</p>
+<p>An arm may carry a <strong>guard</strong>: a further condition, judged after the arm's bindings are in scope.</p>
+<pre class="lang-keal"><code>when (shape) {
+    is Circle(r) if (r &gt; 10.0) -&gt; &quot;huge circle&quot;
+    is Circle(r) -&gt; &quot;circle ${r}&quot;
+    else -&gt; &quot;something else&quot;
+}</code></pre>
+<p>A <code>when</code> that produces a value needs an <code>else</code> arm. A guarded arm never counts as that <code>else</code>, because it might not fire — and for the same reason, what a guarded arm rules out is not assumed by the arms below it.</p>
+<h3 id="raw-strings">Raw strings</h3>
+<p><code>"""..."""</code> is a raw string: it may span lines, nothing escapes, nothing interpolates. It is for text meant to be passed through whole — the C inside a <code>native</code> block, a fragment of another language, a block of test input.</p>
+<h3 id="string-interpolation">String interpolation</h3>
+<pre class="lang-keal"><code>val name = &quot;Ada&quot;
+println(&quot;hello ${name}, ${1 + 2} things&quot;)
+println(&quot;short form: $name&quot;)
+println(&quot;a literal dollar: \$5&quot;)</code></pre>
+<p>Escapes: <code>\n</code>, <code>\t</code>, <code>\r</code>, <code>\0</code>, <code>\\</code>, <code>\"</code>, <code>\$</code>, and <code>\u{1F600}</code>.</p>
+<h3 id="lambdas">Lambdas</h3>
+<p>A <code>{ ... }</code> in expression position is a lambda. Parameter types are inferred from the context; a lambda with no parameter list takes one implicit parameter named <code>it</code>.</p>
+<pre class="lang-keal"><code>val double = { x: Int -&gt; x * 2 }
+xs.map({ n -&gt; n + 1 })       // n is inferred as the element type
+xs.map({ it * 2 })           // the implicit `it`
+val now = { -&gt; time() }      // no parameters</code></pre>
+<p>A lambda's value is its last expression. <code>return</code> inside a lambda is an error, because it would be ambiguous about which function it leaves.</p>
+<p>Lambdas close over variables, not values:</p>
+<pre class="lang-keal"><code>fun counter(): () -&gt; Int {
+    var n = 0
+    return { -&gt; n += 1; n }
+}
+val next = counter()
+next()                       // 1
+next()                       // 2</code></pre>
+<hr>
+<h2 id="5-statements">5. Statements</h2>
+<pre class="lang-keal"><code>while (cond) { ... }
+for (x in xs) { ... }        // over List, Map (keys), String (characters), Range
+break
+continue
+return                       // or `return value`</code></pre>
+<p><code>for</code> walks a snapshot of the collection, so mutating it inside the loop cannot invalidate the iteration.</p>
+<hr>
+<h2 id="6-null-safety">6. Null safety</h2>
+<p>A type does not admit <code>null</code> unless you write <code>?</code>. The checker will not let a nullable value be used as if it were not.</p>
+<pre class="lang-keal"><code>var maybe: String? = null
+maybe.length                 // error: `String?` may be null</code></pre>
+<p>Four ways to get from <code>T?</code> to <code>T</code>:</p>
+<pre class="lang-keal"><code>maybe?.length                // safe call — the whole expression is Int?
+maybe ?: &quot;default&quot;           // elvis — a fallback value
+maybe!!                      // assert non-null; fails at run time if it is
+if (maybe != null) { maybe.length }   // smart cast</code></pre>
+<h3 id="smart-casts">Smart casts</h3>
+<p>After a check that proves a fact about an <strong>immutable</strong> binding, that fact holds for the rest of the branch:</p>
+<pre class="lang-keal"><code>if (s != null) { s.length }             // narrowed inside the branch
+if (s == null) { return }
+s.length                                // narrowed for the rest of the block
+s != null &amp;&amp; s.length &gt; 0               // narrowed in the right operand
+if (v is String) { v.toUpper() }        // `is` narrows too</code></pre>
+<p>A <code>var</code> is never narrowed — anything the branch calls could reassign it. Copy it into a <code>val</code> first, and the checker will say so.</p>
+<h3 id="is"><code>is</code></h3>
+<p><code>is</code> tests a value's outer type at run time; <code>!is</code> is its negation. Only what survives to run time can be tested — the outer shape — so <code>is List&lt;Int&gt;</code>, <code>is T</code> and <code>is (Int) -&gt; Int</code> are each rejected with the reason, while <code>is List</code> and a bare class name are accepted:</p>
+<pre class="lang-keal"><code>fun describe(v: Any): String {
+    return when (v) {
+        is Int -&gt; &quot;int ${v + 1}&quot;
+        is List -&gt; &quot;list of ${v.size}&quot;
+        else -&gt; typeOf(v)
+    }
+}</code></pre>
+<hr>
+<h2 id="7-functions">7. Functions</h2>
+<p>Keal has two declaration words, and which one you use says whether there is a result:</p>
+<pre class="lang-keal"><code>fun add(a: Int, b: Int): Int { a + b }      // produces a value, and says which
+
+proc greet(name: String) {                    // produces nothing
+    println(&quot;hello, ${name}&quot;)
+}</code></pre>
+<p>A <code>fun</code> <strong>must</strong> declare what it returns. A <code>proc</code> <strong>cannot</strong>: it returns nothing, so there is no <code>Unit</code> or <code>void</code> to write anywhere in the language. The rule is enforced both ways — <code>fun f(n: Int) { ... }</code> and <code>proc f(n: Int): Int { ... }</code> are each rejected at the declaration.</p>
+<p>A <code>proc</code> may still <code>return</code> early, just with no value:</p>
+<pre class="lang-keal"><code>proc maybeLog(s: String, keep: Bool) {
+    if (not keep) { return }
+    println(s)
+}</code></pre>
+<p>The result of a <code>proc</code> cannot be used, because there is none:</p>
+<pre class="lang-keal"><code>val x = greet(&quot;Ada&quot;)        // error: expression produces no value
+println(greet(&quot;Ada&quot;))       // error: argument `value` produces no value</code></pre>
+<p>Everything below is the same for both, so it says <code>fun</code> and means either.</p>
+<pre class="lang-keal"><code>fun greet(name: String, greeting: String = &quot;hello&quot;): String {
+    return &quot;${greeting}, ${name}!&quot;
+}</code></pre>
+<p>Parameter types are mandatory. Defaults may refer to earlier parameters. Arguments may be passed by name, in any order, and named arguments must come after positional ones:</p>
+<pre class="lang-keal"><code>greet(&quot;Ada&quot;)
+greet(&quot;Ada&quot;, greeting = &quot;hi&quot;)
+greet(greeting = &quot;hi&quot;, name = &quot;Ada&quot;)</code></pre>
+<p>Functions are values, and may be nested:</p>
+<pre class="lang-keal"><code>fun apply(x: Int, f: (Int) -&gt; Int): Int { f(x) }
+apply(5, { it * it })                    // 25
+
+fun outer(base: Int): Int {
+    fun inner(k: Int): Int { base + k }  // captures `base`
+    return inner(1) + inner(2)
+}</code></pre>
+<p>A function with a declared return type must produce one on every path, either by <code>return</code> or as its last expression.</p>
+<hr>
+<h2 id="8-classes">8. Classes</h2>
+<pre class="lang-keal"><code>class Point(val x: Float, val y: Float) {
+    val magnitude: Float = sqrt(x * x + y * y)   // sees constructor parameters
+    var label: String = &quot;?&quot;
+
+    fun plus(other: Point): Point {
+        return Point(this.x + other.x, this.y + other.y)
+    }
+
+    fun toString(): String { &quot;${this.label}(${this.x}, ${this.y})&quot; }
+}
+
+val p = Point(3.0, 4.0)
+p.label = &quot;P&quot;
+println(p)                  // P(3.0, 4.0)</code></pre>
+<ul><li>Constructor parameters marked <code>val</code>/<code>var</code> become fields; unmarked ones are visible only to field initializers.</li><li>Field initializers run top to bottom and may use <code>this</code> and the fields above them.</li><li>Members are always accessed through <code>this</code> inside a method.</li><li>A class with no body needs no braces: <code>class Pair(val a: Int, val b: String)</code>.</li><li>Defining <code>fun toString(): String</code> changes how <code>println</code> and interpolation render the instance; otherwise they print <code>Point(x=3.0, y=4.0)</code>.</li><li>Instances compare by <strong>identity</strong>. Structural comparison would loop forever on a cyclic object graph, so <code>==</code> on two separately built instances is <code>false</code>.</li><li>There is no inheritance, no interfaces and no static members yet.</li></ul>
+<p>Classes may only be declared at the top level.</p>
+<hr>
+<h2 id="9-records">9. Records</h2>
+<p>A record is a class whose shape already decides its behaviour: every constructor parameter is a field, all of them immutable, and <code>==</code> compares them one by one.</p>
+<pre class="lang-keal"><code>record Point(val x: Int, val y: Int)
+record Person(name: String, age: Int)      // `val` is implied, and optional
+record Empty()
+
+Point(1, 2) == Point(1, 2)                 // true — a class would say false
+Point(1, 2).toString()                     // &quot;Point(x=1, y=2)&quot;</code></pre>
+<p>A record may declare methods, take type parameters and implement traits, like any other class:</p>
+<pre class="lang-keal"><code>record Version(val major: Int, val minor: Int) : Ord {
+    fun compareTo(other: Version): Int {
+        if (this.major != other.major) { return this.major - other.major }
+        return this.minor - other.minor
+    }
+}
+
+Version(2, 0) &gt; Version(1, 9)              // Ord, written by you
+Version(1, 0) == Version(1, 0)             // Eq, written for you</code></pre>
+<p>What a record gives you is exactly one thing: an <code>Eq</code> implementation that compares field by field, and the <code>Eq</code> in its trait list. Write your own <code>equals</code> and yours is used instead.</p>
+<p>That comparison is safe here in a way it would not be for a class. A record's fields are immutable and set at construction, so no cycle can be built for the comparison to fall into — which is why a plain class keeps identity equality unless you opt in.</p>
+<p>Records cannot have <code>var</code> fields, in the constructor or in the body. If the data has to change, use a <code>class</code>.</p>
+<h3 id="destructuring">Destructuring</h3>
+<p>A binding may name a value's constructor fields instead of the value:</p>
+<pre class="lang-keal"><code>record Point(val x: Int, val y: Int)
+
+val Point(x, y) = Point(3, 4)     // x is 3, y is 4
+val Point(_, only) = p            // `_` skips a field
+var Point(mx, my) = p             // `var` makes them assignable</code></pre>
+<p>The pattern lists the <strong>constructor</strong> fields, in order, and must name all of them. A field declared in the class body is not positional and takes no part. Classes with a primary constructor destructure as readily as records.</p>
+<p>In a <code>when</code> arm, <code>is T(...)</code> tests the type and binds in one move:</p>
+<pre class="lang-keal"><code>fun area(shape: Any): Float {
+    return when (shape) {
+        is Circle(r) -&gt; 3.14159 * r * r
+        is Square(s) -&gt; s * s
+        else -&gt; 0.0
+    }
+}</code></pre>
+<p>The bindings belong to that arm, so a later arm may reuse the names.</p>
+<p>A generic class can be tested but not at particular type arguments — they do not survive to run time — so <code>is Pair(a, b)</code> is accepted, binds <code>a</code> and <code>b</code> as <code>Any</code>, and <code>is Pair&lt;Int, Int&gt;(a, b)</code> is rejected.</p>
+<h3 id="tuples">Tuples</h3>
+<p>Several values of different types travel together as a tuple, without having to declare a record for them:</p>
+<pre class="lang-keal"><code>fun divmod(a: Int, b: Int): (Int, Int) {
+    return a / b, a % b        // no parentheses needed after `return`
+}
+
+val (q, r) = divmod(17, 5)     // q is 3, r is 2</code></pre>
+<p><code>(A, B)</code> is the type, <code>(a, b)</code> the value, and <code>val (a, b) = t</code> names its elements. A tuple holds between two and five values; beyond that, declare a record, because past five a position stops being memorable and a name starts earning its keep.</p>
+<p>A tuple is an ordinary record underneath, so everything records do it does:</p>
+<pre class="lang-keal"><code>val pair = (1, &quot;one&quot;)
+pair.first                     // 1
+pair.second                    // &quot;one&quot;
+pair == (1, &quot;one&quot;)             // true — compared by value
+pair.toString()                // &quot;(1, \&quot;one\&quot;)&quot;
+
+val pairs: List&lt;(Int, String)&gt; = [(1, &quot;a&quot;), (2, &quot;b&quot;)]</code></pre>
+<p>They nest, though a <em>pattern</em> does not: bind the inner value, then destructure it.</p>
+<pre class="lang-keal"><code>val nested = ((1, 2), &quot;outer&quot;)
+val (inner, tag) = nested
+val (a, b) = inner</code></pre>
+<p>Two things tuples deliberately do not replace. A group of values that share a type is a <strong>list</strong>, <code>[a, b, c]</code>. And to take the first of several values that is present, <code>?:</code> already does exactly that, anywhere rather than only in a <code>return</code>:</p>
+<pre class="lang-keal"><code>return a ?: b ?: c ?: &quot;none&quot;</code></pre>
+<h2 id="10-generics">10. Generics</h2>
+<p>Functions and classes may take type parameters. They are written after the name, as in <code>fun name&lt;T&gt;(...)</code> and <code>class Box&lt;T&gt;</code>:</p>
+<pre class="lang-koda"><code>fun firstOr&lt;T&gt;(xs: List&lt;T&gt;, fallback: T): T {
+    for (x in xs) { return x }
+    return fallback
+}
+
+fun mapAll&lt;T, R&gt;(xs: List&lt;T&gt;, f: (T) -&gt; R): List&lt;R&gt; {
+    val out: List&lt;R&gt; = []
+    for (x in xs) { out.add(f(x)) }
+    return out
+}
+
+class Box&lt;T&gt;(val value: T) {
+    fun get(): T { this.value }
+    fun then&lt;R&gt;(f: (T) -&gt; R): Box&lt;R&gt; { Box(f(this.value)) }
+}</code></pre>
+<p>Type arguments are inferred from the call, one argument at a time, so a later lambda knows the type an earlier argument fixed:</p>
+<pre class="lang-koda"><code>mapAll([1, 2, 3], { it * 10 })     // T = Int, then R = Int
+mapAll([&quot;a&quot;, &quot;bb&quot;], { it.length }) // T = String, then R = Int</code></pre>
+<p>When the arguments cannot settle a parameter, the surrounding annotation can:</p>
+<pre class="lang-koda"><code>val empty: Stack&lt;Int&gt; = Stack()</code></pre>
+<p><strong>Every type parameter must come out concrete.</strong> Keal is meant to compile by monomorphisation — a generic is emitted once per instantiation — so there is no boxed representation to fall back on when inference comes up short. Two consequences follow:</p>
+<ul><li>A generic function cannot be used as a value; it must be called.</li><li><code>is T</code> is rejected: a type parameter has no run-time identity to test.</li></ul>
+<h2 id="11-traits">11. Traits</h2>
+<p>A trait is a named set of method signatures. It is what type-parameter bounds are written in.</p>
+<pre class="lang-koda"><code>trait Show {
+    fun show(): String
+    fun shout(): String { this.show().toUpper() }   // a default body
+}
+
+trait Ordered {
+    fun compareTo(other: Self): Int
+}
+
+class Version(val major: Int, val minor: Int) : Show, Ordered {
+    fun show(): String { &quot;v${this.major}.${this.minor}&quot; }
+    fun compareTo(other: Version): Int {
+        if (this.major != other.major) { return this.major - other.major }
+        return this.minor - other.minor
+    }
+}</code></pre>
+<ul><li>A method with a body is a <strong>default</strong>: an implementer inherits it, or overrides it by declaring its own.</li><li><code>Self</code> stands for the implementing type. In <code>Version</code>, <code>compareTo</code> takes a <code>Version</code>.</li><li>The checker verifies that every required method is present and that its signature matches once <code>Self</code> is read as the class.</li></ul>
+<p>A <strong>bound</strong> makes a trait's methods reachable through a type parameter. Several bounds are joined with <code>+</code>:</p>
+<pre class="lang-koda"><code>fun describe&lt;T: Show&gt;(value: T): String { value.show() }
+
+fun loudest&lt;T: Show + Ordered&gt;(a: T, b: T): String {
+    return if (a.compareTo(b) &gt; 0) { a.shout() } else { b.shout() }
+}</code></pre>
+<p>Without a bound, nothing is known about a type parameter and no method can be called on it. Bounds apply to classes too: <code>class Labelled&lt;T: Show&gt;(...)</code>.</p>
+<p>A default method's body is checked in each class that inherits it, not once in the abstract — the same rule C++ templates follow. A trait nobody implements is therefore never type-checked.</p>
+<h2 id="12-operator-overloading">12. Operator overloading</h2>
+<p>Operators are wired to the traits the prelude declares. A class that implements one gains the operator; nothing else changes.</p>
+<div class="tablewrap"><table><thead><tr><th>Operator</th><th>Trait</th><th>Method</th></tr></thead><tbody><tr><td><code>a + b</code></td><td><code>Add</code></td><td><code>fun plus(other: Self): Self</code></td></tr><tr><td><code>a - b</code></td><td><code>Sub</code></td><td><code>fun minus(other: Self): Self</code></td></tr><tr><td><code>a * b</code></td><td><code>Mul</code></td><td><code>fun times(other: Self): Self</code></td></tr><tr><td><code>a / b</code></td><td><code>Div</code></td><td><code>fun div(other: Self): Self</code></td></tr><tr><td><code>a % b</code></td><td><code>Rem</code></td><td><code>fun rem(other: Self): Self</code></td></tr><tr><td><code>-a</code></td><td><code>Neg</code></td><td><code>fun negate(): Self</code></td></tr><tr><td><code>a == b</code>, <code>a != b</code></td><td><code>Eq</code></td><td><code>fun equals(other: Self): Bool</code></td></tr><tr><td><code>a &lt; b</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code></td><td><code>Ord</code></td><td><code>fun compareTo(other: Self): Int</code></td></tr></tbody></table></div>
+<pre class="lang-koda"><code>class Vec2(val x: Float, val y: Float) : Add, Neg, Eq {
+    fun plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
+    fun negate(): Vec2 { Vec2(-this.x, -this.y) }
+    fun equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
+}
+
+Vec2(1.0, 2.0) + Vec2(3.0, 4.0)     // Vec2(4.0, 6.0)</code></pre>
+<p><code>a + b</code> on a class is <em>rewritten</em> into <code>a.plus(b)</code>, and <code>a &lt; b</code> into <code>a.compareTo(b) &lt; 0</code>. The methods stay ordinary methods: you can call <code>a.plus(b)</code> yourself.</p>
+<p><strong>Equality is the exception.</strong> <code>==</code> already works on every type by comparing identity, so a class without <code>Eq</code> is not an error — it simply keeps comparing identity, and two separately built instances are never equal. Implementing <code>Eq</code> is how a class opts into structural equality.</p>
+<p><strong>The built-in types implement these traits too.</strong> <code>Int</code> and <code>Float</code> provide all of them, <code>String</code> provides <code>Add</code>, <code>Eq</code> and <code>Ord</code>, and <code>Bool</code> provides <code>Eq</code>. So a bound is satisfied by a built-in as readily as by your own type:</p>
+<pre class="lang-koda"><code>fun total&lt;T: Add&gt;(xs: List&lt;T&gt;, zero: T): T {
+    var acc = zero
+    for (x in xs) { acc = acc + x }
+    return acc
+}
+
+total([1, 2, 3], 0)                      // 6
+total([&quot;a&quot;, &quot;b&quot;], &quot;&quot;)                    // &quot;ab&quot;
+total([Vec2(1.0, 1.0)], Vec2(0.0, 0.0))  // Vec2(1.0, 1.0)</code></pre>
+<p>Only a class or a bounded type parameter goes through a method call. <code>1 + 2</code> is added directly; the built-in implementations exist so that generic code — which <em>is</em> rewritten — has something to land on.</p>
+<h2 id="13-modules">13. Modules</h2>
+<pre class="lang-keal"><code>import &quot;./geometry.keal&quot;</code></pre>
+<p>Paths are relative to the importing file. Everything the imported file declares becomes visible; there is one flat namespace. A file is loaded at most once, so diamond imports and cycles are both fine.</p>
+<hr>
+<h2 id="14-standard-library">14. Standard library</h2>
+<h3 id="free-functions">Free functions</h3>
+<div class="tablewrap"><table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><code>println(value)</code> <code>print(value)</code></td><td>write to standard output</td></tr><tr><td><code>readLine(): String?</code></td><td>one line of input, <code>null</code> at end of file</td></tr><tr><td><code>panic(message): Nothing</code></td><td>abort with an error</td></tr><tr><td><code>assert(condition, message = ...)</code></td><td>abort unless the condition holds</td></tr><tr><td><code>typeOf(value): String</code></td><td>the value's run-time type name</td></tr><tr><td><code>abs(x)</code> <code>min(a, b)</code> <code>max(a, b)</code></td><td><code>Int</code> or <code>Float</code>, matching the arguments</td></tr><tr><td><code>sqrt(x)</code> <code>pow(base, exp)</code></td><td><code>Float</code></td></tr><tr><td><code>floor(x)</code> <code>ceil(x)</code> <code>round(x)</code></td><td><code>Float</code> to <code>Int</code></td></tr><tr><td><code>random(): Float</code></td><td>in <code>[0, 1)</code></td></tr><tr><td><code>randomInt(min, max): Int</code></td><td>in <code>[min, max)</code></td></tr><tr><td><code>time(): Float</code></td><td>seconds since the Unix epoch</td></tr></tbody></table></div>
+<h3 id="string"><code>String</code></h3>
+<p><code>.length</code> · <code>isEmpty</code> · <code>substring(start, end)</code> · <code>take(n)</code> · <code>drop(n)</code> · <code>get(i)</code> · <code>split(sep)</code> · <code>trim</code> · <code>toUpper</code> · <code>toLower</code> · <code>reversed</code> · <code>repeat(n)</code> · <code>replace(old, new)</code> · <code>contains(s)</code> · <code>startsWith(s)</code> · <code>endsWith(s)</code> · <code>indexOf(s)</code> · <code>chars()</code> · <code>toInt(): Int?</code> · <code>toFloat(): Float?</code></p>
+<p>Strings are indexed by character, not byte: <code>"héllo".length</code> is 5 and <code>"héllo"[1]</code> is <code>"é"</code>. Negative indices count from the end.</p>
+<h3 id="int-and-float"><code>Int</code> and <code>Float</code></h3>
+<p><code>Int</code>: <code>toFloat</code> · <code>abs</code> · <code>min(other)</code> · <code>max(other)</code> · <code>pow(exp)</code> · <code>toChar</code> <code>Float</code>: <code>toInt</code> · <code>floor</code> · <code>ceil</code> · <code>round</code> · <code>abs</code> · <code>sqrt</code> · <code>min</code> · <code>max</code> · <code>pow</code> · <code>isNaN</code></p>
+<p><code>toInt</code> truncates towards zero.</p>
+<h3 id="list-t"><code>List&lt;T&gt;</code></h3>
+<p><code>.size</code> · <code>isEmpty</code> · <code>add(v)</code> · <code>addAll(other)</code> · <code>insert(i, v)</code> · <code>get(i)</code> · <code>set(i, v)</code> · <code>removeAt(i)</code> · <code>clear</code> · <code>contains(v)</code> · <code>indexOf(v)</code> · <code>first(): T?</code> · <code>last(): T?</code> · <code>map(f)</code> · <code>flatMap(f)</code> · <code>filter(f)</code> · <code>forEach(f)</code> · <code>any(f)</code> · <code>all(f)</code> · <code>none(f)</code> · <code>find(f): T?</code> · <code>count(f)</code> · <code>fold(initial, f)</code> · <code>sorted</code> · <code>sortedBy(key)</code> · <code>reversed</code> · <code>slice(a, b)</code> · <code>take(n)</code> · <code>drop(n)</code> · <code>join(sep = ", ")</code> · <code>sum</code></p>
+<p>Lists are reference values: assigning one does not copy it. <code>xs[i]</code> accepts negative indices. <code>sorted</code> works on <code>Int</code>, <code>Float</code>, <code>String</code> and <code>Bool</code>.</p>
+<h3 id="map-k-v"><code>Map&lt;K, V&gt;</code></h3>
+<p><code>.size</code> · <code>isEmpty</code> · <code>get(k): V?</code> · <code>set(k, v)</code> · <code>remove(k): V?</code> · <code>containsKey(k)</code> · <code>keys(): List&lt;K&gt;</code> · <code>values(): List&lt;V&gt;</code> · <code>clear</code></p>
+<p><code>m[k]</code> reads as <code>V?</code>, because the key may be missing. Keys must be <code>Int</code>, <code>Float</code>, <code>String</code>, <code>Bool</code> or <code>null</code>. Iteration order is insertion order.</p>
+<h3 id="range"><code>Range</code></h3>
+<p><code>.start</code> · <code>.end</code> · <code>contains(n)</code> · <code>isEmpty</code> · <code>toList()</code></p>
+<h3 id="everything">Everything</h3>
+<p><code>toString(): String</code> — the same rendering <code>println</code> uses.</p>
+<hr>
+<h2 id="15-errors">15. Errors</h2>
+<p>The checker reports every independent error it can find in one pass, sorted by source position:</p>
+<pre><code>error: `String?` may be null, so `.length` is not allowed
+  --&gt; src/main.keal:2:14
+  |
+2 |     return s.length
+  |              ^
+  = note: use `?.`, `!!`, or check for null first</code></pre>
+<p>At run time, the failures the type system cannot rule out — division by zero, an index out of range, <code>!!</code> on null, runaway recursion — abort with a message and a call stack.</p>
+<hr>
+<h2 id="16-how-a-program-runs">16. How a program runs</h2>
+<p>Keal compiles to bytecode and runs it on a virtual machine. That is an implementation detail with one visible consequence: <code>keal --ast file.keal</code> runs the same program on the tree-walking evaluator instead, and the two are required to agree on every byte they print. If they ever do not, that is a bug — please report it with the program that shows it.</p>
+<h2 id="17-calling-c-and-c">17. Calling C and C++</h2>
+<p>A <code>native</code> block passes text verbatim into the C that <code>keal build</code> generates: headers, inline helper functions, declarations. <code>extern fun</code> then binds a symbol with a signature the checker enforces at every call:</p>
+<pre class="lang-keal"><code>native &quot;&quot;&quot;
+#include &lt;math.h&gt;
+static int64_t triple(int64_t n) { return n * 3; }
+&quot;&quot;&quot;
+
+extern fun sin(x: Float): Float
+extern fun triple(n: Int): Int
+extern fun pow(base: Float, exponent: Float): Float = &quot;pow&quot;</code></pre>
+<p>The <code>= "symbol"</code> names the C symbol when it differs from the Keal name.</p>
+<p>Three rules, each there for a reason:</p>
+<ul><li><strong>Only <code>Int</code>, <code>Float</code> and <code>Bool</code> cross.</strong> They carry no ownership, so neither side has to guess who frees what — the boundary <code>docs/memory.md</code> section 6 drew. Strings and objects will need an explicit ownership story before they cross; refusing now beats leaking later.</li><li><strong>Every symbol must be declared</strong> — by an included header or by the <code>native</code> block itself. Keal does not guess prototypes, because a guessed prototype that disagrees with a header is exactly the kind of quiet miscompilation this backend refuses on principle.</li><li><strong>Extern functions run natively only.</strong> The interpreters refuse a call by name and point at <code>keal build</code>.</li></ul>
+<p>C++ goes in its own files, behind <code>extern "C"</code>:</p>
+<pre class="lang-cpp"><code>// helpers.cpp — C++ freely inside, C linkage at the boundary
+extern &quot;C&quot; int64_t fib_cpp(int64_t n) { /* std::vector, whatever */ }</code></pre>
+<pre class="lang-sh"><code>keal build program.keal helpers.cpp     # links with c++ automatically</code></pre>
+<p>The generated core stays C11 either way; only the link changes.</p>
+<h2 id="18-editor-support">18. Editor support</h2>
+<p><a href="https://github.com/geneacta/keal/blob/main/editors/vscode"><code>editors/vscode</code></a> holds a Visual Studio Code extension: highlighting, bracket and indent behaviour, snippets, and a problem matcher that reads <code>keal check</code> output so diagnostics land on the right line.</p>
+<p>There is no language server yet, so there is no completion or go-to-definition. The grammar is a standard TextMate file that Sublime Text, Zed and others read directly.</p>
+<h2 id="19-how-values-are-represented">19. How values are represented</h2>
+<p><code>Int</code>, <code>Float</code>, <code>Bool</code>, <code>Unit</code> and <code>Range</code> are values and copy on assignment. <code>String</code>, <code>List</code>, <code>Map</code>, functions and instances are references, shared and reference-counted.</p>
+<p>That is all a program needs to know. If you are interested in the bytes — sizes, field offsets, what <code>T?</code> costs, what crosses into C — run <code>keal layout file.keal</code>, and see <a href="memory.html"><code>docs/memory.md</code></a>.</p>
+<h2 id="19-weak-fields">19½. <code>weak</code> fields</h2>
+<p>A field may be declared <code>weak</code>, before <code>val</code> or <code>var</code>. It points at its target without keeping it alive, which is how a cycle's back edge is written — counting alone can never free a cycle, and since <code>deinit</code> exists a cycle also silently skips its destructors.</p>
+<pre class="lang-keal"><code>class Item(val id: Int) {
+    weak var owner: Owner? = null    // points back, does not hold on
+}
+class Owner(val id: Int) {
+    var held: Item? = null           // holds
+}</code></pre>
+<ul><li>The type must be <code>T?</code> where <code>T</code> is a class: a weak reference has to be able to read back null.</li><li>Reading gives the target while it lives, <code>null</code> from the moment its last strong reference dies. Writing never retains.</li><li>A class with a weak field cannot be <code>copy</code>-ed, and so cannot cross into an actor: an address is not a value to duplicate.</li><li><code>weak</code> is contextual — it is still an ordinary name anywhere else.</li></ul>
+<p>The checker cautions where a class declares <code>deinit</code> <strong>and</strong> a mutable field can point straight back at its own object, suggesting <code>weak</code> on the back edge. <code>docs/memory.md</code> §5 has the reasoning, the costs and why there is no cycle collector.</p>
+<h2 id="20-what-is-not-here-yet">20. What is not here yet</h2>
+<p>Class inheritance (a non-goal) · indexing and call operators (<code>Index</code>, <code>Invoke</code>) · associated types on traits · a module namespace (imports are flat) · typed exceptions (<code>catch</code> binds the message as a <code>String</code>) · <code>constexpr</code> and macros · a package manager.</p>
+<p>Shipped since this list was first written, and no longer on it: <code>throw</code> / <code>try</code> / <code>catch</code> on all three engines, destructuring a record in a <code>when</code> or a binding, the native backend through C11 (with C, C++, Rust, Go, Java and Kotlin interop), actors on real OS threads, <code>deinit</code>, and <code>Any</code> natively. What the C backend still refuses, it refuses <strong>by name</strong> — <code>keal build</code> never mis-compiles.</p></div><div class="dtoc"><div class="h">SUR CETTE PAGE</div><div class="dtoc-items"><a href="#1-files-statements-and-semicolons">1. Files, statements and semicolons</a><a href="#2-values-and-types">2. Values and types</a><a href="#3-bindings">3. Bindings</a><a href="#4-expressions">4. Expressions</a><a href="#5-statements">5. Statements</a><a href="#6-null-safety">6. Null safety</a><a href="#7-functions">7. Functions</a><a href="#8-classes">8. Classes</a><a href="#9-records">9. Records</a><a href="#10-generics">10. Generics</a><a href="#11-traits">11. Traits</a><a href="#12-operator-overloading">12. Operator overloading</a><a href="#13-modules">13. Modules</a><a href="#14-standard-library">14. Standard library</a><a href="#15-errors">15. Errors</a><a href="#16-how-a-program-runs">16. How a program runs</a><a href="#17-calling-c-and-c">17. Calling C and C++</a><a href="#18-editor-support">18. Editor support</a><a href="#19-how-values-are-represented">19. How values are represented</a><a href="#19-weak-fields">19½. weak fields</a><a href="#20-what-is-not-here-yet">20. What is not here yet</a></div></div></div>
+<footer class="foot">
+  <div class="foot-l">Un langage de programmation typé statiquement et auto-hébergé. Construit par Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Les sources sur GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribuer</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code de conduite</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Sécurité</a>
+  </div>
+</footer>
+</div>
+<script src="../site.js"></script>
+</body>
+</html>

@@ -156,18 +156,24 @@ fun canWiden(e: Ex): Bool {
 }
 
 proc widen(e: Ex) {
+    // The node's recorded type has to follow its new shape: a backend reads
+    // the type, not the literal, and `1 / 2` typed Int is integer division
+    // however its leaves are now spelled.
     if (e.kind == "int") {
         e.kind = "float"
         e.fVal = e.iVal.toFloat()
+        e.ty = Ty("Float")
         return
     }
     if (e.kind == "unary") {
         widen(e.kids[0])
+        e.ty = Ty("Float")
         return
     }
     if (e.kind == "binary") {
         widen(e.kids[0])
         widen(e.kids[1])
+        e.ty = Ty("Float")
     }
 }
 

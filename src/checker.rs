@@ -3701,6 +3701,11 @@ fn widen(e: &mut Expr) {
             widen(lhs);
             widen(rhs);
         }
-        _ => {}
+        // `can_widen` let nothing else through.
+        _ => return,
     }
+    // The node's recorded type has to follow its new shape: a backend reads
+    // the type, not the literal, and `1 / 2` typed `Int` is integer division
+    // however its leaves are now spelled.
+    e.ty = Some(Type::Float);
 }

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — Coming from JavaScript</title>
+<meta name="description" content="If you have written TypeScript, the type annotations will feel familiar — but they are not erased: they compile to layouts and to native code. And the">
+<link rel="icon" type="image/png" href="assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Home</a><a href="tour.html">Tour</a><a href="docs.html">Docs</a><a href="coming-from.html" class="tab-active">Coming from…</a><a href="stdlib.html">Library</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="fr/from-javascript.html">Français</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Tour of Keal</a><a href="stdlib.html">Standard library</a><a href="coming-from.html" class="on">Coming from another language</a><a href="contributing.html">Contributing</a><div class="grp">LANGUAGE</div><a href="language.html">The complete reference</a><a href="types.html">Types and inference</a><div class="grp">INTERNALS</div><a href="memory.html">The memory model</a><a href="deinit.html">Deterministic deinit</a><a href="threads.html">Threads and actors</a><a href="interop.html">Interop: C to Kotlin</a></div><div class="dmain prose"><h1>Coming from JavaScript</h1><p class="lede">If you have written TypeScript, the type annotations will feel familiar — but they are not erased: they compile to layouts and to native code. And the surprises JavaScript keeps are all gone: one equality, no coercion, no <code>undefined</code>, no <code>this</code> that changes meaning by call site.</p><div class="tablewrap"><table><thead><tr><th>Concept</th><th>JavaScript</th><th>Keal</th></tr></thead><tbody><tr><td>Binding</td><td><code>const x = 1</code></td><td><code>val x = 1</code></td></tr><tr><td>Mutable</td><td><code>let x = 1</code></td><td><code>var x = 1</code></td></tr><tr><td>Function</td><td><code>function add(a, b) { return a + b }</code></td><td><code>fun add(a: Int, b: Int): Int { a + b }</code></td></tr><tr><td>Arrow</td><td><code>xs.map(x =&gt; x * 2)</code></td><td><code>xs.map({ it * 2 })</code></td></tr><tr><td>Array</td><td><code>[1, 2]</code></td><td><code>[1, 2]</code></td></tr><tr><td>Object / Map</td><td><code>new Map([[&quot;a&quot;, 1]])</code></td><td><code>{&quot;a&quot;: 1}</code></td></tr><tr><td>Template literal</td><td><code>`hello ${name}`</code></td><td><code>&quot;hello ${name}&quot;</code></td></tr><tr><td>Null check</td><td><code>x ?? &quot;d&quot;</code></td><td><code>x ?: &quot;d&quot;</code></td></tr><tr><td>Optional chain</td><td><code>x?.length</code></td><td><code>x?.length</code></td></tr><tr><td>Class</td><td><code>class C { constructor(n) { } }</code></td><td><code>class C(var n: Int)</code></td></tr><tr><td>Promise</td><td><code>await f()</code></td><td><code>actors: spawn / send / run</code></td></tr></tbody></table></div><h2 id="surprises">What will surprise you</h2><h2 id="one-equality-and-no-coercion">One equality, and no coercion</h2><p><code>==</code> compares values of the same type; there is no <code>===</code> because there is nothing to distinguish it from. <code>"1" + 1</code> does not silently become a string of digits — although <code>"n = " + n</code> is allowed and renders the value.</p><h2 id="null-exists-undefined-does-not">null exists, undefined does not</h2><p>One absent value, in the type or not at all. A missing map key gives <code>null</code>, and the checker makes you handle it.</p><h2 id="this-is-lexical-and-always-the-object">this is lexical and always the object</h2><p>Inside a method, <code>this</code> is the instance. It cannot be rebound, lost in a callback, or shadowed by an arrow function.</p><h2 id="it-compiles-to-a-binary">It compiles to a binary</h2><p>There is no bundler and no runtime to ship: <code>keal build</code> emits C11 and hands it to a C compiler.</p></div></div>
+<footer class="foot">
+  <div class="foot-l">A statically typed, self-hosting programming language. Built by Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Source on GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribute</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code of conduct</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Security</a>
+  </div>
+</footer>
+</div>
+<script src="site.js"></script>
+</body>
+</html>

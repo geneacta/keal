@@ -4294,15 +4294,20 @@ class CBackend() {
         val obj = e.kids[0]
         val name = e.text
         // The built-in properties, which are fields of the runtime structs.
+        // Under `?.` the receiver's own type is still nullable; the property
+        // belongs to what it points at, so the target's type is what names it.
         val ot = this.ety(obj)
         if (ot != null) {
-            if ((ot.kind == "List" or ot.kind == "Map") and name == "size") {
-                val l = this.expr(obj)
-                return "${l}->len"
-            }
-            if (ot.kind == "Str" and name == "length") {
-                val sv = this.expr(obj)
-                return "keal_str_length(${sv})"
+            val rt = if (e.safe) { tyNonNull(ot) } else { ot }
+            val isSize = (rt.kind == "List" or rt.kind == "Map") and name == "size"
+            val isLength = rt.kind == "Str" and name == "length"
+            if (isSize or isLength) {
+                val r = this.expr(obj)
+                val access = if (isSize) { "${r}->len" } else { "keal_str_length(${r})" }
+                if (e.safe) {
+                    return this.guarded(e, r, access)
+                }
+                return access
             }
         }
         // A weak field is read by upgrading it: the target while it lives,
@@ -4356,14 +4361,18 @@ class CBackend() {
         if (ty == null) { return "0" }
         val c = this.ctype(ty, e.file, e.line, e.col)
         if (c == null) { return "0" }
+        // `Int?`, `Float?` and `Bool?` are not pointers: their absent value is
+        // the tagged one, and the present value has to be wrapped into it.
+        val inner = tyNonNull(ty)
         val slot = this.temp()
-        this.line("${c} ${slot} = NULL;")
+        this.line("${c} ${slot} = ${optNull(inner)};")
         if (countedC(ty)) {
             this.own(slot, ty)
         }
         this.line("if (${receiver} != NULL) {")
         this.indent += 1
-        this.line("${slot} = ${retained(ty, access)};")
+        val value = optWrap(inner, retained(ty, access))
+        this.line("${slot} = ${value};")
         this.indent -= 1
         this.line("}")
         return slot

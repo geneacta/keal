@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — Contribuer</title>
+<meta name="description" content="Contribuer">
+<link rel="icon" type="image/png" href="../assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="../assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Accueil</a><a href="tour.html">Le tour</a><a href="docs.html" class="tab-active">Docs</a><a href="coming-from.html">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.5.0</span>
+    <a class="btn-lang" href="../contributing.html">English</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Le tour de Keal</a><a href="stdlib.html">Bibliothèque standard</a><a href="coming-from.html">Je viens d'un autre langage</a><a href="contributing.html" class="on">Contribuer</a><div class="grp">LANGAGE</div><a href="language.html">La référence complète</a><a href="types.html">Types et inférence</a><div class="grp">INTERNES</div><a href="memory.html">Le modèle mémoire</a><a href="deinit.html">deinit déterministe</a><a href="threads.html">Threads et acteurs</a><a href="interop.html">Interop : de C à Kotlin</a></div><div class="dmain prose"><div class="callout"><span class="st">✦</span><p>Ce document de référence est rédigé en anglais, la langue de travail du dépôt. Les pages du site — le tour, les guides « je viens de… » et la bibliothèque — existent intégralement dans les deux langues.</p></div><h1 id="contributing-to-keal">Contributing to Keal</h1>
+<p>Keal holds itself to a small set of non-negotiable rules; a change that respects them is welcome from anyone. This file is the whole procedure.</p>
+<h2 id="build-and-verify">Build and verify</h2>
+<pre class="lang-sh"><code>cargo build --release            # the Rust toolchain (the oracle)
+cargo test --release             # the whole suite, native tests included
+./bootstrap.sh                   # the self-hosted compiler, to its fixed point</code></pre>
+<p>A JDK and a C compiler unlock the interop tests; without them those tests skip, they do not fail. <code>keal doctor</code> lists what this machine has, next to the versions the interop suite was last verified against — Keal pins <em>versions</em>, it does not vendor toolchains: compilers are hundreds of platform-specific megabytes that every OS packages better than a language repository can, and a differing version is not an error, just a fact <code>cargo test --release</code> settles.</p>
+<h2 id="the-rules-every-change-must-respect">The rules every change must respect</h2>
+<ol><li><strong>Oracle and twin, byte for byte.</strong> Every compiler-stage change lands in the Rust oracle (<code>src/lexer.rs</code>, <code>parser.rs</code>, <code>checker.rs</code>, <code>cbackend.rs</code>) <em>and</em> in the self-hosted twin (<code>selfhost/lexing.keal</code>, <code>parsing.keal</code>, <code>checking.keal</code>, <code>cbackend.keal</code>), and the four dump commands must agree byte-for-byte over the whole corpus:</li></ol>
+<p>   ``<code>sh    keal tokens f.keal   ↔   keal selfhost/lexer.keal f.keal    keal ast f.keal      ↔   keal selfhost/parser.keal f.keal    keal types f.keal    ↔   keal selfhost/checker.keal f.keal    keal cgen f.keal     ↔   keal selfhost/cbackend.keal f.keal    </code>``</p>
+<p>   The suite runs this comparison over every <code>.keal</code> file in the    repository — programs, examples, and the error corpora, where the    <em>diagnostics</em> must match too, exit codes included.</p>
+<ol><li><strong>Three engines, one behavior.</strong> The tree-walking evaluator is the specification; the bytecode VM and the native backend must match it exactly — output, panic messages, everything. When the C backend cannot compile something yet, it <strong>refuses by name</strong> with a clear message; it never mis-compiles. Runtime programs must be leak-free: <code>leaks --atExit</code> on the native binary says zero.</li></ol>
+<ol><li><strong>Generated files regenerate, never edit.</strong> After touching <code>src/prelude.keal</code> or <code>src/runtime.c</code>, rebuild (<code>cargo build --release</code>) and regenerate <code>selfhost/preludesrc.keal</code> / <code>selfhost/runtimesrc.keal</code> (each wraps the file in a raw-string function; the header comment in each says so).</li></ol>
+<ol><li><strong>New behavior comes with tests.</strong> <em> <code>tests/programs/</code> — self-checking programs (<code>assert</code>, silent, exit 0), run on both interpreters. </em> <code>tests/native/</code> — programs with printed output and an <code>.expected</code> snapshot, run on all three engines. <em> <code>tests/selfhost/parse-errors|type-errors|errors/</code> — programs that must be refused, named for what they prove. </em> <code>tests/fuzz/fuzz.py &lt;keal&gt; &lt;count&gt; [seed]</code> — the differential fuzzer; run a few thousand programs when you touch the checker. * <code>UPDATE_EXPECT=1 cargo test --release</code> rewrites snapshots.</li></ol>
+<ol><li><strong>Say it plainly.</strong> Diagnostics explain and suggest (<code>-- note:</code> with the fix). Comments state constraints, not narration. Costs and limits go in the docs, not under the rug: see <code>docs/types.md</code> (the type rules), <code>docs/memory.md</code> (the memory model), <code>docs/drop.md</code> (unwinding and <code>deinit</code>), <code>docs/threads.md</code> (the actor plan), <code>docs/interop.md</code> (the boundary).</li></ol>
+<h2 id="where-things-live">Where things live</h2>
+<pre><code>src/            the Rust oracle: lexer, parser, checker, interp, VM,
+                cbackend, runtime.c, prelude.keal, tools (doc, bindgen,
+                jbind)
+selfhost/       the same compiler, written in Keal, held byte-identical
+lib/            libraries beyond the prelude (the JVM gateway)
+tests/          the corpora described above
+examples/       runnable programs, including the interop demos
+docs/           the design decisions, honestly stated</code></pre>
+<h2 id="proposing-a-change">Proposing a change</h2>
+<p>Fork, branch, keep the commit story readable (one concern per commit), and make sure the three commands at the top are green before opening a pull request. A PR that changes semantics should quote the rule in <code>docs/</code> it follows — or start by proposing the doc change, which is often the real discussion.</p></div><div class="dtoc"><div class="h">SUR CETTE PAGE</div><div class="dtoc-items"><a href="#build-and-verify">Build and verify</a><a href="#the-rules-every-change-must-respect">The rules every change must respect</a><a href="#where-things-live">Where things live</a><a href="#proposing-a-change">Proposing a change</a></div></div></div>
+<footer class="foot">
+  <div class="foot-l">Un langage de programmation typé statiquement et auto-hébergé. Construit par Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Les sources sur GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribuer</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code de conduite</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Sécurité</a>
+  </div>
+</footer>
+</div>
+<script src="../site.js"></script>
+</body>
+</html>

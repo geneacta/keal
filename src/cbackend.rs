@@ -3887,17 +3887,26 @@ impl CBackend {
     /// so that the reader's lifetime does not depend on the object's.
     fn field(&mut self, e: &Expr, obj: &Expr, name: &str, safe: bool) -> String {
         // The built-in properties, which are fields of the runtime structs
-        // rather than of anything the program declared.
-        match (self.ety(obj), name) {
-            (Some(Type::List(_)), "size") | (Some(Type::Map(_, _)), "size") => {
-                let l = self.expr(obj);
-                return format!("{}->len", l);
+        // rather than of anything the program declared. Under `?.` the
+        // receiver's own type is still nullable; the property belongs to what
+        // it points at, so the target's type is what names it.
+        let receiver_ty = self.ety(obj).map(|t| if safe { t.non_null() } else { t });
+        let builtin = match (&receiver_ty, name) {
+            (Some(Type::List(_)), "size") | (Some(Type::Map(_, _)), "size") => Some(true),
+            (Some(Type::Str), "length") => Some(false),
+            _ => None,
+        };
+        if let Some(is_len) = builtin {
+            let r = self.expr(obj);
+            let access = if is_len {
+                format!("{}->len", r)
+            } else {
+                format!("keal_str_length({})", r)
+            };
+            if safe {
+                return self.guarded(e, &r, access);
             }
-            (Some(Type::Str), "length") => {
-                let s = self.expr(obj);
-                return format!("keal_str_length({})", s);
-            }
-            _ => {}
+            return access;
         }
         // A weak field is read by upgrading it: the target while it lives,
         // NULL from the moment its last strong reference went.
@@ -3946,14 +3955,18 @@ impl CBackend {
     fn guarded(&mut self, e: &Expr, receiver: &str, access: String) -> String {
         let Some(ty) = self.ety(e) else { return "0".to_string() };
         let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
+        // `Int?`, `Float?` and `Bool?` are not pointers: their absent value is
+        // the tagged one, and the present value has to be wrapped into it.
+        let inner = ty.non_null();
         let slot = self.temp();
-        self.line(format!("{} {} = NULL;", c, slot));
+        self.line(format!("{} {} = {};", c, slot, opt_null(&inner)));
         if Self::counted(&ty) {
             self.own(&slot, &ty);
         }
         self.line(format!("if ({} != NULL) {{", receiver));
         self.indent += 1;
-        self.line(format!("{} = {};", slot, Self::retained(&ty, &access)));
+        let value = opt_wrap(&inner, &Self::retained(&ty, &access));
+        self.line(format!("{} = {};", slot, value));
         self.indent -= 1;
         self.line("}");
         slot

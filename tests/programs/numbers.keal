@@ -40,3 +40,13 @@ assert(3 !in 0..3, "not in range")
 var total = 0
 for (i in 1..5) { total += i }
 assert(total == 10, "for over a range")
+
+// An integer literal under a Float expectation is a Float, and that has to
+// hold for the whole expression it sits in: `1 / 2` divides floats, not
+// integers whose quotient is then converted.
+val widened: Float = 1 / 2
+assert(widened == 0.5, "a widened literal divides as a Float")
+fun asFloat(x: Float): Float { x }
+assert(asFloat(1 / 2) == 0.5, "widened at an argument")
+assert(asFloat(1 + 1 / 4) == 1.25, "widened through a mixed expression")
+assert(asFloat(-1 / 2) == -0.5, "widened under a negation")

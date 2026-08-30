@@ -117,3 +117,18 @@ fun firstChar(s: String?): String {
 assert(firstChar("xyz") == "x", "arm body sees its own condition")
 assert(firstChar(null) == "?", "fallback")
 assert(firstChar("") == "?", "fallback")
+
+// `?.` reaching a member that is a value rather than a reference, which is
+// a different representation natively and must read the same here.
+class Holder(val n: Int, val ratio: Float, val ok: Bool)
+val holder: Holder? = Holder(3, 0.5, true)
+val noHolder: Holder? = null
+assert(holder?.n == 3, "?. to an Int field")
+assert(noHolder?.n == null, "?. to an Int field on null")
+assert(holder?.ratio == 0.5, "?. to a Float field")
+assert(noHolder?.ok == null, "?. to a Bool field on null")
+assert((noHolder?.n ?: -1) == -1, "?. then ?:")
+val oneWord: String? = "abcd"
+assert(oneWord?.length == 4, "?. to a built-in property")
+val noOneWord: String? = null
+assert(noOneWord?.length == null, "?. to a built-in property on null")

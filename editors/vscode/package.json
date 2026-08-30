@@ -2,18 +2,31 @@
   "name": "keal",
   "displayName": "Keal",
   "description": "Syntax highlighting, editing support and inline diagnostics for the Keal language.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "geneacta",
-  "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/geneacta/keal.git" },
-  "engines": { "vscode": "^1.75.0" },
-  "categories": ["Programming Languages", "Snippets"],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/geneacta/keal.git"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
   "contributes": {
     "languages": [
       {
         "id": "keal",
-        "aliases": ["Keal", "keal"],
-        "extensions": [".keal"],
+        "aliases": [
+          "Keal",
+          "keal"
+        ],
+        "extensions": [
+          ".keal"
+        ],
         "configuration": "./language-configuration.json",
         "firstLine": "^#!.*\\bkeal\\b"
       }
@@ -25,21 +38,44 @@
         "path": "./syntaxes/keal.tmLanguage.json"
       }
     ],
-    "snippets": [{ "language": "keal", "path": "./snippets/keal.json" }],
+    "snippets": [
+      {
+        "language": "keal",
+        "path": "./snippets/keal.json"
+      }
+    ],
     "problemMatchers": [
       {
         "name": "keal",
         "owner": "keal",
         "source": "keal",
-        "fileLocation": ["relative", "${workspaceFolder}"],
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
         "severity": "error",
         "pattern": [
-          { "regexp": "^(error|runtime error):\\s+(.*)$", "message": 2 },
-          { "regexp": "^\\s*-->\\s+(.*):(\\d+):(\\d+)$", "file": 1, "line": 2, "column": 3 }
+          {
+            "regexp": "^(error|runtime error):\\s+(.*)$",
+            "message": 2
+          },
+          {
+            "regexp": "^\\s*-->\\s+(.*):(\\d+):(\\d+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3
+          }
         ]
       }
     ],
-    "taskDefinitions": [{ "type": "keal", "required": ["file"] }],
+    "taskDefinitions": [
+      {
+        "type": "keal",
+        "required": [
+          "file"
+        ]
+      }
+    ],
     "configurationDefaults": {
       "[keal]": {
         "editor.insertSpaces": true,
