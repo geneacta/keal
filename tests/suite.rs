@@ -221,6 +221,10 @@ fn native_agrees_with_the_interpreters() {
             .args(["-O2", "-std=c11", "-pthread", "-o"])
             .arg(&bin)
             .arg(&csrc)
+            // The runtime calls `pow` and `floor`; where libm is a library of
+            // its own the link has to say so, and where it is part of libc
+            // this asks for nothing.
+            .arg("-lm")
             .output()
             .expect("cannot run the C compiler");
         assert!(
@@ -274,6 +278,7 @@ fn actors_are_clean_under_thread_sanitizer() {
         .args(["-O2", "-std=c11", "-pthread", "-fsanitize=thread", "-o"])
         .arg(&bin)
         .arg(&csrc)
+        .arg("-lm")
         .output()
         .expect("cannot run the C compiler");
     if !built.status.success() {

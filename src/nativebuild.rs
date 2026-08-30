@@ -141,7 +141,9 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
         let driver = if is_cpp(extra) { &cxx } else { &cc };
         let mut sc = Command::new(driver);
         sc.arg("-O2");
-        if !is_cpp(extra) {
+        if is_cpp(extra) {
+            sc.arg("-std=c++17");
+        } else {
             sc.arg("-std=c11");
         }
         for f in &compile_flags {
@@ -173,6 +175,7 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
     for extra in rest {
         cmd.arg(extra);
     }
+    cmd.arg("-lm");
     match cmd.status() {
         Ok(s) if s.success() => {
             let _ = std::fs::remove_file(&csrc);
