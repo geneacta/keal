@@ -1,0 +1,32 @@
+// What `constexpr` refuses, by name. The word is a promise that the work
+// happens at compile time; where it cannot, the compiler says so rather
+// than quietly leaving the work for run time.
+
+fun ordinary(): Int { return 1 }
+
+// Only a `constexpr fun` may be called: an ordinary one is not held to
+// what the compile-time evaluator can run.
+constexpr val CALLED = ordinary()
+
+// A name that is not itself a `constexpr` has no value yet.
+val plain = 3
+constexpr val BORROWED = plain
+
+// Nothing a `constexpr` holds is an object, so `null` and `!!` have no
+// meaning here.
+constexpr val NOTHING = null
+
+// A lambda is a value that only exists once a program is running.
+constexpr val FN = { -> 1 }
+
+// The arithmetic is the program's own arithmetic, failures included.
+constexpr val OVER = 9223372036854775807 + 1
+constexpr val ZERO = 0
+constexpr val DIVIDED = 1 / ZERO
+
+// A list says what is out of bounds at compile time too.
+constexpr val PAST_END = [1, 2][5]
+
+// A method nobody has checked against its run-time twin is refused rather
+// than quietly different.
+constexpr val UNKNOWN = "abc".padStart(5)

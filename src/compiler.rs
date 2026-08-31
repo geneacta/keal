@@ -945,6 +945,7 @@ impl Compiler {
                 let decl = FunDecl {
                     name: "<lambda>".to_string(),
                     vis: Vis::Private,
+                    constexpr: false,
                     type_params: Vec::new(),
                     params: params.clone(),
                     ret: None,

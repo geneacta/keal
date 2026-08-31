@@ -71,7 +71,7 @@ or one that reaches a class's own kind, no existing program has to be renamed
 to make room for it. Writing one is refused where it appears rather than
 quietly ignored.
 
-Five more words are **contextual**: they introduce a declaration where one
+Six more words are **contextual**: they introduce a declaration where one
 follows, and stay ordinary names everywhere else.
 
 | Word | Where it means something |
@@ -79,6 +79,7 @@ follows, and stay ordinary names everywhere else.
 | `record` | before a name: `record Point(...)` |
 | `trait` | before a name: `trait Show { ... }` |
 | `weak` | before a field: `weak var parent: Node?` |
+| `constexpr` | before `val` or `fun`: `constexpr val KB = 1024` |
 | `native` | before a string block |
 | `extern` | before `fun`: `extern fun sqrt(...)` |
 
@@ -1104,6 +1105,73 @@ backend cannot put in an `Any` cannot be thrown in a compiled program, and
 
 ---
 
+## 15½. constexpr
+
+`constexpr` is a promise about **when** the work happens. The compiler runs
+the expression, and writes the answer back into the program as the literal
+you could have typed:
+
+```keal
+constexpr val KB = 1024
+constexpr val MB = KB * KB          // 1048576, before the program starts
+constexpr val BANNER = ("the " + NAME).toUpper()
+```
+
+A `constexpr fun` is a function such a binding may call. Its body may use
+bindings, assignment, `if`, `when`, `while`, `for`, `break`, `continue` and
+`return` — enough to build something:
+
+```keal
+constexpr fun squares(n: Int): List<Int> {
+    var out: List<Int> = []
+    for (i in 1..n) { out.add(i * i) }
+    return out
+}
+
+constexpr val TABLE: List<Int> = squares(64)   // a literal in the binary
+```
+
+The value must be one a literal can spell: `Int`, `Float`, `Bool`,
+`String`, and lists and maps of those. Adding to a container works, and
+only through a name the `constexpr` bound itself — that is where the folder
+can see what it is changing.
+
+**What it refuses, and why it refuses rather than falls back.** Anything
+that touches the world (printing, files, `extern`, `native`, actors), an
+object, a lambda, `null`, `this`, or a call to a function not declared
+`constexpr`. A `constexpr` that quietly ran at run time instead would make
+the word worth nothing, so where the promise cannot be kept the compiler
+says so by name:
+
+```
+error: `constexpr` cannot evaluate a lambda
+  = note: a `constexpr` runs at compile time, so it is held to arithmetic,
+    strings, lists, maps and calls to other `constexpr fun`s
+```
+
+Failures are the program's own failures, arriving early. `9223372036854775807 + 1`
+is `integer overflow` at compile time; `[1, 2][5]` is `index 5 is out of
+bounds for a list of 2 element(s)`. Nothing about the arithmetic changes —
+only when you find out.
+
+**It always finishes.** A `constexpr` gets a step budget and 256 frames.
+Past either, it is refused:
+
+```
+error: this `constexpr` did not finish
+  = note: it ran past the compile-time step budget; a loop that does not
+    end at compile time would be a compiler that does not end
+```
+
+That limit is the point. A compiler that gives a wrong answer is a bug; a
+compiler that never answers is not a tool at all.
+
+`constexpr` is contextual, so `val constexpr = 7` is still a perfectly good
+binding. It goes before `val` and `fun` only: a `var` can be assigned to and
+a `proc` returns nothing, so neither has one value to compute.
+
+---
+
 ## 16. How a program runs
 
 Keal compiles to bytecode and runs it on a virtual machine. That is an
@@ -1209,8 +1277,8 @@ there is no cycle collector.
 ## 20. What is not here yet
 
 Class inheritance (a non-goal) · indexing and call operators (`Index`,
-`Invoke`) · associated types on traits · a package registry · `constexpr`
-and macros · a language server.
+`Invoke`) · associated types on traits · a package registry · macros · a
+language server.
 
 Shipped since this list was first written, and no longer on it: `throw` /
 `try` / `catch` on all three engines — typed clauses included, natively —
@@ -1218,6 +1286,6 @@ destructuring a record in a `when` or a binding, the native backend
 through C11 (with C, C++, Rust, Go, Java and Kotlin interop), actors on
 real OS threads, `deinit`, `weak`, `Any` natively, visibility with
 `package` and `public`, a namespace that lets two modules declare the same
-name, and dependencies with transitivity and a lockfile. What the C
+name, dependencies with transitivity and a lockfile, and `constexpr`. What the C
 backend still refuses, it refuses **by name** — `keal build` never
 mis-compiles.

@@ -16,6 +16,7 @@
 import "./loader.keal"
 import "./builtins.keal"
 import "./astprint.keal"
+import "./constfold.keal"
 
 package class DiagN(package val file: Int, package val line: Int, package val col: Int, package val msg: String) {
     package var note: String = ""
@@ -400,6 +401,13 @@ package class Checker() {
     var impls: Map<String, List<String>> = {}
     var lastInst: List<Ty>? = null
     var guardNarrowing: List<Fact>? = null
+    /// Every `constexpr fun`, by the name a call site will have resolved
+    /// to. The compile-time evaluator calls nothing else, which is the
+    /// whole promise of the word.
+    var constexprFuns: Map<String, FunN> = {}
+    /// Every `constexpr val` already folded, so a later one can name it.
+    var constexprValNames: List<String> = []
+    var constexprValues: List<CV> = []
     var quietDiag: DiagN? = null
     /// The package each file belongs to, by file id: its directory. Two
     /// files in one directory are one package, which is what `package`
@@ -969,7 +977,52 @@ package class Checker() {
         this.scopes[0][x.name] = xb
     }
 
+    /// Runs one `constexpr` binding's initializer and writes the answer
+    /// back over it. The folder reports through its own five fields, so a
+    /// failure becomes exactly one diagnostic here, as it does in the
+    /// Rust half.
+    proc foldConstexpr(s: StmtN, init: Ex) {
+        val folder = Folder(this.constexprFuns)
+        var outer: List<CBind> = []
+        var i = 0
+        while (i < this.constexprValNames.size) {
+            outer.add(CBind(this.constexprValNames[i], this.constexprValues[i]))
+            i += 1
+        }
+        folder.scopes = [outer]
+        val v = folder.eval(init)
+        if (v == null) {
+            if (folder.errNote == "") {
+                this.error(folder.errFile, folder.errLine, folder.errCol, folder.errMsg)
+            } else {
+                this.errorNote(folder.errFile, folder.errLine, folder.errCol, folder.errMsg, folder.errNote)
+            }
+            return
+        }
+        val value = v
+        val lit = cvLiteral(value, init.file, init.line, init.col)
+        if (lit == null) {
+            this.errorNote(
+                init.file, init.line, init.col,
+                "a `constexpr` has to end with a value",
+                "this one produced nothing a binding could hold"
+            )
+            return
+        }
+        this.constexprValNames.add(s.name)
+        this.constexprValues.add(value)
+        val ty = init.ty
+        val node = lit
+        node.ty = ty
+        // The tree holds the node the rest of the compiler already walks,
+        // so nothing below here knows a fold happened.
+        s.init = node
+    }
+
     proc collectFun(f: FunN) {
+        if (f.constexpr) {
+            this.constexprFuns[f.name] = f
+        }
         if (isReservedGlobal(f.name)) {
             this.error(f.file, f.line, f.col, "`${f.name}` is a built-in and cannot be redefined")
             return
@@ -1876,6 +1929,13 @@ package class Checker() {
                 val t = this.checkExpr(init, null)
                 this.rejectUnusable(t, init.file, init.line, init.col)
                 actual = if (t.kind == "Never") { Ty("Error") } else { t }
+            }
+            // `constexpr`: the work happens now, or it is refused by
+            // name. What comes back is written into the tree as the literal
+            // the program could have written by hand, so all three engines
+            // see a constant where a computation stood.
+            if (s.constexpr) {
+                this.foldConstexpr(s, init)
             }
             val kind = if (s.mutable) { "var" } else { "val" }
             // A top-level binding lands in the scope the prelude's own

@@ -59,6 +59,40 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**`constexpr` — DONE, all three engines.** `constexpr val NAME = <expr>` is
+a promise about WHEN the work happens: the checker runs the expression and
+WRITES THE ANSWER BACK OVER THE INITIALIZER as a literal, so every engine
+below sees a constant. `constexpr fun` is a function such a binding may
+call; its body may use bindings, assignment, `if`, `when`, `while`, `for`,
+`break`, `continue`, `return`.
+THE DESIGN DECISION: it is NOT the tree-walker with a flag. What a
+`constexpr` may do has to be a promise a reader holds in their head, and it
+has to be written TWICE without drifting — `src/constfold.rs` and
+`selfhost/constfold.keal`. So: a small evaluator over a small language, and
+everything outside it refused BY NAME. Values are what a literal can spell:
+Int, Float, Bool, String, List, Map. A container may be changed in place
+ONLY through a name the fold bound itself (`out.add(x)`, `out[k] = v`) —
+that is where the folder can see what it is changing, and it is how a table
+gets built.
+IT ALWAYS FINISHES: 2,000,000 steps and 256 frames, then refused. A
+compiler that gives a wrong answer is a bug; one that never answers is not
+a tool.
+FAILURES ARE THE PROGRAM'S OWN, EARLY: overflow, division by zero, an index
+past the end. The Rust half does checked arithmetic; the Keal half runs the
+arithmetic under a `try` and reports the engine's own message — using the
+typed exceptions shipped two commits earlier, and avoiding a second
+implementation of the overflow checks, which would be a second chance to
+differ.
+SYNTAX: contextual, like `record`/`weak` — only before `val` or `fun`, so
+`val constexpr = 7` is still a binding. `constexpr var`/`proc` are refused
+where written.
+Corpus: `tests/programs/constexpr.keal` (assertions),
+`tests/native/constexpr.keal` (+`.expected`, three engines),
+`tests/selfhost/type-errors/constexpr-refusals.keal` (nine refusals, oracle
+and twin identical). The budget and frame limits are a Rust-side test
+(`a_constexpr_that_cannot_finish_is_refused`) and NOT in the compared
+corpus: exhausting 2M steps costs seconds, and the corpus runs four times.
+
 **THE AUDIT IS A VERDICT NOW, not a list — all three engines.** Counting
 alone mixed the healthy in with the leaked: a top-level binding lives to the
 end by design, and so does everything it holds. THE RULE: a MARK PHASE WITH
@@ -822,10 +856,9 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
 3. Threaded actors — DONE through stage 6 (scheduler, JNI attach,
    measurements recorded in threads.md). `Any` natively — DONE. `weak` —
    DONE. Visibility, namespaces and dependencies — DONE. Typed exceptions
-   — DONE, all three engines. What is left, in order: a rule telling an
-   accidental cycle from a global that lived to the end (the audit reports
-   both alike today); a registry, if it is ever worth one; `constexpr`
-   evaluation; macros last. See README "What remains".
+   — DONE, all three engines. The audit's cycle-versus-global rule — DONE.
+   `constexpr` — DONE. What is left: a registry, if it is ever worth one;
+   macros, deliberately last. See README "What remains".
 
 ## Key file map
 

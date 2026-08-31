@@ -212,7 +212,28 @@ impl Parser {
         self.item_after_vis(vis, vis_span)
     }
 
+    /// `constexpr` is contextual, like `record` and `weak`: it introduces a
+    /// declaration only when `val` or `fun` follows, so `val constexpr = 3`
+    /// stays a perfectly good binding.
+    fn at_constexpr(&self) -> bool {
+        matches!(self.peek(), Tok::Ident(w) if w == "constexpr")
+            && matches!(self.peek_at(1), Tok::Val | Tok::Fun | Tok::Var | Tok::Proc)
+    }
+
     fn item_after_vis(&mut self, vis: Vis, vis_span: Span) -> Result<Item, Diag> {
+        if self.at_constexpr() {
+            if matches!(self.peek_at(1), Tok::Fun) {
+                self.advance();
+                return Ok(Item::Fun(self.fun_decl_maybe_const(vis, true)?));
+            }
+            // `constexpr val` is a statement; `stmt` eats the word itself,
+            // so the same code serves a binding inside a body.
+            let mut s = self.stmt()?;
+            if let StmtKind::Let { vis: v, .. } = &mut s.kind {
+                *v = vis;
+            }
+            return Ok(Item::Stmt(s));
+        }
         match self.peek() {
             Tok::Fun | Tok::Proc => Ok(Item::Fun(self.fun_decl(vis)?)),
             Tok::Class => Ok(Item::Class(self.class_decl(false, vis)?)),
@@ -365,6 +386,10 @@ impl Parser {
     /// returns nothing. Keeping them apart at the declaration removes the
     /// need for a `Unit` or `void` annotation anywhere.
     fn fun_decl(&mut self, vis: Vis) -> Result<FunDecl, Diag> {
+        self.fun_decl_maybe_const(vis, false)
+    }
+
+    fn fun_decl_maybe_const(&mut self, vis: Vis, constexpr: bool) -> Result<FunDecl, Diag> {
         let span = self.span();
         let returns_value = self.at(&Tok::Fun);
         if !returns_value {
@@ -384,6 +409,7 @@ impl Parser {
         Ok(FunDecl {
             name,
             vis,
+            constexpr,
             type_params,
             params: Rc::new(params),
             ret,
@@ -528,6 +554,7 @@ impl Parser {
                     // A trait's methods are named through the trait, never on
                     // their own, so they carry no visibility of their own.
                     vis: Vis::Unset,
+                    constexpr: false,
                     type_params,
                     params: Rc::new(params),
                     ret,
@@ -694,6 +721,16 @@ impl Parser {
 
     fn stmt(&mut self) -> Result<Stmt, Diag> {
         let span = self.span();
+        let mut constexpr = false;
+        if self.at_constexpr() {
+            self.advance();
+            constexpr = true;
+            if !matches!(self.peek(), Tok::Val) {
+                return Err(Diag::new(span, "`constexpr` goes before `val` or `fun`").with_note(
+                    "a `var` can be assigned to and a `proc` returns nothing, so neither has one value to compute",
+                ));
+            }
+        }
         let kind = match self.peek() {
             Tok::Val | Tok::Var => {
                 let mutable = matches!(self.advance().tok, Tok::Var);
@@ -733,7 +770,7 @@ impl Parser {
                 let ty = if self.eat(&Tok::Colon) { Some(self.type_expr()?) } else { None };
                 self.expect(Tok::Assign, "in a variable declaration")?;
                 let init = self.expr()?;
-                StmtKind::Let { name, ty, init, mutable, vis: Vis::Unset }
+                StmtKind::Let { name, ty, init, mutable, vis: Vis::Unset, constexpr }
             }
             Tok::Return => {
                 self.advance();

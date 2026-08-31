@@ -17,10 +17,9 @@ The project is pre-1.0, so the middle number carries the meaning:
   program means even though it is a bug fix.
 * **0.x.y** — fixes and internals with no visible change to a correct
   program.
-* **1.0** will mean the semantics are frozen, which they are not: the
-  cycle audit still cannot tell an accidental cycle from a global that
-  lived to the end, and `constexpr` would change when a program's work
-  happens. Either could change how a program is written.
+* **1.0** will mean the semantics are frozen, which they are not: macros
+  are still open, and a macro system changes what a program can be before
+  it changes what one says.
 
 ## The release criteria
 

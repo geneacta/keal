@@ -200,7 +200,8 @@ fun pStmt(s: StmtN): String {
     return when (s.kind) {
         "let" -> {
             val kw = if (s.mutable) { "var" } else { "val" }
-            var head = "${visPrefix(s.vis)}let ${kw} ${s.name}"
+            val c = if (s.constexpr) { "constexpr " } else { "" }
+            var head = "${visPrefix(s.vis)}${c}let ${kw} ${s.name}"
             val t = s.tyEx
             if (t != null) { head += ": " + typeLine(t) }
             head + " " + sp + "\n" + indentBlock(pEx(s.init!!))

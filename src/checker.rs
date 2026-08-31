@@ -195,6 +195,12 @@ pub struct Checker {
     declared: HashMap<(u32, String), String>,
     /// The unique names already handed out.
     taken: HashSet<String>,
+    /// Every `constexpr fun`, by the name a call site will have resolved
+    /// to. The compile-time evaluator calls nothing else, which is the
+    /// whole promise of the word.
+    constexpr_funs: HashMap<String, Rc<FunDecl>>,
+    /// Every `constexpr val` already folded, so a later one can name it.
+    constexpr_vals: HashMap<String, crate::constfold::CVal>,
     /// What each file can see under a bare name, in order: itself first,
     /// then everything its unaliased imports reach. The prelude is visible
     /// to all: it is loaded, not imported.
@@ -227,6 +233,8 @@ impl Checker {
             file_names: Vec::new(),
             declared: HashMap::new(),
             taken: HashSet::new(),
+            constexpr_funs: HashMap::new(),
+            constexpr_vals: HashMap::new(),
             visible_files: HashMap::new(),
             aliases: HashMap::new(),
             ambiguous_at: HashSet::new(),
@@ -870,6 +878,9 @@ impl Checker {
     }
 
     fn collect_fun(&mut self, f: &FunDecl) {
+        if f.constexpr {
+            self.constexpr_funs.insert(f.name.clone(), Rc::new(f.clone()));
+        }
         if builtins::is_reserved_global(&f.name) {
             self.error(f.span, format!("`{}` is a built-in and cannot be redefined", f.name));
             return;
@@ -1742,7 +1753,7 @@ impl Checker {
         // Only a guard that is itself a statement may narrow its successors.
         self.guard_narrowing = None;
         match &mut s.kind {
-            StmtKind::Let { name, ty, init, mutable, vis: _ } => {
+            StmtKind::Let { name, ty, init, mutable, vis: _, constexpr } => {
                 let declared = ty.as_ref().map(|t| self.resolve(t));
                 let actual = match &declared {
                     Some(d) => {
@@ -1760,6 +1771,33 @@ impl Checker {
                         }
                     }
                 };
+                // `constexpr`: the work happens now, or it is refused by
+                // name. What comes back is written into the tree as the
+                // literal the program could have written by hand, so all
+                // three engines see a constant where a computation stood.
+                if *constexpr {
+                    let name = name.clone();
+                    match crate::constfold::fold_with(
+                        init,
+                        &self.constexpr_funs,
+                        &self.constexpr_vals,
+                    ) {
+                        Ok(v) => match crate::constfold::literal(&v, init.span) {
+                            Some(lit) => {
+                                self.constexpr_vals.insert(name, v);
+                                let ty = init.ty.clone();
+                                *init = lit;
+                                init.ty = ty;
+                            }
+                            None => self.error_note(
+                                init.span,
+                                "a `constexpr` has to end with a value".to_string(),
+                                "this one produced nothing a binding could hold",
+                            ),
+                        },
+                        Err(d) => self.errors.push(d),
+                    }
+                }
                 let (name, kind) =
                     (name.clone(), if *mutable { BindKind::Var } else { BindKind::Val });
                 // A top-level binding lands in the scope the prelude's own
@@ -4105,6 +4143,7 @@ fn synth_record_equals(c: &ClassDecl) -> FunDecl {
 
     FunDecl {
         name: "equals".to_string(),
+        constexpr: false,
         // Generated for a record, and as visible as the record itself: a
         // value nobody can compare is not the data case.
         vis: c.vis,

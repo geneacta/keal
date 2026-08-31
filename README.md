@@ -306,8 +306,15 @@ runs by default. The tree-walking evaluator is still there, reachable with
 `--ast`, and the test suite runs every program through both and compares what
 they print — down to the call stack of a runtime error. The evaluator is
 simple enough to read as a specification, so a disagreement is a bug in the VM
-until shown otherwise. It is also what a compile-time evaluator for `constexpr`
-will be built from.
+until shown otherwise.
+
+`constexpr` did **not** turn out to be that evaluator with a flag, and the
+reason is worth stating: what a `constexpr` may do has to be a promise a
+reader can hold in their head, and it has to be written twice — once in
+Rust, once in Keal — without the two drifting. So it is a small evaluator
+over a small language, and everything outside that language is refused by
+name. `src/constfold.rs` and `selfhost/constfold.keal` are the two copies,
+and the corpus holds them to the same answers and the same diagnostics.
 
 The VM is a stack machine, and the speedup comes from two analyses moved into
 the compiler rather than from the dispatch loop:
@@ -570,7 +577,10 @@ lockfile included. And the last place the three engines could be told apart
 closed: they now report the same objects outliving the same program, which
 took four separate fixes and a machine nobody here owns. And the audit
 stopped being a list to interpret: it names which survivors are a cycle and
-which a top-level binding is holding on purpose. Typed exceptions
+which a top-level binding is holding on purpose. And `constexpr` arrived:
+a binding the compiler computes and writes back as a literal, or refuses by
+name — with a step budget, because a compiler that never answers is not a
+tool. Typed exceptions
 were the last thing on this list to be half-done, and are not anymore:
 `keal build` carries the thrown value through the C unwind, so
 `catch (e: Refused)` means the same thing on all three engines.)
@@ -597,9 +607,6 @@ were the last thing on this list to be half-done, and are not anymore:
   following one would let a cycle report itself as reachable. What is still
   missing is the collector, and why there is none is argued in
   [`docs/memory.md`](docs/memory.md) §5.
-* **`constexpr` evaluation** — the tree-walking interpreter is kept as the
-  reference implementation partly so it can become the compile-time
-  evaluator.
 * **Macros** — deliberately last: the language keeps earning features the
   hard way first.
 * Windows used to be here. It is not: the whole suite runs there on both

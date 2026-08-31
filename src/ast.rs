@@ -107,6 +107,9 @@ pub struct ExternDecl {
 pub struct FunDecl {
     pub name: String,
     pub vis: Vis,
+    /// `constexpr fun`: callable from a `constexpr` binding, and held to
+    /// what the compile-time evaluator can run.
+    pub constexpr: bool,
     pub type_params: Vec<TypeParam>,
     pub params: Rc<Vec<Param>>,
     pub ret: Option<TypeExpr>,
@@ -210,7 +213,17 @@ pub enum StmtKind {
     /// `val`/`var` binding. `mutable` distinguishes them. `vis` is only
     /// ever written at the top level; inside a body a binding is the
     /// block's own and nothing can reach it from outside anyway.
-    Let { name: String, ty: Option<TypeExpr>, init: Expr, mutable: bool, vis: Vis },
+    /// `constexpr` marks a binding whose initializer the compiler evaluates
+    /// and writes back as a literal, or refuses by name. It is a promise
+    /// about *when* the work happens, so it is part of the declaration.
+    Let {
+        name: String,
+        ty: Option<TypeExpr>,
+        init: Expr,
+        mutable: bool,
+        vis: Vis,
+        constexpr: bool,
+    },
     /// `val Point(x, y) = p` — binds the constructor fields by position.
     Destructure { pattern: Destructuring, init: Expr, mutable: bool },
     Expr(Expr),

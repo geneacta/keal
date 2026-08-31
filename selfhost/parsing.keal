@@ -217,8 +217,35 @@ package class Parser(val toks: List<Token>) {
         return this.itemAfterVis(vis)
     }
 
+    /// `constexpr` is contextual, like `record` and `weak`: it introduces a
+    /// declaration only when `val` or `fun` follows, so `val constexpr = 3`
+    /// stays a perfectly good binding.
+    fun atConstexpr(): Bool {
+        val t = this.peek()
+        unless (t.kind == "ident" and t.text == "constexpr") { return false }
+        val n = this.peekAt(1).kind
+        return n == "val" or n == "fun" or n == "var" or n == "proc"
+    }
+
     fun itemAfterVis(vis: String): ItemN {
         val t = this.peek()
+        if (this.atConstexpr()) {
+            if (this.peekAt(1).kind == "fun") {
+                this.advance()
+                val i = ItemN("fun", t.line, t.col)
+                val f = this.funDecl(vis)
+                f.constexpr = true
+                i.funDecl = f
+                return i
+            }
+            // `constexpr val` is a statement; `stmt` eats the word itself,
+            // so the same code serves a binding inside a body.
+            val i = ItemN("stmt", t.line, t.col)
+            val s = this.stmt()
+            s.vis = vis
+            i.stmt = s
+            return i
+        }
         if (t.kind == "fun" or t.kind == "proc") {
             val i = ItemN("fun", t.line, t.col)
             i.funDecl = this.funDecl(vis)
@@ -614,7 +641,20 @@ package class Parser(val toks: List<Token>) {
 
     fun stmt(): StmtN {
         val t = this.peek()
-        if (t.kind == "val" or t.kind == "var") {
+        var isConstexpr = false
+        if (this.atConstexpr()) {
+            this.advance()
+            isConstexpr = true
+            unless (this.at("val")) {
+                this.failNote(
+                    t.line,
+                    t.col,
+                    "`constexpr` goes before `val` or `fun`",
+                    "a `var` can be assigned to and a `proc` returns nothing, so neither has one value to compute"
+                )
+            }
+        }
+        if (t.kind == "val" or t.kind == "var" or isConstexpr) {
             val kw = this.advance().kind
             // `val (a, b) = t` names a tuple's elements.
             if (this.at("(")) {
@@ -648,6 +688,7 @@ package class Parser(val toks: List<Token>) {
             val name = this.expectIdent("a variable name")
             val s = StmtN("let", t.line, t.col)
             s.name = name
+            s.constexpr = isConstexpr
             s.mutable = kw == "var"
             if (this.eat(":")) {
                 s.tyEx = this.typeExpr()

@@ -1,0 +1,98 @@
+// `constexpr`: the work happens when the program is compiled, not when it
+// runs. What the compiler computes it writes back into the tree as a
+// literal, so all three engines see a constant where this file wrote a
+// computation — and print the same bytes either way.
+
+constexpr val KB = 1024
+constexpr val MB = KB * KB
+constexpr val GB = MB * KB
+println("${KB} ${MB} ${GB}")
+
+// A `constexpr` may name one written before it.
+constexpr val NAME = "keal"
+constexpr val BANNER = "the " + NAME + " compiler"
+constexpr val SHOUT = BANNER.toUpper()
+println(SHOUT)
+
+// Interpolation folds too: the string below exists before the program does.
+constexpr val WIDTH = 80
+constexpr val RULE = "-".repeat(WIDTH / 2)
+println("${RULE}| ${RULE.length}")
+
+// A `constexpr fun` is one the evaluator is allowed to run.
+constexpr fun square(n: Int): Int {
+    return n * n
+}
+
+constexpr fun sumTo(n: Int): Int {
+    var total = 0
+    for (i in 0..n) {
+        total += i
+    }
+    return total
+}
+
+// Recursion, bounded by the compiler's own frame limit.
+constexpr fun fib(n: Int): Int {
+    if (n < 2) { return n }
+    return fib(n - 1) + fib(n - 2)
+}
+
+// `while`, `break` and a `when` used for its value.
+constexpr fun digits(n: Int): Int {
+    var left = n
+    var count = 0
+    while (true) {
+        count += 1
+        left = left / 10
+        if (left == 0) { break }
+    }
+    return count
+}
+
+constexpr fun grade(n: Int): String {
+    return when {
+        n >= 90 -> "A"
+        n >= 80 -> "B"
+        else -> "C"
+    }
+}
+
+constexpr val SQ = square(12)
+constexpr val SUM = sumTo(101)
+constexpr val FIB = fib(24)
+constexpr val DIGITS = digits(31415926)
+println("${SQ} ${SUM} ${FIB} ${DIGITS} ${grade(85)}")
+
+// A list and a map are values the compiler can write back, so a table can
+// be built by a function and shipped as a literal.
+constexpr fun squares(n: Int): List<Int> {
+    var out: List<Int> = []
+    for (i in 1..n) {
+        out.add(i * i)
+    }
+    return out
+}
+
+constexpr val TABLE: List<Int> = squares(6)
+println("${TABLE.size} ${TABLE[0]} ${TABLE[4]}")
+
+// A map is built the same way: the one thing a `constexpr` may change is
+// a container a name it bound is holding.
+constexpr fun lengths(words: List<String>): Map<String, Int> {
+    var out: Map<String, Int> = {}
+    for (w in words) {
+        out[w] = w.length
+    }
+    return out
+}
+
+constexpr val LOOKUP: Map<String, Int> = lengths(["one", "three", "seven"])
+println("${LOOKUP.size} ${LOOKUP.contains("seven")} ${LOOKUP.contains("four")}")
+
+// A `constexpr` inside a body is folded exactly as one at the top level.
+fun local(): Int {
+    constexpr val HALF = 4096 / 2
+    return HALF
+}
+println(local())

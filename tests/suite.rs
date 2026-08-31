@@ -1061,6 +1061,49 @@ fn selfhosted_emitter_agrees_with_the_oracle() {
     }
 }
 
+/// `constexpr` promises the work happens at compile time. The promise it
+/// has to keep beyond that is that a compiler asked for the impossible
+/// **stops** — a loop that does not end at compile time would be a compiler
+/// that does not end, which is worse than a wrong answer. These two live
+/// here rather than in the compared corpus because exhausting the budget
+/// costs real seconds, and the corpus runs four times over.
+#[test]
+fn a_constexpr_that_cannot_finish_is_refused() {
+    let dir = std::env::temp_dir().join("keal-constexpr-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a directory");
+
+    let forever = dir.join("forever.keal");
+    std::fs::write(
+        &forever,
+        "constexpr fun spin(): Int {\n    var i = 0\n    while (true) { i += 1 }\n    return i\n}\nconstexpr val X = spin()\n",
+    )
+    .unwrap();
+    let out = Command::new(BIN).arg("check").arg(&forever).output().expect("cannot run keal");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "an endless `constexpr` was accepted");
+    assert!(
+        err.contains("this `constexpr` did not finish"),
+        "the budget did not stop it:\n{}",
+        err
+    );
+
+    let deep = dir.join("deep.keal");
+    std::fs::write(
+        &deep,
+        "constexpr fun down(n: Int): Int { return down(n + 1) }\nconstexpr val X = down(0)\n",
+    )
+    .unwrap();
+    let out = Command::new(BIN).arg("check").arg(&deep).output().expect("cannot run keal");
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "bottomless recursion was accepted");
+    assert!(
+        err.contains("recursed too deep at compile time"),
+        "the frame limit did not stop it:\n{}",
+        err
+    );
+}
+
 /// The same question asked of the emitters under `--audit`, which is a
 /// different program: counting, the walks over every shape a class, a
 /// lambda or a container can hold, and the roots the mark phase starts

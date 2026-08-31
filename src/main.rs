@@ -13,6 +13,7 @@ mod bytecode;
 mod cbackend;
 mod checker;
 mod compiler;
+mod constfold;
 mod interp;
 mod layout;
 mod lexer;

@@ -294,9 +294,10 @@ fn block_node(tag: &str, b: &Block) -> String {
 
 fn stmt_node(s: &Stmt) -> String {
     match &s.kind {
-        StmtKind::Let { name, ty, init, mutable, vis } => {
+        StmtKind::Let { name, ty, init, mutable, vis, constexpr } => {
             let kw = if *mutable { "var" } else { "val" };
-            let mut head = format!("{}let {} {}", vis_prefix(*vis), kw, name);
+            let c = if *constexpr { "constexpr " } else { "" };
+            let mut head = format!("{}{}let {} {}", vis_prefix(*vis), c, kw, name);
             if let Some(t) = ty {
                 head.push_str(&format!(": {}", type_line(t)));
             }
