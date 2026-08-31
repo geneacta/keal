@@ -106,6 +106,26 @@ fn c_driver() -> String {
     "cc".to_string()
 }
 
+/// Where the JDK is, or `None`.
+///
+/// `JAVA_HOME` first, because it is the portable answer and the one a
+/// Windows or Linux machine will have set. `/usr/libexec/java_home` is a
+/// macOS helper and nothing else: asking for it on any other system found
+/// no JDK at all, however many were installed.
+fn java_home() -> Option<String> {
+    if let Ok(h) = std::env::var("JAVA_HOME") {
+        if !h.trim().is_empty() && Path::new(h.trim()).join("include").exists() {
+            return Some(h.trim().to_string());
+        }
+    }
+    let out = Command::new("/usr/libexec/java_home").output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!path.is_empty()).then_some(path)
+}
+
 /// The two engines, named as the command line spells them.
 const ENGINES: [&str; 2] = ["--vm", "--ast"];
 
@@ -905,15 +925,10 @@ fn jbind_matches_snapshot_and_typechecks() {
 /// live `javap`, build a native program against them, and run it.
 #[test]
 fn jbind_works_end_to_end() {
-    let Ok(out) = Command::new("/usr/libexec/java_home").output() else {
-        eprintln!("skipping: no java_home helper");
+    let Some(jh) = java_home() else {
+        eprintln!("skipping: no JDK found (set JAVA_HOME)");
         return;
     };
-    if !out.status.success() {
-        eprintln!("skipping: no JDK installed");
-        return;
-    }
-    let jh = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !Path::new(&jh).join("include/jni.h").exists() {
         eprintln!("skipping: JDK without JNI headers");
         return;
@@ -983,15 +998,10 @@ d.free()
 /// JDK-gated, and the corpora stay pure.
 #[test]
 fn import_sugar_works_end_to_end() {
-    let Ok(out) = Command::new("/usr/libexec/java_home").output() else {
-        eprintln!("skipping: no java_home helper");
+    let Some(jh) = java_home() else {
+        eprintln!("skipping: no JDK found (set JAVA_HOME)");
         return;
     };
-    if !out.status.success() {
-        eprintln!("skipping: no JDK installed");
-        return;
-    }
-    let jh = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !Path::new(&jh).join("include/jni.h").exists() {
         eprintln!("skipping: JDK without JNI headers");
         return;
@@ -1050,15 +1060,10 @@ d.free()
 /// native binary, with the program carrying on.
 #[test]
 fn java_exceptions_are_catchable_natively() {
-    let Ok(out) = Command::new("/usr/libexec/java_home").output() else {
-        eprintln!("skipping: no java_home helper");
+    let Some(jh) = java_home() else {
+        eprintln!("skipping: no JDK found (set JAVA_HOME)");
         return;
     };
-    if !out.status.success() {
-        eprintln!("skipping: no JDK installed");
-        return;
-    }
-    let jh = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !Path::new(&jh).join("include/jni.h").exists() {
         eprintln!("skipping: JDK without JNI headers");
         return;
@@ -1113,15 +1118,10 @@ good.free()
 
 #[test]
 fn jvm_gateway_works_end_to_end() {
-    let Ok(out) = Command::new("/usr/libexec/java_home").output() else {
-        eprintln!("skipping: no java_home helper");
+    let Some(jh) = java_home() else {
+        eprintln!("skipping: no JDK found (set JAVA_HOME)");
         return;
     };
-    if !out.status.success() {
-        eprintln!("skipping: no JDK installed");
-        return;
-    }
-    let jh = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !Path::new(&jh).join("include/jni.h").exists() {
         eprintln!("skipping: JDK without JNI headers");
         return;
@@ -1163,15 +1163,10 @@ fn jvm_gateway_works_end_to_end() {
 /// a JDK, like the other gateway tests.
 #[test]
 fn jvm_calls_work_from_actor_threads() {
-    let Ok(out) = Command::new("/usr/libexec/java_home").output() else {
-        eprintln!("skipping: no java_home helper");
+    let Some(jh) = java_home() else {
+        eprintln!("skipping: no JDK found (set JAVA_HOME)");
         return;
     };
-    if !out.status.success() {
-        eprintln!("skipping: no JDK installed");
-        return;
-    }
-    let jh = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !Path::new(&jh).join("include/jni.h").exists() {
         eprintln!("skipping: JDK without JNI headers");
         return;

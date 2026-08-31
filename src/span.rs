@@ -67,8 +67,16 @@ impl Sources {
         self.files.len()
     }
 
+    /// A file's path as a diagnostic spells it: always with `/`.
+    ///
+    /// Windows renders a `PathBuf` with backslashes, and the self-hosted
+    /// compiler — which joins paths as strings — renders forward slashes.
+    /// Two compilers that must agree byte for byte cannot disagree about a
+    /// separator, and a snapshot cannot be right on one platform only.
     pub fn path(&self, id: u32) -> String {
-        self.get(id).map(|f| f.path.display().to_string()).unwrap_or_else(|| "<unknown>".into())
+        self.get(id)
+            .map(|f| f.path.display().to_string().replace('\\', "/"))
+            .unwrap_or_else(|| "<unknown>".into())
     }
 
     fn line_text(&self, id: u32, line: u32) -> Option<&str> {

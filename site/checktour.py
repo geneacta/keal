@@ -29,12 +29,34 @@ def native_only(code):
     return "extern fun" in code
 
 
+def c_driver():
+    """The C compiler this machine has, or None.
+
+    `cc` is a Unix name; a Windows machine has `gcc` or `clang` and neither
+    is called `cc`. And a missing program raises here rather than returning
+    a code, which is what made this line crash instead of skip.
+    """
+    # `CC` is not a hint but an instruction: it is the compiler the build
+    # will use, so if it does not answer, there is no compiler.
+    named = os.environ.get("CC")
+    for name in [named] if named else ["cc", "gcc", "clang"]:
+        try:
+            if subprocess.run([name, "--version"], capture_output=True).returncode == 0:
+                return name
+        except (FileNotFoundError, OSError):
+            continue
+    return None
+
+
 def main():
-    keal = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "target/release/keal")
+    default = os.path.join(ROOT, "target/release/keal")
+    if os.name == "nt":
+        default += ".exe"
+    keal = sys.argv[1] if len(sys.argv) > 1 else default
     if not os.path.exists(keal):
         print("no compiler at %s — build one with `cargo build --release`" % keal)
         return 2
-    have_cc = subprocess.run(["cc", "--version"], capture_output=True).returncode == 0
+    have_cc = c_driver() is not None
 
     failures = []
     with tempfile.TemporaryDirectory() as tmp:
