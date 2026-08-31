@@ -160,7 +160,11 @@ pub fn generate(jvm_path: &str, inputs: &[String], texts: &[String]) -> String {
          // whose types cannot cross are skipped below, with the reason.\n\n\
          import \"{}\"\n",
         inputs.join(" "),
-        jvm_path
+        // A Keal string literal reads `\` as an escape, so a Windows path
+        // dropped into one is not a path but a parse error — `C:\Users\...`
+        // dies on `\U`. Forward slashes are a path on every platform,
+        // Windows included, and are what a Keal import writes.
+        jvm_path.replace('\\', "/")
     ));
 
     for p in &parsed {

@@ -73,6 +73,12 @@ needed for `keal build`, and `keal doctor` will say whether one is there.
 Four platforms are built and tested, and held to the same standard:
 macOS on Apple silicon, macOS on Intel, Linux x86_64 and Windows x86_64.
 
+**Upgrading an existing Windows checkout.** `.gitattributes` renormalises
+only the files a commit rewrites, so a `git pull` onto a tree checked out
+before it existed leaves the rest at CRLF — a half-converted tree that
+fails a few tests confusingly. Say it in the notes: after pulling, run
+`git rm --cached -r . ; git reset --hard`, or re-clone.
+
 **What a Windows user needs, and why.** The compiler itself needs nothing
 but Rust. `keal build` needs a C driver, and not any of them: the runtime
 checks arithmetic overflow with the GCC and Clang builtins, so **MSVC

@@ -121,7 +121,10 @@ package class Loader() {
         if (text == null) {
             // The oracle carries the OS's own words; "not found" is the one
             // failure that realistically reaches this line.
-            var msg = "cannot read `${path}`: No such file or directory (os error 2)"
+            // The oracle says this in the compiler's own words rather than
+            // the operating system's, which are in the operating system's
+            // language; this says the same words.
+            var msg = "cannot read `${path}`: no such file or directory"
             val dir = dirOf(path)
             if (path.contains(".keal/deps/")) {
                 msg = msg + " -- a `dep:` import reads what is on disk: run `keal fetch` to put this project's dependencies in place"

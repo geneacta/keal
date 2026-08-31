@@ -76,7 +76,7 @@ fn load_file(
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
         Err(e) => {
-            let msg = format!("cannot read `{}`: {}", path.display(), e);
+            let msg = format!("cannot read `{}`: {}", shown(path), unreadable(&e));
             let msg = if path.components().any(|c| c.as_os_str() == "deps")
                 && path.to_string_lossy().contains(".keal")
             {
@@ -119,6 +119,31 @@ fn load_file(
     }
     items.extend(own);
     Ok(file)
+}
+
+/// A path as a diagnostic spells it: always with `/`, whatever the platform
+/// renders. The same reason `Sources::path` does it — two compilers that
+/// must agree byte for byte cannot disagree about a separator.
+fn shown(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
+}
+
+/// Why a file could not be read, in the compiler's own words.
+///
+/// `std::io::Error`'s own text is the operating system's, in the operating
+/// system's language: a French Windows says "Le fichier spécifié est
+/// introuvable. (os error 2)" where macOS says "No such file or directory".
+/// A diagnostic that two compilers compare byte for byte cannot be written
+/// by whichever machine and locale happened to run it, so the compiler says
+/// this itself and says the same thing everywhere.
+fn unreadable(e: &std::io::Error) -> &'static str {
+    use std::io::ErrorKind::*;
+    match e.kind() {
+        NotFound => "no such file or directory",
+        PermissionDenied => "permission denied",
+        IsADirectory => "that is a directory, not a file",
+        _ => "it could not be read",
+    }
 }
 
 /// Where an import points. `dep:name/file.keal` is a dependency, read from

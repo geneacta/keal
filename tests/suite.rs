@@ -126,6 +126,21 @@ fn java_home() -> Option<String> {
     (!path.is_empty()).then_some(path)
 }
 
+/// The subdirectory a JDK keeps `jni_md.h` in.
+///
+/// `jni.h` includes it by bare name, and every JDK files it under the
+/// platform: `darwin`, `linux`, `win32`. The JDK's address is portable now;
+/// its layout has to be spelled out.
+fn jni_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "darwin"
+    } else if cfg!(windows) {
+        "win32"
+    } else {
+        "linux"
+    }
+}
+
 /// The two engines, named as the command line spells them.
 const ENGINES: [&str; 2] = ["--vm", "--ast"];
 
@@ -971,7 +986,7 @@ d.free()
         .arg("build")
         .arg("main.keal")
         .arg(format!("-I{}/include", jh))
-        .arg(format!("-I{}/include/darwin", jh))
+        .arg(format!("-I{}/include/{}", jh, jni_platform()))
         .arg(format!("-L{}/lib/server", jh))
         .arg("-ljvm")
         .arg(format!("-Wl,-rpath,{}/lib/server", jh))
@@ -1031,7 +1046,7 @@ d.free()
         .arg("build")
         .arg("main.keal")
         .arg(format!("-I{}/include", jh))
-        .arg(format!("-I{}/include/darwin", jh))
+        .arg(format!("-I{}/include/{}", jh, jni_platform()))
         .arg(format!("-L{}/lib/server", jh))
         .arg("-ljvm")
         .arg(format!("-Wl,-rpath,{}/lib/server", jh))
@@ -1095,7 +1110,7 @@ good.free()
         .arg("build")
         .arg("main.keal")
         .arg(format!("-I{}/include", jh))
-        .arg(format!("-I{}/include/darwin", jh))
+        .arg(format!("-I{}/include/{}", jh, jni_platform()))
         .arg(format!("-L{}/lib/server", jh))
         .arg("-ljvm")
         .arg(format!("-Wl,-rpath,{}/lib/server", jh))
@@ -1136,7 +1151,7 @@ fn jvm_gateway_works_end_to_end() {
         .arg("build")
         .arg(root().join("examples/interop/java/localdate.keal"))
         .arg(format!("-I{}/include", jh))
-        .arg(format!("-I{}/include/darwin", jh))
+        .arg(format!("-I{}/include/{}", jh, jni_platform()))
         .arg(format!("-L{}/lib/server", jh))
         .arg("-ljvm")
         .arg(format!("-Wl,-rpath,{}/lib/server", jh))
@@ -1181,7 +1196,7 @@ fn jvm_calls_work_from_actor_threads() {
         .arg("build")
         .arg(root().join("examples/interop/java/actordate.keal"))
         .arg(format!("-I{}/include", jh))
-        .arg(format!("-I{}/include/darwin", jh))
+        .arg(format!("-I{}/include/{}", jh, jni_platform()))
         .arg(format!("-L{}/lib/server", jh))
         .arg("-ljvm")
         .arg(format!("-Wl,-rpath,{}/lib/server", jh))
