@@ -28,6 +28,14 @@ Nothing else about the project depends on these files: `cargo test
 --release` and `./bootstrap.sh` are the same commands the workflows run,
 and they are what a contributor runs locally.
 
+## What lives here, and what has to be pasted
+
+`release.yml` and `pages.yml` are copies of what GitHub runs; the Windows
+toolchain step is not. It calls `ci/windows-toolchain.sh`, which lives in
+the repository — so the thing most likely to need changing can change with
+an ordinary commit, and the workflow file only has to be pasted when the
+*shape* of the run changes.
+
 ## Getting out of the copy-paste loop
 
 Every fix to a workflow has to be pasted through the web UI because the
