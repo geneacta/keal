@@ -35,7 +35,17 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: keal-linux-x86_64
+          # Windows gets the compiler and both interpreters. `keal build`
+          # is not among them: the generated C is compiled with `cc` and
+          # flags MSVC does not take, and the actor runtime is pthreads.
+          # Non-blocking until it has been green a few times — a platform
+          # nobody here can test must not hold a release shut.
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: keal-windows-x86_64
+            optional: true
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.optional == true }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,13 +62,21 @@ jobs:
       - name: Test
         run: cargo test --release
 
+      # The bootstrap compiles the self-hosted compiler through C, so it
+      # needs the toolchain `keal build` needs.
       - name: Bootstrap to its fixed point
+        if: runner.os != 'Windows'
         run: ./bootstrap.sh
 
       - name: Package
+        shell: bash
         run: |
           mkdir -p dist-release
-          cp target/${{ matrix.target }}/release/keal dist-release/keal
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp target/${{ matrix.target }}/release/keal.exe dist-release/keal.exe
+          else
+            cp target/${{ matrix.target }}/release/keal dist-release/keal
+          fi
           cp README.md LICENSE dist-release/
           tar -czf ${{ matrix.name }}.tar.gz -C dist-release .
 

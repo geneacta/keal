@@ -31,6 +31,10 @@ python3 tests/fuzz/fuzz.py ./target/release/keal 3000
 leaks --atExit -- ./some-native-binary   # macOS; zero leaks
 ```
 
+Every test that reaches for a C compiler, a JDK, git or Python skips
+itself when it is not there rather than failing — which is what lets the
+same suite run on a machine that cannot compile C at all.
+
 Plus the two rules that are not commands: `STATUS.md` describes the state
 the tag is in, and every claim added to `README.md` or `docs/` since the
 last tag is one the suite actually checks.
@@ -65,6 +69,14 @@ last tag is one the suite actually checks.
 all a user needs: the prelude and the C runtime are compiled into the
 binary, so there is nothing to install beside it. A C compiler is only
 needed for `keal build`, and `keal doctor` will say whether one is there.
+
+Three platforms are built and tested: macOS on Apple silicon, macOS on
+Intel, and Linux x86_64. **Windows builds the compiler and both
+interpreters, and is not blocking**: `keal build` is not supported there
+yet, because the generated C is handed to `cc` with flags MSVC does not
+take and the actor runtime is pthreads. A Windows user gets a language
+that runs; compiling to a native executable is what they do not get, and
+saying so is better than shipping a binary that fails at the last step.
 
 ## What is not automated, and why
 

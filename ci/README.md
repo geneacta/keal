@@ -28,6 +28,19 @@ Nothing else about the project depends on these files: `cargo test
 --release` and `./bootstrap.sh` are the same commands the workflows run,
 and they are what a contributor runs locally.
 
+## Getting out of the copy-paste loop
+
+Every fix to a workflow has to be pasted through the web UI because the
+credentials used here lack the `workflow` scope. One command ends that:
+
+```sh
+gh auth refresh -s workflow
+```
+
+After it, `ci/*.yml` can be copied to `.github/workflows/` and pushed like
+any other file, and this directory becomes a mirror rather than a staging
+area.
+
 ## When a runner label goes away
 
 GitHub retires runner images, and a job whose label no longer exists sits

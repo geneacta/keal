@@ -614,6 +614,14 @@ fn selfhosted_emitter_agrees_with_the_oracle() {
 /// from. A compiler written in Keal, compiled by itself, at a fixed point.
 #[test]
 fn the_compiler_compiles_itself() {
+    // It compiles through C, so it needs the compiler `keal build` needs.
+    // Skipped rather than failed where there is none, like every other test
+    // that reaches for one.
+    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
     let dir = root().join("target").join("bootstrap-test");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("cannot create the bootstrap dir");
