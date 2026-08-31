@@ -324,7 +324,7 @@ $ KEAL_AUDIT=1 keal run notes.keal
 audit: 2 object(s) outlived the program
   1 Item
   1 Owner
-  = note: a class that survives its last reference is in a cycle; `weak` on the back edge breaks it
+  = note: a top-level binding lives to the end of a program and is counted here; anything else outlived its last reference, which is a cycle — `weak` on the back edge breaks one
 ```
 
 It counts; it does not diagnose. An object that outlives the program is one
@@ -361,8 +361,11 @@ Two limits remain, stated rather than left to be discovered.
 end of the program on every engine — none of them runs its `deinit` there —
 so every engine counts it as having outlived one. That is the truth, and it
 is why the report is taken before any engine lets its globals go; but it
-means the list names things that are perfectly healthy. The audit is a place
-to start looking, not a verdict.
+means the list names things that are perfectly healthy, and the note under
+it says so. It said the opposite once, asserting a cycle under every report,
+and the author of the feature was the first person it sent looking for a
+cycle that was not there. The audit is a place to start looking, not a
+verdict, and its own words have to keep that promise.
 
 **A closure can retain differently on different engines.** The VM and the C
 backend give a closure the values it uses; the tree-walker gives it the

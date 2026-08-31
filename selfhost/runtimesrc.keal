@@ -199,7 +199,7 @@ KEAL_FN void keal_audit_report(void) {
         fprintf(stderr, "  %" PRId64 " %s\n", keal_audit_rows[order[i]].live,
                 keal_audit_rows[order[i]].name);
     }
-    fprintf(stderr, "  = note: a class that survives its last reference is in a cycle; `weak` on the back edge breaks it\n");
+    fprintf(stderr, "  = note: a top-level binding lives to the end of a program and is counted here; anything else outlived its last reference, which is a cycle — `weak` on the back edge breaks one\n");
 }
 #endif
 

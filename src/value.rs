@@ -170,7 +170,7 @@ pub mod audit {
         for (class, n) in alive {
             eprintln!("  {} {}", n, class);
         }
-        eprintln!("  = note: a class that survives its last reference is in a cycle; `weak` on the back edge breaks it");
+        eprintln!("  = note: a top-level binding lives to the end of a program and is counted here; anything else outlived its last reference, which is a cycle — `weak` on the back edge breaks one");
     }
 }
 
