@@ -343,7 +343,8 @@ fn fetch_puts_a_dependency_where_an_import_finds_it() {
 fn the_audit_names_what_outlived_the_program() {
     // The two interpreters, on every shape the audit is meant to see: a
     // cycle, a cycle broken by `weak`, and actors holding one another.
-    for path in ["tests/audit/cycle.keal", "tests/native/weak.keal",
+    for path in ["tests/audit/cycle.keal", "tests/audit/reachable.keal",
+                 "tests/native/weak.keal",
                  "tests/native/actors.keal", "tests/native/actor-mesh.keal"] {
         let mut reports = Vec::new();
         for engine in ENGINES {
@@ -389,6 +390,36 @@ fn the_audit_names_what_outlived_the_program() {
         // The pair without a back edge dies, and says so on the way out.
         let printed = String::from_utf8_lossy(&out.stdout);
         assert!(printed.contains("owner 3 died"), "the acyclic pair did not run its deinit");
+        // And the verdict, which is the point: nothing here is held by a
+        // top-level binding, so all of it is named as a cycle.
+        assert!(
+            err.contains("2 of them are reachable from no top-level binding"),
+            "{} did not call the cycle a cycle:\n{}",
+            engine,
+            err
+        );
+    }
+
+    // The other half of the rule: a program that leaves both kinds behind
+    // must name each for what it is, and the three engines must agree
+    // about which is which.
+    for engine in ENGINES {
+        let out = Command::new(BIN)
+            .args([engine, "tests/audit/reachable.keal"])
+            .current_dir(root())
+            .env("KEAL_AUDIT", "1")
+            .output()
+            .expect("cannot run the audit");
+        assert!(out.status.success());
+        let err = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(
+            err.contains("11 object(s) outlived the program")
+                && err.contains("2 of them are reachable from no top-level binding")
+                && err.contains("the rest are held by a top-level binding"),
+            "{} did not tell the cycle from the roots:\n{}",
+            engine,
+            err
+        );
     }
 }
 
@@ -410,7 +441,8 @@ fn the_native_audit_says_what_the_interpreters_say() {
     // Four shapes, not one: a plain cycle, a cycle a `weak` edge breaks, and
     // two actor programs whose objects hold each other. Covering only the
     // first is how a disagreement between engines went unnoticed once.
-    for name in ["tests/audit/cycle.keal", "tests/native/weak.keal",
+    for name in ["tests/audit/cycle.keal", "tests/audit/reachable.keal",
+                 "tests/native/weak.keal",
                  "tests/native/actors.keal", "tests/native/actor-mesh.keal"] {
     let src = root().join(name);
 
@@ -1024,6 +1056,33 @@ fn selfhosted_emitter_agrees_with_the_oracle() {
             oracle.status_success(),
             mine.status_success(),
             "the emitters disagree on whether {} compiles",
+            path
+        );
+    }
+}
+
+/// The same question asked of the emitters under `--audit`, which is a
+/// different program: counting, the walks over every shape a class, a
+/// lambda or a container can hold, and the roots the mark phase starts
+/// from. None of that is in the C the test above compares, so for a while
+/// the twin's audit was the one thing nothing checked.
+#[test]
+fn the_emitters_agree_under_the_audit_too() {
+    let mut files = keal_files("tests/audit");
+    files.extend(keal_files("tests/native"));
+    for file in files {
+        let path = relative(&file);
+        let oracle = keal(&["--audit", "emit-c", &path]);
+        let mine = keal(&["--vm", "selfhost/cbackend.keal", "--audit", &path]);
+        assert_eq!(
+            oracle.stdout, mine.stdout,
+            "the audited emitters disagree on {}",
+            path
+        );
+        assert_eq!(
+            oracle.status_success(),
+            mine.status_success(),
+            "the audited emitters disagree on whether {} compiles",
             path
         );
     }

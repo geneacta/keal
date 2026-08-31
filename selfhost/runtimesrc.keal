@@ -127,6 +127,9 @@ typedef int64_t keal_rc_t;
 typedef struct KealAuditRow {
     const char* name;
     int64_t live;
+    /* How many of the live ones a top-level binding can reach, filled in
+     * by the mark phase further down before the report is printed. */
+    int64_t held;
 } KealAuditRow;
 
 static KealAuditRow keal_audit_rows[256];
@@ -153,6 +156,7 @@ static KealAuditRow* keal_audit_row(const char* name) {
     }
     keal_audit_rows[keal_audit_used].name = name;
     keal_audit_rows[keal_audit_used].live = 0;
+    keal_audit_rows[keal_audit_used].held = 0;
     return &keal_audit_rows[keal_audit_used++];
 }
 
@@ -160,6 +164,15 @@ KEAL_FN void keal_audit_born(const char* name) {
     KEAL_AUDIT_LOCK();
     KealAuditRow* r = keal_audit_row(name);
     if (r != NULL) { r->live++; }
+    KEAL_AUDIT_UNLOCK();
+}
+
+/* The mark phase's counter: this object is one a top-level binding can
+ * reach, so it lived to the end because the program said so. */
+KEAL_FN void keal_audit_hold(const char* name) {
+    KEAL_AUDIT_LOCK();
+    KealAuditRow* r = keal_audit_row(name);
+    if (r != NULL) { r->held++; }
     KEAL_AUDIT_UNLOCK();
 }
 
@@ -199,7 +212,33 @@ KEAL_FN void keal_audit_report(void) {
         fprintf(stderr, "  %" PRId64 " %s\n", keal_audit_rows[order[i]].live,
                 keal_audit_rows[order[i]].name);
     }
-    fprintf(stderr, "  = note: a top-level binding lives to the end of a program and is counted here; anything else outlived its last reference, which is a cycle — `weak` on the back edge breaks one\n");
+    /* The verdict the counts alone could not give: what the mark phase
+     * reached lived to the end because a top-level binding said so, and
+     * what it did not reach outlived its last reference. */
+    int64_t lost = 0;
+    int64_t kept = 0;
+    for (int i = 0; i < n; i++) {
+        KealAuditRow* r = &keal_audit_rows[order[i]];
+        int64_t held = r->held > r->live ? r->live : r->held;
+        lost += r->live - held;
+        kept += held;
+    }
+    if (lost == 0) {
+        fprintf(stderr, "  = note: every one of them is held by a top-level binding, which lives to the end of a program by design — none is a cycle\n");
+        return;
+    }
+    fprintf(stderr, "  %" PRId64 " of them are reachable from no top-level binding, so they outlived their last reference — a cycle:\n", lost);
+    for (int i = 0; i < n; i++) {
+        KealAuditRow* r = &keal_audit_rows[order[i]];
+        int64_t held = r->held > r->live ? r->live : r->held;
+        if (r->live - held > 0) {
+            fprintf(stderr, "    %" PRId64 " %s\n", r->live - held, r->name);
+        }
+    }
+    if (kept > 0) {
+        fprintf(stderr, "  the rest are held by a top-level binding, which lives to the end of a program by design\n");
+    }
+    fprintf(stderr, "  = note: `weak` on the back edge breaks a cycle — see docs/memory.md §5\n");
 }
 #endif
 
@@ -1605,6 +1644,140 @@ KEAL_FN KealAny keal_any_of_opt_bool(int8_t o) {
     return a;
 }
 
+#ifdef KEAL_AUDIT
+/* ---- the audit's mark phase ------------------------------------------- */
+
+/* The rule the counts alone could not give, and the same rule both
+ * interpreters apply — it has to be the same, or a program's answer would
+ * depend on which engine asked. A top-level binding lives to the end of a
+ * program by design, and so does everything it holds: all of that is
+ * reachable from a root. Anything alive that no root reaches outlived its
+ * last reference, which nothing but a cycle can do.
+ *
+ * The walk follows only the edges that hold an object up. A `weak` field
+ * holds nothing up, so the generated walk skips one: were it followed, the
+ * back edge of a cycle would report its own cycle as reachable, which is
+ * exactly the answer this exists to stop giving.
+ *
+ * None of it costs a program anything: it is compiled only under
+ * `keal build --audit`. */
+
+typedef void (*KealAuditMark)(void*);
+
+/* A shape is walked by pairing its release function — which the backend
+ * already emits, and already hands to every list, map and closure — with
+ * the mark that walks the same fields. Both come from one place in the
+ * backend, so the two cannot drift apart, and no runtime structure had to
+ * grow a field to carry the second one. */
+typedef struct KealAuditPair {
+    void* rel;
+    KealAuditMark mark;
+} KealAuditPair;
+
+static KealAuditPair keal_audit_pairs[512];
+static int keal_audit_pairs_used = 0;
+
+KEAL_FN void keal_audit_pair(void* rel, KealAuditMark mark) {
+    if (rel == NULL) { return; }
+    for (int i = 0; i < keal_audit_pairs_used; i++) {
+        if (keal_audit_pairs[i].rel == rel) { return; }
+    }
+    if (keal_audit_pairs_used == (int)(sizeof keal_audit_pairs / sizeof keal_audit_pairs[0])) {
+        keal_fatal("audit: too many shapes to walk");
+    }
+    keal_audit_pairs[keal_audit_pairs_used].rel = rel;
+    keal_audit_pairs[keal_audit_pairs_used].mark = mark;
+    keal_audit_pairs_used++;
+}
+
+static KealAuditMark keal_audit_mark_for(void* rel) {
+    for (int i = 0; i < keal_audit_pairs_used; i++) {
+        if (keal_audit_pairs[i].rel == rel) { return keal_audit_pairs[i].mark; }
+    }
+    /* Silence here would under-count, and under-counting reports a cycle
+     * that is not one. An audit that cannot walk a shape says so. */
+    keal_fatal("audit: a shape the mark phase does not know how to walk");
+    return NULL;
+}
+
+/* Every object is visited once, which is what makes a walk over the very
+ * cycles it is looking for terminate. */
+static void** keal_audit_seen = NULL;
+static size_t keal_audit_seen_len = 0;
+static size_t keal_audit_seen_cap = 0;
+
+static bool keal_audit_first(void* p) {
+    for (size_t i = 0; i < keal_audit_seen_len; i++) {
+        if (keal_audit_seen[i] == p) { return false; }
+    }
+    if (keal_audit_seen_len == keal_audit_seen_cap) {
+        size_t cap = keal_audit_seen_cap == 0 ? 64 : keal_audit_seen_cap * 2;
+        void** grown = (void**)realloc(keal_audit_seen, cap * sizeof(void*));
+        if (grown == NULL) { keal_fatal("out of memory"); }
+        keal_audit_seen = grown;
+        keal_audit_seen_cap = cap;
+    }
+    keal_audit_seen[keal_audit_seen_len++] = p;
+    return true;
+}
+
+/* The mark phase's own scratch, freed once it has answered — an audit that
+ * leaked would be the last thing to leak. */
+KEAL_FN void keal_audit_done(void) {
+    free(keal_audit_seen);
+    keal_audit_seen = NULL;
+    keal_audit_seen_len = 0;
+    keal_audit_seen_cap = 0;
+}
+
+/* A string holds nothing, and neither does a scalar. */
+KEAL_FN void keal_str_mark(void* p) { (void)p; }
+
+KEAL_FN void keal_any_mark(KealAny a);
+
+KEAL_FN void keal_list_mark(void* p) {
+    KealList* l = (KealList*)p;
+    if (l == NULL || !keal_audit_first(l)) { return; }
+    /* No element releaser means the elements are scalars, which hold
+     * nothing — the same test the release path makes. */
+    if (l->release_elem == NULL) { return; }
+    KealAuditMark m = keal_audit_mark_for((void*)l->release_elem);
+    for (int64_t i = 0; i < l->len; i++) { m(l->data[i].p); }
+}
+
+KEAL_FN void keal_map_mark(void* p) {
+    KealMap* m = (KealMap*)p;
+    if (m == NULL || !keal_audit_first(m)) { return; }
+    KealAuditMark mk = m->release_key == NULL ? NULL : keal_audit_mark_for((void*)m->release_key);
+    KealAuditMark mv = m->release_val == NULL ? NULL : keal_audit_mark_for((void*)m->release_val);
+    for (int64_t i = 0; i < m->len; i++) {
+        if (mk != NULL) { mk(m->data[i * 2].p); }
+        if (mv != NULL) { mv(m->data[i * 2 + 1].p); }
+    }
+}
+
+/* A closure's captures live in a struct only its own code knows the shape
+ * of, so its walk is paired with its `drop` — the one function the header
+ * already carries that names that shape. */
+KEAL_FN void keal_fn_mark(void* p) {
+    KealClosure* c = (KealClosure*)p;
+    if (c == NULL || !keal_audit_first(c)) { return; }
+    keal_audit_mark_for((void*)c->drop)(c);
+}
+
+KEAL_FN void keal_any_mark(KealAny a) {
+    if (a.ti == NULL || a.ti->release == NULL) { return; }
+    keal_audit_mark_for((void*)a.ti->release)(a.w.p);
+}
+
+KEAL_FN void keal_any_box_mark(void* p) {
+    KealAnyBox* b = (KealAnyBox*)p;
+    if (b == NULL || !keal_audit_first(b)) { return; }
+    keal_any_mark(b->a);
+}
+
+#endif
+
 /* `String.toInt`: trimmed, an optional sign, digits, nothing else, and no
  * overflow — the grammar Rust's `i64::from_str` accepts, which is what the
  * interpreters run. */
@@ -1734,6 +1907,16 @@ KEAL_FN KealCell* keal_cell_retain(KealCell* c) {
     return c;
 }
 
+#ifdef KEAL_AUDIT
+/* A captured `var` lives in a shared cell, so the walk goes through one. */
+KEAL_FN void keal_cell_mark(void* p) {
+    KealCell* c = (KealCell*)p;
+    if (c == NULL || !keal_audit_first(c)) { return; }
+    if (c->release_inner == NULL) { return; }
+    keal_audit_mark_for((void*)c->release_inner)(c->w.p);
+}
+#endif
+
 KEAL_FN void keal_cell_release(KealCell* c) {
     if (c == NULL) {
         return;
@@ -1746,6 +1929,24 @@ KEAL_FN void keal_cell_release(KealCell* c) {
     }
     free(c);
 }
+
+#ifdef KEAL_AUDIT
+/* The shapes the runtime owns, paired once. What a program adds — one per
+ * class, one per lambda, one per element type a container was made for —
+ * the backend pairs beside the release it already emits, so a shape and
+ * the walk over it are written in the same place and cannot drift. */
+KEAL_FN void keal_audit_pair_runtime(void) {
+    keal_audit_pair((void*)keal_any_box_release, keal_any_box_mark);
+    keal_audit_pair((void*)keal_any_ti_release_str, keal_str_mark);
+    keal_audit_pair((void*)keal_any_ti_release_list, keal_list_mark);
+    keal_audit_pair((void*)keal_cell_release, keal_cell_mark);
+    keal_audit_pair((void*)keal_str_release, keal_str_mark);
+    keal_audit_pair((void*)keal_list_release, keal_list_mark);
+    keal_audit_pair((void*)keal_map_release, keal_map_mark);
+    keal_audit_pair((void*)keal_fn_release, keal_fn_mark);
+}
+#endif
+
 
 /* ---- the host --------------------------------------------------------- */
 

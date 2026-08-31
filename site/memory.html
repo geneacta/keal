@@ -123,17 +123,31 @@ done</code></pre>
 audit: 2 object(s) outlived the program
   1 Item
   1 Owner
-  = note: a top-level binding lives to the end of a program and is counted here; anything else outlived its last reference, which is a cycle — `weak` on the back edge breaks one</code></pre>
-<p>It counts; it does not diagnose. An object that outlives the program is one whose count never reached zero, and on the interpreters that can only be a cycle — which is why the report is worth reading even though it names types rather than objects: the pair of names <em>is</em> the shape of the cycle, and <code>weak</code> on one of the two edges is what ends it. Put the word on the back edge and the same run reports <code>nothing outlived the program</code>.</p>
+  2 of them are reachable from no top-level binding, so they outlived their last reference — a cycle:
+    1 Item
+    1 Owner
+  = note: `weak` on the back edge breaks a cycle — see docs/memory.md §5</code></pre>
+<p>It counts, and then it decides. Counting alone could not: a top-level binding lives to the end of a program by design, and so does everything it holds, so a list of survivors mixed the healthy in with the leaked and left a person to guess which was which. The report ran that experiment on its own author, who went looking for a cycle that was not there.</p>
+<p>What settles it is a <strong>mark phase with no sweep</strong>, run once at exit. The roots are the program's top-level bindings — what it could still name when it ended. Everything they reach lived to the end because the program said so. Everything else alive is reachable from nothing, which under reference counting means it outlived its own last reference, and nothing but a cycle does that. So the report says which is which:</p>
+<pre><code>audit: 11 object(s) outlived the program
+  11 Node
+  2 of them are reachable from no top-level binding, so they outlived their last reference — a cycle:
+    2 Node
+  the rest are held by a top-level binding, which lives to the end of a program by design</code></pre>
+<p>The walk follows only the edges that hold an object up, which means it does <strong>not</strong> follow a <code>weak</code> field. That is not an optimisation: a <code>weak</code> back edge is exactly how a cycle is written to be legal, and following one would let a cycle report itself as reachable — the one answer the phase exists to stop giving.</p>
+<p>The report names types rather than objects, and that is enough: the pair of names <em>is</em> the shape of the cycle, and <code>weak</code> on one of the two edges is what ends it. Put the word on the back edge and the same run reports <code>nothing outlived the program</code>.</p>
 <p>The counters exist only when the variable is set, so a program that does not ask pays one boolean read per object and prints exactly what it printed before. The report goes to standard error, so it never joins a program's own output.</p>
 <p>A compiled program answers the same question, asked at build time:</p>
 <pre><code>$ keal build --audit notes.keal &amp;&amp; ./notes
 audit: 2 object(s) outlived the program
   1 Item
-  1 Owner</code></pre>
+  1 Owner
+  2 of them are reachable from no top-level binding, so they outlived their last reference — a cycle:
+    1 Item
+    1 Owner</code></pre>
 <p>Same words, same order, same stream — the three engines cannot disagree about what a program left behind. That is checked on Windows too, and it checks more than it looks: the note under the report carries an em dash, so a compiled program writing it is writing multi-byte UTF-8 to a Windows stdout, and the three reports still match byte for byte. The <code>_setmode</code> that stopped text mode mangling line endings holds for non-ASCII as well. The switch is a build flag rather than an environment variable there because a binary cannot grow counters after it is compiled; without it none of the counting is emitted and no object pays for it. Under actors the rows go behind the lock the scheduler already owns, so threads count the same total.</p>
-<p>Two limits remain, stated rather than left to be discovered.</p>
-<p><strong>A global is reported like anything else.</strong> A top-level object lives to the end of the program on every engine — none of them runs its <code>deinit</code> there — so every engine counts it as having outlived one. That is the truth, and it is why the report is taken before any engine lets its globals go; but it means the list names things that are perfectly healthy, and the note under it says so. It said the opposite once, asserting a cycle under every report, and the author of the feature was the first person it sent looking for a cycle that was not there. The audit is a place to start looking, not a verdict, and its own words have to keep that promise.</p>
+<p>The mark phase costs the native side more than the interpreters, and the way it is paid for is worth recording. A <code>KealList</code> does not know its element type — it carries the function that releases one. So the walk is paired with that function: the backend emits the release and the walk from one place and registers them as a pair, and the walk over a list is a lookup on the releaser it already holds. Closures pair the same way, on the <code>drop</code> their header already carries. Nothing in the runtime grew a field, and a pair that is missing is a hard error rather than an undercount — undercounting would report a cycle that is not one, which is the exact failure this replaced.</p>
+<p>One limit remains, stated rather than left to be discovered.</p>
 <p><strong>A closure can retain differently on different engines.</strong> The VM and the C backend give a closure the values it uses; the tree-walker gives it the scope it was written in, narrowed to the same values where it safely can — which is everywhere except a capture of a <code>var</code>, whose later writes the closure must see. Where that narrowing cannot apply, an interpreter holds a little more than a compiled program does, and says so. Both numbers are true about their own engine, and the difference is small and asymmetric: on the one program here that shows it, the VM keeps two objects the others do not and the tree-walker keeps five of a type neither of the others reports at all — which reads as two different retentions rather than one at two sizes. No behaviour depends on either, and no <code>deinit</code> is missed.</p>
 <hr>
 <h2 id="6-crossing-into-c">6. Crossing into C</h2>

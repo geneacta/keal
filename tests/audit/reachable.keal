@@ -1,0 +1,42 @@
+// The rule the counts alone could not give: what a top-level binding can
+// still reach lived to the end because the program said so, and what no
+// binding reaches outlived its last reference — which nothing but a cycle
+// can do. This program leaves both behind at once, through every shape a
+// root can hold something by.
+
+class Node(val id: Int) {
+    var next: Node? = null
+}
+
+// Held straight from a global.
+val direct = Node(1)
+
+// Held through a list, and through a list inside a list.
+val inList: List<Node> = [Node(2), Node(3)]
+val nested: List<List<Node>> = [[Node(4)]]
+
+// Held through a map, as a value and as a key's neighbour.
+val inMap: Map<String, Node> = {"a": Node(5)}
+
+// Held through a closure's captured variable.
+val held = Node(6)
+val through: () -> Int = { -> held.id }
+
+// Held through an `Any`.
+val boxed: Any = Node(7)
+
+// Held through another object's field, two deep.
+val chain = Node(8)
+chain.next = Node(9)
+
+// And a cycle nobody can reach: two objects pointing at each other inside
+// a function that returned.
+proc leak() {
+    val a = Node(100)
+    val b = Node(101)
+    a.next = b
+    b.next = a
+}
+leak()
+
+println(direct.id + inList[0].id + nested[0][0].id + through())

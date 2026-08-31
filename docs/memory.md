@@ -324,15 +324,43 @@ $ KEAL_AUDIT=1 keal run notes.keal
 audit: 2 object(s) outlived the program
   1 Item
   1 Owner
-  = note: a top-level binding lives to the end of a program and is counted here; anything else outlived its last reference, which is a cycle — `weak` on the back edge breaks one
+  2 of them are reachable from no top-level binding, so they outlived their last reference — a cycle:
+    1 Item
+    1 Owner
+  = note: `weak` on the back edge breaks a cycle — see docs/memory.md §5
 ```
 
-It counts; it does not diagnose. An object that outlives the program is one
-whose count never reached zero, and on the interpreters that can only be a
-cycle — which is why the report is worth reading even though it names types
-rather than objects: the pair of names *is* the shape of the cycle, and
-`weak` on one of the two edges is what ends it. Put the word on the back
-edge and the same run reports `nothing outlived the program`.
+It counts, and then it decides. Counting alone could not: a top-level
+binding lives to the end of a program by design, and so does everything it
+holds, so a list of survivors mixed the healthy in with the leaked and left
+a person to guess which was which. The report ran that experiment on its own
+author, who went looking for a cycle that was not there.
+
+What settles it is a **mark phase with no sweep**, run once at exit. The
+roots are the program's top-level bindings — what it could still name when
+it ended. Everything they reach lived to the end because the program said
+so. Everything else alive is reachable from nothing, which under reference
+counting means it outlived its own last reference, and nothing but a cycle
+does that. So the report says which is which:
+
+```
+audit: 11 object(s) outlived the program
+  11 Node
+  2 of them are reachable from no top-level binding, so they outlived their last reference — a cycle:
+    2 Node
+  the rest are held by a top-level binding, which lives to the end of a program by design
+```
+
+The walk follows only the edges that hold an object up, which means it does
+**not** follow a `weak` field. That is not an optimisation: a `weak` back
+edge is exactly how a cycle is written to be legal, and following one would
+let a cycle report itself as reachable — the one answer the phase exists to
+stop giving.
+
+The report names types rather than objects, and that is enough: the pair of
+names *is* the shape of the cycle, and `weak` on one of the two edges is
+what ends it. Put the word on the back edge and the same run reports
+`nothing outlived the program`.
 
 The counters exist only when the variable is set, so a program that does not
 ask pays one boolean read per object and prints exactly what it printed
@@ -346,6 +374,9 @@ $ keal build --audit notes.keal && ./notes
 audit: 2 object(s) outlived the program
   1 Item
   1 Owner
+  2 of them are reachable from no top-level binding, so they outlived their last reference — a cycle:
+    1 Item
+    1 Owner
 ```
 
 Same words, same order, same stream — the three engines cannot disagree
@@ -359,17 +390,18 @@ compiled; without it none of the counting is emitted and no object pays for
 it. Under actors the rows go behind the lock the scheduler already owns, so
 threads count the same total.
 
-Two limits remain, stated rather than left to be discovered.
+The mark phase costs the native side more than the interpreters, and the
+way it is paid for is worth recording. A `KealList` does not know its
+element type — it carries the function that releases one. So the walk is
+paired with that function: the backend emits the release and the walk from
+one place and registers them as a pair, and the walk over a list is a
+lookup on the releaser it already holds. Closures pair the same way, on the
+`drop` their header already carries. Nothing in the runtime grew a field,
+and a pair that is missing is a hard error rather than an undercount —
+undercounting would report a cycle that is not one, which is the exact
+failure this replaced.
 
-**A global is reported like anything else.** A top-level object lives to the
-end of the program on every engine — none of them runs its `deinit` there —
-so every engine counts it as having outlived one. That is the truth, and it
-is why the report is taken before any engine lets its globals go; but it
-means the list names things that are perfectly healthy, and the note under
-it says so. It said the opposite once, asserting a cycle under every report,
-and the author of the feature was the first person it sent looking for a
-cycle that was not there. The audit is a place to start looking, not a
-verdict, and its own words have to keep that promise.
+One limit remains, stated rather than left to be discovered.
 
 **A closure can retain differently on different engines.** The VM and the C
 backend give a closure the values it uses; the tree-walker gives it the

@@ -59,6 +59,33 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**THE AUDIT IS A VERDICT NOW, not a list — all three engines.** Counting
+alone mixed the healthy in with the leaked: a top-level binding lives to the
+end by design, and so does everything it holds. THE RULE: a MARK PHASE WITH
+NO SWEEP at exit. Roots = the program's top-level bindings. What they reach
+lived to the end because the program said so; what nothing reaches outlived
+its own last reference, which under reference counting only a cycle does.
+The walk does NOT follow a `weak` edge — following one would let a cycle
+report itself as reachable, the exact answer this replaced.
+INTERPRETERS: `audit::report_from(roots)` with a worklist (not recursion — a
+long list is ordinary and an audit must not be why a program dies), plus
+`Scope::values`/`Scope::parent` so a closure's whole chain is walked.
+NATIVE, and this is the part worth remembering: a `KealList` does not know
+its element type, it carries the function that RELEASES one. So the walk is
+PAIRED with that function — the backend emits release and walk from one
+place and registers the pair, and walking a list is a lookup on the releaser
+it already holds. Closures pair on their `drop`. NOTHING IN THE RUNTIME GREW
+A FIELD. A missing pair is `keal_fatal`, not an undercount: undercounting
+would report a cycle that is not one.
+THE GAP THIS FOUND: `selfhosted_emitter_agrees_with_the_oracle` compares
+`cgen` WITHOUT `--audit`, so the twin's whole audit path was unchecked.
+`the_emitters_agree_under_the_audit_too` now compares `--audit emit-c`
+against the twin over `tests/audit` + `tests/native`.
+Corpus: `tests/audit/reachable.keal` — a root holding objects directly,
+through a list, a list of lists, a map, a closure's capture, an `Any`, and
+another object's field, plus a cycle nobody can reach. 11 survivors, 2 of
+them named as the cycle, on all three engines.
+
 **TYPED EXCEPTIONS — DONE, all three engines.**
 `throw` carries ANY value now (a function is the one refusal: a signature
 has no run-time identity to catch it by). `try` takes a LIST of clauses,

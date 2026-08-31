@@ -193,6 +193,10 @@ struct CBackend {
     /// and the program says at exit what it left behind. Off, none of the
     /// counting is emitted and no object pays for it.
     audit_mode: bool,
+    /// Release-to-walk pairs the audit registers before its mark phase,
+    /// and the top-level bindings that phase starts from.
+    audit_pairs: Vec<(String, String)>,
+    audit_roots: Vec<(String, Type)>,
     /// Set just before a statement's expression is emitted: its value is
     /// discarded, so a branch join of `Any` — which the checker only ever
     /// produces where using the value would be refused — needs no slot.
@@ -271,6 +275,8 @@ impl CBackend {
             at_top_level: false,
             weak_mode: false,
             audit_mode: false,
+            audit_pairs: Vec::new(),
+            audit_roots: Vec::new(),
             discard_join: false,
             lambda_defs: String::new(),
             next_lambda: 0,
@@ -441,6 +447,31 @@ impl CBackend {
         }
     }
 
+    /// The walk that follows the same edges `release_fn` releases. One
+    /// name per shape, and the same name the runtime gives its own, so a
+    /// container's element thunk pairs with its mark by construction.
+    /// `Any` has none: it travels by value, so the call site names it.
+    fn mark_fn(ty: &Type) -> Option<String> {
+        match ty {
+            Type::Str => Some("keal_str_mark".to_string()),
+            Type::Class(name, args) => Some(format!("{}_mark", struct_name_of(name, args))),
+            Type::List(_) => Some("keal_list_mark".to_string()),
+            Type::Fun(_) => Some("keal_fn_mark".to_string()),
+            Type::Map(_, _) => Some("keal_map_mark".to_string()),
+            Type::Nullable(inner) => Self::mark_fn(inner),
+            _ => None,
+        }
+    }
+
+    /// One field's contribution to a walk: `Any` by value, everything else
+    /// by the pointer its type's mark takes.
+    fn mark_line(ty: &Type, expr: &str) -> Option<String> {
+        if *ty == Type::Any {
+            return Some(format!("keal_any_mark({});", expr));
+        }
+        Self::mark_fn(ty).map(|f| format!("{}({});", f, expr))
+    }
+
     /// Wraps an expression in a retain, where the type needs one.
     fn retained(ty: &Type, expr: &str) -> String {
         match Self::retain_fn(ty) {
@@ -534,6 +565,13 @@ impl CBackend {
                         "static void {}(void* p) {{ {}_release(({}*)p); }}\n",
                         name, prefix, ctype
                     );
+                    // The one funnel every container's element type passes
+                    // through, so pairing the walk here covers lists, maps,
+                    // cells and the tag an `Any` carries a class under.
+                    if self.audit_mode {
+                        let mark = format!("{}_mark", prefix);
+                        self.audit_pairs.push((name.clone(), mark));
+                    }
                 }
                 name
             }
@@ -1020,6 +1058,28 @@ impl CBackend {
             let _ = write!(rel, "    free(o);\n}}\n");
         }
         self.defs.push_str(&rel);
+        if self.audit_mode {
+            // The walk over the same fields the release above frees, minus
+            // the weak ones: a `weak` field holds nothing up, and following
+            // one would let the back edge of a cycle report its own cycle
+            // as reachable.
+            let _ = writeln!(self.decls, "void {}_mark(void* p);", name);
+            let mut mk = format!(
+                "\nvoid {n}_mark(void* p) {{\n    {n}* o = ({n}*)p;\n    if (o == NULL || !keal_audit_first(o)) {{ return; }}\n    keal_audit_hold({s});\n",
+                n = name,
+                s = c_string(&c.name)
+            );
+            for (fname, ty) in &fields {
+                if self.weak_mode && self.field_is_weak(&bare, fname) {
+                    continue;
+                }
+                if let Some(line) = Self::mark_line(ty, &format!("o->{}", mangle(fname))) {
+                    let _ = writeln!(mk, "    {}", line);
+                }
+            }
+            mk.push_str("}\n");
+            self.defs.push_str(&mk);
+        }
         if Self::class_has_drop(c) {
             let _ = writeln!(self.decls, "void {}_dropper(void* p);", name);
             let _ = write!(
@@ -1162,8 +1222,24 @@ impl CBackend {
         self.close_scope();
         if self.audit_mode {
             // After the scope closed: what is still counted here is what
-            // closing it could not free.
+            // closing it could not free. The mark phase then says which of
+            // those a top-level binding can still reach — those lived to
+            // the end because the program said so — and what it cannot
+            // reach outlived its last reference, which is a cycle.
+            // The program's own pairs are registered from a function
+            // written after everything is emitted: a thunk can be made
+            // while a function far below this one is compiled, and a pair
+            // list read here would be the list as it stood too early.
+            self.line("keal_audit_pair_runtime();");
+            self.line("keal_audit_pairs_program();");
+            let roots = std::mem::take(&mut self.audit_roots);
+            for (var, ty) in &roots {
+                if let Some(line) = Self::mark_line(ty, var) {
+                    self.line(line);
+                }
+            }
             self.line("keal_audit_report();");
+            self.line("keal_audit_done();");
         }
         self.line("return 0;");
         self.end_function_unwind();
@@ -1977,6 +2053,9 @@ impl CBackend {
                 // interpreters' global scope. It lives for the program, so
                 // nothing releases it.
                 if self.at_top_level && self.scopes.len() == 1 {
+                    if self.audit_mode {
+                        self.audit_roots.push((var.clone(), ty.clone()));
+                    }
                     self.global_vars.insert(name.clone());
                     if ty == Type::Any {
                         self.any_globals.insert(name.clone());
@@ -2650,6 +2729,28 @@ impl CBackend {
             }
         }
         drop.push_str("    (void)env;\n    free(c);\n}\n");
+        if self.audit_mode {
+            // A closure's captures live in a struct only this code knows
+            // the shape of, so its walk is paired with its `drop` — the one
+            // function the closure header already carries that names it.
+            let mut walk = format!(
+                "static void {n}_walk(void* p) {{\n    {n}* env = ({n}*)p;\n",
+                n = env_name
+            );
+            for (name, ty, is_cell) in &captures {
+                let line = if *is_cell {
+                    Some(format!("keal_cell_mark(env->{});", mangle(name)))
+                } else {
+                    Self::mark_line(ty, &format!("env->{}", mangle(name)))
+                };
+                if let Some(line) = line {
+                    let _ = writeln!(walk, "    {}", line);
+                }
+            }
+            walk.push_str("    (void)env;\n}\n");
+            drop.push_str(&walk);
+            self.audit_pairs.push((format!("{}_drop", env_name), format!("{}_walk", env_name)));
+        }
 
         // The body, compiled as its own function with `env` in scope.
         let ret_c = if ft.ret == Type::Unit {
@@ -6002,11 +6103,24 @@ impl CBackend {
         out.push('\n');
         out.push_str(&self.global_decls);
         out.push('\n');
+        if self.audit_mode {
+            out.push_str("void keal_audit_pairs_program(void);\n");
+        }
         out.push_str(&self.decls);
         out.push('\n');
         out.push_str(&self.helpers);
         out.push_str(&self.lambda_defs);
         out.push_str(&self.defs);
+        if self.audit_mode {
+            // Written last, when every thunk and every lambda that will
+            // exist does: a shape and the walk over it are registered as
+            // one pair, and `main` calls this before it marks the roots.
+            let _ = write!(out, "\nvoid keal_audit_pairs_program(void) {{\n");
+            for (rel, mark) in &self.audit_pairs {
+                let _ = writeln!(out, "    keal_audit_pair((void*){}, {});", rel, mark);
+            }
+            out.push_str("}\n");
+        }
 
         // `main` was emitted without the host setup, so it is wrapped, and
         // the program's own arguments start after its path.

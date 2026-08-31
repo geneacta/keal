@@ -158,9 +158,110 @@ pub mod audit {
         out
     }
 
+    /// A mark phase with no sweep, and the rule the audit was missing: a
+    /// top-level binding lives to the end of a program by design, and so
+    /// does everything it holds — all of that is reachable from a root.
+    /// An object that is alive and reachable from no root outlived its
+    /// last reference, which nothing but a cycle can do. The difference
+    /// between the two counts is the difference between evidence and a
+    /// verdict, and the verdict is what a person can act on.
+    ///
+    /// The walk follows only the edges that hold an object up. A `weak`
+    /// field holds nothing up, so it is not followed: were it, the back
+    /// edge of a cycle would report its own cycle as reachable, which is
+    /// precisely the answer this exists to stop giving.
+    fn reachable(roots: &[super::Value]) -> HashMap<String, i64> {
+        use super::{Slot, Value};
+        use std::collections::HashSet;
+        use std::rc::Rc;
+
+        let mut found: HashMap<String, i64> = HashMap::new();
+        let mut seen: HashSet<usize> = HashSet::new();
+        // An explicit worklist, not recursion: a long list is an ordinary
+        // thing for a program to end with, and an audit must not be the
+        // reason it dies.
+        let mut work: Vec<Value> = roots.to_vec();
+        while let Some(v) = work.pop() {
+            match v {
+                Value::Instance(i) => {
+                    if !seen.insert(Rc::as_ptr(&i) as *const u8 as usize) {
+                        continue;
+                    }
+                    *found.entry(i.class.name.to_string()).or_insert(0) += 1;
+                    for (_, slot) in i.fields.borrow().iter() {
+                        if let Slot::Strong(v) = slot {
+                            work.push(v.clone());
+                        }
+                    }
+                }
+                Value::List(l) => {
+                    if !seen.insert(Rc::as_ptr(&l) as *const u8 as usize) {
+                        continue;
+                    }
+                    work.extend(l.borrow().iter().cloned());
+                }
+                Value::Map(m) => {
+                    if !seen.insert(Rc::as_ptr(&m) as *const u8 as usize) {
+                        continue;
+                    }
+                    for (k, v) in m.borrow().iter() {
+                        work.push(k.clone());
+                        work.push(v.clone());
+                    }
+                }
+                Value::Fun(f) => {
+                    if !seen.insert(Rc::as_ptr(&f) as *const u8 as usize) {
+                        continue;
+                    }
+                    if let Some(t) = &f.this {
+                        work.push(t.clone());
+                    }
+                    scope_values(&f.env, &mut seen, &mut work);
+                }
+                Value::VmFun(f) => {
+                    if !seen.insert(Rc::as_ptr(&f) as *const u8 as usize) {
+                        continue;
+                    }
+                    if let Some(t) = &f.this {
+                        work.push(t.clone());
+                    }
+                    for cell in f.captured.iter() {
+                        if seen.insert(Rc::as_ptr(cell) as *const u8 as usize) {
+                            work.push(cell.borrow().clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        found
+    }
+
+    /// A scope's values, and its parents' — a closure keeps its whole chain
+    /// alive, so the walk has to as well.
+    fn scope_values(
+        env: &super::Env,
+        seen: &mut std::collections::HashSet<usize>,
+        work: &mut Vec<super::Value>,
+    ) {
+        let mut cur = Some(env.clone());
+        while let Some(sc) = cur {
+            if !seen.insert(std::rc::Rc::as_ptr(&sc) as *const u8 as usize) {
+                return;
+            }
+            work.extend(sc.values());
+            cur = sc.parent();
+        }
+    }
+
     /// The report, printed to standard error so it never joins a program's
     /// own output. Says nothing at all unless the audit was asked for.
-    pub fn report() {
+    ///
+    /// `roots` is what the program could still name when it ended: its
+    /// top-level bindings. Everything they reach lived to the end because
+    /// the program said so; everything else alive outlived its last
+    /// reference.
+    pub fn report_from(roots: &[super::Value]) {
         if !wanted() {
             return;
         }
@@ -169,12 +270,38 @@ pub mod audit {
             eprintln!("audit: nothing outlived the program");
             return;
         }
+        let held = reachable(roots);
+        let mut leaked: Vec<(String, i64)> = Vec::new();
+        let mut kept: Vec<(String, i64)> = Vec::new();
+        for (class, n) in &alive {
+            // More alive than a root can reach: the difference is what no
+            // reference outside itself points at.
+            let r = held.get(class).copied().unwrap_or(0);
+            if n - r > 0 {
+                leaked.push((class.clone(), n - r));
+            }
+            if r > 0 {
+                kept.push((class.clone(), r.min(*n)));
+            }
+        }
         let total: i64 = alive.iter().map(|(_, n)| n).sum();
         eprintln!("audit: {} object(s) outlived the program", total);
-        for (class, n) in alive {
+        for (class, n) in &alive {
             eprintln!("  {} {}", n, class);
         }
-        eprintln!("  = note: a top-level binding lives to the end of a program and is counted here; anything else outlived its last reference, which is a cycle — `weak` on the back edge breaks one");
+        if leaked.is_empty() {
+            eprintln!("  = note: every one of them is held by a top-level binding, which lives to the end of a program by design — none is a cycle");
+            return;
+        }
+        let lost: i64 = leaked.iter().map(|(_, n)| n).sum();
+        eprintln!("  {} of them are reachable from no top-level binding, so they outlived their last reference — a cycle:", lost);
+        for (class, n) in &leaked {
+            eprintln!("    {} {}", n, class);
+        }
+        if !kept.is_empty() {
+            eprintln!("  the rest are held by a top-level binding, which lives to the end of a program by design");
+        }
+        eprintln!("  = note: `weak` on the back edge breaks a cycle — see docs/memory.md §5");
     }
 }
 
@@ -414,6 +541,20 @@ impl Scope {
             order: RefCell::new(Vec::new()),
             parent: None,
         })
+    }
+
+    /// What this scope holds, for the audit's mark phase — the values
+    /// only, in declaration order, which is the order everything else
+    /// here observes.
+    pub fn values(&self) -> Vec<Value> {
+        let vars = self.vars.borrow();
+        self.order.borrow().iter().filter_map(|n| vars.get(n).cloned()).collect()
+    }
+
+    /// The scope enclosing this one, if any. A closure holds its whole
+    /// chain alive, so the audit's walk has to climb it.
+    pub fn parent(&self) -> Option<Env> {
+        self.parent.clone()
     }
 
     /// Breaks the one cycle a scope can make on its own: a closure stored in

@@ -274,6 +274,31 @@ fun releaseFn(t: Ty): String? {
     }
 }
 
+/// The walk that follows the same edges `releaseFn` releases. One name per
+/// shape, and the same name the runtime gives its own, so a container's
+/// element thunk pairs with its mark by construction. `Any` has none: it
+/// travels by value, so the call site names it.
+fun markFn(t: Ty): String? {
+    return when (t.kind) {
+        "Str" -> "keal_str_mark"
+        "Class" -> structNameOf(t.name, t.args) + "_mark"
+        "List" -> "keal_list_mark"
+        "Fun" -> "keal_fn_mark"
+        "Map" -> "keal_map_mark"
+        "Nullable" -> markFn(t.args[0])
+        else -> null
+    }
+}
+
+/// One field's contribution to a walk: `Any` by value, everything else by
+/// the pointer its type's mark takes.
+fun markLine(t: Ty, expr: String): String? {
+    if (t.kind == "Any") { return "keal_any_mark(${expr});" }
+    val f = markFn(t)
+    if (f == null) { return null }
+    return "${f}(${expr});"
+}
+
 /// Wraps an expression in a retain, where the type needs one.
 fun retained(t: Ty, expr: String): String {
     val f = retainFn(t)
@@ -750,6 +775,11 @@ class CBackend() {
     /// and the program says at exit what it left behind. Off, none of the
     /// counting is emitted and no object pays for it.
     package var auditMode: Bool = false
+    /// Release-to-walk pairs the audit registers before its mark phase,
+    /// and the top-level bindings that phase starts from.
+    var auditPairs: List<List<String>> = []
+    var auditRootNames: List<String> = []
+    var auditRootTypes: List<Ty> = []
     /// Set just before a statement's expression is emitted: its value is
     /// discarded, so a branch join of `Any` — which the checker only ever
     /// produces where using the value would be refused — needs no slot.
@@ -1259,6 +1289,12 @@ class CBackend() {
         unless (this.thunks.contains(name)) {
             this.thunks[name] = true
             this.helpers += "static void ${name}(void* p) { ${elem.prefix}_release((${elem.ctype}*)p); }\n"
+            // The one funnel every container's element type passes through,
+            // so pairing the walk here covers lists, maps, cells and the tag
+            // an `Any` carries a class under.
+            if (this.auditMode) {
+                this.auditPairs.add([name, elem.prefix + "_mark"])
+            }
         }
         return name
     }
@@ -1694,6 +1730,25 @@ class CBackend() {
             rel += "    free(o);\n}\n"
         }
         this.defs += rel
+        if (this.auditMode) {
+            // The walk over the same fields the release above frees, minus
+            // the weak ones: a `weak` field holds nothing up, and following
+            // one would let the back edge of a cycle report its own cycle
+            // as reachable.
+            this.decls += "void ${name}_mark(void* p);\n"
+            var mk = "\nvoid ${name}_mark(void* p) {\n    ${name}* o = (${name}*)p;\n    if (o == NULL || !keal_audit_first(o)) { return; }\n    keal_audit_hold(${cString(c.name)});\n"
+            for (f in fields) {
+                if (this.weakMode and classFieldIsWeak(c, f.name)) {
+                    continue
+                }
+                val ml = markLine(f.ty, "o->${mangle(f.name)}")
+                if (ml != null) {
+                    mk += "    ${ml}\n"
+                }
+            }
+            mk += "}\n"
+            this.defs += mk
+        }
         if (classHasDeinit(c)) {
             this.decls += "void ${name}_dropper(void* p);\n"
             this.defs += "\nvoid ${name}_dropper(void* p) {\n    ${name}* o = (${name}*)p;\n    ${name}_${mangleMethod("deinit")}(o);\n    ${name}_release(o);\n}\n"
@@ -1798,8 +1853,25 @@ class CBackend() {
         this.closeScope()
         if (this.auditMode) {
             // After the scope closed: what is still counted here is what
-            // closing it could not free.
+            // closing it could not free. The mark phase then says which of
+            // those a top-level binding can still reach — those lived to
+            // the end because the program said so — and what it cannot
+            // reach outlived its last reference, which is a cycle.
+            //
+            // The program's own pairs are registered from a function
+            // written after everything is emitted: a thunk can be made
+            // while a function far below this one is compiled, and a pair
+            // list read here would be the list as it stood too early.
+            this.line("keal_audit_pair_runtime();")
+            this.line("keal_audit_pairs_program();")
+            var ri = 0
+            while (ri < this.auditRootNames.size) {
+                val ml = markLine(this.auditRootTypes[ri], this.auditRootNames[ri])
+                if (ml != null) { this.line(ml) }
+                ri += 1
+            }
             this.line("keal_audit_report();")
+            this.line("keal_audit_done();")
         }
         this.line("return 0;")
         this.endFunctionUnwind()
@@ -2617,6 +2689,10 @@ class CBackend() {
             // A binding at the program's top level is a C global, living for
             // the program; nothing releases it.
             if (this.atTopLevel and this.scopes.size == 1) {
+                if (this.auditMode) {
+                    this.auditRootNames.add(varName)
+                    this.auditRootTypes.add(ty)
+                }
                 this.globalVars[s.name] = true
                 if (ty.kind == "Any") { this.anyGlobals[s.name] = true }
                 this.declareLocal(s.name, ty, s.mutable)
@@ -3253,6 +3329,23 @@ class CBackend() {
             }
         }
         dropText += "    (void)env;\n    free(c);\n}\n"
+        if (this.auditMode) {
+            // A closure's captures live in a struct only this code knows the
+            // shape of, so its walk is paired with its `drop` — the one
+            // function the closure header already carries that names it.
+            var walk = "static void ${envName}_walk(void* p) {\n    ${envName}* env = (${envName}*)p;\n"
+            for (cap in captures) {
+                var ml: String? = "keal_cell_mark(env->${mangle(cap.name)});"
+                unless (cap.isCell) { ml = markLine(cap.ty, "env->" + mangle(cap.name)) }
+                val m = ml
+                if (m != null) {
+                    walk += "    ${m}\n"
+                }
+            }
+            walk += "    (void)env;\n}\n"
+            dropText += walk
+            this.auditPairs.add([envName + "_drop", envName + "_walk"])
+        }
 
         // The body, compiled as its own function with `env` in scope.
         val fret = ft.ret!!
@@ -6074,11 +6167,24 @@ class CBackend() {
         out += "\n"
         out += this.globalDecls
         out += "\n"
+        if (this.auditMode) {
+            out += "void keal_audit_pairs_program(void);\n"
+        }
         out += this.decls
         out += "\n"
         out += this.helpers
         out += this.lambdaDefs
         out += this.defs
+        if (this.auditMode) {
+            // Written last, when every thunk and every lambda that will
+            // exist does: a shape and the walk over it are registered as one
+            // pair, and `main` calls this before it marks the roots.
+            out += "\nvoid keal_audit_pairs_program(void) {\n"
+            for (pair in this.auditPairs) {
+                out += "    keal_audit_pair((void*)${pair[0]}, ${pair[1]});\n"
+            }
+            out += "}\n"
+        }
 
         // `main` was emitted without the host setup, so it is wrapped, and
         // the program's own arguments start after its path.

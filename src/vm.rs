@@ -90,7 +90,7 @@ impl Vm {
         // to keep one.
         self.stack.clear();
         self.frames.clear();
-        crate::value::audit::report();
+        crate::value::audit::report_from(&self.globals);
         out
     }
 

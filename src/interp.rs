@@ -42,8 +42,9 @@ impl Interp {
         // Reported while the globals are still alive, because they are: all
         // three engines let a top-level object live to the end of the
         // program without running its `deinit`, so all three must count it
-        // as having outlived the program.
-        crate::value::audit::report();
+        // as having outlived the program — and they are the roots the
+        // report reads to tell one of those from a cycle.
+        crate::value::audit::report_from(&self.globals.values());
         out
     }
 

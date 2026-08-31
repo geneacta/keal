@@ -568,7 +568,9 @@ question: a declaration is private to its file unless it says `package` or
 because an import can be given one. Dependencies followed, transitivity and
 lockfile included. And the last place the three engines could be told apart
 closed: they now report the same objects outliving the same program, which
-took four separate fixes and a machine nobody here owns. Typed exceptions
+took four separate fixes and a machine nobody here owns. And the audit
+stopped being a list to interpret: it names which survivors are a cycle and
+which a top-level binding is holding on purpose. Typed exceptions
 were the last thing on this list to be half-done, and are not anymore:
 `keal build` carries the thrown value through the C unwind, so
 `catch (e: Refused)` means the same thing on all three engines.)
@@ -585,11 +587,15 @@ were the last thing on this list to be half-done, and are not anymore:
 * **Cycles across several classes still leak silently** — `weak` breaks
   the ones you can see, and the checker cautions about the shape that
   voids a `deinit`; a cycle nobody marked is still never freed. What
-  exists now is evidence, on all three engines: `KEAL_AUDIT=1 keal run
+  exists is a verdict, on all three engines: `KEAL_AUDIT=1 keal run
   prog.keal` on the interpreters, `keal build --audit` for a compiled one,
-  and the same report either way — what outlived the program, by type. What
-  is missing is a rule that tells an accidental cycle from a global that
-  simply lived to the end. Why there is no cycle collector is argued in
+  and the same report either way — what outlived the program, by type, and
+  which of it is a cycle. A mark phase with no sweep runs at exit: what a
+  top-level binding can still reach lived to the end because the program
+  said so, and what nothing reaches outlived its own last reference, which
+  nothing but a cycle does. It does not follow a `weak` edge, because
+  following one would let a cycle report itself as reachable. What is still
+  missing is the collector, and why there is none is argued in
   [`docs/memory.md`](docs/memory.md) §5.
 * **`constexpr` evaluation** — the tree-walking interpreter is kept as the
   reference implementation partly so it can become the compile-time
