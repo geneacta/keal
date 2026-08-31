@@ -565,7 +565,10 @@ which is how the back edge of a cycle is written so that the whole cycle
 dies on schedule and every `deinit` runs. And so did the whole module
 question: a declaration is private to its file unless it says `package` or
 `public`, class members included, and two modules may declare the same name
-because an import can be given one.)
+because an import can be given one. Dependencies followed, transitivity and
+lockfile included. And the last place the three engines could be told apart
+closed: they now report the same objects outliving the same program, which
+took four separate fixes and a machine nobody here owns.)
 
 * **A registry, if it is ever worth one.** Dependencies work: `keal.toml`
   names git repositories at exact commits, `keal fetch` reads a
@@ -585,15 +588,6 @@ because an import can be given one.)
   is missing is a rule that tells an accidental cycle from a global that
   simply lived to the end. Why there is no cycle collector is argued in
   [`docs/memory.md`](docs/memory.md) §5.
-* **The two interpreters retain a little more than the compiled program.**
-  On a sequence-heavy program the audit reports a handful of objects on the
-  VM and the tree-walker that a native build does not — two `Sequence`s and
-  five `SeqIter`s respectively, in the one program that shows it. They are
-  not the same residue and probably not the same cause: each engine
-  represents a closure differently, and each holds a different thing a
-  moment longer. Nothing about a program's behaviour depends on it, and no
-  `deinit` is missed; it is the last place the three engines can be told
-  apart, which is reason enough to close it.
 * **Typed exceptions** — `catch (e)` binds the message as a `String`
   today; catching by kind (and letting `throw` carry a value) is the
   natural second step now that all three engines unwind.
