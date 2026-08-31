@@ -368,12 +368,13 @@ to start looking, not a verdict.
 backend give a closure the values it uses; the tree-walker gives it the
 scope it was written in, narrowed to the same values where it safely can —
 which is everywhere except a capture of a `var`, whose later writes the
-closure must see. Where that narrowing cannot apply, the tree-walker holds
-more, and its count is higher. Both numbers are true about their own engine.
-The prelude's `Sequence` is the case to know about: it holds the closure
-that produces its iterator, and that closure captures the sequence as
-`this` — a cycle in the standard library, which every engine reports and no
-engine can break, since a closure's capture cannot be declared `weak`.
+closure must see. Where that narrowing cannot apply, an interpreter holds a
+little more than a compiled program does, and says so. Both numbers are true
+about their own engine, and the difference is small and asymmetric: on the
+one program here that shows it, the VM keeps two objects the others do not
+and the tree-walker keeps five of a type neither of the others reports at
+all — which reads as two different retentions rather than one at two sizes.
+No behaviour depends on either, and no `deinit` is missed.
 
 ---
 

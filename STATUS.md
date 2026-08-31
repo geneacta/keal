@@ -59,6 +59,27 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**A claim I made and withdrew: the prelude does NOT leak.** The audit
+reported `3 Score` and `3 Sequence` surviving `tests/programs/sequences.
+keal` on all three engines, and I read that as a cycle in the standard
+library — `Sequence` holding the closure that makes its iterator. It is
+not. Those are TOP-LEVEL BINDINGS, and a global lives to the end of the
+program by design on every engine; the audit reports it because it is
+true. `val scored = seq([...])` alone reports `2 Score, 1 Sequence`, which
+is the whole story. README and memory.md are corrected.
+What is real, and small: on that program the VM keeps two `Sequence`s and
+the tree-walker five `SeqIter`s that a native build does not. The Windows
+session's arithmetic is the thing to keep here — the residues are
+ASYMMETRIC (different types, different counts, one of them a type neither
+other engine reports at all), so they are probably two retentions and not
+one at two sizes. No behaviour depends on either and no `deinit` is
+missed.
+Fixed on the way: a lambda captured the receiver whether it named `this`
+or not, which is why the prelude's care in lifting `val makeIter =
+this.iterFn` out of its closure bought nothing. `this` is a capture like
+any other in `collect_free` now; the tree-walker's report on that program
+fell from 19 objects to 11.
+
 **A `deinit` the tree-walker never ran — found by the audit, half fixed.**
 The audit's first real use found the engines disagreeing about what a
 program left behind, and behind that a genuine divergence: the
