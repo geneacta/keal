@@ -446,6 +446,78 @@ fn the_native_audit_says_what_the_interpreters_say() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The site in the repository is what its generator would write today.
+///
+/// The pages are generated from `docs/*.md` and committed, so an edit to a
+/// document that never reaches the site leaves a page saying something the
+/// repository no longer says — a drift nothing would surface until somebody
+/// happened to regenerate. This regenerates into a copy of `site/` and
+/// compares, so the tree is never written to. Skipped without Python, and
+/// without the binary the standard-library page is built from.
+#[test]
+fn the_site_is_what_its_generator_would_write() {
+    if Command::new("python3").arg("--version").output().is_err() {
+        eprintln!("skipping: no `python3`");
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-site-drift");
+    let _ = std::fs::remove_dir_all(&dir);
+    let site = dir.join("site");
+    std::fs::create_dir_all(&site).expect("cannot make a site directory");
+    // The generator writes beside itself, so it is copied somewhere else
+    // along with everything it reads that lives under `site/`.
+    for entry in std::fs::read_dir(root().join("site")).expect("cannot read site/") {
+        let path = entry.expect("cannot read a site entry").path();
+        if path.is_file() {
+            let name = path.file_name().expect("a file has a name");
+            std::fs::copy(&path, site.join(name)).expect("cannot copy a site file");
+        }
+    }
+    // `ROOT` is the generator's parent, so the documents it converts have to
+    // be reachable from there: link the tree it reads.
+    for name in ["docs", "README.md", "TUTORIAL.md", "CONTRIBUTING.md"] {
+        let from = root().join(name);
+        let to = dir.join(name);
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&from, &to).expect("cannot link what the site reads");
+        #[cfg(not(unix))]
+        {
+            let _ = (&from, &to);
+            eprintln!("skipping: the drift check wants symlinks");
+            return;
+        }
+    }
+    let built = Command::new("python3")
+        .arg(site.join("build.py"))
+        .arg(root().join("target/release/keal"))
+        .output()
+        .expect("cannot run the site generator");
+    assert!(
+        built.status.success(),
+        "the site generator failed:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let mut drifted = Vec::new();
+    for entry in std::fs::read_dir(&site).expect("cannot read the rebuilt site") {
+        let path = entry.expect("cannot read an entry").path();
+        if path.extension().map(|e| e == "html").unwrap_or(false) {
+            let name = path.file_name().expect("a file has a name");
+            let committed = root().join("site").join(name);
+            let (a, b) = (std::fs::read(&path).unwrap_or_default(), std::fs::read(&committed).unwrap_or_default());
+            if a != b {
+                drifted.push(name.to_string_lossy().into_owned());
+            }
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(
+        drifted.is_empty(),
+        "these pages are not what the generator would write; run `python3 site/build.py`: {}",
+        drifted.join(", ")
+    );
+}
+
 #[test]
 fn examples_run_successfully() {
     for file in keal_files("examples") {

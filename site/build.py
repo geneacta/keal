@@ -21,7 +21,13 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.path.join(ROOT, "site")
-KEAL = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "target/release/keal")
+# `keal.exe` on Windows, and nothing there is called `keal`. The same line
+# crashed `checktour.py` before a test caught it; nothing tests this file,
+# so it is fixed here on the strength of that one rather than its own.
+_DEFAULT_KEAL = os.path.join(ROOT, "target/release/keal")
+if os.name == "nt":
+    _DEFAULT_KEAL += ".exe"
+KEAL = sys.argv[1] if len(sys.argv) > 1 else _DEFAULT_KEAL
 
 # ---- a small markdown converter -----------------------------------------
 # Enough of markdown for the documents this repository actually writes:
