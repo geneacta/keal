@@ -2190,18 +2190,37 @@ class CBackend() {
         val refSn = this.instantiateClass("ActorRef", margs, file, atLine, col)
         if (refSn == null) { return null }
         val relMsg = releaseFn(mTy)
-        this.typesOut += "typedef struct ${sn}_actctx { ${sn}* sys; int64_t idx; KealRunState* st; } ${sn}_actctx;\n"
+        this.typesOut += "typedef struct ${sn}_actctx { ${sn}* sys; KealRunState* st; } ${sn}_actctx;\n"
+        // One worker, not one actor. It looks for an actor with a message
+        // and nobody inside it, takes one message, runs it, and lets go —
+        // so a program with ten thousand actors asks the operating system
+        // for as many threads as the machine has cores, and not ten
+        // thousand.
         var t = "static void* ${sn}_actor_main(void* argp) {\n"
         t += "    ${sn}_actctx* a = (${sn}_actctx*)argp;\n"
-        t += "    KealList* box = (KealList*)a->sys->k_mailboxes->data[a->idx].p;\n"
-        t += "    KealClosure* h = (KealClosure*)a->sys->k_handlers->data[a->idx].p;\n"
+        t += "    int64_t n = a->st->actors;\n"
         t += "    keal_actor_lock();\n"
         t += "    for (;;) {\n"
         t += "        if (a->st->stop) { break; }\n"
-        t += "        if (box->len > 0) {\n"
+        // The scan starts where the last one left off, so an actor late in
+        // the list is not starved by one early in it.
+        t += "        int64_t idx = -1;\n"
+        t += "        for (int64_t k = 0; k < n; k++) {\n"
+        t += "            int64_t i = (a->st->next + k) % n;\n"
+        t += "            if (a->st->busy[i]) { continue; }\n"
+        t += "            if (((KealList*)a->sys->k_mailboxes->data[i].p)->len > 0) { idx = i; break; }\n"
+        t += "        }\n"
+        t += "        if (idx >= 0) {\n"
+        t += "            a->st->next = (idx + 1) % n;\n"
+        t += "            KealList* box = (KealList*)a->sys->k_mailboxes->data[idx].p;\n"
+        t += "            KealClosure* h = (KealClosure*)a->sys->k_handlers->data[idx].p;\n"
         t += "            KealWord w = box->data[0];\n"
         t += "            box->len -= 1;\n"
         t += "            memmove(box->data, box->data + 1, (size_t)box->len * sizeof(KealWord));\n"
+        // Held for as long as the handler runs: an actor takes its messages
+        // one at a time and in order, and that is the whole of what the
+        // model promises.
+        t += "            a->st->busy[idx] = 1;\n"
         t += "            a->st->workers += 1;\n"
         t += "            keal_actor_unlock();\n"
         t += "            ${refSn}* ref = ${refSn}_new(box);\n"
@@ -2233,12 +2252,18 @@ class CBackend() {
             t += "            keal_drain_drops();\n"
         }
         t += "            keal_actor_lock();\n"
+        t += "            a->st->busy[idx] = 0;\n"
         t += "            a->st->workers -= 1;\n"
         t += "            keal_actor_signal();\n"
         t += "            continue;\n"
         t += "        }\n"
+        // Nothing to take. Either the run is over — which the loop in `run`
+        // decides, because it can see every mailbox at once — or a message
+        // is about to land.
+        t += "        if (a->st->workers == 0) { break; }\n"
         t += "        keal_actor_wait();\n"
         t += "    }\n"
+        t += "    keal_actor_signal();\n"
         t += "    keal_actor_unlock();\n"
         t += "    return NULL;\n"
         t += "}\n"
@@ -2248,10 +2273,16 @@ class CBackend() {
         b += "    if (n == 0) { return; }\n"
         b += "    KealRunState st;\n"
         b += "    st.workers = 0; st.stop = 0; st.panicked = 0; st.panic_line = 0; st.panic_msg[0] = '\\0';\n"
-        b += "    ${sn}_actctx* ctxs = (${sn}_actctx*)keal_alloc((size_t)n * sizeof(${sn}_actctx));\n"
-        b += "    pthread_t* ts = (pthread_t*)keal_alloc((size_t)n * sizeof(pthread_t));\n"
-        b += "    for (int64_t i = 0; i < n; i++) {\n"
-        b += "        ctxs[i].sys = self; ctxs[i].idx = i; ctxs[i].st = &st;\n"
+        b += "    st.actors = n; st.next = 0;\n"
+        b += "    st.busy = (int8_t*)keal_alloc((size_t)n * sizeof(int8_t));\n"
+        b += "    for (int64_t i = 0; i < n; i++) { st.busy[i] = 0; }\n"
+        // As many threads as the machine has cores, capped at the number of
+        // actors — not one per actor.
+        b += "    int64_t w = keal_actor_worker_count(n);\n"
+        b += "    ${sn}_actctx* ctxs = (${sn}_actctx*)keal_alloc((size_t)w * sizeof(${sn}_actctx));\n"
+        b += "    pthread_t* ts = (pthread_t*)keal_alloc((size_t)w * sizeof(pthread_t));\n"
+        b += "    for (int64_t i = 0; i < w; i++) {\n"
+        b += "        ctxs[i].sys = self; ctxs[i].st = &st;\n"
         b += "        if (pthread_create(&ts[i], NULL, ${sn}_actor_main, &ctxs[i]) != 0) { keal_fatal(\"could not start an actor thread\"); }\n"
         b += "    }\n"
         b += "    keal_actor_lock();\n"
@@ -2264,7 +2295,8 @@ class CBackend() {
         b += "    st.stop = 1;\n"
         b += "    keal_actor_signal();\n"
         b += "    keal_actor_unlock();\n"
-        b += "    for (int64_t i = 0; i < n; i++) { pthread_join(ts[i], NULL); }\n"
+        b += "    for (int64_t i = 0; i < w; i++) { pthread_join(ts[i], NULL); }\n"
+        b += "    free(st.busy);\n"
         b += "    free(ctxs);\n"
         b += "    free(ts);\n"
         b += "    if (st.panicked) {\n"

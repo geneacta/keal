@@ -78,6 +78,11 @@ __attribute__((constructor)) static void keal_stdio_is_bytes(void) {
 #ifdef KEAL_ACTORS
 #include <pthread.h>
 #include <stdatomic.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 typedef _Atomic int64_t keal_rc_t;
 #define KEAL_RC_BUMP(rc) atomic_fetch_add_explicit(&(rc), 1, memory_order_relaxed)
 #define KEAL_RC_DROP(rc) (atomic_fetch_sub_explicit(&(rc), 1, memory_order_acq_rel) > 1)
@@ -100,7 +105,53 @@ typedef struct KealRunState {
     int panicked;
     int64_t panic_line;
     char panic_msg[1024];
+    /* One flag per actor: whether a worker is inside its handler right now.
+     * An actor handles its messages one at a time and in order, and that is
+     * the whole of the actor model's promise — so two workers must never be
+     * in one actor at once, however many actors and however few workers. */
+    int8_t* busy;
+    int64_t actors;
+    /* Where the next worker starts scanning. Without it every worker would
+     * begin at actor 0 and the ones at the end of the list would starve. */
+    int64_t next;
 } KealRunState;
+
+/* How many threads run the actors.
+ *
+ * Not one per actor. A program with ten thousand actors would ask the
+ * operating system for ten thousand threads — eighty megabytes of stacks
+ * before a single message is handled, and a scheduler with nothing useful
+ * to do. Actors are a way of writing a program, not a way of asking for
+ * threads, so the count comes from the machine and the work is shared.
+ *
+ * `KEAL_ACTOR_WORKERS` overrides it, which is how a test pins the number
+ * and how somebody measuring can walk it up and down. */
+KEAL_FN int64_t keal_actor_worker_count(int64_t actors) {
+    if (actors <= 0) {
+        return 0;
+    }
+    int64_t want = 0;
+    const char* env = getenv("KEAL_ACTOR_WORKERS");
+    if (env != NULL && env[0] != '\0') {
+        want = (int64_t)strtoll(env, NULL, 10);
+    }
+    if (want <= 0) {
+#ifdef _WIN32
+        SYSTEM_INFO si;
+        GetSystemInfo(&si);
+        want = (int64_t)si.dwNumberOfProcessors;
+#else
+        long n = sysconf(_SC_NPROCESSORS_ONLN);
+        want = n > 0 ? (int64_t)n : 1;
+#endif
+    }
+    if (want < 1) {
+        want = 1;
+    }
+    /* More workers than actors is waste: an actor is never run by two at
+     * once, so the extra threads would only ever scan and sleep. */
+    return want < actors ? want : actors;
+}
 #else
 typedef int64_t keal_rc_t;
 #define KEAL_RC_BUMP(rc) ((rc)++)

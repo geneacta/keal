@@ -29,8 +29,10 @@ At a glance:
 * **Generics by monomorphisation** (no erasure, no boxing), traits with
   default methods, operator overloading
 * **Lazy sequences** (Stream/Sequence-style, written in Keal itself) and an
-  **actor model** for concurrency — deterministic on the interpreters, real
-  OS threads under `keal build`, same output either way
+  **actor model** for concurrency — deterministic on the interpreters, a
+  pool of OS threads under `keal build`, same output either way. Two
+  thousand actors cost as many threads as the machine has cores, not two
+  thousand
 * **Modules that keep their own counsel** — a declaration is private to its
   file unless it says `package` (the files beside it) or `public`, and two
   modules may declare the same name: `import "./config.keal" as config`.
@@ -575,7 +577,7 @@ it doesn't anymore — C, C++, Rust, Go, Java and Kotlin all answer from one
 Keal file in [`examples/interop/polyglot/`](examples/interop/polyglot/),
 and [`docs/interop.md`](docs/interop.md) tells that whole story. Exceptions
 used to live here too; all three engines catch them now. So did actors on
-real threads: `keal build` runs one OS thread per actor today, TSan-clean,
+real threads: `keal build` runs them on a pool of workers, TSan-clean,
 and [`docs/threads.md`](docs/threads.md) is the record of how. So did `Any`
 natively — the tag-and-payload pair, `is` as a tag compare — and `weak`,
 which is how the back edge of a cycle is written so that the whole cycle

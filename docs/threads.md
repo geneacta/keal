@@ -55,7 +55,7 @@ monomorphizes and the runtime is ours.
   monomorphization — they *are* the scheduler. `send` and `post`
   deep-copy outside the one actor lock (the copy reads only the
   sender's values) and enqueue under it; `drain` snapshots under it,
-  as copies; `run` starts one OS thread per actor, waits on a condition
+  as copies; `run` starts **a pool of workers**, waits on a condition
   until every mailbox is empty with no handler in flight, and joins. A
   handler's panic is carried back in the run state and rethrown on the
   thread that called `run`, so `try { sys.run() }` catches it there on
@@ -63,6 +63,25 @@ monomorphizes and the runtime is ours.
   the process at the panic site, message and line intact. `try` inside
   a handler works as anywhere — the unwind state is per-thread, and so
   is the `deinit` queue, drained on the actor's own thread.
+* **A pool, not a thread per actor.** An actor is a way of writing a
+  program, not a way of asking for a thread. `run` starts as many threads
+  as the machine has cores, capped at the number of actors, and each one
+  looks for an actor that has a message and that nobody is inside — takes
+  one message, runs the handler, lets go. A `busy` flag per actor is what
+  makes that safe: **an actor is never run by two workers at once**, so
+  it still handles its messages one at a time and in order, which is the
+  whole of what the model promises. The scan starts where the last one
+  left off, so an actor late in the list is not starved by one early in
+  it. `KEAL_ACTOR_WORKERS` pins the count, which is how the suite runs
+  the same program at one worker and at sixteen.
+
+  It used to be one OS thread per actor, and that was the shape that
+  could not scale: two thousand actors meant two thousand stacks reserved
+  before a single message was handled.
+  `tests/native/actor-many.keal` is exactly that program — two thousand
+  actors, every one handled, and it runs under the thread sanitizer at
+  one worker and at sixteen.
+
 * **Groundwork already landed:** the unwind flags (`keal_try_depth`,
   `keal_unwinding`, message buffer) and the `deinit` queue are
   `_Thread_local`, so every thread panics, catches and deinits

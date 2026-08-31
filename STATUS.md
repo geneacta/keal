@@ -59,6 +59,27 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**ACTORS RUN ON A POOL NOW, not one OS thread each.** The shape that could
+not scale: two thousand actors meant two thousand stacks reserved before a
+single message was handled. `run` starts `keal_actor_worker_count(n)`
+threads — as many as the machine has cores, capped at the actor count — and
+each worker scans for an actor that has a message and that nobody is inside.
+`KEAL_ACTOR_WORKERS` pins it.
+WHAT MAKES IT SAFE: `KealRunState` gained `busy[]`, one flag per actor, held
+for the whole handler. AN ACTOR IS NEVER RUN BY TWO WORKERS AT ONCE, so it
+still takes its messages one at a time and in order — the whole of what the
+model promises. `next` rotates the scan start so an actor late in the list
+is not starved by one early in it. A worker with nothing to take and no
+other worker running breaks out; `run`'s own loop decides the end, because
+it is the one that can see every mailbox at once.
+SEMANTICS UNCHANGED: the interpreters' deterministic round-robin was already
+"one legal schedule", and a pool is another. `actors.keal` and
+`actor-mesh.keal` print the same bytes at 1, 2 and 8 workers.
+Corpus: `tests/native/actor-many.keal` — two thousand actors, all handled,
+three engines agreeing. `actors_are_clean_under_thread_sanitizer` now builds
+it under TSan and runs it at 1, 2 and 16 workers, which is where a pool with
+a race actually shows one.
+
 **MACROS — DONE, all three engines. The list is empty.**
 `macro name(a, b) { ... }`, called `name!(x, y)`. The `!` is not decoration:
 a macro does THREE THINGS A CALL CANNOT, and those three are the whole

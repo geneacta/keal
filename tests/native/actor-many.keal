@@ -1,0 +1,35 @@
+// Two thousand actors, and as many threads as the machine has cores.
+//
+// An actor is a way of writing a program, not a way of asking for a thread.
+// This file used to be impossible: one OS thread per actor meant two
+// thousand stacks reserved before a single message was handled. A pool of
+// workers takes messages from whichever actor has one, and an actor is
+// still never run by two workers at once — which is the whole of what the
+// model promises.
+
+record Job(val n: Int)
+
+val sys: ActorSystem<Job> = ActorSystem()
+val done: Outbox<Int> = outbox()
+
+val refs: List<ActorRef<Job>> = []
+var made = 0
+while (made < 2000) {
+    refs.add(sys.spawn({ self, job -> done.post(job.n * 2) }))
+    made += 1
+}
+
+var i = 0
+for (r in refs) {
+    r.send(Job(i))
+    i += 1
+}
+sys.run()
+
+var total = 0
+var count = 0
+for (v in done.drain()) {
+    total += v
+    count += 1
+}
+println("${refs.size} actors, ${count} handled, sum ${total}")

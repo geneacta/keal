@@ -1550,21 +1550,40 @@ impl CBackend {
                 let rel_msg = Self::release_fn(&m_ty);
                 let _ = writeln!(
                     self.types,
-                    "typedef struct {sn}_actctx {{ {sn}* sys; int64_t idx; KealRunState* st; }} {sn}_actctx;",
+                    "typedef struct {sn}_actctx {{ {sn}* sys; KealRunState* st; }} {sn}_actctx;",
                     sn = sn
                 );
                 let mut t = String::new();
+                // One worker, not one actor. It looks for an actor with a
+                // message and nobody inside it, takes one message, runs it,
+                // and lets go — so a program with ten thousand actors asks
+                // the operating system for as many threads as the machine
+                // has cores, and not ten thousand.
                 let _ = writeln!(t, "static void* {}_actor_main(void* argp) {{", sn);
                 let _ = writeln!(t, "    {sn}_actctx* a = ({sn}_actctx*)argp;", sn = sn);
-                let _ = writeln!(t, "    KealList* box = (KealList*)a->sys->k_mailboxes->data[a->idx].p;");
-                let _ = writeln!(t, "    KealClosure* h = (KealClosure*)a->sys->k_handlers->data[a->idx].p;");
+                let _ = writeln!(t, "    int64_t n = a->st->actors;");
                 let _ = writeln!(t, "    keal_actor_lock();");
                 let _ = writeln!(t, "    for (;;) {{");
                 let _ = writeln!(t, "        if (a->st->stop) {{ break; }}");
-                let _ = writeln!(t, "        if (box->len > 0) {{");
+                // The scan starts where the last one left off, so an actor
+                // late in the list is not starved by one early in it.
+                let _ = writeln!(t, "        int64_t idx = -1;");
+                let _ = writeln!(t, "        for (int64_t k = 0; k < n; k++) {{");
+                let _ = writeln!(t, "            int64_t i = (a->st->next + k) % n;");
+                let _ = writeln!(t, "            if (a->st->busy[i]) {{ continue; }}");
+                let _ = writeln!(t, "            if (((KealList*)a->sys->k_mailboxes->data[i].p)->len > 0) {{ idx = i; break; }}");
+                let _ = writeln!(t, "        }}");
+                let _ = writeln!(t, "        if (idx >= 0) {{");
+                let _ = writeln!(t, "            a->st->next = (idx + 1) % n;");
+                let _ = writeln!(t, "            KealList* box = (KealList*)a->sys->k_mailboxes->data[idx].p;");
+                let _ = writeln!(t, "            KealClosure* h = (KealClosure*)a->sys->k_handlers->data[idx].p;");
                 let _ = writeln!(t, "            KealWord w = box->data[0];");
                 let _ = writeln!(t, "            box->len -= 1;");
                 let _ = writeln!(t, "            memmove(box->data, box->data + 1, (size_t)box->len * sizeof(KealWord));");
+                // Held for as long as the handler runs: an actor takes its
+                // messages one at a time and in order, and that is the whole
+                // of what the model promises.
+                let _ = writeln!(t, "            a->st->busy[idx] = 1;");
                 let _ = writeln!(t, "            a->st->workers += 1;");
                 let _ = writeln!(t, "            keal_actor_unlock();");
                 let _ = writeln!(t, "            {}* ref = {}_new(box);", ref_sn, ref_sn);
@@ -1603,12 +1622,18 @@ impl CBackend {
                     let _ = writeln!(t, "            keal_drain_drops();");
                 }
                 let _ = writeln!(t, "            keal_actor_lock();");
+                let _ = writeln!(t, "            a->st->busy[idx] = 0;");
                 let _ = writeln!(t, "            a->st->workers -= 1;");
                 let _ = writeln!(t, "            keal_actor_signal();");
                 let _ = writeln!(t, "            continue;");
                 let _ = writeln!(t, "        }}");
+                // Nothing to take. Either the run is over — which the loop
+                // in `run` decides, because it can see every mailbox at
+                // once — or a message is about to land.
+                let _ = writeln!(t, "        if (a->st->workers == 0) {{ break; }}");
                 let _ = writeln!(t, "        keal_actor_wait();");
                 let _ = writeln!(t, "    }}");
+                let _ = writeln!(t, "    keal_actor_signal();");
                 let _ = writeln!(t, "    keal_actor_unlock();");
                 let _ = writeln!(t, "    return NULL;");
                 let _ = writeln!(t, "}}");
@@ -1619,14 +1644,20 @@ impl CBackend {
                 let _ = writeln!(b, "    if (n == 0) {{ return; }}");
                 let _ = writeln!(b, "    KealRunState st;");
                 let _ = writeln!(b, "    st.workers = 0; st.stop = 0; st.panicked = 0; st.panic_line = 0; st.panic_msg[0] = '\\0';");
+                let _ = writeln!(b, "    st.actors = n; st.next = 0;");
+                let _ = writeln!(b, "    st.busy = (int8_t*)keal_alloc((size_t)n * sizeof(int8_t));");
+                let _ = writeln!(b, "    for (int64_t i = 0; i < n; i++) {{ st.busy[i] = 0; }}");
+                // As many threads as the machine has cores, capped at the
+                // number of actors — not one per actor.
+                let _ = writeln!(b, "    int64_t w = keal_actor_worker_count(n);");
                 let _ = writeln!(
                     b,
-                    "    {sn}_actctx* ctxs = ({sn}_actctx*)keal_alloc((size_t)n * sizeof({sn}_actctx));",
+                    "    {sn}_actctx* ctxs = ({sn}_actctx*)keal_alloc((size_t)w * sizeof({sn}_actctx));",
                     sn = sn
                 );
-                let _ = writeln!(b, "    pthread_t* ts = (pthread_t*)keal_alloc((size_t)n * sizeof(pthread_t));");
-                let _ = writeln!(b, "    for (int64_t i = 0; i < n; i++) {{");
-                let _ = writeln!(b, "        ctxs[i].sys = self; ctxs[i].idx = i; ctxs[i].st = &st;");
+                let _ = writeln!(b, "    pthread_t* ts = (pthread_t*)keal_alloc((size_t)w * sizeof(pthread_t));");
+                let _ = writeln!(b, "    for (int64_t i = 0; i < w; i++) {{");
+                let _ = writeln!(b, "        ctxs[i].sys = self; ctxs[i].st = &st;");
                 let _ = writeln!(
                     b,
                     "        if (pthread_create(&ts[i], NULL, {}_actor_main, &ctxs[i]) != 0) {{ keal_fatal(\"could not start an actor thread\"); }}",
@@ -1646,7 +1677,8 @@ impl CBackend {
                 let _ = writeln!(b, "    st.stop = 1;");
                 let _ = writeln!(b, "    keal_actor_signal();");
                 let _ = writeln!(b, "    keal_actor_unlock();");
-                let _ = writeln!(b, "    for (int64_t i = 0; i < n; i++) {{ pthread_join(ts[i], NULL); }}");
+                let _ = writeln!(b, "    for (int64_t i = 0; i < w; i++) {{ pthread_join(ts[i], NULL); }}");
+                let _ = writeln!(b, "    free(st.busy);");
                 let _ = writeln!(b, "    free(ctxs);");
                 let _ = writeln!(b, "    free(ts);");
                 let _ = writeln!(b, "    if (st.panicked) {{");

@@ -984,6 +984,51 @@ fn actors_are_clean_under_thread_sanitizer() {
             "the sanitized binary printed the wrong total"
         );
     }
+
+    // And the same question asked where a worker pool can actually go
+    // wrong: two thousand actors and only a handful of threads, so the
+    // scan for a free actor and the flag that says one is taken are under
+    // real contention. One worker and many are both run — a pool with a
+    // race often only shows it at one of the two.
+    let many = "tests/native/actor-many.keal";
+    let emitted = keal(&["emit-c", many]);
+    assert!(emitted.success, "{} did not emit C:\n{}", many, emitted.stderr);
+    let csrc = dir.join("many.c");
+    let bin = dir.join("many");
+    std::fs::write(&csrc, &emitted.stdout).expect("cannot write the generated C");
+    let built = Command::new(&cc)
+        .args(["-O2", "-std=c11", "-pthread", "-fsanitize=thread", "-o"])
+        .arg(&bin)
+        .arg(&csrc)
+        .arg("-lm")
+        .output()
+        .expect("cannot run the C compiler");
+    assert!(
+        built.status.success(),
+        "the many-actor program did not build under the sanitizer:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let expected = std::fs::read_to_string(root().join("tests/native/actor-many.expected"))
+        .expect("cannot read the expected output");
+    for workers in ["1", "2", "16"] {
+        let out = Command::new(&bin)
+            .env("KEAL_ACTOR_WORKERS", workers)
+            .output()
+            .expect("cannot run the built binary");
+        let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(
+            !stderr.contains("ThreadSanitizer"),
+            "the thread sanitizer reported a race with {} worker(s):\n{}",
+            workers,
+            stderr
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            expected,
+            "two thousand actors printed the wrong answer with {} worker(s)",
+            workers
+        );
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
