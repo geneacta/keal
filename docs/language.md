@@ -76,7 +76,7 @@ or one that reaches a class's own kind, no existing program has to be renamed
 to make room for it. Writing one is refused where it appears rather than
 quietly ignored.
 
-Six more words are **contextual**: they introduce a declaration where one
+Seven more words are **contextual**: they introduce a declaration where one
 follows, and stay ordinary names everywhere else.
 
 | Word | Where it means something |
@@ -85,6 +85,7 @@ follows, and stay ordinary names everywhere else.
 | `trait` | before a name: `trait Show { ... }` |
 | `weak` | before a field: `weak var parent: Node?` |
 | `constexpr` | before `val` or `func`: `constexpr val KB = 1024` |
+| `macro` | before a name: `macro swap(a, b) { ... }` |
 | `native` | before a string block |
 | `extern` | before `func`: `extern func sqrt(...)` |
 
@@ -1223,6 +1224,91 @@ a `proc` returns nothing, so neither has one value to compute.
 
 ---
 
+## 15¾. macro
+
+A macro is a named piece of syntax, spliced where it is written:
+
+```keal
+macro swap(a, b) {
+    val held = a
+    a = b
+    b = held
+}
+
+var p = 1
+var q = 2
+swap!(p, q)          // p is 2, q is 1
+```
+
+The `!` at the call is not decoration. A macro can do three things a
+function cannot, and those three are the whole reason it exists:
+
+* **Its arguments may be assigned to.** `swap` cannot be a function here:
+  what a parameter holds belongs to whoever passed it, and a function cannot
+  rebind a caller's name at all.
+* **Its arguments are expressions, not values.** The body decides whether
+  each one runs, and how many times:
+
+  ```keal
+  macro twice(body) { body  body }
+  macro discard(unused) { }
+
+  var n = 0
+  twice!(n += 5)     // n is 10
+  discard!(n += 1)   // n is still 10 — the argument never ran
+  ```
+
+* **Control flow passes through it**, because the code ended up where it was
+  written:
+
+  ```keal
+  macro guard(cond, fallback) {
+      unless (cond) { return fallback }
+  }
+
+  func describe(n: Int): String {
+      guard!(n > 0, "not positive")
+      guard!(n < 100, "too big")
+      return "ok"
+  }
+  ```
+
+A reader has to be able to tell those apart from a call, and the `!` is how.
+
+**Where it goes.** In statement position the body becomes a block of its
+own, so the `val` in `swap` cannot collide with a `held` the caller already
+has. That is hygiene by scoping rather than by renaming. In expression
+position the body must be exactly one expression, which then takes the
+call's place:
+
+```keal
+macro maxOf(x, y) { if (x > y) { x } else { y } }
+println(maxOf!(3, 9))      // 9
+```
+
+A macro whose body is more than one statement, used where a value is
+wanted, is refused by name.
+
+**What resolves where.** A parameter stands for the argument written at the
+call. Every *other* name in the body resolves **where the macro is
+expanded**, not where it was written — a macro that calls `helper()` reaches
+the caller's `helper`. That is a real limitation, and it is stated here
+rather than left to be discovered.
+
+**It always finishes.** A macro that expands to itself would be a compiler
+that does not end, so expansion gets 64 levels and then says so. A macro
+body may not declare a function or a class either: a declaration spliced
+twice is two declarations of one name.
+
+**What a macro is not.** It does not take a type, produce a declaration, or
+run a program at compile time to write code. Those want an AST a program can
+hold as a value, which is a much larger language — and this one has not
+earned it.
+
+`macro` is contextual, so `val macro = 3` is still a perfectly good binding.
+
+---
+
 ## 16. How a program runs
 
 Keal compiles to bytecode and runs it on a virtual machine. That is an
@@ -1328,8 +1414,7 @@ there is no cycle collector.
 ## 20. What is not here yet
 
 Class inheritance (a non-goal) · indexing and call operators (`Index`,
-`Invoke`) · associated types on traits · a package registry · macros · a
-language server.
+`Invoke`) · associated types on traits · a language server.
 
 Shipped since this list was first written, and no longer on it: `throw` /
 `try` / `catch` on all three engines — typed clauses included, natively —
@@ -1337,6 +1422,7 @@ destructuring a record in a `when` or a binding, the native backend
 through C11 (with C, C++, Rust, Go, Java and Kotlin interop), actors on
 real OS threads, `deinit`, `weak`, `Any` natively, visibility with
 `package` and `public`, a namespace that lets two modules declare the same
-name, dependencies with transitivity and a lockfile, and `constexpr`. What the C
+name, dependencies with transitivity and a lockfile, `constexpr`, and
+macros. What the C
 backend still refuses, it refuses **by name** — `keal build` never
 mis-compiles.

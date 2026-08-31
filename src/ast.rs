@@ -70,6 +70,7 @@ pub enum Item {
     Fun(FunDecl),
     Class(ClassDecl),
     Trait(TraitDecl),
+    Macro(MacroDecl),
     /// `native "..."` — text passed verbatim into the generated C, for
     /// headers and helper definitions the externs below need.
     Native { code: String, span: Span },
@@ -114,6 +115,17 @@ pub struct FunDecl {
     pub params: Rc<Vec<Param>>,
     pub ret: Option<TypeExpr>,
     pub body: Rc<Block>,
+    pub span: Span,
+}
+
+/// `macro name(a, b) { ... }` — a named piece of syntax, expanded where it
+/// is written. Not a value: it exists only while the program is compiled.
+#[derive(Clone, Debug)]
+pub struct MacroDecl {
+    pub name: String,
+    pub vis: Vis,
+    pub params: Vec<String>,
+    pub body: Block,
     pub span: Span,
 }
 
@@ -236,6 +248,10 @@ pub enum StmtKind {
     For { var: String, ty: Option<TypeExpr>, iter: Expr, body: Block },
     Break,
     Continue,
+    /// A block on its own, with its own scope. Nothing writes one — a
+    /// macro expanded at statement position becomes one, and the scope is
+    /// what keeps the macro's own bindings out of the caller's way.
+    Block(Block),
     /// `throw expr` — raises a runtime panic carrying a `String`, the same
     /// kind every built-in failure raises, so one `catch` form covers both.
     Throw(Expr),
@@ -312,6 +328,10 @@ pub enum ExprKind {
     MapLit(Vec<(Expr, Expr)>),
     Lambda { params: Rc<Vec<Param>>, body: Rc<Block> },
     Range { start: Box<Expr>, end: Box<Expr> },
+    /// `name!(a, b)` — a macro, spliced where it is written rather than
+    /// called. The arguments are expressions, unevaluated: the body decides
+    /// whether each one runs, and how many times.
+    MacroCall { name: String, args: Vec<Expr> },
     /// `value!!` — narrows `T?` to `T`, panicking at run time if it is null.
     NotNull(Box<Expr>),
     Is { value: Box<Expr>, ty: TypeExpr, negated: bool },

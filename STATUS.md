@@ -59,6 +59,42 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**MACROS — DONE, all three engines. The list is empty.**
+`macro name(a, b) { ... }`, called `name!(x, y)`. The `!` is not decoration:
+a macro does THREE THINGS A CALL CANNOT, and those three are the whole
+justification — (1) its arguments MAY BE ASSIGNED TO (`swap!(a, b)`, which
+no function can be now that a parameter's contents belong to its caller);
+(2) its arguments are EXPRESSIONS, so the body decides whether each runs and
+how many times (`twice!(n += 5)`, `discard!(x)`); (3) CONTROL FLOW PASSES
+THROUGH (a `return` in the body returns from the function it was written
+in). A reader has to tell those from a call, hence the mark.
+WHERE IT GOES: statement position → the body becomes `StmtKind::Block`, a
+NEW AST NODE nothing else writes. HYGIENE IS THE SCOPE, not renaming: what
+the macro binds dies at the closing brace. Expression position → the body
+must be exactly one expression, refused by name otherwise.
+EXPANSION HAPPENS IN THE CHECKER, in place, like `widen` and the constexpr
+fold — so no new tree walker was needed and every backend sees only expanded
+code. An unexpanded `MacroCall` reaching a backend is reported as a bug, not
+silently handled.
+LIMITATION, STATED IN docs/language.md §15¾: a parameter stands for its
+argument, but every OTHER name in the body resolves WHERE THE MACRO IS
+EXPANDED. Real hygiene for free names wants the definition site's scope
+carried through, which the namespace pass is not shaped for.
+BUDGET: 64 expansions, then refused. A macro body may not declare a function
+or class — spliced twice is two declarations of one name.
+TWO BUGS WORTH REMEMBERING: (1) a substituted argument that is ITSELF a
+macro call was never expanded — `maxOf!(maxOf!(1,8), 4)` gave Unit. The fix
+expands it with an EMPTY substitution, because the argument is in the
+caller's terms and must not see this macro's parameter names. (2) The twin's
+loader never stamped `MacroN` with its file — the same class of bug as the
+`try` handler last time; the diagnostic said `<prelude>`.
+The twin needed `copyBlock`/`copyEx`/`becomeEx` in ast.keal (two calls to
+one macro must not share nodes) and `StmtN`/`Ex` had to make `kind`/`line`/
+`col` `var`.
+Corpus: `tests/programs/macros.keal`, `tests/native/macros.keal`
+(+`.expected`), `tests/selfhost/type-errors/macro-refusals.keal` (six
+refusals, oracle and twin identical).
+
 **`fun` IS NOW `func`.** One word, everywhere: lexers (both), parsers
 (both), every `.keal` file (979 occurrences in 121 files), diagnostics,
 snapshots, docs, site generator, the VS Code grammar and snippets, the
@@ -951,7 +987,9 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
    DONE. Visibility, namespaces and dependencies — DONE. Typed exceptions
    — DONE, all three engines. The audit's cycle-versus-global rule — DONE.
    `constexpr` — DONE. The package index — DONE. Parameter contents — DONE.
-   What is left: macros, deliberately last. See README "What remains".
+   Macros — DONE. The roadmap this file has carried since the beginning is
+   finished; what is left is in README "What remains", and the next list
+   should come from whoever writes the first real program in Keal. See README "What remains".
 
 ## Key file map
 

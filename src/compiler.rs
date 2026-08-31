@@ -549,6 +549,13 @@ impl Compiler {
     fn stmt(&mut self, s: &Stmt, keep_value: bool) -> Result<(), Diag> {
         let span = s.span;
         match &s.kind {
+            // What a macro expanded to: its own scope, so the bindings it
+            // made are gone at the closing brace.
+            StmtKind::Block(b) => {
+                self.push_scope();
+                self.compile_stmts(&b.stmts, false)?;
+                self.pop_scope();
+            }
             StmtKind::Expr(e) => {
                 self.expr(e)?;
                 if !keep_value {
@@ -841,6 +848,11 @@ impl Compiler {
     fn expr(&mut self, e: &Expr) -> Result<(), Diag> {
         let span = e.span;
         match &e.kind {
+            // Expansion happens while the tree is checked, so a call that
+            // reaches here is one nothing expanded.
+            ExprKind::MacroCall { name, .. } => {
+                return Err(Diag::new(span, format!("`{}!` was never expanded", name)));
+            }
             ExprKind::Int(n) => {
                 let k = self.fs().chunk.constant(Value::Int(*n));
                 self.emit(Op::Const(k), span);
@@ -1350,6 +1362,7 @@ fn top_level_stmts(program: &crate::ast::Program) -> Vec<Stmt> {
 fn item_span(item: &Item) -> Span {
     match item {
         Item::Fun(f) => f.span,
+        Item::Macro(m) => m.span,
         Item::Native { span, .. } => *span,
         Item::Extern(x) => x.span,
         Item::Class(c) => c.span,
@@ -1422,6 +1435,11 @@ fn names_used_by_nested(stmts: &[Stmt]) -> HashSet<String> {
 
 fn collect_idents_in_nested_stmt(s: &Stmt, out: &mut HashSet<String>) {
     match &s.kind {
+        StmtKind::Block(b) => {
+            for st in &b.stmts {
+                collect_idents_in_nested_stmt(st, out);
+            }
+        }
         StmtKind::Let { init, .. } => collect_idents_in_nested_expr(init, out),
         StmtKind::Destructure { init, .. } => collect_idents_in_nested_expr(init, out),
         StmtKind::Expr(e) => collect_idents_in_nested_expr(e, out),
@@ -1467,6 +1485,9 @@ fn collect_idents_in_nested_expr(e: &Expr, out: &mut HashSet<String>) {
 fn collect_all_idents_stmts(stmts: &[Stmt], out: &mut HashSet<String>) {
     for s in stmts {
         match &s.kind {
+            StmtKind::Block(b) => {
+                collect_all_idents_stmts(&b.stmts, out);
+            }
             StmtKind::Let { name, init, .. } => {
                 out.insert(name.clone());
                 collect_all_idents_expr(init, out);
@@ -1524,6 +1545,11 @@ pub(crate) fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr) -> bool) {
         return;
     }
     match &e.kind {
+        ExprKind::MacroCall { args, .. } => {
+            for a in args {
+                walk_expr(a, f);
+            }
+        }
         ExprKind::Ternary { cond, branches } => {
             walk_expr(cond, f);
             for b in branches {
@@ -1624,6 +1650,7 @@ pub(crate) fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr) -> bool) {
 pub(crate) fn walk_block(b: &Block, f: &mut dyn FnMut(&Expr) -> bool) {
     for s in &b.stmts {
         match &s.kind {
+            StmtKind::Block(inner) => walk_block(inner, f),
             StmtKind::Let { init, .. } | StmtKind::Destructure { init, .. } => {
                 walk_expr(init, f)
             }

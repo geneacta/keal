@@ -54,7 +54,7 @@ package class DestrN(package val typeName: String, package val binds: List<Strin
 /// `kind` is a `var` because the checker rewrites nodes in place: an integer
 /// literal widens to a float, and an operator on a user type becomes the
 /// method call it stands for.
-package class Ex(package var kind: String, package val line: Int, package val col: Int) {
+package class Ex(package var kind: String, package var line: Int, package var col: Int) {
     package var file: Int = 0
     package var iVal: Int = 0              // int
     package var fVal: Float = 0.0          // float
@@ -96,7 +96,7 @@ package class ArmN(package val line: Int, package val col: Int) {
 
 /// Statements. kind: let destructure expr return while for break continue
 /// func class
-package class StmtN(package val kind: String, package val line: Int, package val col: Int) {
+package class StmtN(package var kind: String, package var line: Int, package var col: Int) {
     package var file: Int = 0
     package var vis: String = ""           // only ever set on a top-level let
     package var name: String = ""          // let / for: the bound name
@@ -112,6 +112,10 @@ package class StmtN(package val kind: String, package val line: Int, package val
     package var body: BlockN? = null       // while / for / try
     package var handler: BlockN? = null    // try: the catch block (`name` binds the message)
     package var catches: List<CatchN> = []  // try: every clause, in order
+    /// A block on its own, with its own scope. Nothing writes one — a macro
+    /// expanded at statement position becomes one, and the scope is what
+    /// keeps the macro's own bindings out of the caller's way. Kind "block".
+    package var blk: BlockN? = null
     package var funDecl: FunN? = null
     package var classDecl: ClassN? = null
 }
@@ -189,6 +193,16 @@ package class ItemN(package val kind: String, package val line: Int, package val
     package var text: String = ""          // native code / import path
     package var alias: String = ""         // import: the name given with `as`
     package var stmt: StmtN? = null
+    package var macroDecl: MacroN? = null
+}
+
+/// `macro name(a, b) { ... }` — a named piece of syntax, expanded where it
+/// is written. Not a value: it exists only while the program is compiled.
+package class MacroN(package val name: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var vis: String = ""
+    package var params: List<String> = []
+    package var body: BlockN = BlockN()
 }
 
 package class ProgramN() {
@@ -206,3 +220,121 @@ package class ImportEdge(
     package val to: Int,
     package val alias: String
 )
+
+// ---- copying -----------------------------------------------------------
+//
+// A macro body is spliced once per call, so every expansion needs a tree of
+// its own: two calls to one macro must not share nodes, or the second would
+// find the first's substitutions already in place.
+
+package func copyBlock(b: BlockN): BlockN {
+    val out = BlockN()
+    for (s in b.stmts) { out.stmts.add(copyStmt(s)) }
+    return out
+}
+
+package func copyStmt(s: StmtN): StmtN {
+    val out = StmtN(s.kind, s.line, s.col)
+    out.file = s.file
+    out.vis = s.vis
+    out.name = s.name
+    out.mutable = s.mutable
+    out.constexpr = s.constexpr
+    out.tyEx = s.tyEx
+    val init = s.init
+    if (init != null) { out.init = copyEx(init) }
+    out.pattern = s.pattern
+    val ex = s.ex
+    if (ex != null) { out.ex = copyEx(ex) }
+    val body = s.body
+    if (body != null) { out.body = copyBlock(body) }
+    val handler = s.handler
+    if (handler != null) { out.handler = copyBlock(handler) }
+    for (c in s.catches) {
+        val cc = CatchN(c.name, c.line, c.col)
+        cc.file = c.file
+        cc.tyEx = c.tyEx
+        cc.handler = copyBlock(c.handler)
+        out.catches.add(cc)
+    }
+    val blk = s.blk
+    if (blk != null) { out.blk = copyBlock(blk) }
+    // A declaration inside a macro body is refused before it is ever
+    // spliced, so these are carried across only to be reported by name.
+    out.funDecl = s.funDecl
+    out.classDecl = s.classDecl
+    return out
+}
+
+package func copyEx(e: Ex): Ex {
+    val out = Ex(e.kind, e.line, e.col)
+    becomeEx(out, e)
+    return out
+}
+
+/// Makes `target` the same node as `source`, in place — what a macro call
+/// does when it becomes the expression it stood for. The position comes with
+/// it: an expansion already carries the position of the call a person wrote,
+/// which is the one a diagnostic should name.
+package proc becomeEx(var target: Ex, source: Ex) {
+    target.kind = source.kind
+    target.line = source.line
+    target.col = source.col
+    target.file = source.file
+    target.iVal = source.iVal
+    target.fVal = source.fVal
+    target.text = source.text
+    target.negated = source.negated
+    target.safe = source.safe
+    target.assignOp = source.assignOp
+    target.tyEx = source.tyEx
+    target.params = source.params
+    target.ty = source.ty
+    target.inst = source.inst
+    var kids: List<Ex> = []
+    for (k in source.kids) { kids.add(copyEx(k)) }
+    target.kids = kids
+    var args: List<ArgN> = []
+    for (a in source.args) { args.add(ArgN(a.name, copyEx(a.value))) }
+    target.args = args
+    var parts: List<PartN> = []
+    for (p in source.parts) {
+        val np = PartN(p.isLit)
+        np.text = p.text
+        val hole = p.ex
+        if (hole != null) { np.ex = copyEx(hole) }
+        parts.add(np)
+    }
+    target.parts = parts
+    var keys: List<Ex> = []
+    for (k in source.keys) { keys.add(copyEx(k)) }
+    target.keys = keys
+    var values: List<Ex> = []
+    for (v in source.values) { values.add(copyEx(v)) }
+    target.values = values
+    val body = source.body
+    target.body = if (body == null) { null } else { copyBlock(body) }
+    val els = source.els
+    target.els = if (els == null) { null } else { copyBlock(els) }
+    val chain = source.elseif
+    target.elseif = if (chain == null) { null } else { copyEx(chain) }
+    val subj = source.subject
+    target.subject = if (subj == null) { null } else { copyEx(subj) }
+    var arms: List<ArmN> = []
+    for (a in source.arms) {
+        val na = ArmN(a.line, a.col)
+        na.file = a.file
+        na.patternKind = a.patternKind
+        na.patTyEx = a.patTyEx
+        na.patNegated = a.patNegated
+        na.binds = a.binds
+        var vals: List<Ex> = []
+        for (v in a.values) { vals.add(copyEx(v)) }
+        na.values = vals
+        val g = a.guard
+        na.guard = if (g == null) { null } else { copyEx(g) }
+        na.body = copyBlock(a.body)
+        arms.add(na)
+    }
+    target.arms = arms
+}

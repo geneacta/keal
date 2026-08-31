@@ -1,0 +1,362 @@
+// `macro name(a, b) { ... }` — a named piece of syntax, spliced where it is
+// written. The twin of src/macros.rs.
+//
+// Keal earned every other feature the hard way first, and this one is last
+// on purpose. What it adds that a function cannot is narrow, and worth
+// saying out loud, because it is the whole justification:
+//
+//   * Its arguments may be ASSIGNED TO. `swap!(a, b)` cannot be a function
+//     here: a parameter's contents belong to whoever passed them, and a
+//     function cannot rebind a caller's name at all.
+//   * Its arguments are EXPRESSIONS, NOT VALUES. The body decides whether
+//     each one runs, and how many times.
+//   * CONTROL FLOW PASSES THROUGH IT. A `return` in the body returns from
+//     the function the macro was written in, because that is where the code
+//     ended up.
+//
+// How it expands: in statement position the body becomes a nested block —
+// its own scope, so a `val` the macro declares cannot collide with one the
+// caller has. That is hygiene by scoping rather than by renaming. In
+// expression position the body must be exactly one expression.
+//
+// What resolves where: a parameter stands for the argument written at the
+// call. Every OTHER name in the body resolves where the macro is expanded,
+// not where it was written. That is a real limitation, and it is stated
+// rather than left to be discovered.
+
+import "./ast.keal"
+
+/// How deep one call may expand. A macro that expands to itself is a
+/// compiler that does not finish, which is worse than a wrong answer — so it
+/// is refused by name, exactly as an endless `constexpr` is.
+package val MACRO_MAX_DEPTH = 64
+
+/// One parameter standing for one argument, for the length of an expansion.
+package class MSub(package val name: String, package val value: Ex) {}
+
+/// The result of an expansion: a block, or the reason there is none. Only
+/// one of the two is ever set.
+package class MOut() {
+    package var block: BlockN? = null
+    package var errLine: Int = 0
+    package var errCol: Int = 0
+    package var errMsg: String = ""
+    package var errNote: String = ""
+}
+
+package func mFail(atLine: Int, atCol: Int, msg: String, note: String): MOut {
+    val o = MOut()
+    o.errLine = atLine
+    o.errCol = atCol
+    o.errMsg = msg
+    o.errNote = note
+    return o
+}
+
+package class Macros(package val byName: Map<String, MacroN>) {
+
+    /// The body with the arguments in place of the parameters, expanded all
+    /// the way down.
+    package func bodyFor(name: String, args: List<Ex>, file: Int, atLine: Int, atCol: Int, depth: Int): MOut {
+        if (depth > MACRO_MAX_DEPTH) {
+            return mFail(
+                atLine, atCol,
+                "`${name}!` expands without end",
+                "a macro gets 64 expansions; past that it is a compiler that does not finish"
+            )
+        }
+        unless (this.byName.contains(name)) {
+            return mFail(
+                atLine, atCol,
+                "there is no macro called `${name}`",
+                "a macro is written `macro name(a, b) { ... }` and called `name!(x, y)`"
+            )
+        }
+        val m = this.byName[name]!!
+        unless (args.size == m.params.size) {
+            return mFail(
+                atLine, atCol,
+                "`${name}!` takes ${m.params.size} argument(s), given ${args.size}",
+                ""
+            )
+        }
+        var subst: List<MSub> = []
+        var i = 0
+        while (i < m.params.size) {
+            subst.add(MSub(m.params[i], args[i]))
+            i += 1
+        }
+        val body = copyBlock(m.body)
+        // Every node keeps the call's span, not the macro's: an error inside
+        // an expansion has to point at the line a person wrote.
+        val bad = this.block(body, subst, file, atLine, atCol, depth)
+        if (bad != null) { return bad }
+        val out = MOut()
+        out.block = body
+        return out
+    }
+
+    /// Expands one call at statement position: the body becomes a block of
+    /// its own, so what it binds does not reach the caller.
+    package func expandStmt(name: String, args: List<Ex>, file: Int, atLine: Int, atCol: Int): MOut {
+        return this.bodyFor(name, args, file, atLine, atCol, 0)
+    }
+
+    /// Expands one call at expression position. The body has to be one
+    /// expression: a block has no value here, and pretending otherwise would
+    /// give the call a type nobody wrote.
+    package func expandExpr(name: String, args: List<Ex>, file: Int, atLine: Int, atCol: Int): MOut {
+        val out = this.bodyFor(name, args, file, atLine, atCol, 0)
+        if (out.block == null) { return out }
+        val b = out.block!!
+        unless (this.isOneExpression(b)) {
+            return mFail(
+                atLine, atCol,
+                "`${name}!` has more than one statement, so it has no value",
+                "a macro used where a value is wanted must be one expression; this one can only be written as a statement"
+            )
+        }
+        return out
+    }
+
+    package func isOneExpression(b: BlockN): Bool {
+        unless (b.stmts.size == 1) { return false }
+        return b.stmts[0].kind == "expr"
+    }
+
+    package func block(b: BlockN, subst: List<MSub>, file: Int, atLine: Int, atCol: Int, depth: Int): MOut? {
+        for (s in b.stmts) {
+            val bad = this.stmt(s, subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+        }
+        return null
+    }
+
+    package func stmt(var s: StmtN, subst: List<MSub>, file: Int, atLine: Int, atCol: Int, depth: Int): MOut? {
+        s.file = file
+        s.line = atLine
+        s.col = atCol
+        val k = s.kind
+        if (k == "block") { return this.block(s.blk!!, subst, file, atLine, atCol, depth) }
+        if (k == "let" or k == "destructure") {
+            return this.exprAt(s, "init", subst, file, atLine, atCol, depth)
+        }
+        if (k == "throw") { return this.exprAt(s, "ex", subst, file, atLine, atCol, depth) }
+        if (k == "expr") {
+            // A macro call written as a statement inside a macro body is
+            // spliced as a block, exactly as one at the top would be.
+            val e = s.ex!!
+            if (e.kind == "macrocall") {
+                var i = 0
+                while (i < e.kids.size) {
+                    val bad = this.expr(e.kids[i], subst, file, atLine, atCol, depth)
+                    if (bad != null) { return bad }
+                    val replaced = this.substituted(e.kids[i], subst, file, atLine, atCol, depth)
+                    if (replaced != null) { e.kids[i] = replaced }
+                    i += 1
+                }
+                val inner = this.bodyFor(e.text, e.kids, file, atLine, atCol, depth + 1)
+                if (inner.block == null) { return inner }
+                s.kind = "block"
+                s.blk = inner.block
+                s.ex = null
+                return null
+            }
+            return this.exprAt(s, "ex", subst, file, atLine, atCol, depth)
+        }
+        if (k == "return") {
+            if (s.ex == null) { return null }
+            return this.exprAt(s, "ex", subst, file, atLine, atCol, depth)
+        }
+        if (k == "break" or k == "continue") { return null }
+        if (k == "while") {
+            val bad = this.exprAt(s, "ex", subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+            return this.block(s.body!!, subst, file, atLine, atCol, depth)
+        }
+        if (k == "for") {
+            val bad = this.exprAt(s, "ex", subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+            return this.block(s.body!!, subst, file, atLine, atCol, depth)
+        }
+        if (k == "try") {
+            val bad = this.block(s.body!!, subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+            for (c in s.catches) {
+                val worse = this.block(c.handler, subst, file, atLine, atCol, depth)
+                if (worse != null) { return worse }
+            }
+            return null
+        }
+        // A macro body may not declare one: a declaration spliced twice is
+        // two declarations of one name, and there is nothing useful to do
+        // about that.
+        if (k == "func") {
+            return mFail(
+                atLine, atCol,
+                "a macro body cannot declare a function",
+                "`${s.funDecl!!.name}` would be declared again at every expansion"
+            )
+        }
+        if (k == "class") {
+            return mFail(
+                atLine, atCol,
+                "a macro body cannot declare a class",
+                "`${s.classDecl!!.name}` would be declared again at every expansion"
+            )
+        }
+        return null
+    }
+
+    /// Walks one of a statement's two expression slots, and puts an argument
+    /// in its place when the slot is a bare parameter name.
+    package func exprAt(var s: StmtN, which: String, subst: List<MSub>, file: Int, atLine: Int, atCol: Int, depth: Int): MOut? {
+        val e = if (which == "init") { s.init!! } else { s.ex!! }
+        val bad = this.expr(e, subst, file, atLine, atCol, depth)
+        if (bad != null) { return bad }
+        val replaced = this.substituted(e, subst, file, atLine, atCol, depth)
+        if (replaced != null) {
+            if (which == "init") { s.init = replaced } else { s.ex = replaced }
+        }
+        return null
+    }
+
+    /// The argument a bare parameter name stands for, or null when the node
+    /// is anything else. A parameter takes its argument whole.
+    ///
+    /// The argument may itself be a macro call, and it still has to expand —
+    /// but with NO substitution, because it was written in the caller's
+    /// terms and knows nothing of this macro's parameter names. Walking it
+    /// with `subst` in hand would let a name the caller used be captured by
+    /// a parameter that happens to share it.
+    package func substituted(e: Ex, subst: List<MSub>, file: Int, atLine: Int, atCol: Int, depth: Int): Ex? {
+        unless (e.kind == "ident") { return null }
+        for (sb in subst) {
+            if (sb.name == e.text) {
+                val copy = copyEx(sb.value)
+                val none: List<MSub> = []
+                val bad = this.expr(copy, none, file, atLine, atCol, depth)
+                if (bad != null) { return copy }
+                return copy
+            }
+        }
+        return null
+    }
+
+    /// Walks one expression's children, replacing parameters and expanding
+    /// nested calls. The node itself is replaced by its caller, which is the
+    /// only one holding the slot it sits in.
+    package func expr(var e: Ex, subst: List<MSub>, file: Int, atLine: Int, atCol: Int, depth: Int): MOut? {
+        if (e.kind == "macrocall") {
+            var i = 0
+            while (i < e.kids.size) {
+                val bad = this.expr(e.kids[i], subst, file, atLine, atCol, depth)
+                if (bad != null) { return bad }
+                val replaced = this.substituted(e.kids[i], subst, file, atLine, atCol, depth)
+                if (replaced != null) { e.kids[i] = replaced }
+                i += 1
+            }
+            val inner = this.bodyFor(e.text, e.kids, file, atLine, atCol, depth + 1)
+            if (inner.block == null) { return inner }
+            val b = inner.block!!
+            unless (this.isOneExpression(b)) {
+                return mFail(
+                    atLine, atCol,
+                    "`${e.text}!` has more than one statement, so it has no value",
+                    "a macro used where a value is wanted must be one expression; this one can only be written as a statement"
+                )
+            }
+            // The call becomes the expression it stood for, in place.
+            becomeEx(e, b.stmts[0].ex!!)
+            return null
+        }
+        e.file = file
+        e.line = atLine
+        e.col = atCol
+        var i = 0
+        while (i < e.kids.size) {
+            val bad = this.expr(e.kids[i], subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+            val replaced = this.substituted(e.kids[i], subst, file, atLine, atCol, depth)
+            if (replaced != null) { e.kids[i] = replaced }
+            i += 1
+        }
+        for (a in e.args) {
+            val bad = this.expr(a.value, subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+        }
+        // A named argument's value sits behind a `val`, so a parameter used
+        // as a whole argument is put in place through the list.
+        var ai = 0
+        while (ai < e.args.size) {
+            val replaced = this.substituted(e.args[ai].value, subst, file, atLine, atCol, depth)
+            if (replaced != null) { e.args[ai] = ArgN(e.args[ai].name, replaced) }
+            ai += 1
+        }
+        for (p in e.parts) {
+            val hole = p.ex
+            if (hole != null) {
+                val bad = this.expr(hole, subst, file, atLine, atCol, depth)
+                if (bad != null) { return bad }
+                val replaced = this.substituted(hole, subst, file, atLine, atCol, depth)
+                if (replaced != null) { p.ex = replaced }
+            }
+        }
+        var ki = 0
+        while (ki < e.keys.size) {
+            val bad = this.expr(e.keys[ki], subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+            val rk = this.substituted(e.keys[ki], subst, file, atLine, atCol, depth)
+            if (rk != null) { e.keys[ki] = rk }
+            val worse = this.expr(e.values[ki], subst, file, atLine, atCol, depth)
+            if (worse != null) { return worse }
+            val rv = this.substituted(e.values[ki], subst, file, atLine, atCol, depth)
+            if (rv != null) { e.values[ki] = rv }
+            ki += 1
+        }
+        val body = e.body
+        if (body != null) {
+            val bad = this.block(body, subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+        }
+        val els = e.els
+        if (els != null) {
+            val bad = this.block(els, subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+        }
+        val chain = e.elseif
+        if (chain != null) {
+            val bad = this.expr(chain, subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+            val replaced = this.substituted(chain, subst, file, atLine, atCol, depth)
+            if (replaced != null) { e.elseif = replaced }
+        }
+        val subj = e.subject
+        if (subj != null) {
+            val bad = this.expr(subj, subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+            val replaced = this.substituted(subj, subst, file, atLine, atCol, depth)
+            if (replaced != null) { e.subject = replaced }
+        }
+        for (arm in e.arms) {
+            var vi = 0
+            while (vi < arm.values.size) {
+                val bad = this.expr(arm.values[vi], subst, file, atLine, atCol, depth)
+                if (bad != null) { return bad }
+                val replaced = this.substituted(arm.values[vi], subst, file, atLine, atCol, depth)
+                if (replaced != null) { arm.values[vi] = replaced }
+                vi += 1
+            }
+            val g = arm.guard
+            if (g != null) {
+                val bad = this.expr(g, subst, file, atLine, atCol, depth)
+                if (bad != null) { return bad }
+                val replaced = this.substituted(g, subst, file, atLine, atCol, depth)
+                if (replaced != null) { arm.guard = replaced }
+            }
+            val bad = this.block(arm.body, subst, file, atLine, atCol, depth)
+            if (bad != null) { return bad }
+        }
+        return null
+    }
+}

@@ -169,6 +169,16 @@ impl Interp {
 
     fn exec_stmt(&mut self, s: &Stmt, env: &Env) -> R<Value> {
         match &s.kind {
+            // What a macro expanded to: its own scope, so the bindings it
+            // made die at the closing brace, in declaration order like any
+            // other scope's.
+            StmtKind::Block(b) => {
+                let scope = Scope::child(env);
+                let out = self.exec_stmts(&b.stmts, &scope);
+                Scope::close(&scope);
+                out?;
+                Ok(Value::Unit)
+            }
             StmtKind::Let { name, init, mutable, .. } => {
                 let v = self.eval(init, env)?;
                 if *mutable {
@@ -300,6 +310,11 @@ impl Interp {
     pub fn eval(&mut self, e: &Expr, env: &Env) -> R<Value> {
         let span = e.span;
         match &e.kind {
+            // Expansion happens while the tree is checked, so a call that
+            // reaches here is one nothing expanded.
+            ExprKind::MacroCall { name, .. } => {
+                crate::runtime::err(span, format!("`{}!` was never expanded", name))
+            }
             ExprKind::Int(n) => Ok(Value::Int(*n)),
             ExprKind::Float(n) => Ok(Value::Float(*n)),
             ExprKind::Bool(b) => Ok(Value::Bool(*b)),

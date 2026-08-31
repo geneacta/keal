@@ -272,6 +272,11 @@ package class Parser(val toks: List<Token>) {
             i.classDecl = this.classDecl(false, vis)
             return i
         }
+        if (t.kind == "ident" and t.text == "macro" and this.namesDeclaration()) {
+            val i = ItemN("macro", t.line, t.col)
+            i.macroDecl = this.macroDecl(vis)
+            return i
+        }
         if (t.kind == "ident" and t.text == "record" and this.namesDeclaration()) {
             this.advance()
             val i = ItemN("class", t.line, t.col)
@@ -382,6 +387,48 @@ package class Parser(val toks: List<Token>) {
     }
 
     // ---- declarations ---------------------------------------------------
+
+    /// `macro name(a, b) { ... }`. The parameters are bare names: a macro
+    /// takes syntax, not values, so there is nothing to declare a type for.
+    func macroDecl(vis: String): MacroN {
+        val start = this.peek()
+        this.advance()
+        val name = this.expectIdent("a macro name")
+        val m = MacroN(name, start.line, start.col)
+        m.vis = vis
+        this.expect("(", "to start a macro's parameter list")
+        while (not this.at(")")) {
+            m.params.add(this.expectIdent("a macro parameter name"))
+            unless (this.eat(",")) { break }
+        }
+        this.expect(")", "to close a macro's parameter list")
+        m.body = this.block()
+        return m
+    }
+
+    /// One argument to a macro. A macro takes syntax rather than a value, so
+    /// an assignment is allowed here even though it is a statement anywhere
+    /// else: `twice!(n += 5)` is exactly the kind of thing a macro is for.
+    func macroArg(): Ex {
+        val start = this.peek()
+        val target = this.expr()
+        val opTok = this.peek()
+        unless (isAssignOp(opTok.kind)) { return target }
+        this.advance()
+        unless (target.kind == "ident" or target.kind == "field" or target.kind == "index") {
+            this.failNote(
+                opTok.line, opTok.col,
+                "left side of an assignment is not assignable",
+                "only variables, fields and indexed elements can be assigned"
+            )
+        }
+        val value = this.expr()
+        val node = Ex("assign", start.line, start.col)
+        node.file = target.file
+        node.assignOp = assignOpName(opTok.kind)
+        node.kids = [target, value]
+        return node
+    }
 
     func funDecl(vis: String): FunN {
         val start = this.peek()
@@ -1206,6 +1253,22 @@ package class Parser(val toks: List<Token>) {
         }
         if (t.kind == "ident") {
             this.advance()
+            // `name!(...)` is a macro, spliced where it is written. The `!`
+            // is not decoration: a macro can do things a call cannot — assign
+            // to what it was given, run it twice, return from the function
+            // around it — and a reader has to be told.
+            if (this.at("!") and this.peekAt(1).kind == "(") {
+                this.advance()
+                this.advance()
+                val call = Ex("macrocall", t.line, t.col)
+                call.text = t.text
+                while (not this.at(")")) {
+                    call.kids.add(this.macroArg())
+                    unless (this.eat(",")) { break }
+                }
+                this.expect(")", "to close a macro's arguments")
+                return call
+            }
             val node = Ex("ident", t.line, t.col)
             node.text = t.text
             return node

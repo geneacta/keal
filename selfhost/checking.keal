@@ -17,6 +17,7 @@ import "./loader.keal"
 import "./builtins.keal"
 import "./astprint.keal"
 import "./constfold.keal"
+import "./macros.keal"
 
 package class DiagN(package val file: Int, package val line: Int, package val col: Int, package val msg: String) {
     package var note: String = ""
@@ -402,6 +403,9 @@ package class Checker() {
     var impls: Map<String, List<String>> = {}
     var lastInst: List<Ty>? = null
     var guardNarrowing: List<Fact>? = null
+    /// Every macro the program declares, collected before anything is
+    /// checked: a call may stand above the declaration it names.
+    var macros: Macros = Macros({})
     /// Every `constexpr func`, by the name a call site will have resolved
     /// to. The compile-time evaluator calls nothing else, which is the
     /// whole promise of the word.
@@ -738,6 +742,9 @@ package class Checker() {
     // ---- driver --------------------------------------------------------
 
     package proc checkProgram(program: ProgramN) {
+        // Collected first, and from the whole program: a macro may be called
+        // above the line that declares it, as a function may be.
+        this.collectMacros(program)
         // 0a. Who can see what, and one unique name per declaration. Nothing
         //     below this line has to think about two files sharing a name.
         this.planNamespaces(program)
@@ -982,6 +989,44 @@ package class Checker() {
     /// back over it. The folder reports through its own five fields, so a
     /// failure becomes exactly one diagnostic here, as it does in the
     /// Rust half.
+    /// Every macro a program declares. Two with one name is refused here
+    /// rather than resolved by order.
+    proc collectMacros(program: ProgramN) {
+        var byName: Map<String, MacroN> = {}
+        for (item in program.items) {
+            val m = item.macroDecl
+            if (item.kind == "macro" and m != null) {
+                if (byName.contains(m.name)) {
+                    val seen = byName[m.name]!!
+                    this.errorNote(
+                        m.file, m.line, m.col,
+                        "`${m.name}` is already the name of a macro",
+                        "the first is at line ${seen.line}; a macro is expanded by name, so there can be only one"
+                    )
+                    continue
+                }
+                var seenParams: List<String> = []
+                for (p in m.params) {
+                    if (seenParams.contains(p)) {
+                        this.error(m.file, m.line, m.col, "`${m.name}` names the parameter `${p}` twice")
+                    }
+                    seenParams.add(p)
+                }
+                byName[m.name] = m
+            }
+        }
+        this.macros = Macros(byName)
+    }
+
+    /// Turns one expansion's refusal into this checker's own diagnostic.
+    proc reportMacro(file: Int, out: MOut) {
+        if (out.errNote == "") {
+            this.error(file, out.errLine, out.errCol, out.errMsg)
+        } else {
+            this.errorNote(file, out.errLine, out.errCol, out.errMsg, out.errNote)
+        }
+    }
+
     proc foldConstexpr(var s: StmtN, init: Ex) {
         val folder = Folder(this.constexprFuns)
         var outer: List<CBind> = []
@@ -1915,8 +1960,29 @@ package class Checker() {
     }
 
     func checkStmt(var s: StmtN): Ty {
+        // A macro is spliced before anything looks at what it stands for, so
+        // everything below — including the backends — sees only the code the
+        // program would have had if it had been written out.
+        if (s.kind == "expr" and s.ex!!.kind == "macrocall") {
+            val call = s.ex!!
+            val out = this.macros.expandStmt(call.text, call.kids, s.file, s.line, s.col)
+            if (out.block == null) {
+                this.reportMacro(s.file, out)
+                s.kind = "block"
+                s.blk = BlockN()
+                s.ex = null
+                return Ty("Unit")
+            }
+            s.kind = "block"
+            s.blk = out.block
+            s.ex = null
+        }
         // Only a guard that is itself a statement may narrow its successors.
         this.guardNarrowing = null
+        if (s.kind == "block") {
+            this.checkBlock(s.blk!!)
+            return Ty("Unit")
+        }
         if (s.kind == "let") {
             val te = s.tyEx
             val init = s.init!!
@@ -2297,6 +2363,16 @@ package class Checker() {
     }
 
     func checkExprInner(var e: Ex, expected: Ty?): Ty {
+        // Where a value is wanted, a macro has to be one expression, and
+        // that expression takes the call's place before anything types it.
+        if (e.kind == "macrocall") {
+            val out = this.macros.expandExpr(e.text, e.kids, e.file, e.line, e.col)
+            if (out.block == null) {
+                this.reportMacro(e.file, out)
+                return Ty("Error")
+            }
+            becomeEx(e, out.block!!.stmts[0].ex!!)
+        }
         this.unqualify(e)
         if (e.kind == "int") { return Ty("Int") }
         if (e.kind == "float") { return Ty("Float") }

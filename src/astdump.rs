@@ -42,6 +42,7 @@ pub fn dump_typed(program: &Program, shown: impl Fn(u32) -> bool) -> String {
             Item::Fun(f) => f.span.file,
             Item::Class(c) => c.span.file,
             Item::Trait(t) => t.span.file,
+            Item::Macro(m) => m.span.file,
             Item::Native { span, .. } => span.file,
             Item::Extern(x) => x.span.file,
             Item::Import { span, .. } => span.file,
@@ -154,6 +155,7 @@ fn item_node(item: &Item) -> String {
         Item::Fun(f) => fun_node("func", f),
         Item::Class(c) => class_node(c),
         Item::Trait(t) => trait_node(t),
+        Item::Macro(m) => macro_node(m),
         Item::Import { path, alias, span } => match alias {
             Some(a) => format!("import {} as {} {}", esc(path), a, at(*span)),
             None => format!("import {} {}", esc(path), at(*span)),
@@ -293,8 +295,18 @@ fn block_node(tag: &str, b: &Block) -> String {
     out.trim_end().to_string()
 }
 
+fn macro_node(m: &MacroDecl) -> String {
+    let mut out = format!("{}macro {} {}", vis_prefix(m.vis), m.name, at(m.span));
+    for p in &m.params {
+        out.push_str(&format!("\n{}", indent(&format!("param {}", p))));
+    }
+    out.push_str(&format!("\n{}", indent(&block_node("body", &m.body))));
+    out
+}
+
 fn stmt_node(s: &Stmt) -> String {
     match &s.kind {
+        StmtKind::Block(b) => format!("{}", block_node("block", b)),
         StmtKind::Let { name, ty, init, mutable, vis, constexpr } => {
             let kw = if *mutable { "var" } else { "val" };
             let c = if *constexpr { "constexpr " } else { "" };
@@ -378,6 +390,13 @@ fn expr_node(e: &Expr) -> String {
 fn expr_node_inner(e: &Expr) -> String {
     let sp = at(e.span);
     match &e.kind {
+        ExprKind::MacroCall { name, args } => {
+            let mut out = format!("macrocall {} {}", name, sp);
+            for a in args {
+                out.push_str(&format!("\n{}", indent(&expr_node(a))));
+            }
+            out
+        }
         ExprKind::Int(n) => format!("int {} {}", n, sp),
         ExprKind::Float(f) => format!("float {} {}", format_float(*f), sp),
         ExprKind::Bool(b) => format!("bool {} {}", b, sp),

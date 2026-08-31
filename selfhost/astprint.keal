@@ -77,6 +77,7 @@ func pItem(i: ItemN): String {
         "func" -> pFun("func", i.funDecl!!)
         "class" -> pClass(i.classDecl!!)
         "trait" -> pTrait(i.traitDecl!!)
+        "macro" -> pMacro(i.macroDecl!!)
         "import" -> if (i.alias == "") {
             "import ${esc(i.text)} ${i.line}:${i.col}"
         } else {
@@ -125,6 +126,13 @@ func pTParam(tp: TParamN): String {
         first = false
     }
     return "tparam ${tp.name}: ${bs}"
+}
+
+func pMacro(m: MacroN): String {
+    var out = "${visPrefix(m.vis)}macro ${m.name} ${m.line}:${m.col}"
+    for (p in m.params) { out += "\n" + indentBlock("param ${p}") }
+    out += "\n" + indentBlock(pBlock("body", m.body))
+    return out
 }
 
 func pParam(p: ParamN): String {
@@ -199,6 +207,7 @@ func pBlock(tag: String, b: BlockN): String {
 func pStmt(s: StmtN): String {
     val sp = "${s.line}:${s.col}"
     return when (s.kind) {
+        "block" -> pBlock("block", s.blk!!)
         "let" -> {
             val kw = if (s.mutable) { "var" } else { "val" }
             val c = if (s.constexpr) { "constexpr " } else { "" }
@@ -297,6 +306,11 @@ func pExInner(e: Ex): String {
         "binary" -> "binary ${e.text} ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
         "logical" -> "logical ${e.text} ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
         "elvis" -> "elvis ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
+        "macrocall" -> {
+            var out = "macrocall ${e.text} ${sp}"
+            for (a in e.kids) { out += "\n" + indentBlock(pEx(a)) }
+            out
+        }
         "notnull" -> "notnull ${sp}\n" + indentBlock(pEx(e.kids[0]))
         "assign" -> "assign ${e.assignOp} ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
         "call" -> {

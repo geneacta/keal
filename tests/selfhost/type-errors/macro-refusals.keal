@@ -1,0 +1,32 @@
+// What a macro refuses, by name. Expansion happens while the program is
+// checked, so every one of these is a compile-time sentence rather than
+// something a reader finds out later.
+
+macro one(a) { a }
+
+// A macro that is not there.
+val absent = nosuch!(1)
+
+// The wrong number of arguments: a macro is not overloaded.
+val counted = one!(1, 2)
+
+// A macro used where a value is wanted has to be one expression; this one
+// is a statement and cannot be anything else.
+macro two(a) {
+    val held = a
+    held
+}
+val valued = two!(3)
+
+// A macro that expands to itself is a compiler that does not finish.
+macro forever(a) { forever!(a) }
+forever!(1)
+
+// A declaration inside a body would be declared again at every expansion.
+macro declares(a) {
+    func inner(): Int { return a }
+}
+declares!(1)
+
+// One name, one macro.
+macro one(b) { b }

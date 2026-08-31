@@ -2666,6 +2666,20 @@ class CBackend() {
     }
 
     proc stmt(s: StmtN) {
+        // What a macro expanded to: its own scope, so the bindings it made
+        // are gone at the closing brace.
+        if (s.kind == "block") {
+            this.line("{")
+            this.indent += 1
+            this.openScope()
+            for (st in s.blk!!.stmts) {
+                this.seqStmt(st)
+            }
+            this.closeScope()
+            this.indent -= 1
+            this.line("}")
+            return
+        }
         if (s.kind == "let") {
             // The declared type wins where it exists: `val x: Int? = 5`
             // stores a wrapped value, not a bare one.

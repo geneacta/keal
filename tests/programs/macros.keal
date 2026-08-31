@@ -1,0 +1,77 @@
+// `macro name(a, b) { ... }` — a named piece of syntax, spliced where it is
+// written. The `!` at the call is not decoration: a macro can do things a
+// call cannot, and a reader has to be told which they are looking at.
+
+// 1. Its arguments may be assigned to. No function can write this: a
+// parameter's contents belong to whoever passed them, and a function cannot
+// rebind a caller's name at all.
+macro swap(a, b) {
+    val held = a
+    a = b
+    b = held
+}
+
+var p = 1
+var q = 2
+swap!(p, q)
+assert(p == 2 and q == 1, "a macro rebound both names")
+
+// 2. Its arguments are expressions, not values: the body decides whether
+// each one runs, and how many times.
+macro twice(body) {
+    body
+    body
+}
+
+var count = 0
+twice!(count += 5)
+assert(count == 10, "the argument ran twice")
+
+macro discard(unused) { }
+var untouched = 0
+discard!(untouched += 1)
+assert(untouched == 0, "and an argument the body drops never runs at all")
+
+// 3. Control flow passes through, because the code ended up where it was
+// written.
+macro guard(cond, fallback) {
+    unless (cond) { return fallback }
+}
+
+func describe(n: Int): String {
+    guard!(n > 0, "not positive")
+    guard!(n < 100, "too big")
+    return "ok"
+}
+assert(describe(-1) == "not positive", "a `return` inside a macro returns from the function")
+assert(describe(500) == "too big", "and again")
+assert(describe(7) == "ok", "and lets the rest run when it does not")
+
+// A macro used where a value is wanted is one expression, and takes the
+// call's place.
+macro maxOf(x, y) { if (x > y) { x } else { y } }
+assert(maxOf!(3, 9) == 9, "a macro as an expression")
+assert(maxOf!(maxOf!(1, 8), 4) == 8, "and nested inside itself")
+
+// Hygiene by scoping: a macro's own bindings live in a block of their own,
+// so they cannot collide with the caller's.
+val held = "mine"
+var i = 1
+var j = 2
+swap!(i, j)
+assert(held == "mine", "the macro's `held` did not touch this one")
+assert(i == 2 and j == 1, "and the swap still worked")
+
+// A macro may call another.
+macro bump(x) { x += 1 }
+macro bumpTwice(x) {
+    bump!(x)
+    bump!(x)
+}
+var n = 0
+bumpTwice!(n)
+assert(n == 2, "a macro expands inside a macro")
+
+// The word is contextual, so it stays an ordinary name everywhere else.
+val macro = 3
+assert(macro == 3, "`macro` is still a name")

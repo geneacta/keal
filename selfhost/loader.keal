@@ -189,6 +189,11 @@ proc stampItem(var i: ItemN, f: Int) {
     if (xd != null) { stampExtern(xd, f) }
     val st = i.stmt
     if (st != null) { stampStmt(st, f) }
+    val md = i.macroDecl
+    if (md != null) {
+        md.file = f
+        stampBlock(md.body, f)
+    }
 }
 
 proc stampFun(var fn: FunN, f: Int) {
@@ -276,6 +281,10 @@ proc stampStmt(var s: StmtN, f: Int) {
     if (fd != null) { stampFun(fd, f) }
     val cd = s.classDecl
     if (cd != null) { stampClass(cd, f) }
+    // A macro expanded at statement position leaves a block behind; a
+    // program that imports a file has to stamp what is inside one.
+    val blk = s.blk
+    if (blk != null) { stampBlock(blk, f) }
 }
 
 proc stampEx(var e: Ex, f: Int) {

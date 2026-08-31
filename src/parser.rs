@@ -261,6 +261,9 @@ impl Parser {
             Tok::Ident(name) if name == "trait" && self.names_a_declaration() => {
                 Ok(Item::Trait(self.trait_decl(vis)?))
             }
+            Tok::Ident(name) if name == "macro" && self.names_a_declaration() => {
+                Ok(Item::Macro(self.macro_decl(vis)?))
+            }
             Tok::Ident(name) if name == "record" && self.names_a_declaration() => {
                 self.advance();
                 Ok(Item::Class(self.class_decl(true, vis)?))
@@ -403,6 +406,26 @@ impl Parser {
     /// The two differ only in what they return: a `func` must say, and a `proc`
     /// returns nothing. Keeping them apart at the declaration removes the
     /// need for a `Unit` or `void` annotation anywhere.
+    /// `macro name(a, b) { ... }`. The parameters are bare names: a macro
+    /// takes syntax, not values, so there is nothing to declare a type for.
+    fn macro_decl(&mut self, vis: Vis) -> Result<MacroDecl, Diag> {
+        let span = self.span();
+        self.advance();
+        let (name, _) = self.expect_ident("a macro name")?;
+        self.expect(Tok::LParen, "to start a macro's parameter list")?;
+        let mut params = Vec::new();
+        while !self.at(&Tok::RParen) {
+            let (p, _) = self.expect_ident("a macro parameter name")?;
+            params.push(p);
+            if !self.eat(&Tok::Comma) {
+                break;
+            }
+        }
+        self.expect(Tok::RParen, "to close a macro's parameter list")?;
+        let body = self.block()?;
+        Ok(MacroDecl { name, vis, params, body, span })
+    }
+
     fn fun_decl(&mut self, vis: Vis) -> Result<FunDecl, Diag> {
         self.fun_decl_maybe_const(vis, false)
     }
@@ -1029,6 +1052,41 @@ impl Parser {
 
     // ---- expressions ---------------------------------------------------
 
+    /// One argument to a macro. A macro takes syntax rather than a value, so
+    /// an assignment is allowed here even though it is a statement anywhere
+    /// else: `twice!(n += 5)` is exactly the kind of thing a macro is for.
+    fn macro_arg(&mut self) -> Result<Expr, Diag> {
+        let span = self.span();
+        let target = self.expr()?;
+        let op = match self.peek() {
+            Tok::Assign => None,
+            Tok::PlusEq => Some(BinOp::Add),
+            Tok::MinusEq => Some(BinOp::Sub),
+            Tok::StarEq => Some(BinOp::Mul),
+            Tok::SlashEq => Some(BinOp::Div),
+            Tok::PercentEq => Some(BinOp::Rem),
+            Tok::StarStarEq => Some(BinOp::Pow),
+            Tok::RootEq => Some(BinOp::Root),
+            _ => return Ok(target),
+        };
+        let op_span = self.span();
+        self.advance();
+        if !matches!(
+            target.kind,
+            ExprKind::Ident(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
+        ) {
+            return Err(Diag::new(op_span, "left side of an assignment is not assignable")
+                .with_note("only variables, fields and indexed elements can be assigned"));
+        }
+        let value = self.expr()?;
+        Ok(Expr {
+            ty: None,
+            inst: None,
+            span,
+            kind: ExprKind::Assign { target: Box::new(target), op, value: Box::new(value) },
+        })
+    }
+
     fn expr(&mut self) -> Result<Expr, Diag> {
         let cond = self.binary(0)?;
         // The ternary sits below everything else: `c ? a : b` selects on a
@@ -1285,7 +1343,25 @@ impl Parser {
             }
             Tok::Ident(name) => {
                 self.advance();
-                ExprKind::Ident(name)
+                // `name!(...)` is a macro, spliced where it is written. The
+                // `!` is not decoration: a macro can do things a call cannot
+                // — assign to what it was given, run it twice, return from
+                // the function around it — and a reader has to be told.
+                if self.at(&Tok::Bang) && matches!(self.peek_at(1), Tok::LParen) {
+                    self.advance();
+                    self.advance();
+                    let mut args = Vec::new();
+                    while !self.at(&Tok::RParen) {
+                        args.push(self.macro_arg()?);
+                        if !self.eat(&Tok::Comma) {
+                            break;
+                        }
+                    }
+                    self.expect(Tok::RParen, "to close a macro's arguments")?;
+                    ExprKind::MacroCall { name, args }
+                } else {
+                    ExprKind::Ident(name)
+                }
             }
             Tok::Str(parts) => {
                 self.advance();

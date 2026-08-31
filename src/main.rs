@@ -18,6 +18,7 @@ mod interp;
 mod layout;
 mod lexer;
 mod loader;
+mod macros;
 mod native;
 mod nativebuild;
 mod parser;

@@ -643,6 +643,9 @@ impl CBackend {
         for item in &program.items {
             match item {
                 Item::Fun(f) => self.function(f),
+                // A macro is spent by the time the tree gets here: it left
+                // the code it stood for behind, and itself nowhere.
+                Item::Macro(_) => {}
                 // The prelude is only trait declarations; a program that uses
                 // one is caught where it uses it.
                 Item::Trait(_)
@@ -2033,6 +2036,19 @@ impl CBackend {
 
     fn stmt(&mut self, s: &Stmt) {
         match &s.kind {
+            // What a macro expanded to: its own scope, so the bindings it
+            // made are gone at the closing brace.
+            StmtKind::Block(b) => {
+                self.line("{");
+                self.indent += 1;
+                self.open_scope();
+                for st in &b.stmts {
+                    self.seq_stmt(st);
+                }
+                self.close_scope();
+                self.indent -= 1;
+                self.line("}");
+            }
             StmtKind::Let { name, ty: ann, init, mutable, vis: _, constexpr: _ } => {
                 // The declared type wins where it exists: `val x: Int? = 5`
                 // stores a wrapped value, not a bare one.
@@ -6185,6 +6201,11 @@ fn lambda_free_names(stmts: &[Stmt]) -> std::collections::HashSet<String> {
 
 fn lambda_frees_in_stmt(s: &Stmt, out: &mut std::collections::HashSet<String>) {
     match &s.kind {
+        StmtKind::Block(b) => {
+            for st in &b.stmts {
+                lambda_frees_in_stmt(st, out);
+            }
+        }
         StmtKind::Let { init, .. } | StmtKind::Destructure { init, .. } => {
             lambda_frees_in_expr(init, out)
         }
@@ -6223,6 +6244,13 @@ fn lambda_frees_in_stmt(s: &Stmt, out: &mut std::collections::HashSet<String>) {
 
 fn lambda_frees_in_expr(e: &Expr, out: &mut std::collections::HashSet<String>) {
     match &e.kind {
+        // Expansion happens while the tree is checked, so nothing below
+        // ever sees one of these.
+        ExprKind::MacroCall { args, .. } => {
+            for a in args {
+                lambda_frees_in_expr(a, out);
+            }
+        }
         ExprKind::Ternary { cond, branches } => {
             lambda_frees_in_expr(cond, out);
             for b in branches {
@@ -6342,6 +6370,11 @@ fn lambda_frees_in_expr(e: &Expr, out: &mut std::collections::HashSet<String>) {
 pub(crate) fn collect_free(stmts: &[Stmt], bound: &mut Vec<String>, free: &mut Vec<String>) {
     for s in stmts {
         match &s.kind {
+            StmtKind::Block(b) => {
+                // A nested scope: names it binds do not escape it.
+                let mut inner = bound.clone();
+                collect_free(&b.stmts, &mut inner, free);
+            }
             StmtKind::Let { name, init, .. } => {
                 collect_free_expr(init, bound, free);
                 bound.push(name.clone());
@@ -6383,6 +6416,13 @@ pub(crate) fn collect_free(stmts: &[Stmt], bound: &mut Vec<String>, free: &mut V
 
 fn collect_free_expr(e: &Expr, bound: &mut Vec<String>, free: &mut Vec<String>) {
     match &e.kind {
+        // Expansion happens while the tree is checked, so nothing below
+        // ever sees one of these.
+        ExprKind::MacroCall { args, .. } => {
+            for a in args {
+                collect_free_expr(a, bound, free);
+            }
+        }
         ExprKind::Ternary { cond, branches } => {
             collect_free_expr(cond, bound, free);
             for b in branches {
@@ -6641,6 +6681,7 @@ fn program_has_try(p: &Program) -> bool {
     fn in_stmt(s: &Stmt) -> bool {
         match &s.kind {
             StmtKind::Try { .. } => true,
+            StmtKind::Block(b) => b.stmts.iter().any(in_stmt),
             StmtKind::Let { init, .. } | StmtKind::Destructure { init, .. } => in_expr(init),
             StmtKind::Expr(e) | StmtKind::Throw(e) => in_expr(e),
             StmtKind::Return(v) => v.as_ref().map(in_expr).unwrap_or(false),
@@ -6731,6 +6772,7 @@ fn program_uses_actors(p: &Program) -> bool {
     }
     fn in_stmt(s: &Stmt) -> bool {
         match &s.kind {
+            StmtKind::Block(b) => b.stmts.iter().any(in_stmt),
             StmtKind::Let { ty, init, .. } => {
                 ty.as_ref().map(in_type).unwrap_or(false) || in_expr(init)
             }

@@ -1,0 +1,46 @@
+// A macro leaves no trace by the time a program is compiled: it is spliced
+// where it was written, and the C below is the C the expanded code would
+// have produced on its own.
+
+macro swap(a, b) {
+    val held = a
+    a = b
+    b = held
+}
+
+macro twice(body) {
+    body
+    body
+}
+
+macro guard(cond, fallback) {
+    unless (cond) { return fallback }
+}
+
+macro maxOf(x, y) { if (x > y) { x } else { y } }
+
+var p = 1
+var q = 2
+swap!(p, q)
+println("${p} ${q}")
+
+var count = 0
+twice!(count += 5)
+println(count)
+
+func describe(n: Int): String {
+    guard!(n > 0, "not positive")
+    guard!(n < 100, "too big")
+    return "ok"
+}
+println("${describe(-1)} ${describe(500)} ${describe(7)}")
+
+println(maxOf!(maxOf!(1, 8), 4))
+
+// The macro's own binding lives in a block of its own, so the caller's
+// survives untouched.
+val held = "mine"
+var i = 1
+var j = 2
+swap!(i, j)
+println("${held} ${i} ${j}")

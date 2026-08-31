@@ -470,6 +470,11 @@ impl<'a> Folder<'a> {
             ExprKind::Is { .. } => refuse(e.span, "`is`"),
             ExprKind::Elvis { .. } => refuse(e.span, "`?:`"),
             ExprKind::Assign { .. } => refuse(e.span, "an assignment as a value"),
+            // Expansion happens before the fold, so a call that reaches here
+            // is one nothing expanded.
+            ExprKind::MacroCall { name, .. } => {
+                refuse(e.span, &format!("`{}!`, which nothing expanded", name))
+            }
         }
     }
 

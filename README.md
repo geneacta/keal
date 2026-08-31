@@ -42,6 +42,10 @@ At a glance:
   and what it *holds* belongs to the caller unless the signature says `var`.
   The checker refuses every way around it, a call to something that would
   included
+* **Macros that are syntax, not text** — `swap!(a, b)` rebinds both names,
+  an argument may run twice or never, and a `return` inside one returns from
+  the function around it. Hygiene by scoping: what a macro binds lives in a
+  block of its own
 * **Reference counting** with a fully documented memory model — inspect any
   program's layout with `keal layout`
 * **Native compilation** (`keal build`) ~84× faster than the VM, with **C and
@@ -583,7 +587,12 @@ lockfile included. And the last place the three engines could be told apart
 closed: they now report the same objects outliving the same program, which
 took four separate fixes and a machine nobody here owns. And the audit
 stopped being a list to interpret: it names which survivors are a cycle and
-which a top-level binding is holding on purpose. A signature can promise not
+which a top-level binding is holding on purpose. Macros used to sit at the
+bottom of this list, marked *deliberately last*, and they were: `swap!(a, b)`
+rebinds both names, `twice!(n += 5)` runs its argument twice and
+`discard!(x)` never runs it at all, and a `return` inside one returns from
+the function it was written in — three things a call cannot do, which is
+what the `!` is telling you. A signature can promise not
 to change what it was given: the contents of a parameter belong to whoever
 passed them unless it says `var`, and the checker refuses every way of
 breaking that — including handing the value on to something that would.
@@ -613,8 +622,6 @@ were the last thing on this list to be half-done, and are not anymore:
   following one would let a cycle report itself as reachable. What is still
   missing is the collector, and why there is none is argued in
   [`docs/memory.md`](docs/memory.md) §5.
-* **Macros** — deliberately last: the language keeps earning features the
-  hard way first.
 * Windows used to be here. It is not: the whole suite runs there on both
   ABIs, including the `x86_64-pc-windows-msvc` binary the release workflow
   ships, and including JNI from an actor thread. `keal build` needs a C
@@ -632,6 +639,12 @@ were the last thing on this list to be half-done, and are not anymore:
 
 Class inheritance is a **non-goal**: composition, traits with default
 methods and records cover the territory without the diamond.
+
+Everything this list was opened with has been built. What is left above is
+the honest remainder: one thing reference counting cannot do on its own, and
+a handful of conveniences. The next thing to work on is whatever the first
+person to write a real program in Keal finds missing — and that is a better
+list than one written from here.
 
 ## Taking part
 

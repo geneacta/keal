@@ -199,6 +199,9 @@ pub struct Checker {
     declared: HashMap<(u32, String), String>,
     /// The unique names already handed out.
     taken: HashSet<String>,
+    /// Every macro the program declares, collected before anything is
+    /// checked: a call may stand above the declaration it names.
+    macros: crate::macros::Macros,
     /// Every `constexpr func`, by the name a call site will have resolved
     /// to. The compile-time evaluator calls nothing else, which is the
     /// whole promise of the word.
@@ -237,6 +240,7 @@ impl Checker {
             file_names: Vec::new(),
             declared: HashMap::new(),
             taken: HashSet::new(),
+            macros: crate::macros::Macros::empty(),
             constexpr_funs: HashMap::new(),
             constexpr_vals: HashMap::new(),
             visible_files: HashMap::new(),
@@ -253,6 +257,9 @@ impl Checker {
     /// Checks a program against the accumulated state, returning the errors
     /// found in this call and the type of the last top-level statement.
     pub fn check_program(&mut self, program: &mut Program) -> (Vec<Diag>, Option<Type>) {
+        // Collected first, and from the whole program: a macro may be called
+        // above the line that declares it, as a function may be.
+        self.macros = crate::macros::Macros::collect(program, &mut self.errors);
         let last = self.run(program);
         let mut errors = std::mem::take(&mut self.errors);
         // The phases visit declarations before bodies, so sort back into
@@ -1757,9 +1764,29 @@ impl Checker {
 
     fn check_stmt(&mut self, s: &mut Stmt) -> Type {
         let span = s.span;
+        // A macro is spliced before anything looks at what it stands for, so
+        // everything below — including the backends — sees only the code the
+        // program would have had if it had been written out.
+        if let StmtKind::Expr(e) = &s.kind {
+            if let ExprKind::MacroCall { name, args } = &e.kind {
+                let (name, args) = (name.clone(), args.clone());
+                match self.macros.expand_stmt(&name, &args, span) {
+                    Ok(expanded) => *s = expanded,
+                    Err(d) => {
+                        self.errors.push(d);
+                        s.kind = StmtKind::Block(Block { stmts: Vec::new() });
+                        return Type::Unit;
+                    }
+                }
+            }
+        }
         // Only a guard that is itself a statement may narrow its successors.
         self.guard_narrowing = None;
         match &mut s.kind {
+            StmtKind::Block(b) => {
+                self.check_block(b);
+                Type::Unit
+            }
             StmtKind::Let { name, ty, init, mutable, vis: _, constexpr } => {
                 let declared = ty.as_ref().map(|t| self.resolve(t));
                 let actual = match &declared {
@@ -2181,8 +2208,21 @@ impl Checker {
 
     fn check_expr_inner(&mut self, e: &mut Expr, expected: Option<&Type>) -> Type {
         let span = e.span;
+        // Where a value is wanted, a macro has to be one expression, and
+        // that expression takes the call's place before anything types it.
+        if let ExprKind::MacroCall { name, args } = &e.kind {
+            let (name, args) = (name.clone(), args.clone());
+            match self.macros.expand_expr(&name, &args, span) {
+                Ok(expanded) => *e = expanded,
+                Err(d) => {
+                    self.errors.push(d);
+                    return Type::Error;
+                }
+            }
+        }
         self.unqualify(e);
         match &mut e.kind {
+            ExprKind::MacroCall { .. } => Type::Error,
             ExprKind::Int(_) => Type::Int,
             ExprKind::Float(_) => Type::Float,
             ExprKind::Bool(_) => Type::Bool,
