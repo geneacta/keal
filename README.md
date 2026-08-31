@@ -567,13 +567,15 @@ question: a declaration is private to its file unless it says `package` or
 `public`, class members included, and two modules may declare the same name
 because an import can be given one.)
 
-* **Dependencies that have dependencies.** A project declares what it
-  needs in `keal.toml` — each a git repository at an exact tag or commit —
-  and `keal fetch` puts them where `import "dep:geometry/shapes.keal"`
-  looks. What is missing is transitivity: a dependency's own manifest is
-  not read, so there is nothing to resolve and no lockfile yet. A registry
-  comes last, if ever; [`docs/packages.md`](docs/packages.md) argues the
-  order and why a version range would be a lie today.
+* **A registry, if it is ever worth one.** Dependencies work: `keal.toml`
+  names git repositories at exact commits, `keal fetch` reads a
+  dependency's own manifest and fetches what it asks for into the same
+  place, `keal.lock` records the commit each name resolved to, and two
+  askers who disagree are told so by name rather than reconciled by a rule
+  nobody wrote. What does not exist is a way to find a package you do not
+  already know the URL of — which is worth building when there are enough
+  packages that finding one is the problem, and not before.
+  [`docs/packages.md`](docs/packages.md) argues the order.
 * **Cycles across several classes still leak silently** — `weak` breaks
   the ones you can see, and the checker cautions about the shape that
   voids a `deinit`; a cycle nobody marked is still never freed. What

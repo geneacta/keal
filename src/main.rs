@@ -55,7 +55,10 @@ usage:
                               imports expect them: every one is a git
                               repository at an exact tag or commit, cloned
                               into `.keal/deps/`, read by
-                              `import \"dep:name/file.keal\"`
+                              `import \"dep:name/file.keal\"`. A dependency's
+                              own manifest is read too, into the same place;
+                              `keal.lock` records the commit each name
+                              resolved to
     keal doctor               report the interop toolchains found on this
                               machine, next to the versions the tests
                               were last verified against

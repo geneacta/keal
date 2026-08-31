@@ -56,17 +56,28 @@ fun resolveImport(rel: String, dir: String, importer: String): String {
     return normalisePath(root + "/.keal/deps/" + rest)
 }
 
-/// The directory of the nearest `keal.toml` at or above `dir`, or `dir`
+/// The directory of the OUTERMOST `keal.toml` at or above `dir`, or `dir`
 /// itself when there is none — the error then names the path that was
 /// looked for, which is what the reader needs.
+///
+/// Outermost, not nearest: a file inside `.keal/deps/geometry/` has two
+/// manifests above it, and its own `dep:` imports must reach the one place
+/// every dependency was fetched into. Nearest would send a library looking
+/// for its dependencies inside itself.
 fun projectRoot(dir: String): String {
     var at = dir
+    var outermost = dir
+    var found = false
     var going = true
     while (going) {
-        if (readFile(at + "/keal.toml") != null) { return at }
+        if (readFile(at + "/keal.toml") != null) {
+            outermost = at
+            found = true
+        }
         val up = dirOf(at)
         if (up == at or up == "" or up == ".") { going = false } else { at = up }
     }
+    if (found) { return outermost }
     return dir
 }
 

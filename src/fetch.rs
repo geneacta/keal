@@ -54,24 +54,98 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("error: cannot create `{}`: {}", deps_dir.display(), e);
         return ExitCode::FAILURE;
     }
+
+    // Every dependency lands in one directory, whoever asked for it — a
+    // dependency's dependencies included. Flat rather than nested, because
+    // two copies of a library are two different sets of types, and a
+    // program that ends up holding both cannot say so.
+    let mut queue: Vec<(Dep, String)> = m.deps.iter().map(|d| (d.clone(), m.name.clone())).collect();
+    let mut resolved: Vec<(Dep, String)> = Vec::new();
     let mut failed = 0;
-    for dep in &m.deps {
+    while let Some((dep, asked_by)) = queue.pop() {
+        // The same name twice is only a problem when the two disagree. We
+        // pin commits rather than ranges, so there is nothing to reconcile:
+        // say who wants what and stop.
+        if let Some((seen, first)) = resolved.iter().find(|(d, _)| d.name == dep.name) {
+            if seen.git != dep.git || seen.at != dep.at {
+                eprintln!("error: two versions of `{}` are wanted, and only one can be here", dep.name);
+                eprintln!("  = note: {} wants {} {} of {}", first, seen.at_key, seen.at, seen.git);
+                eprintln!("  = note: {} wants {} {} of {}", asked_by, dep.at_key, dep.at, dep.git);
+                eprintln!("  = note: commits are pinned, so nothing can pick between them: change one manifest");
+                return ExitCode::FAILURE;
+            }
+            continue;
+        }
         let into = deps_dir.join(&dep.name);
-        match fetch_one(dep, &into) {
+        match fetch_one(&dep, &into) {
             Ok(what) => println!("{} {} ({} {})", what, dep.name, dep.at_key, dep.at),
             Err(e) => {
                 eprintln!("error: {}", e);
                 failed += 1;
+                continue;
             }
         }
+        // What it depends on in turn. A dependency without a manifest is a
+        // dependency with no dependencies, which is the common case and not
+        // an error.
+        let inner = into.join("keal.toml");
+        if inner.exists() {
+            match manifest::read(&inner) {
+                Ok(sub) => {
+                    for d in sub.deps {
+                        queue.push((d, dep.name.clone()));
+                    }
+                }
+                Err(e) => {
+                    eprintln!("error: `{}` has an unreadable manifest: {}", dep.name, e);
+                    failed += 1;
+                }
+            }
+        }
+        resolved.push((dep, asked_by));
     }
     if failed > 0 {
-        eprintln!("{} of {} failed", failed, m.deps.len());
+        eprintln!("{} of {} failed", failed, resolved.len() + failed);
         return ExitCode::FAILURE;
     }
-    let n = m.deps.len();
+    if let Err(e) = write_lock(&m.root, &resolved) {
+        eprintln!("error: cannot write the lockfile: {}", e);
+        return ExitCode::FAILURE;
+    }
+    let n = resolved.len();
     println!("{} {} in {}", n, if n == 1 { "dependency" } else { "dependencies" }, deps_dir.display());
     ExitCode::SUCCESS
+}
+
+/// Records what was actually fetched: the commit each name resolved to, and
+/// who asked for it.
+///
+/// A manifest may name a tag, and a tag can be moved. This says which commit
+/// the tag meant on the day it was read, so a checkout that carries the
+/// lockfile is reproducible whatever the remote does afterwards.
+fn write_lock(root: &Path, resolved: &[(Dep, String)]) -> std::io::Result<()> {
+    let mut out = String::from(
+        "# Written by `keal fetch`. It records the commit each dependency\n\
+# resolved to, so that a tag moved upstream cannot silently change what\n\
+# this project builds against. Commit it.\n",
+    );
+    let mut rows: Vec<&(Dep, String)> = resolved.iter().collect();
+    rows.sort_by(|a, b| a.0.name.cmp(&b.0.name));
+    for (dep, asked_by) in rows {
+        let at = deps_dir_commit(root, &dep.name).unwrap_or_else(|| dep.at.clone());
+        out.push_str(&format!(
+            "\n[[dependency]]\nname = \"{}\"\ngit = \"{}\"\n{} = \"{}\"\ncommit = \"{}\"\nasked_by = \"{}\"\n",
+            dep.name, dep.git, dep.at_key, dep.at, at, asked_by
+        ));
+    }
+    std::fs::write(root.join("keal.lock"), out)
+}
+
+/// The commit a fetched dependency is actually sitting on.
+fn deps_dir_commit(root: &Path, name: &str) -> Option<String> {
+    let dir = root.join(".keal/deps").join(name);
+    let out = Command::new("git").args(["rev-parse", "HEAD"]).current_dir(dir).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 /// Clones what is missing, and moves what is there to the commit named.

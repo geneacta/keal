@@ -140,8 +140,10 @@ fn unreadable(e: &std::io::Error) -> &'static str {
 }
 
 /// Where an import points. `dep:name/file.keal` is a dependency, read from
-/// `.keal/deps/` beside the nearest `keal.toml`; anything else is a path
-/// relative to the file that wrote it.
+/// the `.keal/deps/` of the OUTERMOST `keal.toml` above the importing file
+/// — the project's, not a dependency's own, so a library reaches the same
+/// copy of its dependency that everything else does. Anything else is a
+/// path relative to the file that wrote it.
 ///
 /// Nothing here fetches: what is on disk is what is read, so a project that
 /// commits its `.keal/deps/` builds with no network and no git at all.
@@ -153,7 +155,7 @@ fn resolve_import(rel: &str, dir: &Path, importer: &Path) -> Result<PathBuf, Str
     if rest.is_empty() {
         return Err("`dep:` needs a dependency and a file, as `dep:name/file.keal`".to_string());
     }
-    let Some(manifest) = crate::manifest::find(importer) else {
+    let Some(manifest) = crate::manifest::root_of(importer) else {
         return Err(format!(
             "cannot read `{}`: no `keal.toml` above `{}`, so there is no project to depend for",
             rel,

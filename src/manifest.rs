@@ -36,7 +36,8 @@ pub struct Dep {
     pub at_key: String,
 }
 
-/// Walks up from `start` for the nearest `keal.toml`.
+/// Walks up from `start` for the nearest `keal.toml`. What `keal fetch`
+/// wants: the project you are standing in.
 pub fn find(start: &Path) -> Option<PathBuf> {
     let mut dir = if start.is_dir() { start.to_path_buf() } else { start.parent()?.to_path_buf() };
     loop {
@@ -46,6 +47,28 @@ pub fn find(start: &Path) -> Option<PathBuf> {
         }
         if !dir.pop() {
             return None;
+        }
+    }
+}
+
+/// The OUTERMOST `keal.toml` above `start`: the project whose `.keal/deps`
+/// everything shares.
+///
+/// This is what a `dep:` import resolves against, and the difference
+/// matters exactly once dependencies have dependencies. A file inside
+/// `.keal/deps/geometry/` has two manifests above it — geometry's own and
+/// the project's — and its `dep:` imports must reach the one place every
+/// dependency was fetched into, or a library would look for its own
+/// dependencies inside itself and never find them.
+pub fn root_of(start: &Path) -> Option<PathBuf> {
+    let mut dir = if start.is_dir() { start.to_path_buf() } else { start.parent()?.to_path_buf() };
+    let mut outermost = None;
+    loop {
+        if dir.join("keal.toml").exists() {
+            outermost = Some(dir.join("keal.toml"));
+        }
+        if !dir.pop() {
+            return outermost;
         }
     }
 }

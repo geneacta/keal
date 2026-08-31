@@ -200,10 +200,22 @@ Tests: `tests/deps/` (a COMMITTED dependency, three engines, plus
 import_finds_it`, which makes a git repo on the spot, tags it, fetches
 and runs — skipped where git is absent. Suite 33/33, corpora 656/656,
 bootstrap fixed point.
-NEXT for dependencies, and not before it is needed: transitivity. A
-dependency's own `keal.toml` is not read, so there is nothing to resolve
-and nothing to lock yet. `docs/packages.md` argues the order and says
-why a version RANGE would be a lie while the semantics are unfrozen.
+TRANSITIVITY — DONE. `keal fetch` reads a dependency's own `keal.toml`
+and fetches what it asks into the SAME `.keal/deps` (flat, not nested:
+two copies of a library are two sets of types and a program holding both
+could not say which it meant). Flat means two askers can disagree, and
+nothing can reconcile a pinned commit against another pinned commit — so
+it names both and stops, which is a worse message than a resolver's and a
+more honest one. `keal.lock` records the COMMIT each name resolved to
+(not the tag, which can be moved) and who asked for it.
+THE RULE THAT MAKES FLAT WORK: a `dep:` import resolves against the
+OUTERMOST `keal.toml` above the file, not the nearest — otherwise a
+library's own `dep:` imports would look inside the library. `root_of` in
+`src/manifest.rs`, `projectRoot` in the twin's loader, mirrored.
+Test: `a_dependency_may_have_dependencies` builds a three-repo chain on
+the spot (app -> mid -> deep), fetches, runs it on both engines, checks
+the lockfile names the asker, then makes the two-version clash and
+demands both askers appear in the error. Skipped without git.
 
 **NAMESPACES — DONE. Two files may declare the same name.** One pass
 (`plan_namespaces` / `planNamespaces`) runs before anything is checked: it

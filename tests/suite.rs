@@ -552,6 +552,112 @@ fn the_site_is_what_its_generator_would_write() {
     );
 }
 
+/// Dependencies that have dependencies: an app that names one library,
+/// which names another. Both land in the app's own `.keal/deps`, and the
+/// library's own `dep:` import reaches that copy rather than looking inside
+/// itself — which is the whole reason a `dep:` resolves against the
+/// outermost manifest. Two versions of one name is refused, by name, with
+/// both askers.
+#[test]
+fn a_dependency_may_have_dependencies() {
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipping: no `git`");
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-transitive-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    let (deep, mid, app) = (dir.join("deep"), dir.join("mid"), dir.join("app"));
+    for d in [&deep, &mid, &app] {
+        std::fs::create_dir_all(d).expect("cannot make a directory");
+    }
+    let git = |args: &[&str], at: &Path| {
+        let out = Command::new("git").args(args).current_dir(at).output().expect("cannot run git");
+        assert!(out.status.success(), "git {:?}: {}", args, String::from_utf8_lossy(&out.stderr));
+    };
+    let commit = |at: &Path, tag: &str| {
+        git(&["init", "-q", "."], at);
+        git(&["config", "user.email", "t@example.com"], at);
+        git(&["config", "user.name", "Test"], at);
+        git(&["add", "-A"], at);
+        git(&["commit", "-qm", "x"], at);
+        git(&["tag", tag], at);
+    };
+
+    std::fs::write(deep.join("deep.keal"), "public fun deep(): Int { 42 }\n").unwrap();
+    commit(&deep, "v1");
+
+    std::fs::write(
+        mid.join("keal.toml"),
+        format!(
+            "[package]\nname = \"mid\"\nversion = \"0.1.0\"\n\n[dependencies]\ndeep = {{ git = \"{}\", tag = \"v1\" }}\n",
+            deep.display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        mid.join("mid.keal"),
+        "import \"dep:deep/deep.keal\"\npublic fun middle(): Int { deep() + 1 }\n",
+    )
+    .unwrap();
+    commit(&mid, "v1");
+
+    std::fs::write(
+        app.join("keal.toml"),
+        format!(
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nmid = {{ git = \"{}\", tag = \"v1\" }}\n",
+            mid.display()
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        app.join("main.keal"),
+        "import \"dep:mid/mid.keal\"\nassert(middle() == 43, \"through two dependencies\")\n",
+    )
+    .unwrap();
+
+    let fetched = Command::new(BIN).arg("fetch").current_dir(&app).output().expect("cannot fetch");
+    assert!(fetched.status.success(), "fetch failed:\n{}", String::from_utf8_lossy(&fetched.stderr));
+    assert!(app.join(".keal/deps/deep/deep.keal").exists(), "the deep dependency was not fetched flat");
+    assert!(app.join("keal.lock").exists(), "no lockfile");
+    let lock = std::fs::read_to_string(app.join("keal.lock")).unwrap();
+    assert!(lock.contains("asked_by = \"mid\""), "the lockfile does not say who asked:\n{}", lock);
+
+    for engine in ENGINES {
+        let ran = Command::new(BIN)
+            .args([engine, "main.keal"])
+            .current_dir(&app)
+            .output()
+            .expect("cannot run the program");
+        assert!(
+            ran.status.success(),
+            "the transitive dependency did not run on {}:\n{}",
+            engine,
+            String::from_utf8_lossy(&ran.stderr)
+        );
+    }
+
+    // And two versions of one name, which nothing can pick between.
+    std::fs::write(deep.join("deep.keal"), "public fun deep(): Int { 99 }\n").unwrap();
+    git(&["add", "-A"], &deep);
+    git(&["commit", "-qm", "y"], &deep);
+    git(&["tag", "v2"], &deep);
+    let manifest = std::fs::read_to_string(app.join("keal.toml")).unwrap();
+    std::fs::write(
+        app.join("keal.toml"),
+        format!("{}deep = {{ git = \"{}\", tag = \"v2\" }}\n", manifest, deep.display()),
+    )
+    .unwrap();
+    let clash = Command::new(BIN).arg("fetch").current_dir(&app).output().expect("cannot fetch");
+    assert!(!clash.status.success(), "a version clash was accepted");
+    let said = String::from_utf8_lossy(&clash.stderr);
+    assert!(
+        said.contains("two versions of `deep`") && said.contains("app wants") && said.contains("mid wants"),
+        "the clash did not name both askers:\n{}",
+        said
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn examples_run_successfully() {
     for file in keal_files("examples") {

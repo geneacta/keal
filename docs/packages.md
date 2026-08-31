@@ -116,10 +116,37 @@ today. Only the last of the three is cheap to keep.
    versioning and the immutability**; borrowing them costs nothing and owes
    nobody a service to keep running.
 
-3. **A lockfile when there is transitivity.** Not yet. A dependency's own
-   `keal.toml` is not read, so there is nothing to resolve and nothing to
-   pin beyond what the manifest already says. The moment a dependency has
-   dependencies, record the exact commits.
+3. **A lockfile when there is transitivity.** ✅ Done, and it arrived with
+   the transitivity. A dependency's own `keal.toml` is read now, and what it
+   asks for is fetched into the **same** `.keal/deps` — flat, not nested,
+   because two copies of a library are two different sets of types and a
+   program holding both could not say which it meant.
+
+   Flat means two askers can disagree, and nothing here can reconcile them:
+   a manifest names a commit, not a range, so there is no newer to pick.
+   `keal fetch` says so and stops, naming both:
+
+   ```
+   error: two versions of `geometry` are wanted, and only one can be here
+     = note: myproject wants tag v1.2.0 of https://github.com/someone/geometry
+     = note: shapes wants tag v1.1.0 of https://github.com/someone/geometry
+     = note: commits are pinned, so nothing can pick between them: change one manifest
+   ```
+
+   That is a worse error message than a resolver would give and a more
+   honest one: the alternative is a tool choosing a version on the
+   program's behalf under rules nobody wrote down.
+
+   `keal.lock` records what each name actually resolved to — the commit, not
+   the tag — and who asked for it. A tag can be moved; a commit cannot, so a
+   checkout carrying the lockfile builds against what was read on the day it
+   was read. Commit it.
+
+   One thing follows from flatness and is worth stating: a `dep:` import
+   resolves against the **outermost** `keal.toml` above the file, not the
+   nearest. A library's own `dep:` imports therefore reach the project's
+   copy of its dependency rather than looking inside the library, which is
+   the only way one `.keal/deps` can serve everybody.
 4. **A registry last, if ever.** It is worth building when there are enough
    packages that finding one is the problem. Until then it is infrastructure
    in search of a user, and `cargo install --git` is proof the middle step
