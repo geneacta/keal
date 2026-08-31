@@ -70,34 +70,56 @@ never mentions the shared name never hears about it.
 
 ## Then: a package manager?
 
-**Not yet, and the reason is not effort.** A package manager is a promise
+**One step of it exists; the rest is deliberately not built.** A package manager is a promise
 about *other people's code*: that a name means one thing, that a version
 means what it says, that what was fetched yesterday is what is fetched
-today. Keal cannot honestly make any of the three right now.
+today. Only the last of the three is cheap to keep.
 
-* **A name means one thing** — only once namespaces exist. Publishing to a
-  registry before that would mint the exact collisions the language cannot
-  yet express a way out of.
-* **A version means what it says** — only once the semantics are frozen
-  enough that a minor release cannot change what a correct program does.
-  `RELEASING.md` says plainly that they are not: the cycle audit, typed
-  exceptions and now namespaces are all still open.
-* **Reproducibility** — a lockfile is easy; a registry that never rewrites
-  history is a service somebody has to run, and a compiler project should
-  not be running one before it has users.
+* **A name means one thing** — this one is now true, and it is what
+  namespaces bought. Two dependencies may declare `parse`, and the program
+  that uses both says which it means.
+* **A version means what it says** — not yet, and this is the honest
+  blocker. `RELEASING.md` says the semantics are not frozen: while a minor
+  release can still change what a correct program does, a version range
+  would be a lie, which is why a manifest names a **commit or a tag** and
+  nothing looser.
+* **Reproducibility** — a commit is reproducible by construction. A
+  registry that never rewrites history is a service somebody has to run,
+  and a compiler project should not be running one before it has users.
 
 ### What to do instead, in order
 
-1. **Namespaces first.** Nothing about dependencies can be designed
-   honestly before a program can say which `parse` it means.
-2. **Then a manifest, and only that.** A `keal.toml` naming the project,
-   its version, and its dependencies as *git URLs with a commit or tag* —
-   no registry, no resolution, no network protocol of its own. `keal fetch`
-   clones into `.keal/deps/`, `import "dep:geometry/shapes.keal"` reads
-   from there. Git already provides the naming, the versioning and the
-   immutability; borrowing them costs nothing and owes nobody a service.
-3. **A lockfile when there is transitivity.** The moment a dependency has
-   dependencies, record the exact commits. Not before.
+1. **Namespaces first.** ✅ Done: a program can say which `parse` it means.
+2. **Then a manifest, and only that.** ✅ Done — this is what exists today:
+
+   ```toml
+   # keal.toml
+   [package]
+   name = "myproject"
+   version = "0.1.0"
+
+   [dependencies]
+   geometry = { git = "https://github.com/someone/geometry", tag = "v1.2.0" }
+   text     = { git = "https://github.com/other/text", rev = "9f2c1ab" }
+   ```
+
+   `keal fetch` clones each one into `.keal/deps/<name>/` and checks out the
+   tag or commit named — nothing else, and nothing implicit. A program then
+   writes `import "dep:geometry/shapes.keal"`, which reads
+   `.keal/deps/geometry/shapes.keal` beside the nearest `keal.toml`.
+
+   Two things follow from that shape, and both are deliberate. **Only
+   `keal fetch` touches the network**: the compiler reads what is on disk,
+   so a project that commits its `.keal/deps/` builds with no git at all,
+   and the self-hosted twin — which must never differ from the oracle —
+   needs no notion of fetching. And **git provides the naming, the
+   versioning and the immutability**; borrowing them costs nothing and owes
+   nobody a service to keep running.
+
+3. **A lockfile when there is transitivity.** Not yet. A dependency's own
+   `keal.toml` is not read, so there is nothing to resolve and nothing to
+   pin beyond what the manifest already says. The moment a dependency has
+   dependencies, record the exact commits.
 4. **A registry last, if ever.** It is worth building when there are enough
    packages that finding one is the problem. Until then it is infrastructure
    in search of a user, and `cargo install --git` is proof the middle step

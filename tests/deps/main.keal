@@ -1,0 +1,5 @@
+import "dep:geometry/shapes.keal"
+
+val c = Circle(2.0)
+assert(area(c) > 12.56 and area(c) < 12.57, "a dependency's function runs")
+assert(c.r == 2.0, "and its record's fields read")

@@ -77,7 +77,11 @@ fn load_file(
         Ok(t) => t,
         Err(e) => {
             let msg = format!("cannot read `{}`: {}", path.display(), e);
-            let msg = if path.parent().map(|d| d.ends_with(".jbind")).unwrap_or(false) {
+            let msg = if path.components().any(|c| c.as_os_str() == "deps")
+                && path.to_string_lossy().contains(".keal")
+            {
+                format!("{} -- a `dep:` import reads what is on disk: run `keal fetch` to put this project's dependencies in place", msg)
+            } else if path.parent().map(|d| d.ends_with(".jbind")).unwrap_or(false) {
                 format!("{} -- `import java.time.LocalDate`-style modules are generated: run `keal jbind --cache` for this import, or run/build with a JDK installed", msg)
             } else {
                 msg
@@ -100,7 +104,12 @@ fn load_file(
     for item in program.items {
         match item {
             Item::Import { path: rel, alias, span } => {
-                let target = normalise(&dir.join(&rel));
+                let target = match resolve_import(&rel, &dir, path) {
+                    Ok(t) => t,
+                    Err(msg) => return Err(Diag::new(span, msg).with_note(
+                        "run `keal fetch` to put this project's dependencies in place",
+                    )),
+                };
                 let to =
                     load_file(&target, Some(span), sources, seen, items, imports, generate)?;
                 imports.push(ImportEdge { from: file, to, alias, span });
@@ -110,6 +119,31 @@ fn load_file(
     }
     items.extend(own);
     Ok(file)
+}
+
+/// Where an import points. `dep:name/file.keal` is a dependency, read from
+/// `.keal/deps/` beside the nearest `keal.toml`; anything else is a path
+/// relative to the file that wrote it.
+///
+/// Nothing here fetches: what is on disk is what is read, so a project that
+/// commits its `.keal/deps/` builds with no network and no git at all.
+fn resolve_import(rel: &str, dir: &Path, importer: &Path) -> Result<PathBuf, String> {
+    let Some(rest) = rel.strip_prefix("dep:") else {
+        return Ok(normalise(&dir.join(rel)));
+    };
+    let rest = rest.trim_start_matches('/');
+    if rest.is_empty() {
+        return Err("`dep:` needs a dependency and a file, as `dep:name/file.keal`".to_string());
+    }
+    let Some(manifest) = crate::manifest::find(importer) else {
+        return Err(format!(
+            "cannot read `{}`: no `keal.toml` above `{}`, so there is no project to depend for",
+            rel,
+            importer.display()
+        ));
+    };
+    let root = manifest.parent().unwrap_or(Path::new("."));
+    Ok(normalise(&root.join(".keal/deps").join(rest)))
 }
 
 /// Collapses `.` and `..` segments so the same file is never loaded twice

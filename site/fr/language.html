@@ -452,7 +452,18 @@ public class Ast(val root: Node) { ... }     // anyone who imports it</code></pr
 <pre class="lang-keal"><code>import &quot;./lexer.keal&quot;                 // its names, bare
 import &quot;./config.keal&quot; as config      // its names, through `config`</code></pre>
 <p>An aliased import contributes nothing to the bare set: <code>parse</code> is the lexer's, <code>config.parse</code> is the other, and <code>config.Node</code> names its type in a type position too. Writing a name that two visible modules declare is an error <strong>where the name is written</strong>, naming both files — never at the import, so two modules that happen to share a name cannot break a program that never mentions it.</p>
-<p>There is no <code>package</code> declaration and no registry: an import names a file, and <a href="docs.html">packages and namespaces</a> explains what runs underneath and why there is no package manager yet.</p>
+<h3 id="depending-on-somebody-else-s-code">Depending on somebody else's code</h3>
+<p>An import names a file. A dependency's file is named through <code>dep:</code>:</p>
+<pre class="lang-keal"><code>import &quot;dep:geometry/shapes.keal&quot;</code></pre>
+<p>which reads <code>.keal/deps/geometry/shapes.keal</code> beside the nearest <code>keal.toml</code>. That manifest names the project and lists what it depends on, each as a git repository at an exact tag or commit:</p>
+<pre class="lang-toml"><code>[package]
+name = &quot;myproject&quot;
+version = &quot;0.1.0&quot;
+
+[dependencies]
+geometry = { git = &quot;https://github.com/someone/geometry&quot;, tag = &quot;v1.2.0&quot; }</code></pre>
+<p><code>keal fetch</code> clones each one and checks out what was named. Nothing else in the compiler touches the network: a <code>dep:</code> import reads what is on disk, so a project that commits <code>.keal/deps/</code> builds without git.</p>
+<p>There is no <code>package</code> declaration, no version resolution and no registry — <a href="docs.html">packages and namespaces</a> argues why, and in what order the rest would come.</p>
 <p>The modifier goes on a top-level <code>fun</code>, <code>proc</code>, <code>class</code>, <code>record</code>, <code>trait</code>, <code>extern fun</code>, <code>val</code> or <code>var</code> — and on a class's own members:</p>
 <pre class="lang-keal"><code>public class Counter(public var n: Int) {
     var steps: Int = 0                    // the class&#x27;s own business

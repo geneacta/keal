@@ -1,0 +1,6 @@
+// Committed rather than fetched, so the suite needs no network and no git:
+// a `dep:` import reads what is on disk, and this is what is on disk.
+
+public record Circle(val r: Float)
+
+public fun area(c: Circle): Float { 3.14159 * c.r * c.r }

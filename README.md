@@ -33,7 +33,9 @@ At a glance:
   OS threads under `keal build`, same output either way
 * **Modules that keep their own counsel** — a declaration is private to its
   file unless it says `package` (the files beside it) or `public`, and two
-  modules may declare the same name: `import "./config.keal" as config`
+  modules may declare the same name: `import "./config.keal" as config`.
+  Dependencies are git repositories at an exact commit, named in
+  `keal.toml` and fetched with `keal fetch`
 * **Reference counting** with a fully documented memory model — inspect any
   program's layout with `keal layout`
 * **Native compilation** (`keal build`) ~84× faster than the VM, with **C and
@@ -562,13 +564,13 @@ and [`docs/threads.md`](docs/threads.md) is the record of how. And so did
 `weak`, which is how the back edge of a cycle is written so that the whole
 cycle dies on schedule and every `deinit` runs.)
 
-* **A package manager.** Modules are done — a declaration is private to
-  its file unless it says `package` or `public`, and two modules may
-  declare the same name because an import can be given one
-  (`import "./config.keal" as config`). What is missing is a way to depend
-  on somebody else's code: a manifest of git URLs first, a lockfile when
-  dependencies have dependencies, a registry last if ever.
-  [`docs/packages.md`](docs/packages.md) argues the order.
+* **Dependencies that have dependencies.** A project declares what it
+  needs in `keal.toml` — each a git repository at an exact tag or commit —
+  and `keal fetch` puts them where `import "dep:geometry/shapes.keal"`
+  looks. What is missing is transitivity: a dependency's own manifest is
+  not read, so there is nothing to resolve and no lockfile yet. A registry
+  comes last, if ever; [`docs/packages.md`](docs/packages.md) argues the
+  order and why a version range would be a lie today.
 * **Cycles across several classes still leak silently** — `weak` breaks
   the ones you can see, and the checker cautions about the shape that
   voids a `deinit`; a cycle nobody marked is still never freed. The next

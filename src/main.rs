@@ -3,7 +3,9 @@
 mod ast;
 mod astdump;
 mod bindgen;
+mod fetch;
 mod jbind;
+mod manifest;
 mod doctor;
 mod kealdoc;
 mod builtins;
@@ -49,6 +51,11 @@ usage:
     keal doc [files...]       render /// comments and signatures to one
                               self-contained HTML page (-o file.html);
                               with no files, document the standard library
+    keal fetch                put this project's dependencies where its
+                              imports expect them: every one is a git
+                              repository at an exact tag or commit, cloned
+                              into `.keal/deps/`, read by
+                              `import \"dep:name/file.keal\"`
     keal doctor               report the interop toolchains found on this
                               machine, next to the versions the tests
                               were last verified against
@@ -111,6 +118,9 @@ fn real_main() -> ExitCode {
     }
     if args.first().map(|a| a.as_str()) == Some("doctor") {
         return doctor::run();
+    }
+    if args.first().map(|a| a.as_str()) == Some("fetch") {
+        return fetch::run(&args[1..]);
     }
     let (command, target) = match args.as_slice() {
         [] => ("repl", None),

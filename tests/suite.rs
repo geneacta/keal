@@ -133,6 +133,109 @@ fn namespaces_keep_two_modules_apart() {
     }
 }
 
+/// `import "dep:geometry/shapes.keal"` reads `.keal/deps/` beside the
+/// nearest `keal.toml`. The dependency here is committed rather than
+/// fetched, which is the point: what is on disk is what is read, so this
+/// needs neither network nor git.
+#[test]
+fn dependencies_are_imported_from_the_project_root() {
+    for engine in ENGINES {
+        let out = keal(&[engine, "tests/deps/main.keal"]);
+        assert!(out.success, "dependency test failed on {}:\n{}", engine, out.stderr);
+        assert!(out.stdout.is_empty(), "dependency test printed:\n{}", out.stdout);
+    }
+}
+
+/// A `dep:` import that nothing has fetched says so, and says what to run.
+#[test]
+fn a_missing_dependency_says_to_fetch() {
+    let out = keal(&["check", "tests/deps/missing.keal"]);
+    assert!(!out.success);
+    assert!(
+        out.stderr.contains("keal fetch"),
+        "unhelpful message for a missing dependency: {}",
+        out.stderr
+    );
+}
+
+/// `keal fetch` end to end, against a git repository made on the spot:
+/// clone at a tag, import through `dep:`, run. Skipped where git is not
+/// installed, since nothing else in the compiler needs it.
+#[test]
+fn fetch_puts_a_dependency_where_an_import_finds_it() {
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipping: no `git`");
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-fetch-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    let dep = dir.join("upstream");
+    let project = dir.join("project");
+    std::fs::create_dir_all(&dep).expect("cannot make the upstream directory");
+    std::fs::create_dir_all(&project).expect("cannot make the project directory");
+    std::fs::write(
+        dep.join("shapes.keal"),
+        "public record Circle(val r: Float)\npublic fun area(c: Circle): Float { 3.0 * c.r * c.r }\n",
+    )
+    .expect("cannot write the dependency");
+
+    let git = |args: &[&str], at: &Path| {
+        let ok = Command::new("git")
+            .args(args)
+            .current_dir(at)
+            .output()
+            .expect("cannot run git");
+        assert!(ok.status.success(), "git {:?} failed: {}", args, String::from_utf8_lossy(&ok.stderr));
+    };
+    git(&["init", "-q", "."], &dep);
+    git(&["config", "user.email", "t@example.com"], &dep);
+    git(&["config", "user.name", "Test"], &dep);
+    git(&["add", "-A"], &dep);
+    git(&["commit", "-qm", "shapes"], &dep);
+    git(&["tag", "v1.0.0"], &dep);
+
+    std::fs::write(
+        project.join("keal.toml"),
+        format!(
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n\n[dependencies]\ngeometry = {{ git = \"{}\", tag = \"v1.0.0\" }}\n",
+            dep.display()
+        ),
+    )
+    .expect("cannot write the manifest");
+    std::fs::write(
+        project.join("main.keal"),
+        "import \"dep:geometry/shapes.keal\"\nprintln(area(Circle(2.0)))\n",
+    )
+    .expect("cannot write the program");
+
+    let fetched = Command::new(BIN)
+        .arg("fetch")
+        .current_dir(&project)
+        .output()
+        .expect("cannot run keal fetch");
+    assert!(
+        fetched.status.success(),
+        "keal fetch failed:\n{}",
+        String::from_utf8_lossy(&fetched.stderr)
+    );
+
+    for engine in ENGINES {
+        let ran = Command::new(BIN)
+            .args([engine, "main.keal"])
+            .current_dir(&project)
+            .output()
+            .expect("cannot run the program");
+        assert!(
+            ran.status.success(),
+            "the fetched dependency did not run on {}:\n{}",
+            engine,
+            String::from_utf8_lossy(&ran.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&ran.stdout).trim(), "12.0");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn examples_run_successfully() {
     for file in keal_files("examples") {

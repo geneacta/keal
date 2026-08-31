@@ -1,0 +1,2 @@
+// A dependency the manifest does not name and nothing has fetched.
+import "dep:absent/thing.keal"

@@ -26,7 +26,7 @@ commit that leaves work in flight.*
    included); `tests/native/*` runs on all three engines.
 5. **Verification loop** (run before every commit):
    - the four-corpora loop (see below), `cargo test --release` (currently
-     30 green incl. bootstrap fixed point, actor TSan, actor-thread JNI,
+     33 green incl. bootstrap fixed point, actor TSan, actor-thread JNI,
      the site tour's printed outputs), `./bootstrap.sh`.
    - corpora loop, for each cmd/driver pair above:
      `for f in tests/programs/*.keal examples/*.keal tests/native/*.keal
@@ -58,6 +58,29 @@ commit that leaves work in flight.*
   (`examples/interop/java/`). Plan in `docs/interop.md`.
 
 ## IN FLIGHT
+
+**Dependencies, step one: `keal.toml` + `keal fetch` + `dep:` imports.
+DONE.** A project's manifest names it and lists what it depends on, each
+a git repository at an exact `tag` or `rev`; `keal fetch` (Rust-only
+tool, like bindgen/jbind/doc — `src/fetch.rs`, manifest reader in
+`src/manifest.rs`, a TOML subset with no crate behind it) clones into
+`.keal/deps/<name>/` and checks the commit out detached. A program writes
+`import "dep:geometry/shapes.keal"`, which the LOADER resolves to
+`.keal/deps/...` beside the nearest `keal.toml` (walking up from the
+importing file). THE SPLIT THAT MAKES THIS WORK: only `keal fetch`
+touches the network — the compiler reads what is on disk — so a project
+may commit `.keal/deps/` and build with no git, and the twin needs no
+notion of fetching (it mirrors `resolveImport`/`projectRoot` only).
+A missing dependency says `run keal fetch`, in both compilers.
+Tests: `tests/deps/` (a COMMITTED dependency, three engines, plus
+`missing.keal` for the message) and `fetch_puts_a_dependency_where_an_
+import_finds_it`, which makes a git repo on the spot, tags it, fetches
+and runs — skipped where git is absent. Suite 33/33, corpora 656/656,
+bootstrap fixed point.
+NEXT for dependencies, and not before it is needed: transitivity. A
+dependency's own `keal.toml` is not read, so there is nothing to resolve
+and nothing to lock yet. `docs/packages.md` argues the order and says
+why a version RANGE would be a lie while the semantics are unfrozen.
 
 **NAMESPACES — DONE. Two files may declare the same name.** One pass
 (`plan_namespaces` / `planNamespaces`) runs before anything is checked: it

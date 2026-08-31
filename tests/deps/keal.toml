@@ -1,0 +1,9 @@
+# The manifest a `dep:` import needs: it says where the project's root is,
+# and what would be fetched into `.keal/deps/` if this checkout did not
+# already carry it.
+[package]
+name = "depsample"
+version = "0.1.0"
+
+[dependencies]
+geometry = { git = "https://example.invalid/geometry", tag = "v1.0.0" }

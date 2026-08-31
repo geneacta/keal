@@ -905,9 +905,34 @@ error **where the name is written**, naming both files — never at the
 import, so two modules that happen to share a name cannot break a program
 that never mentions it.
 
-There is no `package` declaration and no registry: an import names a file,
-and [packages and namespaces](packages.md) explains what runs underneath
-and why there is no package manager yet.
+### Depending on somebody else's code
+
+An import names a file. A dependency's file is named through `dep:`:
+
+```keal
+import "dep:geometry/shapes.keal"
+```
+
+which reads `.keal/deps/geometry/shapes.keal` beside the nearest
+`keal.toml`. That manifest names the project and lists what it depends on,
+each as a git repository at an exact tag or commit:
+
+```toml
+[package]
+name = "myproject"
+version = "0.1.0"
+
+[dependencies]
+geometry = { git = "https://github.com/someone/geometry", tag = "v1.2.0" }
+```
+
+`keal fetch` clones each one and checks out what was named. Nothing else
+in the compiler touches the network: a `dep:` import reads what is on disk,
+so a project that commits `.keal/deps/` builds without git.
+
+There is no `package` declaration, no version resolution and no registry —
+[packages and namespaces](packages.md) argues why, and in what order the
+rest would come.
 
 The modifier goes on a top-level `fun`, `proc`, `class`, `record`, `trait`,
 `extern fun`, `val` or `var` — and on a class's own members:

@@ -42,6 +42,34 @@ fun normalisePath(p: String): String {
     return s
 }
 
+/// Where an import points. `dep:name/file.keal` is a dependency, read from
+/// `.keal/deps/` beside the nearest `keal.toml`; anything else is a path
+/// relative to the file that wrote it.
+///
+/// Nothing here fetches: what is on disk is what is read, so a project that
+/// commits its `.keal/deps/` builds with no network and no git at all.
+fun resolveImport(rel: String, dir: String, importer: String): String {
+    unless (rel.startsWith("dep:")) { return normalisePath(dir + "/" + rel) }
+    var rest = rel.substring(4, rel.length)
+    while (rest.startsWith("/")) { rest = rest.substring(1, rest.length) }
+    val root = projectRoot(dir)
+    return normalisePath(root + "/.keal/deps/" + rest)
+}
+
+/// The directory of the nearest `keal.toml` at or above `dir`, or `dir`
+/// itself when there is none — the error then names the path that was
+/// looked for, which is what the reader needs.
+fun projectRoot(dir: String): String {
+    var at = dir
+    var going = true
+    while (going) {
+        if (readFile(at + "/keal.toml") != null) { return at }
+        val up = dirOf(at)
+        if (up == at or up == "" or up == ".") { going = false } else { at = up }
+    }
+    return dir
+}
+
 /// The directory holding `path`, or "." when it has none.
 package fun dirOf(path: String): String {
     var cut = -1
@@ -95,7 +123,9 @@ package class Loader() {
             // failure that realistically reaches this line.
             var msg = "cannot read `${path}`: No such file or directory (os error 2)"
             val dir = dirOf(path)
-            if (dir.endsWith("/.jbind") or dir == ".jbind") {
+            if (path.contains(".keal/deps/")) {
+                msg = msg + " -- a `dep:` import reads what is on disk: run `keal fetch` to put this project's dependencies in place"
+            } else if (dir.endsWith("/.jbind") or dir == ".jbind") {
                 msg = msg + " -- `import java.time.LocalDate`-style modules are generated: run `keal jbind --cache` for this import, or run/build with a JDK installed"
             }
             if (fromPath == "") {
@@ -118,7 +148,7 @@ package class Loader() {
         val own: List<ItemN> = []
         for (item in program.items) {
             if (item.kind == "import") {
-                val target = normalisePath(dir + "/" + item.text)
+                val target = resolveImport(item.text, dir, path)
                 val to = this.loadFile(target, path, item.line, item.col)
                 this.imports.add(ImportEdge(file, to, item.alias))
             } else {
