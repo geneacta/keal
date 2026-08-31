@@ -59,6 +59,44 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**THE PACKAGE INDEX — DONE. It is an index, NOT a registry, and that
+distinction is the whole design.** `docs/packages.md` argued a registry
+comes last because a registry is A SERVICE SOMEBODY HAS TO RUN. That
+argument stands and this is not that: the index is an ordinary GIT
+REPOSITORY holding `packages/<name>.toml`, one small file per package —
+name, git URL, one-line description. One file per package so two
+contributions never touch the same line; a pull request adds a file, and
+git provides the hosting, the review and the immutability.
+COMMANDS: `keal search [term...]`, `keal add <name>[@<tag>]`,
+`keal index <update|path|entry>`.
+THE THREE PROPERTIES THAT MAKE IT AN INDEX:
+1. It says WHERE a package lives and nothing else — versions stay the
+   package's own git tags.
+2. The choice happens ONCE, at the keyboard. `keal add` with no tag takes
+   the newest VERSION tag (digits and dots, optional leading `v`, compared
+   NUMBER BY NUMBER so v1.10.0 beats v1.2.0; `nightly` is not a version and
+   is not considered) and WRITES IT DOWN as an exact pin. A resolver
+   decides again on every build under rules nobody read; this does not.
+3. NOTHING DEPENDS ON IT EXISTING. A manifest names the package's own repo,
+   never the index. If the index vanished every keal.toml still builds, and
+   a package not in the index works by naming its git URL directly.
+Local copy at `~/.keal/index` (`KEAL_HOME`/`HOME`/`USERPROFILE`), CLONED
+WHEN MISSING AND NEVER REFRESHED ON ITS OWN — two runs of `keal add` on the
+same day must not write different things. `keal index update` is the
+command that changes what you read. `KEAL_INDEX` points elsewhere (a fork,
+a company list, a directory — which is how the test drives it).
+A typed tag is CONFIRMED against the remote before it is written, and the
+refusal names the real tags. A second `add` of the same name refuses: a pin
+is a decision, and replacing one is its author's edit.
+`write_dependency` inserts ONE line and leaves the rest of the manifest
+byte for byte — a manifest is a person's file.
+NOT MIRRORED IN THE TWIN, deliberately, for the reason `keal fetch` is not:
+only the CLI touches the network, the compiler reads what is on disk.
+Test: `the_index_finds_a_package_and_pins_it` — a local index and a local
+package repo with v1.0.0/v1.2.0/v1.10.0/nightly, then search by a word in
+the DESCRIPTION, add, check v1.10.0 was chosen, refuse the second add,
+refuse a tag that does not exist, fetch, import, run.
+
 **`constexpr` — DONE, all three engines.** `constexpr val NAME = <expr>` is
 a promise about WHEN the work happens: the checker runs the expression and
 WRITES THE ANSWER BACK OVER THE INITIALIZER as a literal, so every engine
@@ -857,8 +895,10 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
    measurements recorded in threads.md). `Any` natively — DONE. `weak` —
    DONE. Visibility, namespaces and dependencies — DONE. Typed exceptions
    — DONE, all three engines. The audit's cycle-versus-global rule — DONE.
-   `constexpr` — DONE. What is left: a registry, if it is ever worth one;
-   macros, deliberately last. See README "What remains".
+   `constexpr` — DONE. The package index — DONE. What is left: a way for a
+   signature to promise it will not change what it was given (`final` is
+   already the default for reassignment; the CONTENTS of a parameter are
+   still open), and macros, deliberately last. See README "What remains".
 
 ## Key file map
 

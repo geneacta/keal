@@ -584,6 +584,119 @@ fn the_site_is_what_its_generator_would_write() {
     );
 }
 
+/// The index: a git repository holding one small file per package, saying
+/// where that package lives and nothing else. The whole chain in one test —
+/// find a package by a word in its description, write it into the manifest
+/// pinned to an exact tag, fetch it, import it, run it — because every step
+/// of it is only worth anything if the next one works.
+#[test]
+fn the_index_finds_a_package_and_pins_it() {
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipping: no `git`");
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-index-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    let (pkg, index, home, app) =
+        (dir.join("geometry"), dir.join("index"), dir.join("home"), dir.join("app"));
+    for d in [&pkg, &index.join("packages"), &home, &app] {
+        std::fs::create_dir_all(d).expect("cannot make a directory");
+    }
+    let git = |args: &[&str], at: &Path| {
+        let out = Command::new("git").args(args).current_dir(at).output().expect("cannot run git");
+        assert!(out.status.success(), "git {:?}: {}", args, String::from_utf8_lossy(&out.stderr));
+    };
+    let init = |at: &Path| {
+        git(&["init", "-q", "."], at);
+        git(&["config", "user.email", "t@example.com"], at);
+        git(&["config", "user.name", "Test"], at);
+    };
+
+    // A package with three version tags and one that is not a version. The
+    // interesting pair is v1.2.0 and v1.10.0: sorted as text the wrong one
+    // wins, and everybody reading it expects the other.
+    std::fs::write(pkg.join("shapes.keal"), "public fun area(): Int { 7 }\n").unwrap();
+    init(&pkg);
+    git(&["add", "-A"], &pkg);
+    git(&["commit", "-qm", "x"], &pkg);
+    for tag in ["v1.0.0", "v1.2.0", "v1.10.0", "nightly"] {
+        git(&["tag", tag], &pkg);
+    }
+
+    std::fs::write(
+        index.join("packages").join("geometry.toml"),
+        format!(
+            "[package]\nname = \"geometry\"\ngit = \"{}\"\ndescription = \"points, lines and the arithmetic between them\"\n",
+            pkg.display()
+        ),
+    )
+    .unwrap();
+    // A file that is not an entry: one bad contribution must not make the
+    // index unreadable for everybody standing behind it.
+    std::fs::write(index.join("packages").join("broken.toml"), "not a package at all\n").unwrap();
+    init(&index);
+    git(&["add", "-A"], &index);
+    git(&["commit", "-qm", "x"], &index);
+
+    std::fs::write(app.join("keal.toml"), "[package]\nname = \"app\"\nversion = \"0.1.0\"\n")
+        .unwrap();
+    let keal = |args: &[&str]| {
+        Command::new(BIN)
+            .args(args)
+            .current_dir(&app)
+            .env("KEAL_INDEX", &index)
+            .env("KEAL_HOME", &home)
+            .output()
+            .expect("cannot run keal")
+    };
+
+    // Found by a word in its description, not by its name.
+    let out = keal(&["search", "arithmetic"]);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(out.status.success(), "search failed: {}", String::from_utf8_lossy(&out.stderr));
+    assert!(text.contains("geometry"), "the index did not find it:\n{}", text);
+
+    // No tag named, so the newest is chosen — numerically, and ignoring
+    // what is not a version — and written down as an exact pin.
+    let out = keal(&["add", "geometry"]);
+    assert!(out.status.success(), "add failed: {}", String::from_utf8_lossy(&out.stderr));
+    let manifest = std::fs::read_to_string(app.join("keal.toml")).unwrap();
+    assert!(
+        manifest.contains("tag = \"v1.10.0\""),
+        "the newest tag was not the one written:\n{}",
+        manifest
+    );
+    assert!(manifest.contains("name = \"app\""), "the rest of the manifest was lost");
+
+    // A pin is a decision, so a second `add` of the same name refuses.
+    let out = keal(&["add", "geometry"]);
+    assert!(!out.status.success(), "adding the same dependency twice was allowed");
+
+    // A tag nobody published is refused where it is typed, and the message
+    // says what there is instead.
+    let out = keal(&["add", "geometry@v9.9.9"]);
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(!out.status.success(), "a tag that does not exist was written");
+    assert!(err.contains("v1.10.0"), "the refusal did not name the real tags:\n{}", err);
+
+    // And the point of all of it: the package is on disk and the program
+    // that imports it runs.
+    let out = keal(&["fetch"]);
+    assert!(out.status.success(), "fetch failed: {}", String::from_utf8_lossy(&out.stderr));
+    std::fs::write(
+        app.join("main.keal"),
+        "import \"dep:geometry/shapes.keal\"\nprintln(area())\n",
+    )
+    .unwrap();
+    let out = keal(&["run", "main.keal"]);
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "7",
+        "the added package did not run: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// Dependencies that have dependencies: an app that names one library,
 /// which names another. Both land in the app's own `.keal/deps`, and the
 /// library's own `dep:` import reaches that copy rather than looking inside

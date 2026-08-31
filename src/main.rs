@@ -21,6 +21,7 @@ mod loader;
 mod native;
 mod nativebuild;
 mod parser;
+mod registry;
 mod repl;
 mod runtime;
 mod span;
@@ -60,6 +61,17 @@ usage:
                               own manifest is read too, into the same place;
                               `keal.lock` records the commit each name
                               resolved to
+    keal search [term...]     find a package in the index: a git repository
+                              holding one small file per package, saying
+                              where that package lives and nothing else
+    keal add <name>[@<tag>]   write one into `keal.toml`, pinned exactly.
+                              With no tag it takes the repository's newest
+                              version tag and writes that down — once, here,
+                              not again on every build
+    keal index <update|path|entry>
+                              refresh the local copy of the index, say where
+                              it is, or print the entry this project would
+                              contribute to it
     keal doctor               report the interop toolchains found on this
                               machine, next to the versions the tests
                               were last verified against
@@ -111,7 +123,7 @@ fn is_subcommand(word: &str) -> bool {
         word,
         "run" | "check" | "layout" | "emit-c" | "build" | "repl" | "version" | "help"
             | "tokens" | "ast" | "types" | "cgen" | "emit-header" | "bindgen" | "doc"
-            | "doctor" | "jbind" | "fetch"
+            | "doctor" | "jbind" | "fetch" | "search" | "add" | "index"
     )
 }
 
@@ -159,6 +171,15 @@ fn real_main() -> ExitCode {
     }
     if args.first().map(|a| a.as_str()) == Some("fetch") {
         return fetch::run(&args[1..]);
+    }
+    if args.first().map(|a| a.as_str()) == Some("search") {
+        return registry::search(&args[1..]);
+    }
+    if args.first().map(|a| a.as_str()) == Some("add") {
+        return registry::add(&args[1..]);
+    }
+    if args.first().map(|a| a.as_str()) == Some("index") {
+        return registry::index(&args[1..]);
     }
     let (command, target) = match args.as_slice() {
         [] => ("repl", None),

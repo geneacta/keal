@@ -1,8 +1,11 @@
-# Packages, namespaces, and the manager that comes last
+# Packages, namespaces, and the index that is not a registry
 
-*Status: both halves are implemented — visibility and namespaces (see
-[the reference](language.md#13-modules-and-visibility)). What follows is the
-design as built, and the argument for why there is no package manager yet.*
+*Status: all four steps are implemented — visibility and namespaces (see
+[the reference](language.md#13-modules-and-visibility)), a manifest, a
+lockfile, and an index for finding a package whose URL you do not know.
+What follows is the design as built, and the argument that shaped it: at
+every step, the smallest thing that does not oblige anybody to run a
+service.*
 
 ## What is true today
 
@@ -70,7 +73,8 @@ never mentions the shared name never hears about it.
 
 ## Then: a package manager?
 
-**One step of it exists; the rest is deliberately not built.** A package manager is a promise
+**Three of its four promises are kept, and the fourth is refused on
+purpose.** A package manager is a promise
 about *other people's code*: that a name means one thing, that a version
 means what it says, that what was fetched yesterday is what is fetched
 today. Only the last of the three is cheap to keep.
@@ -86,6 +90,9 @@ today. Only the last of the three is cheap to keep.
 * **Reproducibility** — a commit is reproducible by construction. A
   registry that never rewrites history is a service somebody has to run,
   and a compiler project should not be running one before it has users.
+  That argument still stands, and the index described in step 4 is not
+  that: it hosts no code, serves no requests, and can disappear without
+  breaking a single build.
 
 ### What to do instead, in order
 
@@ -147,12 +154,73 @@ today. Only the last of the three is cheap to keep.
    nearest. A library's own `dep:` imports therefore reach the project's
    copy of its dependency rather than looking inside the library, which is
    the only way one `.keal/deps` can serve everybody.
-4. **A registry last, if ever.** It is worth building when there are enough
-   packages that finding one is the problem. Until then it is infrastructure
-   in search of a user, and `cargo install --git` is proof the middle step
-   is enough for a long time.
+4. **An index, which is not a registry.** ✅ Done — and the distinction is
+   the whole design. What was missing was never hosting or versioning; it
+   was a way to **find a package whose URL you do not already know**. That
+   is an address book, and an address book does not need a service.
+
+   The index is an ordinary git repository holding one small file per
+   package:
+
+   ```toml
+   # packages/geometry.toml
+   [package]
+   name = "geometry"
+   git = "https://github.com/someone/geometry"
+   description = "points, lines and the arithmetic between them"
+   ```
+
+   One file per package, so two people adding two packages never touch the
+   same line, and contributing is a pull request that adds a file — reviewed
+   by people, in public, with a history nobody can rewrite quietly. Git
+   provides the hosting, the review and the immutability; borrowing them is
+   the same trick `keal fetch` already turns, and it owes nobody a service
+   to keep running.
+
+   ```sh
+   keal search arithmetic     # find it
+   keal add geometry          # write it into keal.toml, pinned exactly
+   keal fetch                 # put it where the import expects it
+   ```
+
+   `keal add` reads the URL from the index, asks *that repository* what tags
+   it has, and writes one exact pin. `keal add geometry@v1.2.0` names the
+   tag; without one, the newest **version** tag is taken — digits and dots
+   with an optional leading `v`, compared number by number, so `v1.10.0`
+   beats `v1.2.0` and `nightly` is not considered at all. A tag you type
+   that the repository does not have is refused where you typed it, with the
+   real ones listed.
+
+   Three properties are worth stating, because they are what make this an
+   index and not a registry:
+
+   * **The index says where a package lives, and nothing else.** No
+     versions, no ranges, no resolution. Versions stay the package's own git
+     tags, where they already were.
+   * **The choice happens once, at your keyboard.** `keal add` picking the
+     newest tag is a convenience; a resolver deciding again on every build,
+     under rules nobody read, is the thing this project refused. What was
+     picked is printed and written into the manifest, and no later build
+     repeats the decision.
+   * **Nothing depends on the index existing.** A manifest names the
+     package's own repository, never the index. If the index repository
+     vanished tomorrow, every `keal.toml` in the world would still build —
+     and a package that is not in the index works exactly as well, by naming
+     its git URL directly. The index is a convenience for *finding*, and
+     losing a convenience is not losing a build.
+
+   The local copy lives beside the user, in `~/.keal/index`, and is
+   **cloned when it is missing and never refreshed on its own**: two runs of
+   `keal add` on the same day must not be able to write different things.
+   `keal index update` is the command that changes what you are reading, and
+   you ask for it. `KEAL_INDEX` points at a different one — a fork, a
+   company's own list, a directory on disk.
+
+   `keal index entry` prints the file this project would contribute, so
+   publishing is copy, paste, pull request.
 
 The honest summary: a package manager is a distribution problem, and this
-project's remaining problems are still language problems. When `import`
-finally says exactly which code it means, the distribution question becomes
-easy — and until then, no amount of tooling would make it right.
+project's remaining problems are still language problems. What the index
+answers is the one distribution question that was actually in the way —
+*where does this live?* — and it answers it without becoming something
+somebody has to keep alive.
