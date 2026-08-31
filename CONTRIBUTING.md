@@ -62,7 +62,18 @@ error, just a fact `cargo test --release` settles.
      fuzzer; run a few thousand programs when you touch the checker.
    * `UPDATE_EXPECT=1 cargo test --release` rewrites snapshots.
 
-5. **Say it plainly.** Diagnostics explain and suggest (`-- note:` with
+5. **A test may skip because it cannot run, never because it would rather
+   not.** Plenty of tests here stand down when a machine has no C
+   compiler, no JDK, no git, no Python — the check genuinely cannot
+   happen, and saying so is right. That is not the same as a test that
+   *could* run and takes an easier road: the site's drift check linked
+   what it needed and skipped where symlinks want elevation, so the one
+   platform where the generator was broken was the one platform the test
+   did not look at. It copies now. A test that skips on a platform is a
+   test that platform does not have, and the bug it was written for will
+   be found there first.
+
+6. **Say it plainly.** Diagnostics explain and suggest (`-- note:` with
    the fix). Comments state constraints, not narration. Costs and limits
    go in the docs, not under the rug: see `docs/types.md` (the type
    rules), `docs/memory.md` (the memory model), `docs/drop.md`
