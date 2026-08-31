@@ -26,16 +26,36 @@ export PATH
 # shim, a stale symlink — would otherwise pass a check on one and build
 # with the other.
 driver=""
-for name in ${CC:-} cc gcc clang; do
-    if "$name" --version >/dev/null 2>&1; then driver="$name"; break; fi
-done
+if [ -n "${CC:-}" ]; then
+    # `CC` is a whole command and not one more bare name: `CC="zig cc"` is
+    # what a Windows machine reaches for, having no `cc`, and the compiler
+    # splits it into program plus arguments. The word splitting below is
+    # deliberate, and it is why `CC` cannot share the loop.
+    driver="$CC"
+else
+    for name in cc gcc clang; do
+        if "$name" --version >/dev/null 2>&1; then driver="$name"; break; fi
+    done
+fi
 [ -n "$driver" ] || { echo "no C compiler after installing one"; exit 1; }
 
 echo "keal will build with: $driver"
-"$driver" --version | head -1
-"$driver" -dumpmachine
+$driver --version | head -1
 
-"$driver" -dumpmachine | grep -q mingw \
-    || { echo "$driver does not target mingw32; the runtime needs one that does"; exit 1; }
-"$driver" -v 2>&1 | grep -q 'Thread model: posix' \
-    || { echo "$driver has win32 threads; actor programs need the POSIX build"; exit 1; }
+# What it must NOT be, rather than what it must say. MSVC cannot compile
+# this runtime, and a target is spelled `x86_64-w64-mingw32` by GCC and
+# `x86_64-windows-gnu` by clang and zig — all three of which work.
+target=$($driver -dumpmachine 2>/dev/null || echo unknown)
+echo "target: $target"
+case "$target" in
+    *mingw* | *windows-gnu*) ;;
+    *) echo "$driver targets $target; the runtime needs a GNU-ABI Windows target"; exit 1 ;;
+esac
+
+# Likewise: reject the flavour that is known to break rather than require
+# one spelling of the one that works. A `win32` MinGW has no `pthread.h`,
+# and every actor program needs one.
+if $driver -v 2>&1 | grep -q 'Thread model: win32'; then
+    echo "$driver has win32 threads; actor programs need the POSIX build"
+    exit 1
+fi
