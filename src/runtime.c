@@ -18,6 +18,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Windows opens stdout in text mode, and text mode turns every `\n` this
+ * runtime writes into `\r\n`. The three engines must print the same bytes —
+ * that is the invariant the whole test suite rests on — so the native one
+ * asks for the bytes it actually wrote. A constructor rather than a call in
+ * `main`, so that not one line of generated C changes.
+ *
+ * `__attribute__((constructor))` is the same GCC/Clang ground the overflow
+ * builtins below already stand on. */
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+__attribute__((constructor)) static void keal_stdio_is_bytes(void) {
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+}
+#endif
+
 /* A generated program uses only the part of this runtime it needs, so the
  * rest must not draw warnings from a caller building with -Wall. */
 #if defined(__GNUC__) || defined(__clang__)

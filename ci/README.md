@@ -52,3 +52,18 @@ the web UI.
 A workflow already installed does not have to be re-tagged to be re-run
 after such a fix: **Actions → release → Run workflow** takes the tag as an
 input, which is what that input is for.
+
+## Windows, and where the time goes
+
+Installing a toolchain through `winget`'s portable-package path can crawl:
+on one machine, extraction ran at roughly nineteen files a minute with the
+process burning seven seconds of CPU in twelve minutes — Defender's
+real-time scanning, not the network. Extracting the same archive that
+winget had already downloaded and verified took 59 seconds for 11,875
+files. If a Windows setup step ever needs a toolchain, download and extract
+the archive rather than going through winget, and budget accordingly.
+
+A Windows machine also needs a C compiler that is *not* MSVC, for the
+reason `docs/interop.md` gives, and a POSIX-threads MinGW-w64 if it is to
+build actor programs. `rustup-init --default-host x86_64-pc-windows-gnu`
+installs per-user with no administrator rights.

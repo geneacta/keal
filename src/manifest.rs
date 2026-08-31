@@ -15,6 +15,9 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub struct Manifest {
     pub name: String,
+    /// Read by nothing yet: a project's own version matters the day one
+    /// project depends on another and the two have to be told apart.
+    #[allow(dead_code)]
     pub version: String,
     pub deps: Vec<Dep>,
     /// The directory the manifest was found in: the project's root, and

@@ -1,0 +1,12 @@
+# Line endings are not a style question here. This project compares output
+# byte for byte — three engines against each other, two compilers against
+# each other, and every `.expected` snapshot against what a program printed.
+# A file that arrives as CRLF on one machine and LF on another is a test
+# that fails for a reason that has nothing to do with the compiler, which is
+# exactly what happened the first time the suite ran on Windows.
+#
+# So: every text file is LF in the working tree, on every platform.
+* text=auto eol=lf
+
+# Except what is not text.
+*.png binary

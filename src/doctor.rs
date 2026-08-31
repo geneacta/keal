@@ -79,12 +79,34 @@ pub fn run() -> ExitCode {
             if required {
                 missing_required = true;
             }
-            println!(
-                "  {:8} MISSING{}  — {}",
-                tool,
-                if required { " (required)" } else { "          " },
-                p.unlocks
-            );
+            // A tool that spawned and failed is a different problem from one
+            // that is not installed — `kotlinc` without a JVM behind it, say.
+            // Saying MISSING for both sends the reader looking in the wrong
+            // place.
+            let broken = match &found {
+                Ok(out) => Some(String::from_utf8_lossy(&out.stderr).into_owned()),
+                Err(_) => None,
+            };
+            match broken {
+                Some(err) => {
+                    let first = err.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
+                    println!(
+                        "  {:8} FOUND, BUT IT DID NOT RUN{} — {}",
+                        tool,
+                        if required { " (required)" } else { "" },
+                        p.unlocks
+                    );
+                    if !first.is_empty() {
+                        println!("  {:8}   it said: {}", "", first);
+                    }
+                }
+                None => println!(
+                    "  {:8} MISSING{}  — {}",
+                    tool,
+                    if required { " (required)" } else { "          " },
+                    p.unlocks
+                ),
+            }
         } else {
             println!("  {:8} {}", tool, line);
             if let Some(k) = known {

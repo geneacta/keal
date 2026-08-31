@@ -19,6 +19,9 @@ pub struct ImportEdge {
     pub from: u32,
     pub to: u32,
     pub alias: Option<String>,
+    /// Where the import was written. Nothing reads it yet; it is what a
+    /// message about an unused or a circular import would point at.
+    #[allow(dead_code)]
     pub span: Span,
 }
 

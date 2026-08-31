@@ -195,6 +195,11 @@ impl Type {
     }
 
     /// True when any type parameter still appears inside this type.
+    ///
+    /// Nothing calls it today: monomorphisation asks its questions through
+    /// `substitute`. It is the predicate a check for an unsolved parameter
+    /// would be written against, and it is cheaper to keep than to rewrite.
+    #[allow(dead_code)]
     pub fn has_params(&self) -> bool {
         match self {
             Type::Param(_) | Type::SelfTy => true,
