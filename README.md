@@ -632,7 +632,7 @@ were the last thing on this list to be half-done, and are not anymore:
   and why. Running the suite there is what turned up the line endings, the
   path separators, an error message written in the operating system's own
   language, and a site generator that deleted a page on its way out.
-* Smaller items: indexing/call operator overloads, a language server (one
+* Smaller items: a language server (one
   would serve VS Code, JetBrains, Neovim and Zed at once — the TextMate
   grammar in [`editors/`](editors/README.md) cannot go to a definition),
   native `try` catching C stack exhaustion (the VM's depth panic is

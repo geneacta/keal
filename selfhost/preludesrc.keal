@@ -69,6 +69,23 @@ public trait Ord {
     func compareTo(other: Self): Int
 }
 
+/// `a[i]` reads through `get`, and `a[i] = v` writes through `set`.
+///
+/// The trait carries no signature of its own, and that is deliberate: what
+/// a class is indexed *by* and what it gives *back* differ from class to
+/// class, and a trait here cannot yet hold those two types. So the trait
+/// says a class is indexable and the class's own `get` says with what. The
+/// checker holds it to that: a class declaring `Index` must have a `get`
+/// taking one argument, and a `set` — which makes `a[i] = v` legal — must
+/// take that same key type and the value `get` returns.
+public trait Index {}
+
+/// `a(x, y)` calls through `invoke`.
+///
+/// Same reasoning as `Index`: the parameters and the result are the class's
+/// own, and the trait only says that calling one is meaningful.
+public trait Invoke {}
+
 // ---- ordering, spoken plainly -------------------------------------------
 //
 // `compareTo` answers with an Int — negative, zero, positive — because that

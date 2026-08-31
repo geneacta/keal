@@ -179,6 +179,10 @@ pub struct Checker {
     /// The type arguments the most recent `check_args` solved, claimed by
     /// `check_expr` for the node that caused the call.
     last_inst: Option<Vec<Type>>,
+    /// A call on a class that declares `Invoke`, rewritten to its `invoke`
+    /// method. `check_call` cannot replace the node it was given a piece
+    /// of, so it leaves the replacement here and the `Call` arm takes it.
+    pending_invoke: Option<ExprKind>,
     /// Facts established by an early-exit guard such as
     /// `if (x == null) { return }`. Set while checking the guard, then
     /// consumed by `check_stmts` and applied to the rest of the block.
@@ -234,6 +238,7 @@ impl Checker {
             traits: HashMap::new(),
             impls: HashMap::new(),
             last_inst: None,
+            pending_invoke: None,
             guard_narrowing: None,
             repl: false,
             packages: Vec::new(),
@@ -1051,6 +1056,32 @@ impl Checker {
         let subst = self_subst(&self_ty);
 
         for tname in trait_names {
+            // `Index` and `Invoke` carry no signature — what a class is
+            // indexed by, or called with, is the class's own business. So
+            // the promise is checked here instead of against a trait
+            // method: declaring one and not writing the method it stands
+            // for is caught where the promise is made, not at a use site
+            // three files away.
+            let wanted = match &*tname {
+                "Index" => Some(("get", "`a[i]` reads through it")),
+                "Invoke" => Some(("invoke", "`a(x)` calls through it")),
+                _ => None,
+            };
+            if let Some((method, why)) = wanted {
+                let has = self
+                    .classes
+                    .get(&c.name)
+                    .map(|i| i.methods.contains_key(method))
+                    .unwrap_or(false);
+                if !has {
+                    self.error_note(
+                        c.span,
+                        format!("`{}` declares `{}` but has no `{}`", c.name, tname, method),
+                        format!("{}, so a class that declares `{}` has to have one", why, tname),
+                    );
+                }
+                continue;
+            }
             let Some(info) = self.traits.get(&*tname) else { continue };
             let required = info.required.clone();
             let sigs: Vec<(String, Rc<FunType>)> = info
@@ -2633,6 +2664,12 @@ impl Checker {
                     self.check_expr(index, None);
                     return Type::Error;
                 }
+                // A class that declares `Index` is indexed through its own
+                // `get`, and the rewrite happens here so that everything
+                // below — the backends included — sees an ordinary call.
+                if matches!(ot, Type::Class(_, _)) && self.implements(&ot, "Index") {
+                    return self.rewrite_index_read(e, &ot, span);
+                }
                 match builtins::index_result(&ot) {
                     Some((kt, vt)) => {
                         let it = self.check_coerced(index, &kt);
@@ -2691,9 +2728,19 @@ impl Checker {
                 }
             }
 
-            ExprKind::Call { callee, args } => self.check_call(callee, args, span, expected),
+            ExprKind::Call { callee, args } => {
+                let t = self.check_call(callee, args, span, expected);
+                if let Some(k) = self.pending_invoke.take() {
+                    e.kind = k;
+                }
+                t
+            }
 
             ExprKind::Assign { target, op, value } => {
+                if let Some(t) = self.rewrite_index_write(e, span) {
+                    return t;
+                }
+                let ExprKind::Assign { target, op, value } = &mut e.kind else { unreachable!() };
                 let op = *op;
                 let (tt, problem) = self.check_assign_target(target);
                 if let Some((what, why)) = problem {
@@ -3114,6 +3161,24 @@ impl Checker {
             }
         }
         let ct = self.check_expr(callee, None);
+        // A class that declares `Invoke` is called through its own
+        // `invoke`. The whole call node becomes that method call, so
+        // everything below — the backends included — sees an ordinary one;
+        // the node itself belongs to the caller, which claims the rewrite.
+        if matches!(ct, Type::Class(_, _)) && self.implements(&ct, "Invoke") {
+            let result = self.method_call(&ct, "invoke", args, span, None);
+            let obj = Box::new(std::mem::replace(
+                callee,
+                Expr { ty: None, inst: None, span, kind: ExprKind::Null },
+            ));
+            self.pending_invoke = Some(ExprKind::MethodCall {
+                obj,
+                name: "invoke".to_string(),
+                args: std::mem::take(args),
+                safe: false,
+            });
+            return result;
+        }
         self.call_fun_type(&ct, args, span, &what)
     }
 
@@ -3568,6 +3633,67 @@ impl Checker {
     }
 
     /// Replaces `a OP b` with the call the operator stands for.
+    /// `a[i]` on a class becomes `a.get(i)`.
+    fn rewrite_index_read(&mut self, e: &mut Expr, ot: &Type, span: Span) -> Type {
+        let (obj, index) = match std::mem::replace(&mut e.kind, ExprKind::Null) {
+            ExprKind::Index { obj, index } => (obj, index),
+            _ => unreachable!(),
+        };
+        let mut args = vec![Arg { name: None, value: *index }];
+        let result = self.method_call(ot, "get", &mut args, span, None);
+        e.kind = ExprKind::MethodCall {
+            obj,
+            name: "get".to_string(),
+            args,
+            safe: false,
+        };
+        result
+    }
+
+    /// `a[i] = v` on a class becomes `a.set(i, v)`. The whole assignment is
+    /// replaced, not just its target: `set` is a call, and a call is not
+    /// something the left of an `=` can be.
+    fn rewrite_index_write(&mut self, e: &mut Expr, span: Span) -> Option<Type> {
+        let ExprKind::Assign { target, op, .. } = &mut e.kind else { return None };
+        let op = *op;
+        let ExprKind::Index { obj, .. } = &mut target.kind else { return None };
+        // The receiver is checked on the real node, not a copy of it: the
+        // type recorded here is the one every backend below reads to know
+        // it is looking at a class rather than a list.
+        let ot = self.check_expr(obj, None);
+        if !matches!(ot, Type::Class(_, _)) || !self.implements(&ot, "Index") {
+            return None;
+        }
+        if op.is_some() {
+            self.error_note(
+                span,
+                "a compound assignment into an indexable class is not allowed".to_string(),
+                "write it out: `a[i] = a[i] + x`, so the `get` and the `set` are both visible",
+            );
+            return Some(Type::Error);
+        }
+        let (target, value) = match std::mem::replace(&mut e.kind, ExprKind::Null) {
+            ExprKind::Assign { target, value, .. } => (target, value),
+            _ => unreachable!(),
+        };
+        let (obj, index) = match target.kind {
+            ExprKind::Index { obj, index } => (obj, index),
+            _ => unreachable!(),
+        };
+        let mut args = vec![
+            Arg { name: None, value: *index },
+            Arg { name: None, value: *value },
+        ];
+        self.method_call(&ot, "set", &mut args, span, None);
+        e.kind = ExprKind::MethodCall {
+            obj,
+            name: "set".to_string(),
+            args,
+            safe: false,
+        };
+        Some(Type::Unit)
+    }
+
     fn rewrite_operator(
         &mut self,
         e: &mut Expr,

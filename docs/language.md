@@ -870,6 +870,31 @@ implements one gains the operator; nothing else changes.
 | `-a` | `Neg` | `func negate(): Self` |
 | `a == b`, `a != b` | `Eq` | `func equals(other: Self): Bool` |
 | `a < b`, `<=`, `>`, `>=` | `Ord` | `func compareTo(other: Self): Int` |
+| `a[i]` | `Index` | `func get(key): Value` |
+| `a[i] = v` | `Index` | `proc set(key, value)` |
+| `a(x, y)` | `Invoke` | `func invoke(...): Result` |
+
+`Index` and `Invoke` are the two that carry no signature of their own, and
+that is deliberate: what a class is indexed *by*, and what it gives back,
+differ from class to class. So the trait says a class is indexable and the
+class's own `get` says with what — the key may be a `String`, the value
+anything. A class that declares `Index` and has no `get` is refused where it
+says so, not at a use site three files away.
+
+```keal
+class Env(val fallback: Int) : Index {
+    func get(name: String): Int { ... }
+    proc set(name: String, value: Int) { ... }
+}
+
+env["width"] = 80
+println(env["width"])
+```
+
+Nothing here works by convention: a class with a `get` that never said
+`Index` is not indexable. An operator is a promise a class makes, not a
+shape the checker guesses. And `a[i] += x` is refused — write it out, so the
+`get` and the `set` are both visible.
 
 ```koda
 class Vec2(val x: Float, val y: Float) : Add, Neg, Eq {
@@ -1413,8 +1438,8 @@ there is no cycle collector.
 
 ## 20. What is not here yet
 
-Class inheritance (a non-goal) · indexing and call operators (`Index`,
-`Invoke`) · associated types on traits · a language server.
+Class inheritance (a non-goal) · associated types on traits · generic
+traits · a language server.
 
 Shipped since this list was first written, and no longer on it: `throw` /
 `try` / `catch` on all three engines — typed clauses included, natively —

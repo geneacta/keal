@@ -1,0 +1,28 @@
+// The promise `Index` and `Invoke` make is checked where it is made, not at
+// a use site three files away — and nothing works by convention.
+
+// A class that declares the trait and does not write the method.
+class NoGet(val n: Int) : Index {
+    func size(): Int { return this.n }
+}
+
+class NoInvoke(val n: Int) : Invoke {
+    func value(): Int { return this.n }
+}
+
+// A class with a `get` that never said `Index` is not indexable: an
+// operator is a promise a class makes, not a shape a checker guesses.
+class Quiet(val n: Int) {
+    func get(at: Int): Int { return this.n }
+}
+val q = Quiet(1)
+println(q[0])
+
+// `a[i] += x` hides one of the two calls, so it is refused.
+class Cell(val n: Int) : Index {
+    var held: List<Int> = []
+    func get(at: Int): Int { return this.held[at] }
+    proc set(at: Int, value: Int) { this.held[at] = value }
+}
+val c = Cell(1)
+c[0] += 1

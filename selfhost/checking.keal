@@ -1222,6 +1222,29 @@ package class Checker() {
         val subst = selfSubst(selfTy)
 
         for (tname in traitNames) {
+            // `Index` and `Invoke` carry no signature — what a class is
+            // indexed by, or called with, is the class's own business. So
+            // the promise is checked here instead of against a trait
+            // method: declaring one and not writing the method it stands
+            // for is caught where the promise is made, not at a use site
+            // three files away.
+            var wantedMethod = ""
+            var wantedWhy = ""
+            if (tname == "Index") { wantedMethod = "get"  wantedWhy = "`a[i]` reads through it" }
+            if (tname == "Invoke") { wantedMethod = "invoke"  wantedWhy = "`a(x)` calls through it" }
+            unless (wantedMethod == "") {
+                var present = false
+                val own = this.classes[c.name]
+                if (own != null) { present = own.methods.contains(wantedMethod) }
+                unless (present) {
+                    this.errorNote(
+                        c.file, c.line, c.col,
+                        "`${c.name}` declares `${tname}` but has no `${wantedMethod}`",
+                        "${wantedWhy}, so a class that declares `${tname}` has to have one"
+                    )
+                }
+                continue
+            }
             val info = this.traits[tname]
             if (info == null) { continue }
 
@@ -2784,6 +2807,18 @@ package class Checker() {
                 this.checkExpr(index, null)
                 return Ty("Error")
             }
+            // A class that declares `Index` is indexed through its own
+            // `get`, and the rewrite happens here so that everything below
+            // — the backends included — sees an ordinary call.
+            if (ot.kind == "Class" and this.implements(ot, "Index")) {
+                val args: List<ArgN> = [ArgN("", index)]
+                val result = this.methodCall(ot, "get", args, e, null)
+                e.kind = "method"
+                e.text = "get"
+                e.kids = [obj]
+                e.args = args
+                return result
+            }
             val res = indexResult(ot)
             if (res != null) {
                 val (kt, vt) = res
@@ -2838,6 +2873,33 @@ package class Checker() {
         // assign
         val target = e.kids[0]
         val value = e.kids[1]
+        // `a[i] = v` on a class that declares `Index` becomes `a.set(i, v)`.
+        // The whole assignment is replaced, not just its target: `set` is a
+        // call, and a call is not something the left of an `=` can be.
+        if (target.kind == "index") {
+            val recv = target.kids[0]
+            // The receiver is checked on the real node, not a copy of it:
+            // the type recorded here is the one every backend below reads
+            // to know it is looking at a class rather than a list.
+            val rt = this.checkExpr(recv, null)
+            if (rt.kind == "Class" and this.implements(rt, "Index")) {
+                unless (e.assignOp == "=") {
+                    this.errorNote(
+                        e.file, e.line, e.col,
+                        "a compound assignment into an indexable class is not allowed",
+                        "write it out: `a[i] = a[i] + x`, so the `get` and the `set` are both visible"
+                    )
+                    return Ty("Error")
+                }
+                val args: List<ArgN> = [ArgN("", target.kids[1]), ArgN("", value)]
+                this.methodCall(rt, "set", args, e, null)
+                e.kind = "method"
+                e.text = "set"
+                e.kids = [recv]
+                e.args = args
+                return Ty("Unit")
+            }
+        }
         val (tt, problemWhat, problemWhy) = this.checkAssignTarget(target)
         unless (problemWhat == "") {
             this.errorNote(e.file, e.line, e.col, "cannot assign to ${problemWhat}", problemWhy)
@@ -3194,6 +3256,17 @@ package class Checker() {
             }
         }
         val ct = this.checkExpr(callee, null)
+        // A class that declares `Invoke` is called through its own
+        // `invoke`. The whole call node becomes that method call, so
+        // everything below — the backends included — sees an ordinary one.
+        if (ct.kind == "Class" and this.implements(ct, "Invoke")) {
+            val result = this.methodCall(ct, "invoke", args, e, null)
+            e.kind = "method"
+            e.text = "invoke"
+            e.kids = [callee]
+            e.args = args
+            return result
+        }
         return this.callFunType(ct, args, e, what)
     }
 

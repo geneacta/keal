@@ -1,0 +1,68 @@
+// `Index` and `Invoke` — the last two operators that were still spelled as
+// method calls. A class says it is indexable or callable, and the class's
+// own `get`, `set` and `invoke` say with what. Nothing is by convention: a
+// class that has a `get` and never says `Index` is not indexable.
+
+class Grid(val w: Int, val h: Int) : Index {
+    var cells: List<Int> = []
+    func get(at: Int): Int { return this.cells[at] }
+    proc set(at: Int, value: Int) { this.cells[at] = value }
+}
+
+val g = Grid(2, 2)
+var made = 0
+while (made < 4) {
+    g.cells.add(0)
+    made += 1
+}
+g[0] = 7
+g[3] = 9
+println("${g[0]} ${g[1]} ${g[2]} ${g[3]}")
+
+// The key does not have to be an Int, and the value does not have to be
+// what the key is — the trait carries neither, so the class chooses.
+class Env(val fallback: Int) : Index {
+    var names: List<String> = []
+    var values: List<Int> = []
+    func get(name: String): Int {
+        var i = 0
+        while (i < this.names.size) {
+            if (this.names[i] == name) { return this.values[i] }
+            i += 1
+        }
+        return this.fallback
+    }
+    proc set(name: String, value: Int) {
+        this.names.add(name)
+        this.values.add(value)
+    }
+}
+
+val env = Env(-1)
+env["width"] = 80
+env["height"] = 24
+println("${env["width"]} ${env["height"]} ${env["depth"]}")
+
+// A callable object: state plus a call, which a plain function cannot be.
+class Adder(val by: Int) : Invoke {
+    func invoke(n: Int): Int { return n + this.by }
+}
+
+val plus5 = Adder(5)
+val plus1 = Adder(1)
+println("${plus5(10)} ${plus1(plus5(0))}")
+
+// A counter that remembers — the reason `Invoke` is not just sugar for a
+// lambda: a lambda cannot carry a `var` field.
+class Counter() : Invoke {
+    var seen: Int = 0
+    func invoke(step: Int): Int {
+        this.seen += step
+        return this.seen
+    }
+}
+
+val tally = Counter()
+tally(3)
+tally(4)
+println(tally(0))

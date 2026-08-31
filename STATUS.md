@@ -59,6 +59,31 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**`Index` AND `Invoke` — DONE, all three engines.** `a[i]`, `a[i] = v` and
+`a(x)` on a class, rewritten in the checker to `get`, `set` and `invoke` so
+every backend sees an ordinary method call.
+THE DESIGN PROBLEM AND ITS ANSWER: traits here are NOT generic, so
+`trait Index<K, V>` is not expressible. The answer is a trait that carries
+NO SIGNATURE — it says a class is indexable, and the class's own `get` says
+with what. The key may be a `String`, the value anything. Keal refuses
+"operators by convention" (it says so on the coming-from pages), so the
+trait is still nominal: a class with a `get` that never said `Index` is not
+indexable.
+THE PROMISE IS CHECKED WHERE IT IS MADE: `verify_impls` special-cases the
+two — a class declaring `Index` must have a `get`, `Invoke` an `invoke` —
+rather than leaving it to a use site three files away.
+`a[i] += x` is REFUSED: it hides one of the two calls.
+IMPLEMENTATION NOTE worth keeping: the index-write rewrite must check the
+receiver on the REAL node, not a clone — a clone leaves the node untyped
+and the backend then sees "a method on a built-in type" and refuses. Cost
+me a build. And `check_call` cannot replace the node it was handed a piece
+of, so the Invoke rewrite goes through `pending_invoke`, the same shape
+`last_inst` already uses.
+Corpus: `tests/native/operators-index.keal` (+`.expected`, three engines —
+a grid keyed by Int, an env keyed by String, a callable adder, a counter
+that remembers), `tests/selfhost/type-errors/operator-index.keal` (four
+refusals, oracle and twin identical).
+
 **ACTORS RUN ON A POOL NOW, not one OS thread each.** The shape that could
 not scale: two thousand actors meant two thousand stacks reserved before a
 single message was handled. `run` starts `keal_actor_worker_count(n)`
