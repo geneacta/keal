@@ -1,6 +1,6 @@
 # STATUS — where the work stands, and how to resume it
 
-*Updated: 2026-08-31 (version 0.7.0). This file is the hand-off: if a session dies, the next
+*Updated: 2026-08-31 (version 0.8.0). This file is the hand-off: if a session dies, the next
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
@@ -26,7 +26,7 @@ commit that leaves work in flight.*
    included); `tests/native/*` runs on all three engines.
 5. **Verification loop** (run before every commit):
    - the four-corpora loop (see below), `cargo test --release` (currently
-     33 green incl. bootstrap fixed point, actor TSan, actor-thread JNI,
+     36 green incl. bootstrap fixed point, actor TSan, actor-thread JNI,
      the site tour's printed outputs), `./bootstrap.sh`.
    - corpora loop, for each cmd/driver pair above:
      `for f in tests/programs/*.keal examples/*.keal tests/native/*.keal

@@ -281,7 +281,7 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
     <div class="nav-links">%(links)s</div>
   </div>
   <div class="nav-right">
-    <span class="badge">v0.7.0</span>
+    <span class="badge">v0.8.0</span>
     <a class="btn-lang" href="%(other)s">%(other_label)s</a>
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>

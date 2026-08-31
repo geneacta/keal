@@ -2,7 +2,7 @@
 
 # Keal — a statically typed, self-hosting language with a small surface
 
-**Version 0.7.0** · `keal version` prints the toolchain's own.
+**Version 0.8.0** · `keal version` prints the toolchain's own.
 
 *Small* means the surface, not the reach: a handful of concepts —
 values, functions, classes and traits, `when`, null safety — carried

@@ -11,8 +11,10 @@ compiler without installing Rust first, and what lets a bug report say
 The project is pre-1.0, so the middle number carries the meaning:
 
 * **0.x.0** — new language surface, or a change to what a program means.
-  `weak`, actors on threads, `Any` natively, visibility and namespaces:
-  each of those was a minor.
+  `weak`, actors on threads, `Any` natively, visibility and namespaces,
+  dependencies and the cycle audit: each of those was a minor. So was a
+  `deinit` the tree-walker had been skipping, which is a change to what a
+  program means even though it is a bug fix.
 * **0.x.y** — fixes and internals with no visible change to a correct
   program.
 * **1.0** will mean the semantics are frozen, which they are not: the
@@ -49,8 +51,8 @@ last tag is one the suite actually checks.
 4. **Tag and push:**
 
    ```sh
-   git tag -a v0.7.0 -m "visibility, reserved words, namespaces"
-   git push origin v0.7.0
+   git tag -a v0.8.0 -m "dependencies, the cycle audit, Windows"
+   git push origin v0.8.0
    ```
 
 5. The `release` workflow (see [`ci/README.md`](ci/README.md)) builds the
