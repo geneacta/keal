@@ -2,18 +2,18 @@
 // with a real C compiler, runs it, and requires the output to match what the
 // bytecode VM and the tree-walking evaluator print — byte for byte.
 
-fun fib(n: Int): Int {
+func fib(n: Int): Int {
     if (n < 2) { return n }
     return fib(n - 1) + fib(n - 2)
 }
 
-fun classify(n: Int): String {
+func classify(n: Int): String {
     if (n < 0) { return "negative" }
     unless (n > 0) { return "zero" }
     return "positive"
 }
 
-fun describe(n: Int): String {
+func describe(n: Int): String {
     return if (n > 100) { "big" } else if (n > 10) { "medium" } else { "small" }
 }
 
@@ -21,7 +21,7 @@ proc report(label: String, value: Int) {
     println("${label} = ${value}")
 }
 
-fun average(a: Float, b: Float): Float { (a + b) / 2.0 }
+func average(a: Float, b: Float): Float { (a + b) / 2.0 }
 
 report("fib(20)", fib(20))
 println(classify(-3))

@@ -39,13 +39,13 @@ native """
 double hypot3(double a, double b, double c) { return sqrt(a*a + b*b + c*c); }
 """
 
-extern fun hypot3(a: Float, b: Float, c: Float): Float
+extern func hypot3(a: Float, b: Float, c: Float): Float
 
 println(hypot3(1.0, 2.0, 2.0))   // 3.0
 ```
 
 * `native "..."` — C pasted verbatim into the generated translation unit.
-* `extern fun name(...): Ret [= "symbol"]` — a C symbol made callable, with
+* `extern func name(...): Ret [= "symbol"]` — a C symbol made callable, with
   the checker holding callers to the declared signature.
 * `keal build prog.keal extra.c extra.cpp` — extra C/C++ sources compiled
   and linked in; any C++ among them switches the linker to `c++` so its
@@ -67,8 +67,8 @@ Every other tier stands on this one. **Status: 1a, 1b and 1c are shipped**;
 memory model already dictates, explicit in the signature:
 
 ```keal
-extern fun parse(source: borrow String): Int      // C reads, does not keep
-extern fun render(doc: Int): own String           // C hands us a malloc'd buffer
+extern func parse(source: borrow String): Int      // C reads, does not keep
+extern func render(doc: Int): own String           // C hands us a malloc'd buffer
 ```
 
 * `borrow String` passes the NUL-terminated `const char*`; the callee must
@@ -91,7 +91,7 @@ record Vec2(val x: Float, val y: Float)
 native """
 static double vec2_dot(Keal_Vec2 a, Keal_Vec2 b) { return a.x*b.x + a.y*b.y; }
 """
-extern fun vec2_dot(a: Vec2, b: Vec2): Float
+extern func vec2_dot(a: Vec2, b: Vec2): Float
 ```
 
 **1c. Header generation — SHIPPED.** `keal emit-header prog.keal > prog.h`
@@ -106,7 +106,7 @@ exactly that. This is the prerequisite the Go and JVM gateways needed.
 *closure* to C as a bare function pointer needs somewhere to put the
 environment, and C callback APIs differ on it: most take a `void* userdata`
 alongside the pointer, some take nothing. Picking a convention shapes the
-syntax (`extern fun onEach(f: (Int) -> Int)` must say which argument is the
+syntax (`extern func onEach(f: (Int) -> Int)` must say which argument is the
 userdata slot), so it waits for a real consumer instead of guessing.
 Meanwhile the shipped 1c covers the common need from the other side: C code
 can call named Keal functions (`k_name`) directly, today.
@@ -125,7 +125,7 @@ Rust exports the C ABI natively, and both tools it needed exist now:
   passes `.a`/`.so`/`.dylib`/`.o` files and `-l`/`-L` flags to the link
   step, and `-I`/`-D` to the compile steps.
 * **`keal bindgen header.h` — shipped.** Reads a C header, writes the
-  `extern fun` declarations. It binds only what crosses exactly —
+  `extern func` declarations. It binds only what crosses exactly —
   `int64_t`/`long long`, `double`, `bool`, `const char*` as `borrow
   String`, a returned `char*` as `own String`, `Keal_Name` mirrors as
   records — and **skips everything else with the reason printed**: a
@@ -183,7 +183,7 @@ what is needed is a runtime module and a wrapper generator.
 
 **4a. The JVM host module — SHIPPED** ([`lib/jvm.keal`](../lib/jvm.keal)):
 one Keal module, no new compiler capability — a `native` block of helpers
-over `jni.h` plus `extern fun` declarations riding tier 1's `borrow`/`own`
+over `jni.h` plus `extern func` declarations riding tier 1's `borrow`/`own`
 strings. Verified end to end by the suite (`jvm_gateway_works_end_to_end`,
 skipped when no JDK is installed):
 
@@ -223,11 +223,11 @@ one typed Keal module over exactly the 4a calls:
 ```keal
 // generated
 class UUID(val handle: Int) : Ord {
-    fun toString(): String { return jvmToString(this.handle) }
+    func toString(): String { return jvmToString(this.handle) }
     proc free() { jvmFree(this.handle) }
-    fun compareTo(a0: UUID): Int { ... }
+    func compareTo(a0: UUID): Int { ... }
 }
-fun uuidRandomUUID(): UUID { ... }
+func uuidRandomUUID(): UUID { ... }
 ```
 
 so user code never touches JNI signatures. The bindgen rule holds: only

@@ -63,11 +63,11 @@ LANDING = {
 }
 
 HERO_CODE = """class Point(val x: Float, val y: Float) {
-    fun length(): Float { sqrt(this.x * this.x + this.y * this.y) }
-    fun toString(): String { "(${this.x}, ${this.y})" }
+    func length(): Float { sqrt(this.x * this.x + this.y * this.y) }
+    func toString(): String { "(${this.x}, ${this.y})" }
 }
 
-fun firstLong(points: List<Point>, min: Float): Point? {
+func firstLong(points: List<Point>, min: Float): Point? {
     for (p in points) {
         if (p.length() > min) { return p }
     }
@@ -96,22 +96,22 @@ TOUR = [
      'val name = "Ada"\nvar count = 0\ncount += 1\n\nval n = 3\nval good = n.toFloat() / 2.0\nval ratio: Float = 1 / 2   // a literal adapts\n\nval xs = [1, 2]\nval ys = xs\nys.add(3)\nprintln("${good} ${ratio} ${xs}")',
      "1.5 0.5 [1, 2, 3]"),
 
-    ("fun and proc", "fun et proc",
-     "Which word you use says whether there is a result. A <code>fun</code> must declare what it returns; a <code>proc</code> cannot — so <code>Unit</code> is never written by hand.",
-     "Le mot employé dit s'il y a un résultat. Un <code>fun</code> doit déclarer ce qu'il retourne ; un <code>proc</code> ne le peut pas — <code>Unit</code> ne s'écrit donc jamais à la main.",
-     'fun add(a: Int, b: Int): Int { a + b }\n\nproc greet(name: String, greeting: String = "hello") {\n    println("${greeting}, ${name}!")\n}\n\nprintln(add(2, 3))\ngreet("Ada")\ngreet("Ada", greeting = "hi")',
+    ("func and proc", "func et proc",
+     "Which word you use says whether there is a result. A <code>func</code> must declare what it returns; a <code>proc</code> cannot — so <code>Unit</code> is never written by hand.",
+     "Le mot employé dit s'il y a un résultat. Un <code>func</code> doit déclarer ce qu'il retourne ; un <code>proc</code> ne le peut pas — <code>Unit</code> ne s'écrit donc jamais à la main.",
+     'func add(a: Int, b: Int): Int { a + b }\n\nproc greet(name: String, greeting: String = "hello") {\n    println("${greeting}, ${name}!")\n}\n\nprintln(add(2, 3))\ngreet("Ada")\ngreet("Ada", greeting = "hi")',
      "5\nhello, Ada!\nhi, Ada!"),
 
     ("Control flow", "Flot de contrôle",
      "Braces are mandatory and a block's value is its last expression, which is why <code>if</code> produces one. <code>unless (c)</code> is <code>if (not c)</code>.",
      "Les accolades sont obligatoires et la valeur d'un bloc est sa dernière expression — c'est pourquoi <code>if</code> en produit une. <code>unless (c)</code> vaut <code>if (not c)</code>.",
-     'val n = -2\nval sign = if (n < 0) { "neg" } else { "pos" }\n\nfun lengthOf(s: String?): Int {\n    unless (s != null) { return 0 }\n    return s.length\n}\n\nfor (i in 0..3) { println(i) }\nprintln("${sign} ${lengthOf(null)} ${lengthOf("abcd")}")',
+     'val n = -2\nval sign = if (n < 0) { "neg" } else { "pos" }\n\nfunc lengthOf(s: String?): Int {\n    unless (s != null) { return 0 }\n    return s.length\n}\n\nfor (i in 0..3) { println(i) }\nprintln("${sign} ${lengthOf(null)} ${lengthOf("abcd")}")',
      "0\n1\n2\nneg 0 4"),
 
     ("when", "when",
      "One construct covers what other languages split between <code>switch</code> and <code>match</code>: no fall-through, first arm wins, and it is an expression.",
      "Une seule construction couvre ce que d'autres langages séparent entre <code>switch</code> et <code>match</code> : pas de chute, le premier bras gagne, et c'est une expression.",
-     'fun describe(n: Int): String {\n    return when (n) {\n        0 -> "zero"\n        1, 2, 3 -> "small"\n        in 4..10 -> "medium"\n        else -> "large"\n    }\n}\nprintln(describe(2))\nprintln(describe(7))\nprintln(describe(99))',
+     'func describe(n: Int): String {\n    return when (n) {\n        0 -> "zero"\n        1, 2, 3 -> "small"\n        in 4..10 -> "medium"\n        else -> "large"\n    }\n}\nprintln(describe(2))\nprintln(describe(7))\nprintln(describe(99))',
      "small\nmedium\nlarge"),
 
     ("Null safety", "Sûreté face à null",
@@ -135,7 +135,7 @@ TOUR = [
     ("Generics and traits", "Génériques et traits",
      "Generics are monomorphised — no erasure, no boxing. A trait is a capability a type parameter can be required to have, not a type of its own.",
      "Les génériques sont monomorphisés — pas d'effacement, pas de boxing. Un trait est une capacité qu'on peut exiger d'un paramètre de type, pas un type en soi.",
-     'fun firstOr<T>(xs: List<T>, fallback: T): T {\n    for (x in xs) { return x }\n    return fallback\n}\nprintln(firstOr([1, 2], 0))\nprintln(firstOr(["a"], "z"))\n\nfun total<T: Add>(xs: List<T>, zero: T): T {\n    var acc = zero\n    for (x in xs) { acc = acc + x }\n    return acc\n}\nprintln(total([1, 2, 3], 0))',
+     'func firstOr<T>(xs: List<T>, fallback: T): T {\n    for (x in xs) { return x }\n    return fallback\n}\nprintln(firstOr([1, 2], 0))\nprintln(firstOr(["a"], "z"))\n\nfunc total<T: Add>(xs: List<T>, zero: T): T {\n    var acc = zero\n    for (x in xs) { acc = acc + x }\n    return acc\n}\nprintln(total([1, 2, 3], 0))',
      "1\na\n6"),
 
     ("The eight connectives", "Les huit connecteurs",
@@ -153,7 +153,7 @@ TOUR = [
     ("Native code and C", "Code natif et C",
      "<code>keal build</code> compiles through C11 to a real executable, and what it cannot compile it refuses by name — it never mis-compiles.",
      "<code>keal build</code> compile via C11 vers un vrai exécutable, et ce qu'il ne peut pas compiler, il le refuse en le nommant — il ne compile jamais de travers.",
-     'native """\n#include <math.h>\nstatic double keal_hypot(double a, double b) { return hypot(a, b); }\n"""\n\nextern fun hypot(a: Float, b: Float): Float = "keal_hypot"\n\nprintln(hypot(3.0, 4.0))',
+     'native """\n#include <math.h>\nstatic double keal_hypot(double a, double b) { return hypot(a, b); }\n"""\n\nextern func hypot(a: Float, b: Float): Float = "keal_hypot"\n\nprintln(hypot(3.0, 4.0))',
      "5.0"),
 ]
 

@@ -41,7 +41,7 @@
 </nav>
 
 <div class="tourgrid">
-  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Bonjour, monde</a><a class="tch" href="#c2"><span class="n">2</span>Valeurs et liaisons</a><a class="tch" href="#c3"><span class="n">3</span>fun et proc</a><a class="tch" href="#c4"><span class="n">4</span>Flot de contrôle</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Sûreté face à null</a><a class="tch" href="#c7"><span class="n">7</span>Collections et lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Enregistrements et classes</a><a class="tch" href="#c9"><span class="n">9</span>Génériques et traits</a><a class="tch" href="#c10"><span class="n">10</span>Les huit connecteurs</a><a class="tch" href="#c11"><span class="n">11</span>deinit et weak</a><a class="tch" href="#c12"><span class="n">12</span>Code natif et C</a></aside>
+  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Bonjour, monde</a><a class="tch" href="#c2"><span class="n">2</span>Valeurs et liaisons</a><a class="tch" href="#c3"><span class="n">3</span>func et proc</a><a class="tch" href="#c4"><span class="n">4</span>Flot de contrôle</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Sûreté face à null</a><a class="tch" href="#c7"><span class="n">7</span>Collections et lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Enregistrements et classes</a><a class="tch" href="#c9"><span class="n">9</span>Génériques et traits</a><a class="tch" href="#c10"><span class="n">10</span>Les huit connecteurs</a><a class="tch" href="#c11"><span class="n">11</span>deinit et weak</a><a class="tch" href="#c12"><span class="n">12</span>Code natif et C</a></aside>
   <div class="tourmain prose">
     <h1>Le tour de Keal</h1>
     <p class="lede">Une demi-heure, de haut en bas. Chaque extrait ci-dessous est un vrai programme et chaque sortie est ce qu'il imprime réellement — la suite les vérifie.</p>
@@ -59,7 +59,7 @@ val ratio: Float = 1 / 2   // a literal adapts
 val xs = [1, 2]
 val ys = xs
 ys.add(3)
-println(&quot;${good} ${ratio} ${xs}&quot;)</pre><div class="cwin-out"><pre>1.5 0.5 [1, 2, 3]</pre></div></div></section><section class="chapter" id="c3"><h2>3. fun et proc</h2><p class="lede">Le mot employé dit s'il y a un résultat. Un <code>fun</code> doit déclarer ce qu'il retourne ; un <code>proc</code> ne le peut pas — <code>Unit</code> ne s'écrit donc jamais à la main.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter3.keal</span><span class="run">▶ Exécuter</span></div><pre>fun add(a: Int, b: Int): Int { a + b }
+println(&quot;${good} ${ratio} ${xs}&quot;)</pre><div class="cwin-out"><pre>1.5 0.5 [1, 2, 3]</pre></div></div></section><section class="chapter" id="c3"><h2>3. func et proc</h2><p class="lede">Le mot employé dit s'il y a un résultat. Un <code>func</code> doit déclarer ce qu'il retourne ; un <code>proc</code> ne le peut pas — <code>Unit</code> ne s'écrit donc jamais à la main.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter3.keal</span><span class="run">▶ Exécuter</span></div><pre>func add(a: Int, b: Int): Int { a + b }
 
 proc greet(name: String, greeting: String = &quot;hello&quot;) {
     println(&quot;${greeting}, ${name}!&quot;)
@@ -72,7 +72,7 @@ hello, Ada!
 hi, Ada!</pre></div></div></section><section class="chapter" id="c4"><h2>4. Flot de contrôle</h2><p class="lede">Les accolades sont obligatoires et la valeur d'un bloc est sa dernière expression — c'est pourquoi <code>if</code> en produit une. <code>unless (c)</code> vaut <code>if (not c)</code>.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter4.keal</span><span class="run">▶ Exécuter</span></div><pre>val n = -2
 val sign = if (n &lt; 0) { &quot;neg&quot; } else { &quot;pos&quot; }
 
-fun lengthOf(s: String?): Int {
+func lengthOf(s: String?): Int {
     unless (s != null) { return 0 }
     return s.length
 }
@@ -81,7 +81,7 @@ for (i in 0..3) { println(i) }
 println(&quot;${sign} ${lengthOf(null)} ${lengthOf(&quot;abcd&quot;)}&quot;)</pre><div class="cwin-out"><pre>0
 1
 2
-neg 0 4</pre></div></div></section><section class="chapter" id="c5"><h2>5. when</h2><p class="lede">Une seule construction couvre ce que d'autres langages séparent entre <code>switch</code> et <code>match</code> : pas de chute, le premier bras gagne, et c'est une expression.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter5.keal</span><span class="run">▶ Exécuter</span></div><pre>fun describe(n: Int): String {
+neg 0 4</pre></div></div></section><section class="chapter" id="c5"><h2>5. when</h2><p class="lede">Une seule construction couvre ce que d'autres langages séparent entre <code>switch</code> et <code>match</code> : pas de chute, le premier bras gagne, et c'est une expression.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter5.keal</span><span class="run">▶ Exécuter</span></div><pre>func describe(n: Int): String {
     return when (n) {
         0 -&gt; &quot;zero&quot;
         1, 2, 3 -&gt; &quot;small&quot;
@@ -128,14 +128,14 @@ val c = Counter(0)
 c.bump()
 println(c.n)</pre><div class="cwin-out"><pre>true
 1.0 2.0
-1</pre></div></div></section><section class="chapter" id="c9"><h2>9. Génériques et traits</h2><p class="lede">Les génériques sont monomorphisés — pas d'effacement, pas de boxing. Un trait est une capacité qu'on peut exiger d'un paramètre de type, pas un type en soi.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter9.keal</span><span class="run">▶ Exécuter</span></div><pre>fun firstOr&lt;T&gt;(xs: List&lt;T&gt;, fallback: T): T {
+1</pre></div></div></section><section class="chapter" id="c9"><h2>9. Génériques et traits</h2><p class="lede">Les génériques sont monomorphisés — pas d'effacement, pas de boxing. Un trait est une capacité qu'on peut exiger d'un paramètre de type, pas un type en soi.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter9.keal</span><span class="run">▶ Exécuter</span></div><pre>func firstOr&lt;T&gt;(xs: List&lt;T&gt;, fallback: T): T {
     for (x in xs) { return x }
     return fallback
 }
 println(firstOr([1, 2], 0))
 println(firstOr([&quot;a&quot;], &quot;z&quot;))
 
-fun total&lt;T: Add&gt;(xs: List&lt;T&gt;, zero: T): T {
+func total&lt;T: Add&gt;(xs: List&lt;T&gt;, zero: T): T {
     var acc = zero
     for (x in xs) { acc = acc + x }
     return acc
@@ -179,7 +179,7 @@ println(&quot;freed ${freed}&quot;)</pre><div class="cwin-out"><pre>freed 2</pre
 static double keal_hypot(double a, double b) { return hypot(a, b); }
 &quot;&quot;&quot;
 
-extern fun hypot(a: Float, b: Float): Float = &quot;keal_hypot&quot;
+extern func hypot(a: Float, b: Float): Float = &quot;keal_hypot&quot;
 
 println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></section>
   </div>

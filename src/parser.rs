@@ -213,14 +213,32 @@ impl Parser {
     }
 
     /// `constexpr` is contextual, like `record` and `weak`: it introduces a
-    /// declaration only when `val` or `fun` follows, so `val constexpr = 3`
+    /// declaration only when `val` or `func` follows, so `val constexpr = 3`
     /// stays a perfectly good binding.
     fn at_constexpr(&self) -> bool {
         matches!(self.peek(), Tok::Ident(w) if w == "constexpr")
             && matches!(self.peek_at(1), Tok::Val | Tok::Fun | Tok::Var | Tok::Proc)
     }
 
+    /// The word this language used to spell `func`. It is lexed rather than
+    /// read as a name so that an old file gets one clear sentence instead of
+    /// a cascade of nonsense, and it is refused rather than accepted so that
+    /// there is one spelling and not two.
+    fn refuse_old_fun(&mut self) -> Option<Diag> {
+        if !self.at(&Tok::OldFun) {
+            return None;
+        }
+        let span = self.span();
+        Some(
+            Diag::new(span, "`fun` is spelled `func`")
+                .with_note("the word changed; nothing else about the declaration did"),
+        )
+    }
+
     fn item_after_vis(&mut self, vis: Vis, vis_span: Span) -> Result<Item, Diag> {
+        if let Some(d) = self.refuse_old_fun() {
+            return Err(d);
+        }
         if self.at_constexpr() {
             if matches!(self.peek_at(1), Tok::Fun) {
                 self.advance();
@@ -339,7 +357,7 @@ impl Parser {
                             ),
                         )
                         .with_note(
-                            "a visibility is written on a `fun`, `proc`, `class`, `record`, \
+                            "a visibility is written on a `func`, `proc`, `class`, `record`, \
                              `trait`, `val` or `var`",
                         ))
                     }
@@ -350,7 +368,7 @@ impl Parser {
         }
     }
 
-    /// `extern fun name(params): Ret [= "symbol"]` — a body would be C's
+    /// `extern func name(params): Ret [= "symbol"]` — a body would be C's
     /// business, so there is none.
     fn extern_decl(&mut self, vis: Vis) -> Result<Item, Diag> {
         let span = self.span();
@@ -380,9 +398,9 @@ impl Parser {
         Ok(Item::Extern(ExternDecl { name, vis, symbol, params, ret, span }))
     }
 
-    /// Reads a `fun` or a `proc`.
+    /// Reads a `func` or a `proc`.
     ///
-    /// The two differ only in what they return: a `fun` must say, and a `proc`
+    /// The two differ only in what they return: a `func` must say, and a `proc`
     /// returns nothing. Keeping them apart at the declaration removes the
     /// need for a `Unit` or `void` annotation anywhere.
     fn fun_decl(&mut self, vis: Vis) -> Result<FunDecl, Diag> {
@@ -418,7 +436,7 @@ impl Parser {
         })
     }
 
-    /// The `: T` after a parameter list. Required on a `fun`, rejected on a
+    /// The `: T` after a parameter list. Required on a `func`, rejected on a
     /// `proc`, which is the whole point of the distinction.
     fn return_type(&mut self, returns_value: bool, name: &str) -> Result<Option<TypeExpr>, Diag> {
         if !returns_value {
@@ -427,14 +445,14 @@ impl Parser {
                     self.span(),
                     format!("`proc {}` cannot declare a return type", name),
                 )
-                .with_note("a `proc` returns nothing; use `fun` if it produces a value"));
+                .with_note("a `proc` returns nothing; use `func` if it produces a value"));
             }
             return Ok(None);
         }
         if !self.eat(&Tok::Colon) {
             return Err(Diag::new(
                 self.span(),
-                format!("`fun {}` must declare what it returns", name),
+                format!("`func {}` must declare what it returns", name),
             )
             .with_note("write `: Type`, or declare it with `proc` if it returns nothing"));
         }
@@ -472,7 +490,7 @@ impl Parser {
         Ok(binds)
     }
 
-    /// An optional `<T, U: Bound, V>` after a `fun` or `class` name.
+    /// An optional `<T, U: Bound, V>` after a `func` or `class` name.
     fn type_param_list(&mut self) -> Result<Vec<TypeParam>, Diag> {
         let mut out = Vec::new();
         if !self.at(&Tok::Lt) {
@@ -526,7 +544,7 @@ impl Parser {
         Ok(params)
     }
 
-    /// `trait Name { fun m(...): T ; fun d(...): T { default body } }`
+    /// `trait Name { func m(...): T ; func d(...): T { default body } }`
     ///
     /// `trait` is a contextual keyword: it only introduces a declaration at
     /// the start of an item, so existing code using it as a name still works.
@@ -693,7 +711,7 @@ impl Parser {
                     return Err(Diag::new(
                         self.span(),
                         format!(
-                            "expected `fun`, `proc`, `val` or `var` in a class body, found {}",
+                            "expected `func`, `proc`, `val` or `var` in a class body, found {}",
                             other.describe()
                         ),
                     ))
@@ -726,13 +744,16 @@ impl Parser {
     }
 
     fn stmt(&mut self) -> Result<Stmt, Diag> {
+        if let Some(d) = self.refuse_old_fun() {
+            return Err(d);
+        }
         let span = self.span();
         let mut constexpr = false;
         if self.at_constexpr() {
             self.advance();
             constexpr = true;
             if !matches!(self.peek(), Tok::Val) {
-                return Err(Diag::new(span, "`constexpr` goes before `val` or `fun`").with_note(
+                return Err(Diag::new(span, "`constexpr` goes before `val` or `func`").with_note(
                     "a `var` can be assigned to and a `proc` returns nothing, so neither has one value to compute",
                 ));
             }

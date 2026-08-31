@@ -3,25 +3,25 @@ error: `Broken` does not implement `Show`: `tag` is missing
    |
 11 | class Broken(val n: Int) : Show {
    | ^
-  = note: add `fun tag(prefix: String): String`
-error: `Broken.show` does not match `Show`, which declares `fun show(): String`
+  = note: add `func tag(prefix: String): String`
+error: `Broken.show` does not match `Show`, which declares `func show(): String`
   --> tests/errors/traits.keal:12:5
    |
-12 |     fun show(): Int { this.n }
+12 |     func show(): Int { this.n }
    |     ^
-  = note: found `fun show(): Int`
-error: `Wrong.compareTo` does not match `Ordered`, which declares `fun compareTo(other: Wrong): Int`
+  = note: found `func show(): Int`
+error: `Wrong.compareTo` does not match `Ordered`, which declares `func compareTo(other: Wrong): Int`
   --> tests/errors/traits.keal:17:5
    |
-17 |     fun compareTo(other: Int): Int { this.n - other }
+17 |     func compareTo(other: Int): Int { this.n - other }
    |     ^
-  = note: found `fun compareTo(other: Int): Int`
+  = note: found `func compareTo(other: Int): Int`
 error: `Missing` does not implement `Ordered`: `compareTo` is missing
   --> tests/errors/traits.keal:20:1
    |
 20 | class Missing(val n: Int) : Ordered
    | ^
-  = note: add `fun compareTo(other: Missing): Int`
+  = note: add `func compareTo(other: Missing): Int`
 error: `Show` is listed twice on `Twice`
   --> tests/errors/traits.keal:22:33
    |

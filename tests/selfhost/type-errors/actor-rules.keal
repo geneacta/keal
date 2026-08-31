@@ -1,6 +1,6 @@
 val sysF: ActorSystem<(Int) -> Int> = ActorSystem()
 class Holder(val n: Int) {
-    fun make(): Int {
+    func make(): Int {
         val s: ActorSystem<Int> = ActorSystem()
         s.spawn({ self, m -> println(this.n + m) })
         return 1
@@ -11,5 +11,5 @@ val s2: ActorSystem<Int> = ActorSystem()
 s2.spawn({ self, m -> shared += m })
 val names: List<String> = []
 s2.spawn({ self, m -> names.add("x") })
-fun mk(): (ActorRef<Int>, Int) -> Unit { return { self, m -> println(m) } }
+func mk(): (ActorRef<Int>, Int) -> Unit { return { self, m -> println(m) } }
 s2.spawn(mk())

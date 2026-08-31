@@ -1,5 +1,5 @@
 class A(val n: Int) {
-    fun deinit(): Int { return 1 }
+    func deinit(): Int { return 1 }
 }
 class B(val n: Int) {
     proc deinit(x: Int) { println(x) }

@@ -124,19 +124,19 @@ println("abc"[-1])           // c, counting from the end
 
 ---
 
-## 2. `fun` and `proc`
+## 2. `func` and `proc`
 
 Two declaration words, and which one you use says whether there is a result.
 
 ```keal
-fun add(a: Int, b: Int): Int { a + b }   // returns, and says what
+func add(a: Int, b: Int): Int { a + b }   // returns, and says what
 
 proc greet(name: String) {                // returns nothing
     println("hello, ${name}")
 }
 ```
 
-A `fun` **must** declare its return type. A `proc` **cannot** — so `Unit` and
+A `func` **must** declare its return type. A `proc` **cannot** — so `Unit` and
 `void` are never written anywhere in a Keal program, and using a `proc`'s
 non-result is an error rather than a silent no-op:
 
@@ -157,7 +157,7 @@ The last expression of a body is its value, so `return` is often optional.
 Parameters can have defaults, and arguments can be passed by name:
 
 ```keal
-fun greet(name: String, greeting: String = "hello"): String {
+func greet(name: String, greeting: String = "hello"): String {
     return "${greeting}, ${name}!"
 }
 
@@ -189,7 +189,7 @@ val computed = if (ready) {
 everything else. It reads best as a guard:
 
 ```keal
-fun lengthOf(s: String?): Int {
+func lengthOf(s: String?): Int {
     unless (s != null) { return 0 }
     return s.length
 }
@@ -221,7 +221,7 @@ first matching arm wins, and it is an expression.
 With a subject, arms compare against it:
 
 ```keal
-fun describe(n: Int): String {
+func describe(n: Int): String {
     return when (n) {
         0 -> "zero"
         1, 2, 3 -> "small"        // several values in one arm
@@ -246,7 +246,7 @@ when {
 usable at that type without a cast:
 
 ```keal
-fun render(v: Any): String {
+func render(v: Any): String {
     return when (v) {
         is Int -> "int ${v + 1}"          // v is an Int here
         is String -> v.toUpper()          // and a String here
@@ -340,7 +340,7 @@ xs.sorted().join(" ")                     // "1 1 3 4 5"
 Closures capture variables, not values:
 
 ```keal
-fun counter(): () -> Int {
+func counter(): () -> Int {
     var n = 0
     return { -> n += 1; n }
 }
@@ -372,12 +372,12 @@ are never equal:
 class Counter {
     var n: Int = 0
     proc bump() { this.n += 1 }
-    fun value(): Int { this.n }
+    func value(): Int { this.n }
 }
 
 class Point3(val x: Float, val y: Float) {
     val length: Float = sqrt(x * x + y * y)   // sees the constructor params
-    fun toString(): String { "(${this.x}, ${this.y})" }
+    func toString(): String { "(${this.x}, ${this.y})" }
 }
 ```
 
@@ -410,7 +410,7 @@ when (shape) {
 To return several values of different types, group them:
 
 ```keal
-fun divmod(a: Int, b: Int): (Int, Int) {
+func divmod(a: Int, b: Int): (Int, Int) {
     return a / b, a % b
 }
 
@@ -432,14 +432,14 @@ that is present, `?:` already does it.
 Type parameters go after the name, on functions and on classes alike:
 
 ```keal
-fun firstOr<T>(xs: List<T>, fallback: T): T {
+func firstOr<T>(xs: List<T>, fallback: T): T {
     for (x in xs) { return x }
     return fallback
 }
 
 class Box<T>(val value: T) {
-    fun get(): T { this.value }
-    fun then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
+    func get(): T { this.value }
+    func then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
 }
 ```
 
@@ -454,15 +454,15 @@ A **trait** is a set of method signatures, and what bounds are written in:
 
 ```keal
 trait Show {
-    fun show(): String
-    fun shout(): String { this.show().toUpper() }   // a default
+    func show(): String
+    func shout(): String { this.show().toUpper() }   // a default
 }
 
 class Tag(val name: String) : Show {
-    fun show(): String { "#${this.name}" }
+    func show(): String { "#${this.name}" }
 }
 
-fun describe<T: Show>(value: T): String { value.show() }
+func describe<T: Show>(value: T): String { value.show() }
 ```
 
 `Self` in a trait stands for the implementing type. Several bounds join with
@@ -475,9 +475,9 @@ traits the prelude declares. Implement one and your type gains the operator:
 
 ```keal
 class Vec2(val x: Float, val y: Float) : Add, Neg, Eq {
-    fun plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
-    fun negate(): Vec2 { Vec2(-this.x, -this.y) }
-    fun equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
+    func plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
+    func negate(): Vec2 { Vec2(-this.x, -this.y) }
+    func equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
 }
 
 Vec2(1.0, 2.0) + Vec2(3.0, 4.0)
@@ -487,7 +487,7 @@ The built-in types implement the same traits, so a bound accepts `Int` as
 readily as your own type:
 
 ```keal
-fun total<T: Add>(xs: List<T>, zero: T): T {
+func total<T: Add>(xs: List<T>, zero: T): T {
     var acc = zero
     for (x in xs) { acc = acc + x }
     return acc
@@ -542,8 +542,8 @@ so diamonds and cycles are both fine. What the import brings in is one flat
 namespace, and what it brings in at all is what the other file allowed:
 
 ```keal
-fun rounded(x: Float): Int { ... }           // this file only
-package fun parse(src: String): Ast { ... }  // the files beside it
+func rounded(x: Float): Int { ... }           // this file only
+package func parse(src: String): Ast { ... }  // the files beside it
 public class Ast(val root: Node) { ... }     // whoever imports it
 ```
 
@@ -553,8 +553,8 @@ declares it — and `public` opens it to anyone who imports the file. The
 words are contextual, so a program that already calls something `public`
 keeps working.
 
-Write the modifier on a top-level `fun`, `proc`, `class`, `record`, `trait`,
-`extern fun`, `val` or `var` — and on a class's members, where the same
+Write the modifier on a top-level `func`, `proc`, `class`, `record`, `trait`,
+`extern func`, `val` or `var` — and on a class's members, where the same
 default applies:
 
 ```keal
@@ -630,12 +630,12 @@ native """
 #include <math.h>
 """
 
-extern fun sin(x: Float): Float
+extern func sin(x: Float): Float
 
 println(sin(0.0))
 ```
 
-`native` passes text into the generated C verbatim; `extern fun` binds a
+`native` passes text into the generated C verbatim; `extern func` binds a
 symbol with a checked signature. Only `Int`, `Float` and `Bool` cross the
 boundary — they carry no ownership, so neither side has to guess who frees
 what. With C++ in a separate file:
@@ -690,7 +690,7 @@ assert(word == "after", "the three-way ternary")
 And a `return` can carry its own guard:
 
 ```keal
-fun cheapest<T: Ord>(a: T, b: T): T {
+func cheapest<T: Ord>(a: T, b: T): T {
     return if (compare(a, b).isAtMost()) a
     return b
 }
@@ -704,7 +704,7 @@ zero, a failed `assert`. `throw "message"` raises your own, and
 `try`/`catch` intercepts any of them, binding the message:
 
 ```keal
-fun parseAge(s: String): Int {
+func parseAge(s: String): Int {
     val n = s.toInt()
     if (n == null) { throw "not a number: ${s}" }
     return if (n >= 0) n

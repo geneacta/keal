@@ -1,9 +1,9 @@
 class Point(val x: Float, val y: Float) {
-    fun length(): Float { sqrt(this.x * this.x + this.y * this.y) }
-    fun toString(): String { "(${this.x}, ${this.y})" }
+    func length(): Float { sqrt(this.x * this.x + this.y * this.y) }
+    func toString(): String { "(${this.x}, ${this.y})" }
 }
 
-fun firstLong(points: List<Point>, min: Float): Point? {
+func firstLong(points: List<Point>, min: Float): Point? {
     for (p in points) {
         if (p.length() > min) { return p }
     }

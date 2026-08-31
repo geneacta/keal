@@ -1,2 +1,2 @@
-public fun parse(s: String): String { "two" }
+public func parse(s: String): String { "two" }
 public class Node(public val n: Int)

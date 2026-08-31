@@ -73,7 +73,7 @@ pub enum Item {
     /// `native "..."` — text passed verbatim into the generated C, for
     /// headers and helper definitions the externs below need.
     Native { code: String, span: Span },
-    /// `extern fun name(params): Ret [= "symbol"]` — a C function made
+    /// `extern func name(params): Ret [= "symbol"]` — a C function made
     /// callable, with the signature the checker will hold callers to.
     Extern(ExternDecl),
     /// `import "./other.keal"`, or `import "./other.keal" as other` —
@@ -107,7 +107,7 @@ pub struct ExternDecl {
 pub struct FunDecl {
     pub name: String,
     pub vis: Vis,
-    /// `constexpr fun`: callable from a `constexpr` binding, and held to
+    /// `constexpr funcc`: callable from a `constexpr` binding, and held to
     /// what the compile-time evaluator can run.
     pub constexpr: bool,
     pub type_params: Vec<TypeParam>,
@@ -512,7 +512,7 @@ pub enum TypeExprKind {
     /// A name plus optional type arguments: `Int`, `List<String>`.
     Named { name: String, args: Vec<TypeExpr> },
     /// `borrow T` / `own T` — who owns a value crossing an extern boundary.
-    /// Only meaningful on `extern fun` signatures; the checker says so
+    /// Only meaningful on `extern funcc` signatures; the checker says so
     /// anywhere else.
     Boundary { mode: String, inner: Box<TypeExpr> },
     /// `T?`

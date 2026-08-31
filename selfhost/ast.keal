@@ -7,13 +7,13 @@
 
 import "./types.keal"
 
-/// A type as written: kind is "named", "nullable" or "fun".
+/// A type as written: kind is "named", "nullable" or "func".
 package class TypeEx(package val kind: String, package val line: Int, package val col: Int) {
     package var file: Int = 0
     package var name: String = ""          // named
-    package var args: List<TypeEx> = []    // named: type arguments; fun: parameters
+    package var args: List<TypeEx> = []    // named: type arguments; func: parameters
     package var inner: TypeEx? = null      // nullable
-    package var ret: TypeEx? = null        // fun
+    package var ret: TypeEx? = null        // func
 }
 
 /// One piece of an interpolated string.
@@ -95,7 +95,7 @@ package class ArmN(package val line: Int, package val col: Int) {
 }
 
 /// Statements. kind: let destructure expr return while for break continue
-/// fun class
+/// func class
 package class StmtN(package val kind: String, package val line: Int, package val col: Int) {
     package var file: Int = 0
     package var vis: String = ""           // only ever set on a top-level let
@@ -126,7 +126,7 @@ package class CatchN(package val name: String, package val line: Int, package va
 package class FunN(package var name: String, package val line: Int, package val col: Int) {
     package var file: Int = 0
     package var vis: String = ""           // "", "package" or "public"
-    /// `constexpr fun`: callable from a `constexpr` binding, and held to
+    /// `constexpr func`: callable from a `constexpr` binding, and held to
     /// what the compile-time evaluator can run.
     package var constexpr: Bool = false
     package var typeParams: List<TParamN> = []
@@ -179,7 +179,7 @@ package class ExternN(package var name: String, package val line: Int, package v
     package var ret: TypeEx? = null
 }
 
-/// Top-level items. kind: fun class trait native extern import stmt
+/// Top-level items. kind: func class trait native extern import stmt
 package class ItemN(package val kind: String, package val line: Int, package val col: Int) {
     package var file: Int = 0
     package var funDecl: FunN? = null

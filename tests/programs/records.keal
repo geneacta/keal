@@ -1,5 +1,5 @@
 // Records: immutable data with equality decided by their fields, and the
-// `fun`/`proc` split that removes the need to write `Unit` anywhere.
+// `func`/`proc` split that removes the need to write `Unit` anywhere.
 
 record Point(val x: Int, val y: Int)
 
@@ -9,7 +9,7 @@ record Person(name: String, age: Int)
 record Empty()
 
 record Line(val a: Point, val b: Point) {
-    fun length(): Float {
+    func length(): Float {
         val dx = (this.b.x - this.a.x).toFloat()
         val dy = (this.b.y - this.a.y).toFloat()
         return sqrt(dx * dx + dy * dy)
@@ -38,7 +38,7 @@ class Plain(val n: Int)
 assert(Plain(1) != Plain(1), "a class is not a record")
 
 // Because a record implements `Eq`, it satisfies that bound.
-fun countEqual<T: Eq>(xs: List<T>, target: T): Int {
+func countEqual<T: Eq>(xs: List<T>, target: T): Int {
     var n = 0
     for (x in xs) {
         if (x == target) { n += 1 }
@@ -49,7 +49,7 @@ assert(countEqual([Point(1, 1), Point(2, 2), Point(1, 1)], Point(1, 1)) == 2, "E
 
 // A record may implement further traits itself.
 record Version(val major: Int, val minor: Int) : Ord {
-    fun compareTo(other: Version): Int {
+    func compareTo(other: Version): Int {
         if (this.major != other.major) { return this.major - other.major }
         return this.minor - other.minor
     }
@@ -60,11 +60,11 @@ assert(Version(1, 0) == Version(1, 0), "and Eq still comes for free")
 // The default rendering names the record and its fields.
 assert(Point(1, 2).toString() == "Point(x=1, y=2)", "default toString")
 
-// ---- fun and proc -------------------------------------------------------
+// ---- func and proc -------------------------------------------------------
 
-// A `fun` must say what it returns; a `proc` returns nothing at all, so no
+// A `func` must say what it returns; a `proc` returns nothing at all, so no
 // `Unit` annotation is ever written.
-fun double(n: Int): Int { n * 2 }
+func double(n: Int): Int { n * 2 }
 
 var log = ""
 proc record(s: String) { log += s }
@@ -78,10 +78,10 @@ class Counter {
     var n: Int = 0
     proc bump() { this.n += 1 }
     proc add(k: Int) { this.n += k }
-    fun value(): Int { this.n }
+    func value(): Int { this.n }
 }
 
-assert(double(21) == 42, "a fun produces a value")
+assert(double(21) == 42, "a func produces a value")
 
 record("a")
 record("b")

@@ -2,9 +2,9 @@
 // happens at compile time; where it cannot, the compiler says so rather
 // than quietly leaving the work for run time.
 
-fun ordinary(): Int { return 1 }
+func ordinary(): Int { return 1 }
 
-// Only a `constexpr fun` may be called: an ordinary one is not held to
+// Only a `constexpr func` may be called: an ordinary one is not held to
 // what the compile-time evaluator can run.
 constexpr val CALLED = ordinary()
 

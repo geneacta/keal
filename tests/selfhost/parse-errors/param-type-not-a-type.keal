@@ -1,1 +1,1 @@
-fun f(x: 42): Int { return 1 }
+func f(x: 42): Int { return 1 }

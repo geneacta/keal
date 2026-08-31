@@ -10,10 +10,10 @@ error: `is` cannot test the type parameter `T`
    |                     ^
   = note: type parameters have no run-time identity to check against
 error: `Plain` is not a trait, so it cannot bound `T`
-  --> tests/errors/generics.keal:23:12
+  --> tests/errors/generics.keal:23:13
    |
-23 | fun bad<T: Plain>(value: T): Int { 1 }
-   |            ^
+23 | func bad<T: Plain>(value: T): Int { 1 }
+   |             ^
   = note: declare it with `trait Name { ... }`
 error: cannot infer type parameter(s) `T` for `nothing`
   --> tests/errors/generics.keal:25:16

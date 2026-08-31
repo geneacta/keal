@@ -4,7 +4,7 @@
 // the higher-order list methods compile to plain loops feeding each element
 // through the closure.
 
-fun apply(x: Int, f: (Int) -> Int): Int { return f(x) }
+func apply(x: Int, f: (Int) -> Int): Int { return f(x) }
 
 val double = { x: Int -> x * 2 }
 println(double(21))
@@ -22,7 +22,7 @@ val greet = { name: String -> greeting + ", " + name }
 println(greet("world"))
 
 // Nested lambdas, capturing through two frames.
-fun makeAdder(k: Int): (Int) -> (Int) -> Int {
+func makeAdder(k: Int): (Int) -> (Int) -> Int {
     return { a: Int -> { b: Int -> a + b + k } }
 }
 println(makeAdder(100)(20)(3))

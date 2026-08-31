@@ -1,11 +1,11 @@
 val v = 1
 v = 2
-fun f(p: Int): Int {
+func f(p: Int): Int {
   p = 3
   return p
 }
 for (i in 0..3) {
   i = 5
 }
-fun g(): Int { return 1 }
+func g(): Int { return 1 }
 g = 4

@@ -8,14 +8,14 @@ import "../../lib/jvm.keal"
 // ---- java.time.LocalDate ----
 
 var jbindClsLocalDate = 0
-public fun jbindClassLocalDate(): Int {
+public func jbindClassLocalDate(): Int {
     if (jbindClsLocalDate == 0) { jbindClsLocalDate = jvmClass("java/time/LocalDate") }
     return jbindClsLocalDate
 }
 
 public class LocalDate(public val handle: Int) {
     var released: Bool = false
-    public fun toString(): String { return jvmToString(this.handle) }
+    public func toString(): String { return jvmToString(this.handle) }
     public proc free() {
         unless (this.released) {
             this.released = true
@@ -23,101 +23,101 @@ public class LocalDate(public val handle: Int) {
         }
     }
     proc deinit() { this.free() }
-    public fun getYear(): Int {
+    public func getYear(): Int {
         return jvmCallInt(this.handle, "getYear", "()I")
     }
-    public fun getMonthValue(): Int {
+    public func getMonthValue(): Int {
         return jvmCallInt(this.handle, "getMonthValue", "()I")
     }
-    public fun getDayOfMonth(): Int {
+    public func getDayOfMonth(): Int {
         return jvmCallInt(this.handle, "getDayOfMonth", "()I")
     }
-    public fun getDayOfYear(): Int {
+    public func getDayOfYear(): Int {
         return jvmCallInt(this.handle, "getDayOfYear", "()I")
     }
-    public fun isLeapYear(): Bool {
+    public func isLeapYear(): Bool {
         return jvmCallBool(this.handle, "isLeapYear", "()Z")
     }
-    public fun lengthOfMonth(): Int {
+    public func lengthOfMonth(): Int {
         return jvmCallInt(this.handle, "lengthOfMonth", "()I")
     }
-    public fun lengthOfYear(): Int {
+    public func lengthOfYear(): Int {
         return jvmCallInt(this.handle, "lengthOfYear", "()I")
     }
-    public fun withYear(a0: Int): LocalDate {
+    public func withYear(a0: Int): LocalDate {
         jvmArgInt(a0)
         return LocalDate(jvmCallObj(this.handle, "withYear", "(I)Ljava/time/LocalDate;"))
     }
-    public fun withMonth(a0: Int): LocalDate {
+    public func withMonth(a0: Int): LocalDate {
         jvmArgInt(a0)
         return LocalDate(jvmCallObj(this.handle, "withMonth", "(I)Ljava/time/LocalDate;"))
     }
-    public fun withDayOfMonth(a0: Int): LocalDate {
+    public func withDayOfMonth(a0: Int): LocalDate {
         jvmArgInt(a0)
         return LocalDate(jvmCallObj(this.handle, "withDayOfMonth", "(I)Ljava/time/LocalDate;"))
     }
-    public fun withDayOfYear(a0: Int): LocalDate {
+    public func withDayOfYear(a0: Int): LocalDate {
         jvmArgInt(a0)
         return LocalDate(jvmCallObj(this.handle, "withDayOfYear", "(I)Ljava/time/LocalDate;"))
     }
-    public fun plusYears(a0: Int): LocalDate {
+    public func plusYears(a0: Int): LocalDate {
         jvmArgLong(a0)
         return LocalDate(jvmCallObj(this.handle, "plusYears", "(J)Ljava/time/LocalDate;"))
     }
-    public fun plusMonths(a0: Int): LocalDate {
+    public func plusMonths(a0: Int): LocalDate {
         jvmArgLong(a0)
         return LocalDate(jvmCallObj(this.handle, "plusMonths", "(J)Ljava/time/LocalDate;"))
     }
-    public fun plusWeeks(a0: Int): LocalDate {
+    public func plusWeeks(a0: Int): LocalDate {
         jvmArgLong(a0)
         return LocalDate(jvmCallObj(this.handle, "plusWeeks", "(J)Ljava/time/LocalDate;"))
     }
-    public fun plusDays(a0: Int): LocalDate {
+    public func plusDays(a0: Int): LocalDate {
         jvmArgLong(a0)
         return LocalDate(jvmCallObj(this.handle, "plusDays", "(J)Ljava/time/LocalDate;"))
     }
-    public fun minusYears(a0: Int): LocalDate {
+    public func minusYears(a0: Int): LocalDate {
         jvmArgLong(a0)
         return LocalDate(jvmCallObj(this.handle, "minusYears", "(J)Ljava/time/LocalDate;"))
     }
-    public fun minusMonths(a0: Int): LocalDate {
+    public func minusMonths(a0: Int): LocalDate {
         jvmArgLong(a0)
         return LocalDate(jvmCallObj(this.handle, "minusMonths", "(J)Ljava/time/LocalDate;"))
     }
-    public fun minusWeeks(a0: Int): LocalDate {
+    public func minusWeeks(a0: Int): LocalDate {
         jvmArgLong(a0)
         return LocalDate(jvmCallObj(this.handle, "minusWeeks", "(J)Ljava/time/LocalDate;"))
     }
-    public fun minusDays(a0: Int): LocalDate {
+    public func minusDays(a0: Int): LocalDate {
         jvmArgLong(a0)
         return LocalDate(jvmCallObj(this.handle, "minusDays", "(J)Ljava/time/LocalDate;"))
     }
-    public fun toEpochDay(): Int {
+    public func toEpochDay(): Int {
         return jvmCallLong(this.handle, "toEpochDay", "()J")
     }
-    public fun hashCode(): Int {
+    public func hashCode(): Int {
         return jvmCallInt(this.handle, "hashCode", "()I")
     }
 }
 
-public fun localDateNow(): LocalDate {
+public func localDateNow(): LocalDate {
     return LocalDate(jvmStaticObj(jbindClassLocalDate(), "now", "()Ljava/time/LocalDate;"))
 }
 
-public fun localDateOf(a0: Int, a1: Int, a2: Int): LocalDate {
+public func localDateOf(a0: Int, a1: Int, a2: Int): LocalDate {
     jvmArgInt(a0)
     jvmArgInt(a1)
     jvmArgInt(a2)
     return LocalDate(jvmStaticObj(jbindClassLocalDate(), "of", "(III)Ljava/time/LocalDate;"))
 }
 
-public fun localDateOfYearDay(a0: Int, a1: Int): LocalDate {
+public func localDateOfYearDay(a0: Int, a1: Int): LocalDate {
     jvmArgInt(a0)
     jvmArgInt(a1)
     return LocalDate(jvmStaticObj(jbindClassLocalDate(), "ofYearDay", "(II)Ljava/time/LocalDate;"))
 }
 
-public fun localDateOfEpochDay(a0: Int): LocalDate {
+public func localDateOfEpochDay(a0: Int): LocalDate {
     jvmArgLong(a0)
     return LocalDate(jvmStaticObj(jbindClassLocalDate(), "ofEpochDay", "(J)Ljava/time/LocalDate;"))
 }
@@ -249,14 +249,14 @@ public fun localDateOfEpochDay(a0: Int): LocalDate {
 // ---- java.util.UUID ----
 
 var jbindClsUUID = 0
-public fun jbindClassUUID(): Int {
+public func jbindClassUUID(): Int {
     if (jbindClsUUID == 0) { jbindClsUUID = jvmClass("java/util/UUID") }
     return jbindClsUUID
 }
 
 public class UUID(public val handle: Int) : Ord {
     var released: Bool = false
-    public fun toString(): String { return jvmToString(this.handle) }
+    public func toString(): String { return jvmToString(this.handle) }
     public proc free() {
         unless (this.released) {
             this.released = true
@@ -264,47 +264,47 @@ public class UUID(public val handle: Int) : Ord {
         }
     }
     proc deinit() { this.free() }
-    public fun getLeastSignificantBits(): Int {
+    public func getLeastSignificantBits(): Int {
         return jvmCallLong(this.handle, "getLeastSignificantBits", "()J")
     }
-    public fun getMostSignificantBits(): Int {
+    public func getMostSignificantBits(): Int {
         return jvmCallLong(this.handle, "getMostSignificantBits", "()J")
     }
-    public fun version(): Int {
+    public func version(): Int {
         return jvmCallInt(this.handle, "version", "()I")
     }
-    public fun variant(): Int {
+    public func variant(): Int {
         return jvmCallInt(this.handle, "variant", "()I")
     }
-    public fun timestamp(): Int {
+    public func timestamp(): Int {
         return jvmCallLong(this.handle, "timestamp", "()J")
     }
-    public fun clockSequence(): Int {
+    public func clockSequence(): Int {
         return jvmCallInt(this.handle, "clockSequence", "()I")
     }
-    public fun node(): Int {
+    public func node(): Int {
         return jvmCallLong(this.handle, "node", "()J")
     }
-    public fun hashCode(): Int {
+    public func hashCode(): Int {
         return jvmCallInt(this.handle, "hashCode", "()I")
     }
-    public fun compareTo(a0: UUID): Int {
+    public func compareTo(a0: UUID): Int {
         jvmArgObj(a0.handle)
         return jvmCallInt(this.handle, "compareTo", "(Ljava/util/UUID;)I")
     }
 }
 
-public fun uuidNew(a0: Int, a1: Int): UUID {
+public func uuidNew(a0: Int, a1: Int): UUID {
     jvmArgLong(a0)
     jvmArgLong(a1)
     return UUID(jvmNew(jbindClassUUID(), "(JJ)V"))
 }
 
-public fun uuidRandomUUID(): UUID {
+public func uuidRandomUUID(): UUID {
     return UUID(jvmStaticObj(jbindClassUUID(), "randomUUID", "()Ljava/util/UUID;"))
 }
 
-public fun uuidFromString(a0: String): UUID {
+public func uuidFromString(a0: String): UUID {
     jvmArgStr(a0)
     return UUID(jvmStaticObj(jbindClassUUID(), "fromString", "(Ljava/lang/String;)Ljava/util/UUID;"))
 }

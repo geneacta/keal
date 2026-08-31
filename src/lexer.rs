@@ -18,8 +18,10 @@ pub enum Tok {
     Val,
     Var,
     Fun,
+    /// The old spelling of `func`, kept only to be refused by name.
+    OldFun,
     /// Declares a procedure: something run for its effect, which returns
-    /// nothing. `fun` is the counterpart that must return a value.
+    /// nothing. `func` is the counterpart that must return a value.
     Proc,
     Return,
     If,
@@ -171,7 +173,8 @@ impl Tok {
         match self {
             Tok::Val => "val",
             Tok::Var => "var",
-            Tok::Fun => "fun",
+            Tok::Fun => "func",
+            Tok::OldFun => "fun",
             Tok::Proc => "proc",
             Tok::Return => "return",
             Tok::If => "if",
@@ -622,7 +625,11 @@ impl<'a> Lexer<'a> {
         let tok = match text.as_str() {
             "val" => Tok::Val,
             "var" => Tok::Var,
-            "fun" => Tok::Fun,
+            "func" => Tok::Fun,
+            // The word this language used to use. Lexed on purpose so the
+            // parser can name its replacement, rather than reading it as an
+            // identifier and reporting something that makes no sense.
+            "fun" => Tok::OldFun,
             "proc" => Tok::Proc,
             "return" => Tok::Return,
             "if" => Tok::If,

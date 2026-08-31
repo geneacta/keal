@@ -17,8 +17,8 @@ assert((3 <=> 2 ? "L" : "E" : "G") == "G", "comp ternary greater")
 // Only the selected branch runs, and the condition runs exactly once.
 var runs = 0
 var conds = 0
-fun probe(s: String): String { runs += 1  return s }
-fun judge(a: Int, b: Int): Comp { conds += 1  return compare(a, b) }
+func probe(s: String): String { runs += 1  return s }
+func judge(a: Int, b: Int): Comp { conds += 1  return compare(a, b) }
 val picked = judge(4, 4) ? probe("L") : probe("E") : probe("G")
 assert(picked == "E" and runs == 1 and conds == 1, "lazy branches, one condition")
 
@@ -31,7 +31,7 @@ assert((1 <=> 1 ? 0 : (2 <=> 1 ? 10 : 20 : 30) : 9) == 30, "comp nested in comp"
 
 // User types ride the same rails through Ord.
 record Pair(val a: Int, val b: Int) : Ord {
-    fun compareTo(other: Pair): Int {
+    func compareTo(other: Pair): Int {
         val first = this.a.compareTo(other.a)
         return if (first != 0) first
         return this.b.compareTo(other.b)
@@ -41,7 +41,7 @@ assert((Pair(1, 5) <=> Pair(1, 7)).isLess(), "record spaceship")
 assert((Pair(2, 0) <=> Pair(1, 9) ? -1 : 0 : 1) == 1, "record comp ternary")
 
 // Expression positions: arguments, list and map literals, interpolation.
-fun label(c: Comp): String { return c ? "less" : "equal" : "greater" }
+func label(c: Comp): String { return c ? "less" : "equal" : "greater" }
 assert(label(5 <=> 9) == "less", "ternary as a function body")
 val words = [1 <=> 2 ? "a" : "b" : "c", 2 <=> 1 ? "a" : "b" : "c"]
 assert(words == ["a", "c"], "ternary in list literals")

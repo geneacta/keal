@@ -2,7 +2,7 @@
 // guards, the subject-less form, and `when` as an expression. The `is` arm
 // needs run-time type information and stays refused.
 
-fun bucket(n: Int): String {
+func bucket(n: Int): String {
     return when (n) {
         0 -> "zero"
         1, 2, 3 -> "small"
@@ -14,7 +14,7 @@ fun bucket(n: Int): String {
 }
 
 // A string subject compares by content.
-fun nameOf(s: String): Int {
+func nameOf(s: String): Int {
     return when (s) {
         "one" -> 1
         "two", "deux" -> 2
@@ -22,7 +22,7 @@ fun nameOf(s: String): Int {
     }
 }
 
-fun sign(n: Int): String {
+func sign(n: Int): String {
     return when {
         n < 0 -> "neg"
         n == 0 -> "zero"
@@ -62,7 +62,7 @@ val label = when (3) {
 println(label)
 
 // Arms whose bodies build strings, so the arm's own releases matter.
-fun sentence(n: Int): String {
+func sentence(n: Int): String {
     return when (n) {
         1 -> "one " + "thing"
         else -> "${n} things"

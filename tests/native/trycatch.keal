@@ -1,7 +1,7 @@
 // Panics caught on all three engines, byte for byte — including through
 // deep frames that hold references the unwind must release exactly.
 
-fun deep(n: Int, s: String): String {
+func deep(n: Int, s: String): String {
     val local = s + "-" + n.toString()
     if (n == 0) { throw "bottom reached with " + local }
     return deep(n - 1, local)
@@ -22,7 +22,7 @@ try {
 }
 
 // The guard idiom, natively.
-fun safeDiv(a: Int, b: Int): Int {
+func safeDiv(a: Int, b: Int): Int {
     try { return a / b } catch (e) { return -1 }
 }
 println(safeDiv(84, 2))
@@ -60,7 +60,7 @@ println(log.join(", "))
 // is what a typed clause tests.
 record Refused(val why: String, val at: Int)
 
-fun classify(n: Int): String {
+func classify(n: Int): String {
     try {
         if (n > 10) { throw Refused("too big", n) }
         if (n < 0) { throw n }
@@ -81,7 +81,7 @@ println(classify(7))
 
 // A clause matching nothing lets the panic go on unwinding, to the clause
 // outside that does match it.
-fun outer(): String {
+func outer(): String {
     try {
         try {
             throw Refused("inner", 1)

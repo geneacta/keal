@@ -2,19 +2,19 @@
 // checker records the solved type arguments on each call, and the backend
 // emits the specialisation the first time it sees each set.
 
-fun firstOr<T>(xs: List<T>, fallback: T): T {
+func firstOr<T>(xs: List<T>, fallback: T): T {
     for (x in xs) { return x }
     return fallback
 }
 
-fun mapAll<T, R>(xs: List<T>, f: (T) -> R): List<R> {
+func mapAll<T, R>(xs: List<T>, f: (T) -> R): List<R> {
     val out: List<R> = []
     for (x in xs) { out.add(f(x)) }
     return out
 }
 
 // A generic calling a generic: instantiations compose.
-fun describe<T>(xs: List<T>, fallback: T): String {
+func describe<T>(xs: List<T>, fallback: T): String {
     return "first=${firstOr(xs, fallback)}"
 }
 
@@ -43,7 +43,7 @@ println(Boxed(1, 2) == Boxed(9, 2))
 println(Pair("a", 1) == Pair("a", 1))
 
 // Tuples are generic records underneath, and render as they are written.
-fun divmod(a: Int, b: Int): (Int, Int) { return a / b, a % b }
+func divmod(a: Int, b: Int): (Int, Int) { return a / b, a % b }
 val (q, r) = divmod(17, 5)
 println("${q} remainder ${r}")
 val t = (1, "one")

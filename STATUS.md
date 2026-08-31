@@ -17,7 +17,7 @@ commit that leaves work in flight.*
 3. **Generated embeds**: after editing `src/prelude.keal` or
    `src/runtime.c`, regenerate `selfhost/preludesrc.keal` /
    `selfhost/runtimesrc.keal` (python one-liners wrapping the file in a
-   raw-string `package fun ...Source(): String` — `package`, since
+   raw-string `package func ...Source(): String` — `package`, since
    visibility landed and the twin's files read them from beside them),
    **after** `cargo build --release` (the binary embeds them via
    `include_str!`).
@@ -43,7 +43,7 @@ commit that leaves work in flight.*
 
 - Full language: generics (monomorphized), traits, records, null safety,
   smart casts, `when`, tuples, destructuring, lambdas/closures, modules,
-  flat-precedence logical operators, `fun`/`proc`, `if`/`unless`.
+  flat-precedence logical operators, `func`/`proc`, `if`/`unless`.
 - Three engines agreeing byte-for-byte: tree-walker (spec), bytecode VM
   (default), native via C (`keal build`). Memory model doc + `keal layout`.
 - **Self-hosting complete**: lexer, parser, checker, C emitter written in
@@ -58,6 +58,27 @@ commit that leaves work in flight.*
   (`examples/interop/java/`). Plan in `docs/interop.md`.
 
 ## IN FLIGHT
+
+**`fun` IS NOW `func`.** One word, everywhere: lexers (both), parsers
+(both), every `.keal` file (979 occurrences in 121 files), diagnostics,
+snapshots, docs, site generator, the VS Code grammar and snippets, the
+fuzzer. `<fun name>` became `<func name>` in a function value's rendering,
+which is observable output and had to move with the rest.
+THE OLD WORD IS LEXED ON PURPOSE, as `Tok::OldFun` / kind `"fun"`, and
+REFUSED BY NAME at both places a declaration can start: "`fun` is spelled
+`func`". Reading it as an identifier instead would turn one clear sentence
+into a cascade of nonsense. It stays reserved until nothing spells it the
+old way.
+TWO TRAPS WORTH REMEMBERING: (1) `\nfun` inside an escaped string has NO
+word boundary before `fun` — `\bfun\b` walks straight past it, and three
+occurrences (site/content.py, the VS Code snippets) survived the first
+sweep and only surfaced as a failing tour test. (2) `site/coming.py`
+compares Keal against other languages side by side, and KOTLIN'S `fun` had
+to stay `fun` — only the last string of each row is Keal. Four Kotlin
+occurrences are still there and are correct.
+`tests/fuzz/fuzz.py` generates declarations: until it was updated the run
+read `accepted=0 refused=3000`, which is not a clean run, it is a useless
+one.
 
 **A SIGNATURE CAN PROMISE NOT TO CHANGE WHAT IT WAS GIVEN — DONE.**
 `final` was already the default and needed no word (a parameter cannot be
@@ -81,7 +102,7 @@ examples; ~70 in `selfhost/`, every one an honest accumulator or the checker
 writing types onto its own AST nodes. So immutable-by-default was
 affordable, and marking those 70 turned an invisible property of the
 compiler into something its signatures now state —
-`fun checkExpr(var e: Ex, expected: Ty?)` says what it does.
+`func checkExpr(var e: Ex, expected: Ty?)` says what it does.
 THE BOUNDARY, STATED IN docs/language.md §7: `var` describes what THIS
 function and the calls it makes will do. It is not a claim about the value
 forever — a function may still store what it was given somewhere that
@@ -134,7 +155,7 @@ refuse a tag that does not exist, fetch, import, run.
 **`constexpr` — DONE, all three engines.** `constexpr val NAME = <expr>` is
 a promise about WHEN the work happens: the checker runs the expression and
 WRITES THE ANSWER BACK OVER THE INITIALIZER as a literal, so every engine
-below sees a constant. `constexpr fun` is a function such a binding may
+below sees a constant. `constexpr func` is a function such a binding may
 call; its body may use bindings, assignment, `if`, `when`, `while`, `for`,
 `break`, `continue`, `return`.
 THE DESIGN DECISION: it is NOT the tree-walker with a flag. What a
@@ -155,7 +176,7 @@ arithmetic under a `try` and reports the engine's own message — using the
 typed exceptions shipped two commits earlier, and avoiding a second
 implementation of the overflow checks, which would be a second chance to
 differ.
-SYNTAX: contextual, like `record`/`weak` — only before `val` or `fun`, so
+SYNTAX: contextual, like `record`/`weak` — only before `val` or `func`, so
 `val constexpr = 7` is still a binding. `constexpr var`/`proc` are refused
 where written.
 Corpus: `tests/programs/constexpr.keal` (assertions),
@@ -450,8 +471,8 @@ says nothing is **private to its own file**; `package` opens it to every
 file in the same directory — a package IS a directory, nothing declares
 one — and `public` opens it to whoever imports the file. The three words
 are contextual, like `record` and `weak`, so no program that used one as
-a name broke. Written on a top-level `fun`/`proc`/`class`/`record`/
-`trait`/`extern fun`/`val`/`var`; inside a body there is nothing to write
+a name broke. Written on a top-level `func`/`proc`/`class`/`record`/
+`trait`/`extern func`/`val`/`var`; inside a body there is nothing to write
 it on, and `public` before anything else is refused by name.
 MECHANISM: `Vis` on the AST (oracle `src/ast.rs`, twin `var vis: String`
 where "" is private); the parser reads the modifier before the
@@ -860,7 +881,7 @@ smoke test passes):
   because bound generics like `compare<T: Ord>` call `compareTo` on `Int`).
 - Prelude: traits `Pow`/`Root`; `record Comp(val sign: Int)` with
   isLess/isEqual/isGreater/isAtMost/isAtLeast/toString; generic
-  `fun compare<T: Ord>(a, b): Comp`. Embeds regenerated.
+  `func compare<T: Ord>(a, b): Comp`. Embeds regenerated.
 
 **All remaining steps below were completed** (float printing fixed with a
 shortest-roundtrip loop in `keal_str_from_float`; all four twins mirrored;

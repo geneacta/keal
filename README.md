@@ -52,11 +52,11 @@ At a glance:
 
 ```keal
 class Point(val x: Float, val y: Float) {
-    fun length(): Float { sqrt(this.x * this.x + this.y * this.y) }
-    fun toString(): String { "(${this.x}, ${this.y})" }
+    func length(): Float { sqrt(this.x * this.x + this.y * this.y) }
+    func toString(): String { "(${this.x}, ${this.y})" }
 }
 
-fun firstLong(points: List<Point>, min: Float): Point? {
+func firstLong(points: List<Point>, min: Float): Point? {
     for (p in points) {
         if (p.length() > min) { return p }
     }
@@ -176,14 +176,14 @@ engines, which must agree on every byte they print.
   initializers, methods, and a `toString` hook that `println` respects. A
   `record` is the data case: immutable fields and `==` comparing them one by
   one, which is what makes a separate `struct` unnecessary.
-- **`fun` and `proc`.** A `fun` must declare what it returns; a `proc` returns
+- **`func` and `proc`.** A `func` must declare what it returns; a `proc` returns
   nothing. The split means `Unit` and `void` are never written by hand, and
   using a `proc`'s result is an error rather than a silent no-op.
 - **Operator overloading through traits.** `+`, `-`, `*`, `/`, `%`, `**`
   (power, right-associative), `^/` (root — the inverse of `**`; `//` belongs
   to comments), unary `-`, `==` and the four comparisons are wired to
   prelude traits (`Add`, `Pow`, `Root`, `Ord`, …). The built-in types
-  implement them too, so `fun total<T: Add>(...)` accepts `Int` and your own
+  implement them too, so `func total<T: Add>(...)` accepts `Int` and your own
   type alike. Compound forms (`+=` … `**=`, `^/=`) and the statement
   increments `x++` / `x--` come along. Integer arithmetic is **checked** —
   overflow, division by zero and `Int.pow`'s negative exponent panic instead
@@ -229,7 +229,7 @@ engines, which must agree on every byte they print.
   — every scope releases exactly what it owns on the way out, zero leaks,
   zero cost to programs that never `try`
   ([`docs/drop.md`](docs/drop.md) records the design).
-- **Generics and traits.** `fun first<T>(...)`, `class Box<T>`, inferred one
+- **Generics and traits.** `func first<T>(...)`, `class Box<T>`, inferred one
   argument at a time so a later lambda knows what an earlier argument fixed.
   Traits carry required and default methods, `Self`, and bounds (`<T: Show +
   Ordered>`) that the checker enforces.
@@ -250,7 +250,7 @@ engines, which must agree on every byte they print.
   match wins, and it is an expression.
 - **Destructuring and tuples.** `val Point(x, y) = p` names a value's
   constructor fields, and `is Circle(r) ->` tests and binds in one move.
-  `fun divmod(a: Int, b: Int): (Int, Int) { return a / b, a % b }` returns
+  `func divmod(a: Int, b: Int): (Int, Int) { return a / b, a % b }` returns
   several values of different types, taken apart with `val (q, r) = ...`.
 - **Lazy sequences** — the `Stream`/`Sequence` pipeline, written in ordinary
   Keal in the prelude: `seq(xs).map(f).filter(p).take(3).toList()` computes
@@ -359,7 +359,7 @@ the accumulator's type before it can type the lambda. Both the built-in table
 and user generics resolve a signature after each argument they check, so
 whatever an earlier argument settles is available to a later one.
 
-**No `void`.** A declaration is either a `fun`, which must say what it
+**No `void`.** A declaration is either a `func`, which must say what it
 returns, or a `proc`, which returns nothing — nothing in between. So there is
 no annotation meaning "no result", and no way to accidentally consume one.
 
@@ -435,7 +435,7 @@ fails where it would have failed on either interpreter.
 
 **Calling C and C++ from Keal** is part of the language, not an FFI bolted
 on. A `native` block passes text into the generated C verbatim — a header, or
-an implementation written inline — and `extern fun` binds a symbol with a
+an implementation written inline — and `extern func` binds a symbol with a
 signature the checker holds callers to. Only ownership-free types cross
 (`Int`, `Float`, `Bool`), which is the boundary `docs/memory.md` drew before
 any of this existed. C++ lives in its own files behind `extern "C"`, and
@@ -449,9 +449,9 @@ static int64_t triple(int64_t n) { return n * 3; }
 extern int64_t fib_cpp(int64_t n);
 """
 
-extern fun sin(x: Float): Float
-extern fun triple(n: Int): Int
-extern fun fib_cpp(n: Int): Int
+extern func sin(x: Float): Float
+extern func triple(n: Int): Int
+extern func fib_cpp(n: Int): Int
 ```
 
 The interpreters refuse an extern call by name — `compile with keal build to
@@ -474,9 +474,9 @@ extern int64_t k_bonus(int64_t n);                       // Keal, from C
 static double dot(Keal_Vec2 a, Keal_Vec2 b) { return a.x*b.x + a.y*b.y; }
 static char* shout(const char* s) { /* malloc'd upper-case copy */ }
 """
-fun bonus(n: Int): Int { return n + 58 }
-extern fun dot(a: Vec2, b: Vec2): Float
-extern fun shout(s: borrow String): own String
+func bonus(n: Int): Int { return n + 58 }
+extern func dot(a: Vec2, b: Vec2): Float
+extern func shout(s: borrow String): own String
 ```
 
 Misuse is a checked error with the fix in the note: a bare `String` at the
@@ -485,7 +485,7 @@ them."*
 
 **And Rust works today, in four commands.** `keal build` takes link inputs
 (`.a`/`.so`/`.o`, `-l`, `-L`) and compile flags (`-I`, `-D`), and
-`keal bindgen header.h` turns a C header into `extern fun` declarations —
+`keal bindgen header.h` turns a C header into `extern func` declarations —
 binding exactly what crosses and skipping the rest *with the reason
 printed*. A Rust staticlib's `cbindgen` header, a Go `c-archive` header, or
 sqlite's own: same tool.

@@ -3,7 +3,7 @@
 // the Rust tree. If src/prelude.keal changes and this copy does not, the
 // checker oracle test will fail; regenerate rather than edit.
 
-package fun preludeSource(): String {
+package func preludeSource(): String {
     return """// The prelude: traits every program can rely on, loaded before its own code.
 //
 // These are ordinary Keal traits — there is nothing the compiler knows about
@@ -17,56 +17,56 @@ package fun preludeSource(): String {
 //     a % b   is  a.rem(b)
 //
 // The built-in types already implement the ones that make sense for them, so
-// `fun total<T: Add>(xs: List<T>, zero: T): T` works at `Int` and at your own
+// `func total<T: Add>(xs: List<T>, zero: T): T` works at `Int` and at your own
 // types alike. Operators on built-in types are evaluated directly; the
 // rewrite only happens for a class or a bounded type parameter.
 
 public trait Add {
-    fun plus(other: Self): Self
+    func plus(other: Self): Self
 }
 
 public trait Sub {
-    fun minus(other: Self): Self
+    func minus(other: Self): Self
 }
 
 public trait Mul {
-    fun times(other: Self): Self
+    func times(other: Self): Self
 }
 
 public trait Div {
-    fun div(other: Self): Self
+    func div(other: Self): Self
 }
 
 public trait Rem {
-    fun rem(other: Self): Self
+    func rem(other: Self): Self
 }
 
 public trait Neg {
-    fun negate(): Self
+    func negate(): Self
 }
 
 /// `a ** b` is `a.pow(b)` — power, right-associative, tighter than `*`.
 public trait Pow {
-    fun pow(other: Self): Self
+    func pow(other: Self): Self
 }
 
 /// `a ^/ b` is `a.root(b)` — the b-th root, the inverse of `**`. (`//`
 /// belongs to comments, so the root wears the power's hat.)
 public trait Root {
-    fun root(other: Self): Self
+    func root(other: Self): Self
 }
 
 /// Structural equality. Without it, `==` on two instances compares identity,
 /// so two separately built values are never equal.
 public trait Eq {
-    fun equals(other: Self): Bool
+    func equals(other: Self): Bool
 }
 
 /// A total order. `compareTo` returns a negative number, zero, or a positive
 /// number according as the receiver is less than, equal to, or greater than
 /// `other` — the same convention as `Int.compareTo`.
 public trait Ord {
-    fun compareTo(other: Self): Int
+    func compareTo(other: Self): Int
 }
 
 // ---- ordering, spoken plainly -------------------------------------------
@@ -77,13 +77,13 @@ public trait Ord {
 
 /// The outcome of a comparison: less, equal or greater — exactly one.
 public record Comp(val sign: Int) {
-    public fun isLess(): Bool { return this.sign < 0 }
-    public fun isEqual(): Bool { return this.sign == 0 }
-    public fun isGreater(): Bool { return this.sign > 0 }
-    public fun isAtMost(): Bool { return this.sign <= 0 }
-    public fun isAtLeast(): Bool { return this.sign >= 0 }
+    public func isLess(): Bool { return this.sign < 0 }
+    public func isEqual(): Bool { return this.sign == 0 }
+    public func isGreater(): Bool { return this.sign > 0 }
+    public func isAtMost(): Bool { return this.sign <= 0 }
+    public func isAtLeast(): Bool { return this.sign >= 0 }
 
-    public fun toString(): String {
+    public func toString(): String {
         if (this.sign < 0) { return "less" }
         if (this.sign > 0) { return "greater" }
         return "equal"
@@ -92,7 +92,7 @@ public record Comp(val sign: Int) {
 
 /// Compares two values of any ordered type — `Int`, `Float`, `String`, or
 /// your own `: Ord` class — as a `Comp`.
-public fun compare<T: Ord>(a: T, b: T): Comp {
+public func compare<T: Ord>(a: T, b: T): Comp {
     val sign = a.compareTo(b)
     if (sign < 0) { return Comp(-1) }
     if (sign > 0) { return Comp(1) }
@@ -142,13 +142,13 @@ public class SeqIter<T>(val hasNextFn: () -> Bool, val nextFn: () -> T)
 /// A recipe for iteration. Each terminal operation asks `iterFn` for a
 /// fresh pass, so a sequence built from a stable source can be walked twice.
 public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
-    public fun iterator(): SeqIter<T> {
+    public func iterator(): SeqIter<T> {
         val make = this.iterFn
         return make()
     }
 
     /// Transforms each element as it is pulled.
-    public fun map<R>(transform: (T) -> R): Sequence<R> {
+    public func map<R>(transform: (T) -> R): Sequence<R> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -159,7 +159,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
     /// Keeps the elements the predicate accepts. One element of lookahead,
     /// held in a one-slot buffer, is what makes `hasNext` honest.
-    public fun filter(predicate: (T) -> Bool): Sequence<T> {
+    public func filter(predicate: (T) -> Bool): Sequence<T> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -183,7 +183,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 
     /// At most `n` elements, then stops pulling.
-    public fun take(n: Int): Sequence<T> {
+    public func take(n: Int): Sequence<T> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -199,7 +199,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
     /// Skips the first `n` elements, lazily: nothing is pulled until the
     /// downstream asks.
-    public fun drop(n: Int): Sequence<T> {
+    public func drop(n: Int): Sequence<T> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -224,7 +224,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
     /// Elements while the predicate holds; the first refusal ends the
     /// sequence and nothing after it is pulled.
-    public fun takeWhile(predicate: (T) -> Bool): Sequence<T> {
+    public func takeWhile(predicate: (T) -> Bool): Sequence<T> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -249,7 +249,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 
     /// Skips the leading run the predicate accepts, keeps everything after.
-    public fun dropWhile(predicate: (T) -> Bool): Sequence<T> {
+    public func dropWhile(predicate: (T) -> Bool): Sequence<T> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -281,7 +281,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
     /// Substitutes a whole sequence for each element and flattens, still
     /// pulling one element at a time.
-    public fun flatMap<R>(transform: (T) -> Sequence<R>): Sequence<R> {
+    public func flatMap<R>(transform: (T) -> Sequence<R>): Sequence<R> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val outer = makeIter()
@@ -317,7 +317,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
     // -- terminal operations: these pull. --
 
-    public fun toList(): List<T> {
+    public func toList(): List<T> {
         val out: List<T> = []
         val it = this.iterator()
         val has = it.hasNextFn
@@ -337,7 +337,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
         }
     }
 
-    public fun fold<R>(initial: R, operation: (R, T) -> R): R {
+    public func fold<R>(initial: R, operation: (R, T) -> R): R {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -348,7 +348,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
         return acc
     }
 
-    public fun count(): Int {
+    public func count(): Int {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -361,7 +361,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 
     /// True as soon as one element passes; pulls no further.
-    public fun any(predicate: (T) -> Bool): Bool {
+    public func any(predicate: (T) -> Bool): Bool {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -372,7 +372,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 
     /// False as soon as one element fails; pulls no further.
-    public fun all(predicate: (T) -> Bool): Bool {
+    public func all(predicate: (T) -> Bool): Bool {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -383,7 +383,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 
     /// The first element, or null for an empty sequence.
-    public fun first(): T? {
+    public func first(): T? {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -394,7 +394,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
 /// A sequence over a list. The list is read as the sequence is pulled, one
 /// index at a time.
-public fun seq<T>(xs: List<T>): Sequence<T> {
+public func seq<T>(xs: List<T>): Sequence<T> {
     return Sequence({ ->
         var i = 0
         SeqIter({ -> i < xs.size }, { ->
@@ -407,7 +407,7 @@ public fun seq<T>(xs: List<T>): Sequence<T> {
 
 /// The infinite sequence `seed, step(seed), step(step(seed)), ...`. Pair it
 /// with `take` or `takeWhile`; a plain `toList` on it will not come back.
-public fun iterate<T>(seed: T, step: (T) -> T): Sequence<T> {
+public func iterate<T>(seed: T, step: (T) -> T): Sequence<T> {
     return Sequence({ ->
         var current = seed
         var started = false
@@ -466,7 +466,7 @@ public class Outbox<T>(val items: List<T>) {
     /// Everything posted so far, in arrival order — as **copies**: what
     /// leaves the box is yours alone, so draining twice aliases nothing,
     /// on any scheduler.
-    public fun drain(): List<T> {
+    public func drain(): List<T> {
         val out: List<T> = []
         for (v in this.items) {
             out.add(copy(v))
@@ -476,7 +476,7 @@ public class Outbox<T>(val items: List<T>) {
 }
 
 /// An empty outbox; `Outbox<Int>([])` written the readable way.
-public fun outbox<T>(): Outbox<T> {
+public func outbox<T>(): Outbox<T> {
     val items: List<T> = []
     return Outbox(items)
 }
@@ -494,7 +494,7 @@ public class ActorSystem<M>() {
     /// mutating a captured value after the spawn never reaches the actor,
     /// and two actors never share one. Aggregate the actor way — reply
     /// with messages — not through a captured collection.
-    public fun spawn(handler: (ActorRef<M>, M) -> Unit): ActorRef<M> {
+    public func spawn(handler: (ActorRef<M>, M) -> Unit): ActorRef<M> {
         val box: List<M> = []
         this.handlers.add(copyClosure(handler))
         this.mailboxes.add(box)

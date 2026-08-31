@@ -17,7 +17,7 @@ class Loaded(package val program: ProgramN, package val paths: List<String>)
 
 /// Collapses `.` and `..` segments so the same file is never loaded twice
 /// under two spellings. Does not need the file to exist.
-fun normalisePath(p: String): String {
+func normalisePath(p: String): String {
     val out: List<String> = []
     for (part in p.split("/")) {
         if (part == "" or part == ".") { continue }
@@ -48,7 +48,7 @@ fun normalisePath(p: String): String {
 ///
 /// Nothing here fetches: what is on disk is what is read, so a project that
 /// commits its `.keal/deps/` builds with no network and no git at all.
-fun resolveImport(rel: String, dir: String, importer: String): String {
+func resolveImport(rel: String, dir: String, importer: String): String {
     unless (rel.startsWith("dep:")) { return normalisePath(dir + "/" + rel) }
     var rest = rel.substring(4, rel.length)
     while (rest.startsWith("/")) { rest = rest.substring(1, rest.length) }
@@ -64,7 +64,7 @@ fun resolveImport(rel: String, dir: String, importer: String): String {
 /// manifests above it, and its own `dep:` imports must reach the one place
 /// every dependency was fetched into. Nearest would send a library looking
 /// for its dependencies inside itself.
-fun projectRoot(dir: String): String {
+func projectRoot(dir: String): String {
     var at = dir
     var outermost = dir
     var found = false
@@ -82,7 +82,7 @@ fun projectRoot(dir: String): String {
 }
 
 /// The directory holding `path`, or "." when it has none.
-package fun dirOf(path: String): String {
+package func dirOf(path: String): String {
     var cut = -1
     var i = 0
     while (i < path.length) {
@@ -102,7 +102,7 @@ package class Loader() {
     var items: List<ItemN> = []
     var imports: List<ImportEdge> = []
 
-    package fun load(entry: String): Loaded {
+    package func load(entry: String): Loaded {
         // The prelude parses under its own file id, 0.
         this.paths.add("<prelude>")
         lexErrorPrefix = "<prelude>:"
@@ -120,7 +120,7 @@ package class Loader() {
         return Loaded(program, this.paths)
     }
 
-    fun loadFile(path: String, fromPath: String, fromLine: Int, fromCol: Int): Int {
+    func loadFile(path: String, fromPath: String, fromLine: Int, fromCol: Int): Int {
         // A file is read once, but an edge is recorded every time: two files
         // importing the same module are two importers.
         // `?: -1` rather than a nullable read: a map of values is what the

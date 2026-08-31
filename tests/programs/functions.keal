@@ -1,35 +1,35 @@
 // Functions, default and named arguments, lambdas and closures.
 
-fun add(a: Int, b: Int): Int { return a + b }
+func add(a: Int, b: Int): Int { return a + b }
 
 // The last expression of a body is the result; `return` is optional.
-fun mul(a: Int, b: Int): Int { a * b }
+func mul(a: Int, b: Int): Int { a * b }
 
-fun greet(name: String, greeting: String = "hello", punctuation: String = "!"): String {
+func greet(name: String, greeting: String = "hello", punctuation: String = "!"): String {
     return "${greeting}, ${name}${punctuation}"
 }
 
 // A later default may refer to an earlier parameter.
-fun rectangle(width: Int, height: Int = width): Int { width * height }
+func rectangle(width: Int, height: Int = width): Int { width * height }
 
-fun apply(x: Int, f: (Int) -> Int): Int { f(x) }
+func apply(x: Int, f: (Int) -> Int): Int { f(x) }
 
-fun compose(f: (Int) -> Int, g: (Int) -> Int): (Int) -> Int {
+func compose(f: (Int) -> Int, g: (Int) -> Int): (Int) -> Int {
     return { x -> g(f(x)) }
 }
 
-fun counter(start: Int = 0): () -> Int {
+func counter(start: Int = 0): () -> Int {
     var n = start
     return { -> n += 1; n }
 }
 
-fun fact(n: Int): Int {
+func fact(n: Int): Int {
     return if (n <= 1) { 1 } else { n * fact(n - 1) }
 }
 
 // Mutual recursion works because all top-level functions are visible at once.
-fun isEven(n: Int): Bool { if (n == 0) { true } else { isOdd(n - 1) } }
-fun isOdd(n: Int): Bool { if (n == 0) { false } else { isEven(n - 1) } }
+func isEven(n: Int): Bool { if (n == 0) { true } else { isOdd(n - 1) } }
+func isOdd(n: Int): Bool { if (n == 0) { false } else { isEven(n - 1) } }
 
 assert(add(2, 3) == 5, "positional arguments")
 assert(mul(2, 3) == 6, "implicit result from the last expression")
@@ -65,8 +65,8 @@ assert(other() == 1, "each closure has its own state")
 assert(next() == 13, "the first closure is unaffected")
 
 // A local function is an ordinary binding and can capture too.
-fun outer(base: Int): Int {
-    fun inner(k: Int): Int { base + k }
+func outer(base: Int): Int {
+    func inner(k: Int): Int { base + k }
     return inner(1) + inner(2)
 }
 assert(outer(10) == 23, "nested function capturing a parameter")

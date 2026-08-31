@@ -1,3 +1,3 @@
-trait Show { fun show(): String }
-fun display<T: Show>(x: T): String { return x.show() }
+trait Show { func show(): String }
+func display<T: Show>(x: T): String { return x.show() }
 val s = display(42)

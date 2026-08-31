@@ -1,11 +1,11 @@
 class Plain(val n: Int)
 
 class BadAdd(val n: Int) : Add {
-    fun plus(other: Int): BadAdd { BadAdd(this.n + other) }
+    func plus(other: Int): BadAdd { BadAdd(this.n + other) }
 }
 
 class BadOrd(val n: Int) : Ord {
-    fun compareTo(other: BadOrd): Bool { true }
+    func compareTo(other: BadOrd): Bool { true }
 }
 
 val p = Plain(1)

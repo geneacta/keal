@@ -16,12 +16,12 @@ assert(RULE == "ababab", "repeat is bounded by the compiler's budget")
 constexpr val LABEL = "${KB} bytes"
 assert(LABEL == "1024 bytes", "interpolation folds")
 
-// A `constexpr fun` is one the compile-time evaluator is allowed to run.
-constexpr fun square(n: Int): Int { return n * n }
+// A `constexpr func` is one the compile-time evaluator is allowed to run.
+constexpr func square(n: Int): Int { return n * n }
 constexpr val SQ = square(12)
 assert(SQ == 144, "a call folds")
 
-constexpr fun sumTo(n: Int): Int {
+constexpr func sumTo(n: Int): Int {
     var total = 0
     for (i in 0..n) { total += i }
     return total
@@ -29,7 +29,7 @@ constexpr fun sumTo(n: Int): Int {
 assert(sumTo(101) == 5050, "a `for` over a range folds")
 
 // Recursion, bounded by the compiler's frame limit.
-constexpr fun fib(n: Int): Int {
+constexpr func fib(n: Int): Int {
     if (n < 2) { return n }
     return fib(n - 1) + fib(n - 2)
 }
@@ -37,7 +37,7 @@ constexpr val FIB = fib(20)
 assert(FIB == 6765, "recursion folds")
 
 // `while` and `break`.
-constexpr fun digits(n: Int): Int {
+constexpr func digits(n: Int): Int {
     var left = n
     var count = 0
     while (true) {
@@ -51,7 +51,7 @@ constexpr val D = digits(31415926)
 assert(D == 8, "a `while` with a `break` folds")
 
 // `when` used for its value, and `if` used as an expression.
-constexpr fun grade(n: Int): String {
+constexpr func grade(n: Int): String {
     return when {
         n >= 90 -> "A"
         n >= 80 -> "B"
@@ -66,7 +66,7 @@ assert(PICK == "big", "an `if` expression folds")
 
 // A container is the one thing a `constexpr` may change in place, and only
 // through a name it bound itself — which is how a table gets built.
-constexpr fun squares(n: Int): List<Int> {
+constexpr func squares(n: Int): List<Int> {
     var out: List<Int> = []
     for (i in 1..n) { out.add(i * i) }
     return out
@@ -75,7 +75,7 @@ constexpr val TABLE: List<Int> = squares(6)
 assert(TABLE.size == 5, "a table built at compile time")
 assert(TABLE[4] == 25, "and its last element")
 
-constexpr fun lengths(words: List<String>): Map<String, Int> {
+constexpr func lengths(words: List<String>): Map<String, Int> {
     var out: Map<String, Int> = {}
     for (w in words) { out[w] = w.length }
     return out
@@ -85,14 +85,14 @@ assert(LOOKUP.size == 2, "a map built at compile time")
 assert(LOOKUP["three"] == 5, "and what it holds")
 
 // A `constexpr` inside a body folds exactly as one at the top level.
-fun local(): Int {
+func local(): Int {
     constexpr val HALF = 4096 / 2
     return HALF
 }
 assert(local() == 2048, "a local `constexpr`")
 
 // The word is contextual: it names a declaration only before `val` or
-// `fun`, so it stays an ordinary name everywhere else.
+// `func`, so it stays an ordinary name everywhere else.
 val constexpr = 7
 assert(constexpr == 7, "`constexpr` is still a name")
 

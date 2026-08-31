@@ -1,3 +1,3 @@
-extern fun bad(s: String): Int
-extern fun bad2(x: Int = 3): Int
-extern fun bad3(): String
+extern func bad(s: String): Int
+extern func bad2(x: Int = 3): Int
+extern func bad3(): String

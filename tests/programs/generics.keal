@@ -3,40 +3,40 @@
 // Every type parameter must come out concrete at each call site, because the
 // intended backend monomorphises: there is no boxed form to fall back on.
 
-fun firstOr<T>(xs: List<T>, fallback: T): T {
+func firstOr<T>(xs: List<T>, fallback: T): T {
     for (x in xs) { return x }
     return fallback
 }
 
-fun mapAll<T, R>(xs: List<T>, f: (T) -> R): List<R> {
+func mapAll<T, R>(xs: List<T>, f: (T) -> R): List<R> {
     val out: List<R> = []
     for (x in xs) { out.add(f(x)) }
     return out
 }
 
-fun pairUp<A, B>(a: A, b: B): Pair<A, B> { Pair(a, b) }
+func pairUp<A, B>(a: A, b: B): Pair<A, B> { Pair(a, b) }
 
 class Box<T>(val value: T) {
-    fun get(): T { this.value }
-    fun then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
+    func get(): T { this.value }
+    func then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
 }
 
 class Pair<A, B>(val first: A, val second: B) {
-    fun swap(): Pair<B, A> { Pair(this.second, this.first) }
-    fun toString(): String { "(${this.first}, ${this.second})" }
+    func swap(): Pair<B, A> { Pair(this.second, this.first) }
+    func toString(): String { "(${this.first}, ${this.second})" }
 }
 
 class Stack<T> {
     val items: List<T> = []
-    fun push(v: T): Stack<T> {
+    func push(v: T): Stack<T> {
         this.items.add(v)
         return this
     }
-    fun pop(): T? {
+    func pop(): T? {
         if (this.items.isEmpty()) { return null }
         return this.items.removeAt(-1)
     }
-    fun size(): Int { this.items.size }
+    func size(): Int { this.items.size }
 }
 
 // Inference from an argument.

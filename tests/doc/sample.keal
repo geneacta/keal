@@ -1,21 +1,21 @@
 /// Turns a raw score into a grade label.
 ///
 /// Scores below zero are `invalid`; the scale is the usual one.
-fun grade(score: Int): String {
+func grade(score: Int): String {
     return score < 0 ? "invalid" : "graded"
 }
 
 /// A measurement with its unit, comparable by magnitude.
 record Measure(val value: Float, val unit: String) : Ord {
     /// Magnitude order; the unit is a label, not a dimension.
-    fun compareTo(other: Measure): Int {
+    func compareTo(other: Measure): Int {
         return this.value < other.value ? -1 : (this.value > other.value ? 1 : 0)
     }
 }
 
 /// Anything that can render itself for a report.
 trait Reportable {
-    fun report(): String
+    func report(): String
     /// A one-line summary, derived from `report` unless overridden.
-    fun summary(): String { return this.report() }
+    func summary(): String { return this.report() }
 }

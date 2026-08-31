@@ -26,7 +26,7 @@ import content as C  # noqa: E402
 
 def native_only(code):
     """A snippet the interpreters cannot run: it calls into C."""
-    return "extern fun" in code
+    return "extern func" in code
 
 
 def c_driver():

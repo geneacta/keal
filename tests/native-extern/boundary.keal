@@ -43,14 +43,14 @@ extern int64_t k_bonus(int64_t n);
 static int64_t call_back(int64_t n) { return k_bonus(n) * 2; }
 """
 
-fun bonus(n: Int): Int { return n + 58 }
+func bonus(n: Int): Int { return n + 58 }
 
-extern fun call_back(n: Int): Int
+extern func call_back(n: Int): Int
 
-extern fun count_vowels(s: borrow String): Int
-extern fun shout(s: borrow String): own String
-extern fun vec2_dot(a: Vec2, b: Vec2): Float
-extern fun vec2_scale(v: Vec2, k: Float): Vec2
+extern func count_vowels(s: borrow String): Int
+extern func shout(s: borrow String): own String
+extern func vec2_dot(a: Vec2, b: Vec2): Float
+extern func vec2_scale(v: Vec2, k: Float): Vec2
 
 println(count_vowels("boundary crossing"))
 println(shout("hello from c"))

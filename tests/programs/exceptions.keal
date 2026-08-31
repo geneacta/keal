@@ -10,7 +10,7 @@ assert(hit == "boom", "caught the thrown message")
 
 // runtime panics are catchable: division by zero, overflow, index, assert
 var msgs: List<String> = []
-fun boomDiv(): Int { val z = 0  return 1 / z }
+func boomDiv(): Int { val z = 0  return 1 / z }
 try { boomDiv() } catch (e) { msgs.add(e) }
 try { val big = 9223372036854775807  val r = big + 1  println(r) } catch (e) { msgs.add(e) }
 try { val l = [1, 2]  println(l[5]) } catch (e) { msgs.add(e) }
@@ -34,7 +34,7 @@ try {
 assert(order == "a:inner b:outer:inner", order)
 
 // return through try passes uncaught
-fun escape(): Int {
+func escape(): Int {
     try { return 42 } catch (e) { return 0 }
 }
 assert(escape() == 42, "return passes through try")
@@ -54,7 +54,7 @@ try {
 assert(log == "after:1", log)
 
 // catch inside a called function catches callee-deeper panics
-fun safeDiv(a: Int, b: Int): Int {
+func safeDiv(a: Int, b: Int): Int {
     try { return a / b } catch (e) { return -1 }
 }
 assert(safeDiv(10, 2) == 5, "clean path")
@@ -73,7 +73,7 @@ assert(caught != "", "panic crossed the native map call")
 // is left and binds the message, which every value has.
 record Refused(val why: String, val at: Int)
 
-fun classify(n: Int): String {
+func classify(n: Int): String {
     try {
         if (n > 10) { throw Refused("too big", n) }
         if (n < 0) { throw n }
@@ -94,7 +94,7 @@ assert(classify(-1) == "an Int: -1", "a scalar, caught by type")
 assert(classify(7) == "a message: seven is unlucky", "a string falls to the last clause")
 
 // A clause that matches nothing lets the panic go on unwinding.
-fun outer(): String {
+func outer(): String {
     try {
         try {
             throw Refused("inner", 1)
@@ -109,7 +109,7 @@ fun outer(): String {
 assert(outer() == "the outer clause took it: inner", "an unmatched clause rethrows")
 
 // A built-in failure is a thrown String, so a typed clause can name it.
-fun overflowMessage(): String {
+func overflowMessage(): String {
     try {
         val big = 9223372036854775807
         println(big + 1)

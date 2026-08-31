@@ -175,9 +175,9 @@ def program(rng):
         saved = MISTAKE
         MISTAKE = 0.0
         parts = ["class Box<T>(val v: T)"]
-        parts.append("fun f(x: Int): Int {\n    return x + 1\n}")
-        parts.append("fun g<T>(x: Box<T>, y: Box<List<T>>): T {\n    return x.v\n}")
-        parts.append("fun h<T: Ord>(a: T, b: T): Comp {\n    return a <=> b\n}")
+        parts.append("func f(x: Int): Int {\n    return x + 1\n}")
+        parts.append("func g<T>(x: Box<T>, y: Box<List<T>>): T {\n    return x.v\n}")
+        parts.append("func h<T: Ord>(a: T, b: T): Comp {\n    return a <=> b\n}")
         for i in range(rng.randrange(2, 9)):
             parts.append(clean_stmt(rng, i))
         MISTAKE = saved
@@ -185,13 +185,13 @@ def program(rng):
     parts = ["class Box<T>(val v: T)"]
     ret = rng.choice(TYPES)
     a = rng.choice(TYPES)
-    parts.append(f"fun f(x: Int): Int {{\n    return {typed(rng, 'Int')}\n}}")
-    parts.append(f"fun q(x: {a}): {ret} {{\n    return {expr(rng)}\n}}")
-    parts.append(f"fun g<T>(x: Box<T>, y: Box<List<T>>): T {{\n    return x.v\n}}")
-    parts.append(f"fun h<T: Ord>(a: T, b: T): Comp {{\n    return a <=> b\n}}")
+    parts.append(f"func f(x: Int): Int {{\n    return {typed(rng, 'Int')}\n}}")
+    parts.append(f"func q(x: {a}): {ret} {{\n    return {expr(rng)}\n}}")
+    parts.append(f"func g<T>(x: Box<T>, y: Box<List<T>>): T {{\n    return x.v\n}}")
+    parts.append(f"func h<T: Ord>(a: T, b: T): Comp {{\n    return a <=> b\n}}")
     if rng.random() < 0.4:
         parts.append("record R(val a: Int, val b: String) : Ord {\n"
-                     "    fun compareTo(other: R): Int { return this.a.compareTo(other.a) }\n}")
+                     "    func compareTo(other: R): Int { return this.a.compareTo(other.a) }\n}")
     if rng.random() < 0.3:
         parts.append("class D(val n: Int) {\n    proc deinit() { println(this.n) }\n}")
     n = rng.randrange(2, 9)

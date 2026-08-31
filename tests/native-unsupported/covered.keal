@@ -4,12 +4,12 @@
 // `Any` itself compiles now — a tag and a payload — but only values whose
 // layout the tag can name cross into one. A `List<Int>` cannot: `Any`
 // containers hold `Any` elements, so there would be no one stride.
-fun hide(xs: List<Int>): Any {
+func hide(xs: List<Int>): Any {
     return xs
 }
 
 // The guarded call is pointer-shaped; an `Any` is a pair.
-fun guarded(v: Any): String {
+func guarded(v: Any): String {
     return v?.toString() ?: "none"
 }
 

@@ -5,21 +5,21 @@
 // C from the standard library, through a header.
 native "#include <math.h>"
 
-extern fun sin(x: Float): Float
-extern fun llabs(n: Int): Int
+extern func sin(x: Float): Float
+extern func llabs(n: Int): Int
 
 // C written inline, in the native block itself.
 native """
 static int64_t triple(int64_t n) { return n * 3; }
 """
-extern fun triple(n: Int): Int
+extern func triple(n: Int): Int
 
 // C++ from a separate file, behind an extern "C" wrapper. The symbol is
 // declared here, as every extern's must be — by a native block or a header.
 native """
 extern int64_t fib_cpp(int64_t n);
 """
-extern fun fib_cpp(n: Int): Int
+extern func fib_cpp(n: Int): Int
 
 println(sin(0.0))
 println(llabs(-42))

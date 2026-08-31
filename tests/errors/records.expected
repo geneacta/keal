@@ -8,7 +8,7 @@ error: argument `other` produces no value
   |
 7 | val passed = ok().max(shout("x"))
   |                       ^
-  = note: a `proc` returns nothing; use `fun` if it should produce a value
+  = note: a `proc` returns nothing; use `func` if it should produce a value
 error: cannot interpolate an expression with no value
   --> tests/errors/records.keal:8:24
   |

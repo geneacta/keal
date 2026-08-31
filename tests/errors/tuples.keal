@@ -1,4 +1,4 @@
-fun two(): (Int, String) { return 1, "a" }
+func two(): (Int, String) { return 1, "a" }
 
 // A pattern must name as many values as the tuple holds.
 val (d, e, f) = two()

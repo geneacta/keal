@@ -1,1 +1,1 @@
-extern fun f(): Int = "sym${x}"
+extern func f(): Int = "sym${x}"

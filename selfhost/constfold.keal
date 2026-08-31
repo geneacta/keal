@@ -4,7 +4,7 @@
 // `constexpr val NAME = <expr>` is a promise about *when* the work happens:
 // the compiler runs the expression and writes the answer back into the tree
 // as a literal, so all three engines see a constant where the program wrote
-// a computation. `constexpr fun` is a function such a binding may call.
+// a computation. `constexpr func` is a function such a binding may call.
 //
 // It is deliberately not the tree-walking interpreter with a flag. What a
 // `constexpr` may do has to be a promise a reader can hold in their head,
@@ -38,41 +38,41 @@ package class CV(package val kind: String) {
     package var vals: List<CV> = []
 }
 
-package fun cvInt(n: Int): CV {
+package func cvInt(n: Int): CV {
     val v = CV("Int")
     v.i = n
     return v
 }
 
-package fun cvFloat(x: Float): CV {
+package func cvFloat(x: Float): CV {
     val v = CV("Float")
     v.f = x
     return v
 }
 
-package fun cvBool(x: Bool): CV {
+package func cvBool(x: Bool): CV {
     val v = CV("Bool")
     v.b = x
     return v
 }
 
-package fun cvStr(x: String): CV {
+package func cvStr(x: String): CV {
     val v = CV("Str")
     v.s = x
     return v
 }
 
-package fun cvUnit(): CV {
+package func cvUnit(): CV {
     return CV("Unit")
 }
 
-package fun cvList(xs: List<CV>): CV {
+package func cvList(xs: List<CV>): CV {
     val v = CV("List")
     v.items = xs
     return v
 }
 
-package fun cvMap(ks: List<CV>, vs: List<CV>): CV {
+package func cvMap(ks: List<CV>, vs: List<CV>): CV {
     val v = CV("Map")
     v.keys = ks
     v.vals = vs
@@ -80,7 +80,7 @@ package fun cvMap(ks: List<CV>, vs: List<CV>): CV {
 }
 
 /// Structural equality, which is what `==` gives every value this holds.
-package fun cvEq(a: CV, b: CV): Bool {
+package func cvEq(a: CV, b: CV): Bool {
     unless (a.kind == b.kind) { return false }
     if (a.kind == "Int") { return a.i == b.i }
     if (a.kind == "Float") { return a.f == b.f }
@@ -108,7 +108,7 @@ package fun cvEq(a: CV, b: CV): Bool {
 }
 
 /// The escaping a string takes inside a container, matching the runtime's.
-package fun cvEscape(s: String): String {
+package func cvEscape(s: String): String {
     var out = ""
     for (c in s) {
         if (c == "\"") { out += "\\\"" }
@@ -124,7 +124,7 @@ package fun cvEscape(s: String): String {
 /// How the value reads inside a string, which is what interpolation and
 /// `toString` give. The same rendering the interpreters use, because a
 /// folded constant must print what the unfolded program printed.
-package fun cvDisplay(v: CV): String {
+package func cvDisplay(v: CV): String {
     if (v.kind == "Int") { return "${v.i}" }
     if (v.kind == "Float") { return "${v.f}" }
     if (v.kind == "Bool") { return "${v.b}" }
@@ -151,17 +151,17 @@ package fun cvDisplay(v: CV): String {
 }
 
 /// How the value reads *inside* a container, where a string is quoted.
-package fun cvRepr(v: CV): String {
+package func cvRepr(v: CV): String {
     if (v.kind == "Str") { return "\"" + cvEscape(v.s) + "\"" }
     return cvDisplay(v)
 }
 
-package fun cvTypeName(v: CV): String {
+package func cvTypeName(v: CV): String {
     if (v.kind == "Str") { return "String" }
     return v.kind
 }
 
-/// What `return` inside a `constexpr fun` does to the statement walk.
+/// What `return` inside a `constexpr func` does to the statement walk.
 package class CFlow(package val kind: String) {  // "normal" "return" "break" "continue"
     package var value: CV? = null
 }
@@ -173,7 +173,7 @@ package class CBind(package val name: String, package var value: CV) {}
 /// could have written by hand. Null where no literal spells it — which the
 /// folder's own value list makes unreachable, but a null is cheaper than a
 /// crash if that ever stops being true.
-package fun cvLiteral(v: CV, file: Int, line: Int, col: Int): Ex? {
+package func cvLiteral(v: CV, file: Int, line: Int, col: Int): Ex? {
     if (v.kind == "Int") {
         val e = Ex("int", line, col)
         e.file = file
@@ -246,7 +246,7 @@ package class Folder(package val funs: Map<String, FunN>) {
     package var errCol: Int = 0
     package var errMsg: String = ""
     package var errNote: String = ""
-    /// Innermost last. A `constexpr fun` call pushes a frame that sees only
+    /// Innermost last. A `constexpr func` call pushes a frame that sees only
     /// its own parameters, so a body cannot read a caller's names.
     package var scopes: List<List<CBind>> = [[]]
     /// The frame boundary: names below it are not in scope.
@@ -267,23 +267,23 @@ package class Folder(package val funs: Map<String, FunN>) {
         this.errNote = note
     }
 
-    package fun refuse(file: Int, atLine: Int, atCol: Int, what: String): CV? {
+    package func refuse(file: Int, atLine: Int, atCol: Int, what: String): CV? {
         this.report(
             file,
             atLine,
             atCol,
             "`constexpr` cannot evaluate " + what,
-            "a `constexpr` runs at compile time, so it is held to arithmetic, strings, lists, maps and calls to other `constexpr fun`s"
+            "a `constexpr` runs at compile time, so it is held to arithmetic, strings, lists, maps and calls to other `constexpr func`s"
         )
         return null
     }
 
-    package fun plain(file: Int, atLine: Int, atCol: Int, msg: String): CV? {
+    package func plain(file: Int, atLine: Int, atCol: Int, msg: String): CV? {
         this.report(file, atLine, atCol, msg, "")
         return null
     }
 
-    package fun overBudget(file: Int, atLine: Int, atCol: Int): CV? {
+    package func overBudget(file: Int, atLine: Int, atCol: Int): CV? {
         this.report(
             file,
             atLine,
@@ -296,7 +296,7 @@ package class Folder(package val funs: Map<String, FunN>) {
 
     /// One unit of work. False once the budget is gone, and the caller
     /// stops rather than pressing on.
-    package fun step(file: Int, atLine: Int, atCol: Int): Bool {
+    package func step(file: Int, atLine: Int, atCol: Int): Bool {
         if (this.failed) { return false }
         if (this.budget == 0) {
             this.overBudget(file, atLine, atCol)
@@ -306,7 +306,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return true
     }
 
-    package fun lookup(name: String): CV? {
+    package func lookup(name: String): CV? {
         val floor = this.frames[this.frames.size - 1]
         var si = this.scopes.size - 1
         while (si >= floor) {
@@ -321,7 +321,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return null
     }
 
-    package fun bindingOf(name: String): CBind? {
+    package func bindingOf(name: String): CBind? {
         val floor = this.frames[this.frames.size - 1]
         var si = this.scopes.size - 1
         while (si >= floor) {
@@ -341,7 +341,7 @@ package class Folder(package val funs: Map<String, FunN>) {
     /// and a table is built by adding to one — so `out.add(x)` and
     /// `out[k] = v` work, and only through a name, where the folder can see
     /// what it is changing.
-    package fun addTo(name: String, v: CV, file: Int, atLine: Int, atCol: Int): CV? {
+    package func addTo(name: String, v: CV, file: Int, atLine: Int, atCol: Int): CV? {
         val b = this.bindingOf(name)
         if (b == null) { return this.plain(file, atLine, atCol, "`${name}` is not a `constexpr`") }
         val held = b.value
@@ -352,7 +352,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return cvUnit()
     }
 
-    package fun setAt(name: String, k: CV, v: CV, file: Int, atLine: Int, atCol: Int): CV? {
+    package func setAt(name: String, k: CV, v: CV, file: Int, atLine: Int, atCol: Int): CV? {
         val b = this.bindingOf(name)
         if (b == null) { return this.plain(file, atLine, atCol, "`${name}` is not a `constexpr`") }
         val held = b.value
@@ -385,7 +385,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return this.refuse(file, atLine, atCol, "changing a `${cvTypeName(held)}` in place")
     }
 
-    package fun assign(name: String, v: CV): Bool {
+    package func assign(name: String, v: CV): Bool {
         val floor = this.frames[this.frames.size - 1]
         var si = this.scopes.size - 1
         while (si >= floor) {
@@ -407,7 +407,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         this.scopes[this.scopes.size - 1].add(CBind(name, v))
     }
 
-    package fun eval(e: Ex): CV? {
+    package func eval(e: Ex): CV? {
         unless (this.step(e.file, e.line, e.col)) { return null }
         val k = e.kind
         if (k == "int") { return cvInt(e.iVal) }
@@ -503,7 +503,7 @@ package class Folder(package val funs: Map<String, FunN>) {
             }
             var vals: List<CV> = []
             for (a in e.args) {
-                if (a.name != "") { return this.refuse(e.file, e.line, e.col, "a named argument to a `constexpr fun`") }
+                if (a.name != "") { return this.refuse(e.file, e.line, e.col, "a named argument to a `constexpr func`") }
                 val v = this.eval(a.value)
                 if (v == null) { return null }
                 vals.add(v)
@@ -521,7 +521,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return this.refuse(e.file, e.line, e.col, "this kind of expression")
     }
 
-    package fun unary(e: Ex): CV? {
+    package func unary(e: Ex): CV? {
         val v = this.eval(e.kids[0])
         if (v == null) { return null }
         if (e.text == "neg") {
@@ -539,7 +539,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return this.refuse(e.file, e.line, e.col, "`${sym}` on a `${cvTypeName(v)}`")
     }
 
-    package fun truth(e: Ex): Bool? {
+    package func truth(e: Ex): Bool? {
         val v = this.eval(e)
         if (v == null) { return null }
         if (v.kind == "Bool") { return v.b }
@@ -547,7 +547,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return null
     }
 
-    package fun logical(e: Ex): CV? {
+    package func logical(e: Ex): CV? {
         val a = this.truth(e.kids[0])
         if (a == null) { return null }
         val op = e.text
@@ -566,7 +566,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return cvBool((not a) or b)
     }
 
-    package fun mapLit(e: Ex): CV? {
+    package func mapLit(e: Ex): CV? {
         var ks: List<CV> = []
         var vs: List<CV> = []
         var i = 0
@@ -594,7 +594,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return cvMap(ks, vs)
     }
 
-    package fun index(e: Ex): CV? {
+    package func index(e: Ex): CV? {
         val subject = this.eval(e.kids[0])
         if (subject == null) { return null }
         val idx = this.eval(e.kids[1])
@@ -630,7 +630,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return this.refuse(e.file, e.line, e.col, "indexing a `${cvTypeName(subject)}`")
     }
 
-    package fun binary(op: String, a: CV, b: CV, file: Int, atLine: Int, atCol: Int): CV? {
+    package func binary(op: String, a: CV, b: CV, file: Int, atLine: Int, atCol: Int): CV? {
         // Equality and its negation work on everything this holds, as they
         // do at run time.
         if (op == "==") { return cvBool(cvEq(a, b)) }
@@ -663,7 +663,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         )
     }
 
-    package fun intOp(op: String, x: Int, y: Int, file: Int, atLine: Int, atCol: Int): CV? {
+    package func intOp(op: String, x: Int, y: Int, file: Int, atLine: Int, atCol: Int): CV? {
         if (op == "<") { return cvBool(x < y) }
         if (op == "<=") { return cvBool(x <= y) }
         if (op == ">") { return cvBool(x > y) }
@@ -688,7 +688,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return this.refuse(file, atLine, atCol, "`${op}` between a `Int` and a `Int`")
     }
 
-    package fun floatOp(op: String, x: Float, y: Float, file: Int, atLine: Int, atCol: Int): CV? {
+    package func floatOp(op: String, x: Float, y: Float, file: Int, atLine: Int, atCol: Int): CV? {
         if (op == "+") { return cvFloat(x + y) }
         if (op == "-") { return cvFloat(x - y) }
         if (op == "*") { return cvFloat(x * y) }
@@ -706,7 +706,7 @@ package class Folder(package val funs: Map<String, FunN>) {
 
     /// The properties a `constexpr` value answers to — the same ones the
     /// checker types, and no others.
-    package fun property(v: CV, name: String, file: Int, atLine: Int, atCol: Int): CV? {
+    package func property(v: CV, name: String, file: Int, atLine: Int, atCol: Int): CV? {
         if (v.kind == "Str" and name == "length") {
             var n = 0
             for (c in v.s) { n += 1 }
@@ -724,7 +724,7 @@ package class Folder(package val funs: Map<String, FunN>) {
     /// purpose: every one of these has to give the same answer as its
     /// run-time twin, and a method nobody has checked against its twin is
     /// better refused than quietly different.
-    package fun method(v: CV, name: String, args: List<CV>, file: Int, atLine: Int, atCol: Int): CV? {
+    package func method(v: CV, name: String, args: List<CV>, file: Int, atLine: Int, atCol: Int): CV? {
         if (name == "toString" and args.size == 0) { return cvStr(cvDisplay(v)) }
         if (v.kind == "Str" and args.size == 0) {
             if (name == "toUpper") { return cvStr(v.s.toUpper()) }
@@ -774,7 +774,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return this.refuse(file, atLine, atCol, "`.${name}(...)` on a `${cvTypeName(v)}`")
     }
 
-    package fun ifValue(e: Ex): CV? {
+    package func ifValue(e: Ex): CV? {
         val c = this.truth(e.kids[0])
         if (c == null) { return null }
         if (c) { return this.blockValue(e.body!!, e.file, e.line, e.col) }
@@ -787,7 +787,7 @@ package class Folder(package val funs: Map<String, FunN>) {
 
     /// Whether one `when` arm takes this subject. Null means the fold has
     /// already failed and the caller stops.
-    package fun armMatches(arm: ArmN, subj: CV?, file: Int, atLine: Int, atCol: Int): Bool? {
+    package func armMatches(arm: ArmN, subj: CV?, file: Int, atLine: Int, atCol: Int): Bool? {
         if (arm.patternKind == "else") { return true }
         unless (arm.patternKind == "values") {
             this.refuse(file, atLine, atCol, "this kind of `when` arm")
@@ -807,7 +807,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return false
     }
 
-    package fun whenValue(e: Ex): CV? {
+    package func whenValue(e: Ex): CV? {
         var subj: CV? = null
         val s = e.subject
         if (s != null) {
@@ -831,14 +831,14 @@ package class Folder(package val funs: Map<String, FunN>) {
 
     /// A block used for its value: its statements run, and the last
     /// expression is what it is worth.
-    package fun blockValue(b: BlockN, file: Int, atLine: Int, atCol: Int): CV? {
+    package func blockValue(b: BlockN, file: Int, atLine: Int, atCol: Int): CV? {
         this.scopes.add([])
         val out = this.blockValueInner(b, file, atLine, atCol)
         this.scopes.removeAt(this.scopes.size - 1)
         return out
     }
 
-    package fun blockValueInner(b: BlockN, file: Int, atLine: Int, atCol: Int): CV? {
+    package func blockValueInner(b: BlockN, file: Int, atLine: Int, atCol: Int): CV? {
         var last = cvUnit()
         var i = 0
         while (i < b.stmts.size) {
@@ -860,11 +860,11 @@ package class Folder(package val funs: Map<String, FunN>) {
         return last
     }
 
-    package fun call(name: String, args: List<CV>, file: Int, atLine: Int, atCol: Int): CV? {
+    package func call(name: String, args: List<CV>, file: Int, atLine: Int, atCol: Int): CV? {
         unless (this.funs.contains(name)) {
             this.report(
                 file, atLine, atCol,
-                "`${name}` is not a `constexpr fun`",
+                "`${name}` is not a `constexpr func`",
                 "a `constexpr` can only call a function declared `constexpr`, because only those are held to what runs at compile time"
             )
             return null
@@ -904,8 +904,8 @@ package class Folder(package val funs: Map<String, FunN>) {
         return out
     }
 
-    /// A `constexpr fun`'s body: statements until one returns.
-    package fun body(b: BlockN, file: Int, atLine: Int, atCol: Int): CV? {
+    /// A `constexpr func`'s body: statements until one returns.
+    package func body(b: BlockN, file: Int, atLine: Int, atCol: Int): CV? {
         for (s in b.stmts) {
             val flow = this.stmt(s)
             if (flow == null) { return null }
@@ -917,14 +917,14 @@ package class Folder(package val funs: Map<String, FunN>) {
         return cvUnit()
     }
 
-    package fun stmts(b: BlockN): CFlow? {
+    package func stmts(b: BlockN): CFlow? {
         this.scopes.add([])
         val out = this.stmtsInner(b)
         this.scopes.removeAt(this.scopes.size - 1)
         return out
     }
 
-    package fun stmtsInner(b: BlockN): CFlow? {
+    package func stmtsInner(b: BlockN): CFlow? {
         for (s in b.stmts) {
             val flow = this.stmt(s)
             if (flow == null) { return null }
@@ -933,13 +933,13 @@ package class Folder(package val funs: Map<String, FunN>) {
         return CFlow("normal")
     }
 
-    package fun returning(v: CV): CFlow {
+    package func returning(v: CV): CFlow {
         val f = CFlow("return")
         f.value = v
         return f
     }
 
-    package fun stmt(s: StmtN): CFlow? {
+    package func stmt(s: StmtN): CFlow? {
         unless (this.step(s.file, s.line, s.col)) { return null }
         val k = s.kind
         if (k == "let") {
@@ -976,7 +976,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return null
     }
 
-    package fun exprStmt(s: StmtN): CFlow? {
+    package func exprStmt(s: StmtN): CFlow? {
         val e = s.ex!!
         // An `if` written as a statement is still an `if` node, and a
         // `return` inside it has to leave the function rather than be an
@@ -1066,7 +1066,7 @@ package class Folder(package val funs: Map<String, FunN>) {
         return CFlow("normal")
     }
 
-    package fun forLoop(s: StmtN): CFlow? {
+    package func forLoop(s: StmtN): CFlow? {
         val iter = s.ex!!
         var items: List<CV> = []
         if (iter.kind == "range") {

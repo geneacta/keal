@@ -33,6 +33,6 @@ val arrow = { x: Int -> x }
 val range = 0..9
 
 proc p() { return }
-fun q(): Int { return 7 }
+func q(): Int { return 7 }
 unless (false) { }
 when (n) { in 1..2 -> 0 else -> 1 }

@@ -1,4 +1,4 @@
-fun h(): Int {
+func h(): Int {
   return "no"
 }
 proc q() {

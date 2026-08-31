@@ -5,24 +5,24 @@
 record Point(val x: Int, val y: Int)
 
 class Node(val label: String, var next: Node?) {
-    fun depth(): Int {
+    func depth(): Int {
         val rest = this.next
         if (rest == null) { return 1 }
         return 1 + rest.depth()
     }
-    fun last(): String {
+    func last(): String {
         val rest = this.next
         unless (rest == null) { return rest.last() }
         return this.label
     }
 }
 
-fun firstOrNull(hit: Bool): Point? {
+func firstOrNull(hit: Bool): Point? {
     if (hit) { return Point(1, 2) }
     return null
 }
 
-fun nameOf(p: Point?): String {
+func nameOf(p: Point?): String {
     if (p == null) { return "none" }
     return "${p.x},${p.y}"
 }

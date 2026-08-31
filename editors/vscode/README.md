@@ -52,7 +52,7 @@ one pass, one run gives you the whole list rather than the first mistake.
   string interpolation as embedded code, and nested block comments.
 * **Editing**: bracket matching, auto-closing, indentation, and `///` doc
   comments continued on the next line.
-* **Snippets** for the declarations — type `fun`, `proc`, `record`, `trait`,
+* **Snippets** for the declarations — type `func`, `proc`, `record`, `trait`,
   `when`, `unless`, `vald` for a destructuring binding, `shebang`.
 
 ## What it does not know

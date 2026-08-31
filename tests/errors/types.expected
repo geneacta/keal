@@ -28,14 +28,14 @@ error: cannot infer a type from `null` alone
 error: function `missingReturn` must return a value of type `Int`
   --> tests/errors/types.keal:10:1
    |
-10 | fun missingReturn(): Int {
+10 | func missingReturn(): Int {
    | ^
   = note: add a `return`, or make the last expression the result
 error: function `wrongReturn` ends with an expression of type `Int`, but its return type is `String`
-  --> tests/errors/types.keal:14:29
+  --> tests/errors/types.keal:14:30
    |
-14 | fun wrongReturn(): String { 42 }
-   |                             ^
+14 | func wrongReturn(): String { 42 }
+   |                              ^
   = note: the value of a function body is its last expression
 error: unknown type `Widget`
   --> tests/errors/types.keal:16:14

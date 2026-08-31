@@ -1,6 +1,6 @@
 // Nullable types, the null-safe operators and smart casts.
 
-fun findFirst(xs: List<Int>, min: Int): Int? {
+func findFirst(xs: List<Int>, min: Int): Int? {
     for (x in xs) {
         if (x > min) { return x }
     }
@@ -62,7 +62,7 @@ assert(m["b"] == null, "missing key")
 assert((m["b"] ?: 0) == 0, "fallback for a missing key")
 
 // `is` narrows an `Any` to something usable.
-fun lengthOf(v: Any): Int {
+func lengthOf(v: Any): Int {
     if (v is String) { return v.length }
     if (v is List) { return v.size }
     return 0
@@ -72,21 +72,21 @@ assert(lengthOf([1, 2]) == 2, "is List narrows")
 assert(lengthOf(1.0) == 0, "no branch matched")
 
 // A guard that always leaves narrows the rest of the block.
-fun shout(s: String?): String {
+func shout(s: String?): String {
     if (s == null) { return "(nothing)" }
     return s.toUpper()
 }
 assert(shout("hi") == "HI", "narrowing after an early return")
 assert(shout(null) == "(nothing)", "the guard branch still runs")
 
-fun mustHave(s: String?): Int {
+func mustHave(s: String?): Int {
     if (s == null) { panic("expected a value") }
     return s.length
 }
 assert(mustHave("abcd") == 4, "narrowing after a guard that panics")
 
 // Reaching a later `when` arm means the earlier ones did not match.
-fun label(s: String?): String {
+func label(s: String?): String {
     return when {
         s == null -> "none"
         s == "" -> "empty"
@@ -98,7 +98,7 @@ assert(label("") == "empty", "second arm sees s as non-null")
 assert(label("abc") == "3 characters", "else arm sees s as non-null")
 
 // The same for a `when` with a subject that lists `null`.
-fun describeOrDefault(n: Int?): String {
+func describeOrDefault(n: Int?): String {
     return when (n) {
         null -> "missing"
         else -> "${n + 1}"
@@ -108,7 +108,7 @@ assert(describeOrDefault(null) == "missing", "null arm")
 assert(describeOrDefault(4) == "5", "else arm narrows the subject")
 
 // A single condition also narrows its own arm.
-fun firstChar(s: String?): String {
+func firstChar(s: String?): String {
     return when {
         s != null and s.length > 0 -> s[0]
         else -> "?"

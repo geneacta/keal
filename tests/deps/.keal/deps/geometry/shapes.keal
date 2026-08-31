@@ -3,4 +3,4 @@
 
 public record Circle(val r: Float)
 
-public fun area(c: Circle): Float { 3.14159 * c.r * c.r }
+public func area(c: Circle): Float { 3.14159 * c.r * c.r }

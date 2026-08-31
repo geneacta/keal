@@ -11,7 +11,7 @@ Everything below is implemented and covered by the test suite.
 
 ## 1. Files, statements and semicolons
 
-A file is a sequence of declarations (`fun`, `class`, `import`) and
+A file is a sequence of declarations (`func`, `class`, `import`) and
 statements. Statements at the top level run in order; declarations are
 visible everywhere in the program, including before the line that declares
 them.
@@ -19,7 +19,7 @@ them.
 ```keal
 greet()                       // fine: `greet` is declared below
 
-fun greet() { println("hi") }
+func greet() { println("hi") }
 ```
 
 Semicolons are optional. A newline ends a statement whenever the line so far
@@ -36,10 +36,10 @@ The one consequence worth remembering: **an opening brace must sit on the
 same line as the construct it belongs to.**
 
 ```keal
-fun f() {                     // correct
+func f() {                     // correct
 }
 
-fun g()
+func g()
 {                             // error: the newline ended the declaration
 }
 ```
@@ -54,16 +54,21 @@ be made executable and run directly.
 
 ### Reserved words
 
-Thirty-seven words are reserved: none of them can be the name of anything.
+Thirty-eight words are reserved: none of them can be the name of anything.
 
 | | |
 |---|---|
-| **Declarations** | `fun` `proc` `class` `val` `var` `import` |
+| **Declarations** | `func` `proc` `class` `val` `var` `import` `fun` |
 | **Visibility** | `public` `private` `package` `internal` `protected` |
 | **Control flow** | `if` `unless` `else` `when` `while` `for` `in` `break` `continue` `return` |
 | **Errors** | `try` `catch` `throw` |
 | **Values** | `true` `false` `null` `this` `is` |
 | **Connectives** | `not` `and` `or` `xor` `xnor` `nand` `nor` `implies` |
+
+`fun` is reserved for one reason only: it is what `func` used to be called,
+and a file that still says it gets one clear sentence — ``​`fun` is spelled
+`func`​`` — instead of a cascade of nonsense from a word read as a name. It
+will stop being reserved once nothing is left that spells it the old way.
 
 `internal` and `protected` name no rule today. They are reserved anyway, so
 that the day the language grows a visibility between `package` and `public`,
@@ -79,9 +84,9 @@ follows, and stay ordinary names everywhere else.
 | `record` | before a name: `record Point(...)` |
 | `trait` | before a name: `trait Show { ... }` |
 | `weak` | before a field: `weak var parent: Node?` |
-| `constexpr` | before `val` or `fun`: `constexpr val KB = 1024` |
+| `constexpr` | before `val` or `func`: `constexpr val KB = 1024` |
 | `native` | before a string block |
-| `extern` | before `fun`: `extern fun sqrt(...)` |
+| `extern` | before `func`: `extern func sqrt(...)` |
 
 So `val record = 3` is a perfectly good binding, and always will be. The line
 between the two lists is deliberate: a word becomes reserved when reading it
@@ -265,7 +270,7 @@ from one side alone.
 reached when the left one is true, a null check on the left carries across it:
 
 ```koda
-fun nonEmpty(s: String?): Bool { s != null implies s.length > 0 }
+func nonEmpty(s: String?): Bool { s != null implies s.length > 0 }
 ```
 
 ### Blocks are expressions
@@ -285,7 +290,7 @@ val computed = if (ready) {
     0
 }
 
-fun double(n: Int): Int { n * 2 }   // no `return` needed
+func double(n: Int): Int { n * 2 }   // no `return` needed
 ```
 
 Braces are mandatory on `if`, `while` and `for` bodies. An `if` used as a
@@ -308,7 +313,7 @@ val parity = unless (n % 2 == 0) { "odd" } else { "even" }
 It reads best as a guard, where `if (not ...)` needs a moment's thought:
 
 ```keal
-fun lengthOf(s: String?): Int {
+func lengthOf(s: String?): Int {
     unless (s != null) { return 0 }
     return s.length              // narrowed, exactly as after an `if`
 }
@@ -400,7 +405,7 @@ error, because it would be ambiguous about which function it leaves.
 Lambdas close over variables, not values:
 
 ```keal
-fun counter(): () -> Int {
+func counter(): () -> Int {
     var n = 0
     return { -> n += 1; n }
 }
@@ -469,7 +474,7 @@ what survives to run time can be tested — the outer shape — so
 reason, while `is List` and a bare class name are accepted:
 
 ```keal
-fun describe(v: Any): String {
+func describe(v: Any): String {
     return when (v) {
         is Int -> "int ${v + 1}"
         is List -> "list of ${v.size}"
@@ -486,16 +491,16 @@ Keal has two declaration words, and which one you use says whether there is a
 result:
 
 ```keal
-fun add(a: Int, b: Int): Int { a + b }      // produces a value, and says which
+func add(a: Int, b: Int): Int { a + b }      // produces a value, and says which
 
 proc greet(name: String) {                    // produces nothing
     println("hello, ${name}")
 }
 ```
 
-A `fun` **must** declare what it returns. A `proc` **cannot**: it returns
+A `func` **must** declare what it returns. A `proc` **cannot**: it returns
 nothing, so there is no `Unit` or `void` to write anywhere in the language.
-The rule is enforced both ways — `fun f(n: Int) { ... }` and
+The rule is enforced both ways — `func f(n: Int) { ... }` and
 `proc f(n: Int): Int { ... }` are each rejected at the declaration.
 
 A `proc` may still `return` early, just with no value:
@@ -514,10 +519,10 @@ val x = greet("Ada")        // error: expression produces no value
 println(greet("Ada"))       // error: argument `value` produces no value
 ```
 
-Everything below is the same for both, so it says `fun` and means either.
+Everything below is the same for both, so it says `func` and means either.
 
 ```keal
-fun greet(name: String, greeting: String = "hello"): String {
+func greet(name: String, greeting: String = "hello"): String {
     return "${greeting}, ${name}!"
 }
 ```
@@ -535,11 +540,11 @@ greet(greeting = "hi", name = "Ada")
 Functions are values, and may be nested:
 
 ```keal
-fun apply(x: Int, f: (Int) -> Int): Int { f(x) }
+func apply(x: Int, f: (Int) -> Int): Int { f(x) }
 apply(5, { it * it })                    // 25
 
-fun outer(base: Int): Int {
-    fun inner(k: Int): Int { base + k }  // captures `base`
+func outer(base: Int): Int {
+    func inner(k: Int): Int { base + k }  // captures `base`
     return inner(1) + inner(2)
 }
 ```
@@ -602,11 +607,11 @@ class Point(val x: Float, val y: Float) {
     val magnitude: Float = sqrt(x * x + y * y)   // sees constructor parameters
     var label: String = "?"
 
-    fun plus(other: Point): Point {
+    func plus(other: Point): Point {
         return Point(this.x + other.x, this.y + other.y)
     }
 
-    fun toString(): String { "${this.label}(${this.x}, ${this.y})" }
+    func toString(): String { "${this.label}(${this.x}, ${this.y})" }
 }
 
 val p = Point(3.0, 4.0)
@@ -620,7 +625,7 @@ println(p)                  // P(3.0, 4.0)
   above them.
 * Members are always accessed through `this` inside a method.
 * A class with no body needs no braces: `class Pair(val a: Int, val b: String)`.
-* Defining `fun toString(): String` changes how `println` and interpolation
+* Defining `func toString(): String` changes how `println` and interpolation
   render the instance; otherwise they print `Point(x=3.0, y=4.0)`.
 * Instances compare by **identity**. Structural comparison would loop forever
   on a cyclic object graph, so `==` on two separately built instances is
@@ -651,7 +656,7 @@ any other class:
 
 ```keal
 record Version(val major: Int, val minor: Int) : Ord {
-    fun compareTo(other: Version): Int {
+    func compareTo(other: Version): Int {
         if (this.major != other.major) { return this.major - other.major }
         return this.minor - other.minor
     }
@@ -692,7 +697,7 @@ Classes with a primary constructor destructure as readily as records.
 In a `when` arm, `is T(...)` tests the type and binds in one move:
 
 ```keal
-fun area(shape: Any): Float {
+func area(shape: Any): Float {
     return when (shape) {
         is Circle(r) -> 3.14159 * r * r
         is Square(s) -> s * s
@@ -713,7 +718,7 @@ Several values of different types travel together as a tuple, without having
 to declare a record for them:
 
 ```keal
-fun divmod(a: Int, b: Int): (Int, Int) {
+func divmod(a: Int, b: Int): (Int, Int) {
     return a / b, a % b        // no parentheses needed after `return`
 }
 
@@ -758,23 +763,23 @@ return a ?: b ?: c ?: "none"
 ## 10. Generics
 
 Functions and classes may take type parameters. They are written after the
-name, as in `fun name<T>(...)` and `class Box<T>`:
+name, as in `func name<T>(...)` and `class Box<T>`:
 
 ```koda
-fun firstOr<T>(xs: List<T>, fallback: T): T {
+func firstOr<T>(xs: List<T>, fallback: T): T {
     for (x in xs) { return x }
     return fallback
 }
 
-fun mapAll<T, R>(xs: List<T>, f: (T) -> R): List<R> {
+func mapAll<T, R>(xs: List<T>, f: (T) -> R): List<R> {
     val out: List<R> = []
     for (x in xs) { out.add(f(x)) }
     return out
 }
 
 class Box<T>(val value: T) {
-    fun get(): T { this.value }
-    fun then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
+    func get(): T { this.value }
+    func then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
 }
 ```
 
@@ -807,17 +812,17 @@ are written in.
 
 ```koda
 trait Show {
-    fun show(): String
-    fun shout(): String { this.show().toUpper() }   // a default body
+    func show(): String
+    func shout(): String { this.show().toUpper() }   // a default body
 }
 
 trait Ordered {
-    fun compareTo(other: Self): Int
+    func compareTo(other: Self): Int
 }
 
 class Version(val major: Int, val minor: Int) : Show, Ordered {
-    fun show(): String { "v${this.major}.${this.minor}" }
-    fun compareTo(other: Version): Int {
+    func show(): String { "v${this.major}.${this.minor}" }
+    func compareTo(other: Version): Int {
         if (this.major != other.major) { return this.major - other.major }
         return this.minor - other.minor
     }
@@ -835,9 +840,9 @@ A **bound** makes a trait's methods reachable through a type parameter.
 Several bounds are joined with `+`:
 
 ```koda
-fun describe<T: Show>(value: T): String { value.show() }
+func describe<T: Show>(value: T): String { value.show() }
 
-fun loudest<T: Show + Ordered>(a: T, b: T): String {
+func loudest<T: Show + Ordered>(a: T, b: T): String {
     return if (a.compareTo(b) > 0) { a.shout() } else { b.shout() }
 }
 ```
@@ -856,20 +861,20 @@ implements one gains the operator; nothing else changes.
 
 | Operator | Trait | Method |
 |---|---|---|
-| `a + b` | `Add` | `fun plus(other: Self): Self` |
-| `a - b` | `Sub` | `fun minus(other: Self): Self` |
-| `a * b` | `Mul` | `fun times(other: Self): Self` |
-| `a / b` | `Div` | `fun div(other: Self): Self` |
-| `a % b` | `Rem` | `fun rem(other: Self): Self` |
-| `-a` | `Neg` | `fun negate(): Self` |
-| `a == b`, `a != b` | `Eq` | `fun equals(other: Self): Bool` |
-| `a < b`, `<=`, `>`, `>=` | `Ord` | `fun compareTo(other: Self): Int` |
+| `a + b` | `Add` | `func plus(other: Self): Self` |
+| `a - b` | `Sub` | `func minus(other: Self): Self` |
+| `a * b` | `Mul` | `func times(other: Self): Self` |
+| `a / b` | `Div` | `func div(other: Self): Self` |
+| `a % b` | `Rem` | `func rem(other: Self): Self` |
+| `-a` | `Neg` | `func negate(): Self` |
+| `a == b`, `a != b` | `Eq` | `func equals(other: Self): Bool` |
+| `a < b`, `<=`, `>`, `>=` | `Ord` | `func compareTo(other: Self): Int` |
 
 ```koda
 class Vec2(val x: Float, val y: Float) : Add, Neg, Eq {
-    fun plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
-    fun negate(): Vec2 { Vec2(-this.x, -this.y) }
-    fun equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
+    func plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
+    func negate(): Vec2 { Vec2(-this.x, -this.y) }
+    func equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
 }
 
 Vec2(1.0, 2.0) + Vec2(3.0, 4.0)     // Vec2(4.0, 6.0)
@@ -889,7 +894,7 @@ all of them, `String` provides `Add`, `Eq` and `Ord`, and `Bool` provides
 `Eq`. So a bound is satisfied by a built-in as readily as by your own type:
 
 ```koda
-fun total<T: Add>(xs: List<T>, zero: T): T {
+func total<T: Add>(xs: List<T>, zero: T): T {
     var acc = zero
     for (x in xs) { acc = acc + x }
     return acc
@@ -919,8 +924,8 @@ declaration that says nothing about who may name it is private to its own
 file:
 
 ```keal
-fun rounded(x: Float): Int { ... }        // this file's business
-package fun parse(src: String): Ast { ... }  // the files beside it
+func rounded(x: Float): Int { ... }        // this file's business
+package func parse(src: String): Ast { ... }  // the files beside it
 public class Ast(val root: Node) { ... }     // anyone who imports it
 ```
 
@@ -981,8 +986,8 @@ There is no `package` declaration, no version resolution and no registry —
 [packages and namespaces](packages.md) argues why, and in what order the
 rest would come.
 
-The modifier goes on a top-level `fun`, `proc`, `class`, `record`, `trait`,
-`extern fun`, `val` or `var` — and on a class's own members:
+The modifier goes on a top-level `func`, `proc`, `class`, `record`, `trait`,
+`extern func`, `val` or `var` — and on a class's own members:
 
 ```keal
 public class Counter(public var n: Int) {
@@ -1163,12 +1168,12 @@ constexpr val MB = KB * KB          // 1048576, before the program starts
 constexpr val BANNER = ("the " + NAME).toUpper()
 ```
 
-A `constexpr fun` is a function such a binding may call. Its body may use
+A `constexpr func` is a function such a binding may call. Its body may use
 bindings, assignment, `if`, `when`, `while`, `for`, `break`, `continue` and
 `return` — enough to build something:
 
 ```keal
-constexpr fun squares(n: Int): List<Int> {
+constexpr func squares(n: Int): List<Int> {
     var out: List<Int> = []
     for (i in 1..n) { out.add(i * i) }
     return out
@@ -1192,7 +1197,7 @@ says so by name:
 ```
 error: `constexpr` cannot evaluate a lambda
   = note: a `constexpr` runs at compile time, so it is held to arithmetic,
-    strings, lists, maps and calls to other `constexpr fun`s
+    strings, lists, maps and calls to other `constexpr func`s
 ```
 
 Failures are the program's own failures, arriving early. `9223372036854775807 + 1`
@@ -1213,7 +1218,7 @@ That limit is the point. A compiler that gives a wrong answer is a bug; a
 compiler that never answers is not a tool at all.
 
 `constexpr` is contextual, so `val constexpr = 7` is still a perfectly good
-binding. It goes before `val` and `fun` only: a `var` can be assigned to and
+binding. It goes before `val` and `func` only: a `var` can be assigned to and
 a `proc` returns nothing, so neither has one value to compute.
 
 ---
@@ -1229,7 +1234,7 @@ bug — please report it with the program that shows it.
 ## 17. Calling C and C++
 
 A `native` block passes text verbatim into the C that `keal build` generates:
-headers, inline helper functions, declarations. `extern fun` then binds a
+headers, inline helper functions, declarations. `extern func` then binds a
 symbol with a signature the checker enforces at every call:
 
 ```keal
@@ -1238,9 +1243,9 @@ native """
 static int64_t triple(int64_t n) { return n * 3; }
 """
 
-extern fun sin(x: Float): Float
-extern fun triple(n: Int): Int
-extern fun pow(base: Float, exponent: Float): Float = "pow"
+extern func sin(x: Float): Float
+extern func triple(n: Int): Int
+extern func pow(base: Float, exponent: Float): Float = "pow"
 ```
 
 The `= "symbol"` names the C symbol when it differs from the Keal name.

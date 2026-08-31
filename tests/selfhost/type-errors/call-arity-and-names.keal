@@ -1,4 +1,4 @@
-fun add(a: Int, b: Int): Int { return a + b }
+func add(a: Int, b: Int): Int { return a + b }
 val r1 = add(1, 2, 3)
 val r2 = add(1)
 val r3 = add(a = 1, 2)

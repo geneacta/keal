@@ -5,22 +5,22 @@ class Point(val x: Float, val y: Float) {
     val magnitude: Float = sqrt(x * x + y * y)
     var label: String = "?"
 
-    fun plus(other: Point): Point {
+    func plus(other: Point): Point {
         return Point(this.x + other.x, this.y + other.y)
     }
 
-    fun scaled(k: Float): Point {
+    func scaled(k: Float): Point {
         return Point(this.x * k, this.y * k)
     }
 
-    fun toString(): String {
+    func toString(): String {
         return "${this.label}(${this.x}, ${this.y})"
     }
 }
 
 class Counter {
     var count: Int = 0
-    fun bump(by: Int = 1): Int {
+    func bump(by: Int = 1): Int {
         this.count += by
         return this.count
     }
@@ -31,7 +31,7 @@ class Account(val owner: String, var balance: Int = 0) {
         if (amount <= 0) { panic("deposit must be positive") }
         this.balance += amount
     }
-    fun withdraw(amount: Int): Bool {
+    func withdraw(amount: Int): Bool {
         if (amount > this.balance) { return false }
         this.balance -= amount
         return true
@@ -82,7 +82,7 @@ assert(bump(5) == 16, "method reference keeps its receiver")
 // Instances can hold and mutate collections.
 class Bag {
     val items: List<String> = []
-    fun add(s: String): Bag {
+    func add(s: String): Bag {
         this.items.add(s)
         return this
     }

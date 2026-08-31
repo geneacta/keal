@@ -55,7 +55,7 @@ Les fichiers de ce bundle sont des **références de design réalisées en HTML*
 - **Layout** grid 264px + contenu (max 760px, padding 44/56).
 - **Sidebar** : label THE TOUR ; 12 chapitres — faits : pastille 20px fond `rgba(53,200,168,.18)` avec ✓ accent ; actif : fond `rgba(53,200,168,.1)` + bordure gauche 2px accent + pastille pleine accent chiffre sombre ; à venir : pastille contour chiffre `#567870`. Encart bas « EVERY SNIPPET RUNS ».
 - **Contenu** : eyebrow « CHAPTER 6 · 4 MIN » ; H2 ; prose ; bloc de code avec en-tête (nom de fichier + bouton « ▶ Run » fond menthe) ; 2e bloc sans en-tête ; encart ✦ (fond `rgba(169,235,205,.06)`, bordure `.18`) ; navigation bas : « ← when » (contour) / « Collections & lambdas → » (plein accent).
-- Chapitres : Hello world · Values & bindings · fun and proc · Control flow · when · Null safety · Collections & lambdas · Records & classes · Generics & traits · The eight connectives · Errors & diagnostics · Native code & C. Contenus sources : `TUTORIAL.md` du repo (chaque snippet doit être réel et vérifié).
+- Chapitres : Hello world · Values & bindings · func and proc · Control flow · when · Null safety · Collections & lambdas · Records & classes · Generics & traits · The eight connectives · Errors & diagnostics · Native code & C. Contenus sources : `TUTORIAL.md` du repo (chaque snippet doit être réel et vérifié).
 
 ### 3. Docs / Référence (option 2c) — gabarit d'article
 - **Nav** : logo + Docs (actif : bordure basse 2px accent) / Tour / Playground / Blog ; champ recherche 260px « ⌕ Search the docs » avec raccourci ⌘K.

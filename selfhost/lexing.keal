@@ -6,17 +6,17 @@
 // It produces structured tokens; `lexer.keal` derives the comparable dump,
 // `parser.keal` consumes them directly.
 
-fun isDigit(c: String): Bool { c >= "0" and c <= "9" }
+func isDigit(c: String): Bool { c >= "0" and c <= "9" }
 
-fun isAlpha(c: String): Bool {
+func isAlpha(c: String): Bool {
     (c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or c == "_"
 }
 
-fun isAlnum(c: String): Bool { isAlpha(c) or isDigit(c) }
+func isAlnum(c: String): Bool { isAlpha(c) or isDigit(c) }
 
 /// How many bytes this character occupies in UTF-8 — the unit the reference
 /// lexer counts columns in.
-package fun byteWidth(c: String): Int {
+package func byteWidth(c: String): Int {
     val n = c.code()
     if (n < 128) { return 1 }
     if (n < 2048) { return 2 }
@@ -25,7 +25,7 @@ package fun byteWidth(c: String): Int {
 }
 
 /// The dump's escaping, matching `keal tokens` exactly.
-package fun esc(s: String): String {
+package func esc(s: String): String {
     var out = ""
     for (c in s) {
         out += when (c) {
@@ -41,9 +41,13 @@ package fun esc(s: String): String {
 }
 
 /// A keyword, or "" when the word is an ordinary identifier.
-fun keywordOf(w: String): String {
+func keywordOf(w: String): String {
     return when (w) {
-        "val", "var", "fun", "proc", "return", "if", "unless", "else",
+        "val", "var", "func", "proc", "return", "if", "unless", "else",
+        // The old spelling of `func`, lexed on purpose so the parser can
+        // name its replacement rather than reading it as an identifier and
+        // reporting something that makes no sense.
+        "fun",
         "while", "for", "in", "break", "continue", "try", "catch", "throw",
         "class", "this", "null",
         "true", "false", "when", "is", "import",
@@ -57,7 +61,7 @@ fun keywordOf(w: String): String {
 }
 
 /// Can a newline directly after this token become a `;`?
-fun endsStatement(kind: String): Bool {
+func endsStatement(kind: String): Bool {
     return when (kind) {
         "int", "float", "str", "ident", "return", "break", "continue",
         "null", "true", "false", "this", ")", "}", "]", "?", "!!",
@@ -93,17 +97,17 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
     val brackets: List<String> = []
     val out: List<Token> = []
 
-    fun peek(): String {
+    func peek(): String {
         if (this.pos < this.cs.size) { return this.cs[this.pos] }
         return ""
     }
 
-    fun peekAt(k: Int): String {
+    func peekAt(k: Int): String {
         if (this.pos + k < this.cs.size) { return this.cs[this.pos + k] }
         return ""
     }
 
-    fun bump(): String {
+    func bump(): String {
         val c = this.peek()
         this.pos += 1
         if (c == "\n") {
@@ -305,7 +309,7 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
         this.emit(kind, "", tokLine, tokCol)
     }
 
-    fun pick(next: String, yes: String, no: String): String {
+    func pick(next: String, yes: String, no: String): String {
         if (this.peek() == next) {
             this.bump()
             return yes
@@ -501,7 +505,7 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
         this.emitStr(parts, tokLine, tokCol)
     }
 
-    fun unicodeEscape(escLine: Int, escCol: Int): String {
+    func unicodeEscape(escLine: Int, escCol: Int): String {
         unless (this.peek() == "{") {
             this.fail(escLine, escCol, "expected `{` after `\\u`")
             return ""
@@ -530,7 +534,7 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
     }
 }
 
-fun hexToInt(hex: String): Int? {
+func hexToInt(hex: String): Int? {
     if (hex == "") { return null }
     var n = 0
     for (c in hex) {
@@ -549,21 +553,21 @@ fun hexToInt(hex: String): Int? {
 
 
 /// Lexes a whole file.
-package fun lexFile(source: String): List<Token> {
+package func lexFile(source: String): List<Token> {
     val lx = Lexer(source, 1, 1, true)
     lx.run()
     return lx.out
 }
 
 /// Lexes an interpolation hole, whose text starts at the given position.
-package fun lexFragment(source: String, atLine: Int, atCol: Int): List<Token> {
+package func lexFragment(source: String, atLine: Int, atCol: Int): List<Token> {
     val lx = Lexer(source, atLine, atCol, false)
     lx.run()
     return lx.out
 }
 
 /// The one line `keal tokens` prints for this token.
-package fun tokenDumpLine(t: Token): String {
+package func tokenDumpLine(t: Token): String {
     if (t.kind == "str") {
         var lineOut = "${t.line}:${t.col} str"
         for (p in t.parts) {
@@ -581,7 +585,7 @@ package fun tokenDumpLine(t: Token): String {
 }
 
 /// How a token reads in an error message — `describe` in the reference.
-package fun describeToken(t: Token): String {
+package func describeToken(t: Token): String {
     return when (t.kind) {
         "int" -> "integer `${t.text}`"
         "float" -> "float `${t.text}`"

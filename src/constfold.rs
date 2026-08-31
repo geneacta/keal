@@ -3,7 +3,7 @@
 //! `constexpr val NAME = <expr>` is a promise about *when* the work happens:
 //! the compiler runs the expression and writes the answer back into the tree
 //! as a literal, so all three engines see a constant where the program wrote
-//! a computation. `constexpr fun` is a function such a binding may call.
+//! a computation. `constexpr func` is a function such a binding may call.
 //!
 //! It is deliberately not the tree-walking interpreter with a flag. What a
 //! `constexpr` may do has to be a promise a reader can hold in their head,
@@ -16,7 +16,7 @@
 //!
 //! What it can do: arithmetic and comparison, strings and interpolation,
 //! lists and maps, indexing, the properties of those, `if`/`when`
-//! expressions, and calls to other `constexpr fun`s — whose bodies may use
+//! expressions, and calls to other `constexpr func`s — whose bodies may use
 //! bindings, assignment, `if`, `while`, `for` and `return`.
 //!
 //! What it cannot: anything that touches the world (printing, files,
@@ -100,7 +100,7 @@ enum CEdit {
     At(CVal, CVal),
 }
 
-/// What `return` inside a `constexpr fun` does to the statement walk.
+/// What `return` inside a `constexpr func` does to the statement walk.
 enum Flow {
     Normal,
     Return(CVal),
@@ -110,7 +110,7 @@ enum Flow {
 
 pub struct Folder<'a> {
     funs: &'a HashMap<String, Rc<FunDecl>>,
-    /// Innermost last. A `constexpr fun` call pushes a frame that sees only
+    /// Innermost last. A `constexpr func` call pushes a frame that sees only
     /// its own parameters, so a body cannot read a caller's names.
     scopes: Vec<Vec<(String, CVal)>>,
     /// The frame boundary: names below it are not in scope.
@@ -180,7 +180,7 @@ fn as_diag(f: crate::runtime::Flow) -> Diag {
 
 fn refuse<T>(span: Span, what: &str) -> Result<T, Diag> {
     Err(Diag::new(span, format!("`constexpr` cannot evaluate {}", what)).with_note(
-        "a `constexpr` runs at compile time, so it is held to arithmetic, strings, lists, maps and calls to other `constexpr fun`s",
+        "a `constexpr` runs at compile time, so it is held to arithmetic, strings, lists, maps and calls to other `constexpr func`s",
     ))
 }
 
@@ -456,7 +456,7 @@ impl<'a> Folder<'a> {
                 let mut vals = Vec::with_capacity(args.len());
                 for a in args {
                     if a.name.is_some() {
-                        return refuse(e.span, "a named argument to a `constexpr fun`");
+                        return refuse(e.span, "a named argument to a `constexpr func`");
                     }
                     vals.push(self.eval(&a.value)?);
                 }
@@ -706,7 +706,7 @@ impl<'a> Folder<'a> {
 
     fn call(&mut self, name: &str, args: Vec<CVal>, span: Span) -> Result<CVal, Diag> {
         let Some(decl) = self.funs.get(name).cloned() else {
-            return Err(Diag::new(span, format!("`{}` is not a `constexpr fun`", name)).with_note(
+            return Err(Diag::new(span, format!("`{}` is not a `constexpr func`", name)).with_note(
                 "a `constexpr` can only call a function declared `constexpr`, because only those are held to what runs at compile time",
             ));
         };
@@ -745,7 +745,7 @@ impl<'a> Folder<'a> {
         out
     }
 
-    /// A `constexpr fun`'s body: statements until one returns.
+    /// A `constexpr func`'s body: statements until one returns.
     fn body(&mut self, b: &Block, span: Span) -> Result<CVal, Diag> {
         for s in &b.stmts {
             match self.stmt(s)? {

@@ -3,7 +3,7 @@
 // semantics, kept rather than approximated. Plus generic methods,
 // instantiated per receiver-and-argument combination.
 
-fun counter(start: Int): () -> Int {
+func counter(start: Int): () -> Int {
     var n = start
     return { -> n += 1; n }
 }
@@ -16,7 +16,7 @@ println(other())
 println(next())
 
 // Two closures over one cell see each other's writes.
-fun pairOver(): ((Int) -> Int, () -> Int) {
+func pairOver(): ((Int) -> Int, () -> Int) {
     var total = 0
     val add = { k: Int -> total += k; total }
     val read = { -> total }
@@ -28,7 +28,7 @@ println(add(7))
 println(read())
 
 // A captured var of a counted type, replaced through the closure.
-fun greeter(): (String) -> String {
+func greeter(): (String) -> String {
     var last = "nobody"
     return { name: String ->
         val before = last
@@ -47,8 +47,8 @@ shared = 42
 println(show())
 
 record Box<T>(val value: T) {
-    fun get(): T { this.value }
-    fun then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
+    func get(): T { this.value }
+    func then<R>(f: (T) -> R): Box<R> { Box(f(this.value)) }
 }
 val b = Box(21)
 println(b.then({ n: Int -> n * 2 }).get())

@@ -1,15 +1,15 @@
-error: `BadAdd.plus` does not match `Add`, which declares `fun plus(other: BadAdd): BadAdd`
+error: `BadAdd.plus` does not match `Add`, which declares `func plus(other: BadAdd): BadAdd`
   --> tests/errors/operators.keal:4:5
   |
-4 |     fun plus(other: Int): BadAdd { BadAdd(this.n + other) }
+4 |     func plus(other: Int): BadAdd { BadAdd(this.n + other) }
   |     ^
-  = note: found `fun plus(other: Int): BadAdd`
-error: `BadOrd.compareTo` does not match `Ord`, which declares `fun compareTo(other: BadOrd): Int`
+  = note: found `func plus(other: Int): BadAdd`
+error: `BadOrd.compareTo` does not match `Ord`, which declares `func compareTo(other: BadOrd): Int`
   --> tests/errors/operators.keal:8:5
   |
-8 |     fun compareTo(other: BadOrd): Bool { true }
+8 |     func compareTo(other: BadOrd): Bool { true }
   |     ^
-  = note: found `fun compareTo(other: BadOrd): Bool`
+  = note: found `func compareTo(other: BadOrd): Bool`
 error: `Plain` cannot be used with `+`: it does not implement `Add`
   --> tests/errors/operators.keal:12:16
    |

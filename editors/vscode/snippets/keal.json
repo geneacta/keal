@@ -1,7 +1,7 @@
 {
   "Function": {
-    "prefix": "fun",
-    "body": ["fun ${1:name}(${2:param}: ${3:Int}): ${4:Int} {", "\t$0", "}"],
+    "prefix": "func",
+    "body": ["func ${1:name}(${2:param}: ${3:Int}): ${4:Int} {", "\t$0", "}"],
     "description": "A function, which must declare what it returns"
   },
   "Procedure": {
@@ -21,7 +21,7 @@
   },
   "Trait": {
     "prefix": "trait",
-    "body": ["trait ${1:Name} {", "\tfun ${2:method}(): ${3:String}", "}$0"],
+    "body": ["trait ${1:Name} {", "\tfunc ${2:method}(): ${3:String}", "}$0"],
     "description": "A trait: method signatures, and what bounds are written in"
   },
   "when with a subject": {

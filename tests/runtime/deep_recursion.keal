@@ -1,2 +1,2 @@
-fun forever(n: Int): Int { forever(n + 1) }
+func forever(n: Int): Int { forever(n + 1) }
 forever(0)

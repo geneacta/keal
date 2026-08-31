@@ -4,19 +4,19 @@
 // trait method it stands for; on a built-in type it is evaluated directly.
 
 class Vec2(val x: Float, val y: Float) : Add, Sub, Mul, Neg, Eq {
-    fun plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
-    fun minus(other: Vec2): Vec2 { Vec2(this.x - other.x, this.y - other.y) }
-    fun times(other: Vec2): Vec2 { Vec2(this.x * other.x, this.y * other.y) }
-    fun negate(): Vec2 { Vec2(-this.x, -this.y) }
-    fun equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
-    fun toString(): String { "(${this.x}, ${this.y})" }
+    func plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
+    func minus(other: Vec2): Vec2 { Vec2(this.x - other.x, this.y - other.y) }
+    func times(other: Vec2): Vec2 { Vec2(this.x * other.x, this.y * other.y) }
+    func negate(): Vec2 { Vec2(-this.x, -this.y) }
+    func equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
+    func toString(): String { "(${this.x}, ${this.y})" }
 }
 
 class Money(val cents: Int) : Add, Sub, Ord, Eq {
-    fun plus(other: Money): Money { Money(this.cents + other.cents) }
-    fun minus(other: Money): Money { Money(this.cents - other.cents) }
-    fun compareTo(other: Money): Int { this.cents - other.cents }
-    fun equals(other: Money): Bool { this.cents == other.cents }
+    func plus(other: Money): Money { Money(this.cents + other.cents) }
+    func minus(other: Money): Money { Money(this.cents - other.cents) }
+    func compareTo(other: Money): Int { this.cents - other.cents }
+    func equals(other: Money): Bool { this.cents == other.cents }
 }
 
 // A class with no `Eq`: `==` keeps comparing identity.
@@ -47,13 +47,13 @@ assert((m - n).cents == 350, "Sub on the same class")
 
 // Generic code bounded by an operator trait works at a class and at the
 // built-in types alike, because they implement the same traits.
-fun total<T: Add>(xs: List<T>, zero: T): T {
+func total<T: Add>(xs: List<T>, zero: T): T {
     var acc = zero
     for (x in xs) { acc = acc + x }
     return acc
 }
 
-fun biggest<T: Ord>(xs: List<T>, fallback: T): T {
+func biggest<T: Ord>(xs: List<T>, fallback: T): T {
     var best = fallback
     for (x in xs) { if (x > best) { best = x } }
     return best

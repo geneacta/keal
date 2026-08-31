@@ -1,5 +1,5 @@
 class Cell<T>(val v: T) {
-  fun get<R>(f: (T) -> R): R { return f(this.v) }
+  func get<R>(f: (T) -> R): R { return f(this.v) }
 }
 val c = Cell(1)
 val m = c.get

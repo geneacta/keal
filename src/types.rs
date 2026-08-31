@@ -29,7 +29,7 @@ pub enum Type {
     /// wherever a trait method is actually used.
     SelfTy,
     /// A type parameter standing for a type not yet known, such as the `T`
-    /// inside `fun <T> first(xs: List<T>): T?`. Every one of these must be
+    /// inside `func <T> first(xs: List<T>): T?`. Every one of these must be
     /// solved at each call site, because the eventual backend monomorphises:
     /// a generic function is compiled once per concrete instantiation, so
     /// there is no boxed representation to fall back on.

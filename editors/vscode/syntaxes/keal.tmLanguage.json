@@ -65,7 +65,7 @@
       "patterns": [
         {
           "comment": "A function or procedure, with its name and type parameters.",
-          "match": "\\b(fun|proc)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(func|proc)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.declaration.function.keal"
@@ -219,7 +219,7 @@
         },
         {
           "name": "keyword.declaration.keal",
-          "match": "\\b(val|var|fun|proc|class|record|trait|weak|extern|native)\\b"
+          "match": "\\b(val|var|func|proc|class|record|trait|weak|extern|native)\\b"
         },
         {
           "comment": "The destructor hook, which the runtime calls rather than the program.",

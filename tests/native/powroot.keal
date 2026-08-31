@@ -28,7 +28,7 @@ println(compare("zebra", "ant"))
 println(compare(1.5, 1.5))
 println(compare(9, 2).isGreater())
 
-fun cheapest<T: Ord>(a: T, b: T): T {
+func cheapest<T: Ord>(a: T, b: T): T {
     return if (compare(a, b).isAtMost()) a
     return b
 }

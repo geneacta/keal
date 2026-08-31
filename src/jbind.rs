@@ -129,7 +129,7 @@ pub fn ensure_cache(path: &Path) -> Result<(), String> {
 }
 
 const KEAL_KEYWORDS: &[&str] = &[
-    "val", "var", "fun", "proc", "class", "if", "else", "unless", "when", "is", "in", "for",
+    "val", "var", "func", "proc", "class", "if", "else", "unless", "when", "is", "in", "for",
     "while", "return", "break", "continue", "null", "true", "false", "this", "import", "not",
     "and", "or", "xor", "xnor", "nand", "nor", "implies", "borrow", "own",
 ];
@@ -447,7 +447,7 @@ fn emit_class(p: &ParsedClass, simple: &str, bound: &[(String, String)]) -> Stri
     out.push_str(&format!("\n// ---- {} ----\n\n", p.fqcn));
     out.push_str(&format!(
         "var jbindCls{} = 0\n\
-         public fun {}(): Int {{\n    \
+         public func {}(): Int {{\n    \
          if (jbindCls{} == 0) {{ jbindCls{} = jvmClass(\"{}\") }}\n    \
          return jbindCls{}\n\
          }}\n\n",
@@ -464,7 +464,7 @@ fn emit_class(p: &ParsedClass, simple: &str, bound: &[(String, String)]) -> Stri
         if is_ord { " : Ord" } else { "" }
     ));
     out.push_str("    var released: Bool = false\n");
-    out.push_str("    public fun toString(): String { return jvmToString(this.handle) }\n");
+    out.push_str("    public func toString(): String { return jvmToString(this.handle) }\n");
     out.push_str(
         "    public proc free() {\n        unless (this.released) {\n            this.released = true\n            jvmFree(this.handle)\n        }\n    }\n",
     );
@@ -521,7 +521,7 @@ fn emit_member(
                 simple, accessor, sig
             ));
             Emitted::Toplevel(format!(
-                "public fun {}({}): {} {{\n{}}}\n",
+                "public func {}({}): {} {{\n{}}}\n",
                 fname,
                 params_list(&crossed),
                 simple,
@@ -649,30 +649,30 @@ fn call(
         }
         RetKind::Int => {
             body.push_str(&format!("    return {}\n", gate("Int")));
-            ("fun", ": Int".into(), body)
+            ("func", ": Int".into(), body)
         }
         RetKind::Long => {
             body.push_str(&format!("    return {}\n", gate("Long")));
-            ("fun", ": Int".into(), body)
+            ("func", ": Int".into(), body)
         }
         RetKind::Double => {
             body.push_str(&format!("    return {}\n", gate("Double")));
-            ("fun", ": Float".into(), body)
+            ("func", ": Float".into(), body)
         }
         RetKind::Bool => {
             body.push_str(&format!("    return {}\n", gate("Bool")));
-            ("fun", ": Bool".into(), body)
+            ("func", ": Bool".into(), body)
         }
         RetKind::Str => {
             body.push_str(&format!("    val h = {}\n", gate("Obj")));
             body.push_str("    val s = jvmToString(h)\n");
             body.push_str("    jvmFree(h)\n");
             body.push_str("    return s\n");
-            ("fun", ": String".into(), body)
+            ("func", ": String".into(), body)
         }
         RetKind::Obj(simple) => {
             body.push_str(&format!("    return {}({})\n", simple, gate("Obj")));
-            ("fun", format!(": {}", simple), body)
+            ("func", format!(": {}", simple), body)
         }
     }
 }

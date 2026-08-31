@@ -199,7 +199,7 @@ pub struct Checker {
     declared: HashMap<(u32, String), String>,
     /// The unique names already handed out.
     taken: HashSet<String>,
-    /// Every `constexpr fun`, by the name a call site will have resolved
+    /// Every `constexpr func`, by the name a call site will have resolved
     /// to. The compile-time evaluator calls nothing else, which is the
     /// whole promise of the word.
     constexpr_funs: HashMap<String, Rc<FunDecl>>,
@@ -1692,7 +1692,7 @@ impl Checker {
             self.error_note(
                 span,
                 format!("{} produces no value", what),
-                "a `proc` returns nothing; use `fun` if it should produce a value",
+                "a `proc` returns nothing; use `func` if it should produce a value",
             );
             return;
         }
@@ -1875,7 +1875,7 @@ impl Checker {
                             self.error_note(
                                 span,
                                 "a `proc` cannot return a value",
-                                "declare it with `fun` and a return type instead",
+                                "declare it with `func` and a return type instead",
                             );
                             return Type::Never;
                         }
@@ -4177,7 +4177,7 @@ impl Checker {
     }
 }
 
-/// Builds `fun equals(other: R): Bool { this.a == other.a and ... }` for a
+/// Builds `func equals(other: R): Bool { this.a == other.a and ... }` for a
 /// record, spelled exactly as a user would have written it.
 fn synth_record_equals(c: &ClassDecl) -> FunDecl {
     let span = c.span;
@@ -4302,9 +4302,9 @@ fn render_signature(name: &str, ft: &FunType) -> String {
     let params: Vec<String> =
         ft.params.iter().map(|p| format!("{}: {}", p.name, p.ty)).collect();
     if ft.ret == Type::Unit {
-        format!("fun {}({})", name, params.join(", "))
+        format!("func {}({})", name, params.join(", "))
     } else {
-        format!("fun {}({}): {}", name, params.join(", "), ft.ret)
+        format!("func {}({}): {}", name, params.join(", "), ft.ret)
     }
 }
 

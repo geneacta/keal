@@ -12,7 +12,7 @@ var typedDump = false
 
 /// Two spaces per line, and — like the oracle's indent() — no trailing
 /// whitespace survives on the block's last line.
-fun indentBlock(s: String): String {
+func indentBlock(s: String): String {
     val lines = s.split("\n")
     var out = ""
     var first = true
@@ -27,9 +27,9 @@ fun indentBlock(s: String): String {
     return out
 }
 
-fun wrapNode(tag: String, child: String): String { tag + "\n" + indentBlock(child) }
+func wrapNode(tag: String, child: String): String { tag + "\n" + indentBlock(child) }
 
-package fun printProgram(p: ProgramN): String {
+package func printProgram(p: ProgramN): String {
     var out = "program"
     for (i in p.items) {
         out += "\n" + indentBlock(pItem(i))
@@ -39,7 +39,7 @@ package fun printProgram(p: ProgramN): String {
 
 // ---- types, on one line -------------------------------------------------
 
-fun typeLine(t: TypeEx): String {
+func typeLine(t: TypeEx): String {
     return when (t.kind) {
         "named" -> {
             if (t.args.size == 0) {
@@ -72,9 +72,9 @@ fun typeLine(t: TypeEx): String {
 
 // ---- items --------------------------------------------------------------
 
-fun pItem(i: ItemN): String {
+func pItem(i: ItemN): String {
     return when (i.kind) {
-        "fun" -> pFun("fun", i.funDecl!!)
+        "func" -> pFun("func", i.funDecl!!)
         "class" -> pClass(i.classDecl!!)
         "trait" -> pTrait(i.traitDecl!!)
         "import" -> if (i.alias == "") {
@@ -90,12 +90,12 @@ fun pItem(i: ItemN): String {
 
 /// The modifier as it was written, or nothing when the declaration said
 /// nothing and is therefore private to its file.
-fun visPrefix(vis: String): String {
+func visPrefix(vis: String): String {
     if (vis == "") { return "" }
     return vis + " "
 }
 
-fun pFun(tag: String, f: FunN): String {
+func pFun(tag: String, f: FunN): String {
     var out = "${visPrefix(f.vis)}${tag} ${f.name} ${f.line}:${f.col}"
     for (tp in f.typeParams) { out += "\n" + indentBlock(pTParam(tp)) }
     for (p in f.params) { out += "\n" + indentBlock(pParam(p)) }
@@ -105,7 +105,7 @@ fun pFun(tag: String, f: FunN): String {
     return out
 }
 
-fun pTry(s: StmtN, sp: String): String {
+func pTry(s: StmtN, sp: String): String {
     var out = "try ${sp}\n" + indentBlock(pBlock("body", s.body!!))
     for (c in s.catches) {
         val t = c.tyEx
@@ -115,7 +115,7 @@ fun pTry(s: StmtN, sp: String): String {
     return out
 }
 
-fun pTParam(tp: TParamN): String {
+func pTParam(tp: TParamN): String {
     if (tp.bounds.size == 0) { return "tparam ${tp.name}" }
     var bs = ""
     var first = true
@@ -127,7 +127,7 @@ fun pTParam(tp: TParamN): String {
     return "tparam ${tp.name}: ${bs}"
 }
 
-fun pParam(p: ParamN): String {
+func pParam(p: ParamN): String {
     val kw = if (p.mutable) { "var " } else { "" }
     var head = "param ${kw}${p.name}"
     val t = p.tyEx
@@ -138,7 +138,7 @@ fun pParam(p: ParamN): String {
     return head
 }
 
-fun pClass(c: ClassN): String {
+func pClass(c: ClassN): String {
     val tag = if (c.isRecord) { "record" } else { "class" }
     var out = "${visPrefix(c.vis)}${tag} ${c.name} ${c.line}:${c.col}"
     for (tp in c.typeParams) { out += "\n" + indentBlock(pTParam(tp)) }
@@ -171,7 +171,7 @@ fun pClass(c: ClassN): String {
     return out
 }
 
-fun pTrait(t: TraitN): String {
+func pTrait(t: TraitN): String {
     var out = "${visPrefix(t.vis)}trait ${t.name} ${t.line}:${t.col}"
     for (m in t.methods) {
         val tag = if (m.hasDefault) { "default" } else { "required" }
@@ -180,7 +180,7 @@ fun pTrait(t: TraitN): String {
     return out
 }
 
-fun pExtern(x: ExternN): String {
+func pExtern(x: ExternN): String {
     var out = "${visPrefix(x.vis)}extern ${x.name} = ${esc(x.symbol)} ${x.line}:${x.col}"
     for (p in x.params) { out += "\n" + indentBlock(pParam(p)) }
     val ret = x.ret
@@ -190,13 +190,13 @@ fun pExtern(x: ExternN): String {
 
 // ---- statements ---------------------------------------------------------
 
-fun pBlock(tag: String, b: BlockN): String {
+func pBlock(tag: String, b: BlockN): String {
     var out = tag
     for (s in b.stmts) { out += "\n" + indentBlock(pStmt(s)) }
     return out
 }
 
-fun pStmt(s: StmtN): String {
+func pStmt(s: StmtN): String {
     val sp = "${s.line}:${s.col}"
     return when (s.kind) {
         "let" -> {
@@ -239,14 +239,14 @@ fun pStmt(s: StmtN): String {
             if (t != null) { head += ": " + typeLine(t) }
             head + " " + sp + "\n" + indentBlock(wrapNode("iter", pEx(s.ex!!))) + "\n" + indentBlock(pBlock("body", s.body!!))
         }
-        "fun" -> pFun("fun", s.funDecl!!)
+        "func" -> pFun("func", s.funDecl!!)
         else -> pClass(s.classDecl!!)
     }
 }
 
 // ---- expressions --------------------------------------------------------
 
-fun annotate(e: Ex, node: String): String {
+func annotate(e: Ex, node: String): String {
     unless (typedDump) { return node }
     var ann = ""
     val t = e.ty
@@ -270,9 +270,9 @@ fun annotate(e: Ex, node: String): String {
     return node + ann
 }
 
-fun pEx(e: Ex): String { annotate(e, pExInner(e)) }
+func pEx(e: Ex): String { annotate(e, pExInner(e)) }
 
-fun pExInner(e: Ex): String {
+func pExInner(e: Ex): String {
     val sp = "${e.line}:${e.col}"
     return when (e.kind) {
         "int" -> "int ${e.iVal} ${sp}"
@@ -372,12 +372,12 @@ fun pExInner(e: Ex): String {
     }
 }
 
-fun pArg(a: ArgN): String {
+func pArg(a: ArgN): String {
     if (a.name == "") { return wrapNode("arg", pEx(a.value)) }
     return "arg ${a.name}\n" + indentBlock(pEx(a.value))
 }
 
-fun pPattern(arm: ArmN): String {
+func pPattern(arm: ArmN): String {
     return when (arm.patternKind) {
         "else" -> "pattern else"
         "values" -> {
@@ -408,7 +408,7 @@ fun pPattern(arm: ArmN): String {
     }
 }
 
-fun pArm(arm: ArmN): String {
+func pArm(arm: ArmN): String {
     var out = "arm ${arm.line}:${arm.col}\n" + indentBlock(pPattern(arm))
     val g = arm.guard
     if (g != null) { out += "\n" + indentBlock(wrapNode("guard", pEx(g))) }

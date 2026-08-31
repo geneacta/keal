@@ -19,7 +19,7 @@ import "./lexing.keal"
 import "./ast.keal"
 
 /// How an expected token reads in an error message.
-fun describeKind(kind: String): String {
+func describeKind(kind: String): String {
     return when (kind) {
         "eof" -> "end of file"
         ";" -> "end of statement"
@@ -28,14 +28,14 @@ fun describeKind(kind: String): String {
 }
 
 /// The word an operator token contributes to a `binary` node.
-fun binaryOpOf(kind: String): String {
+func binaryOpOf(kind: String): String {
     return when (kind) {
         "==", "!=", "<", "<=", ">", ">=", "<=>", "+", "-", "*", "/", "%", "**", "^/" -> kind
         else -> ""
     }
 }
 
-fun binaryPowerOf(kind: String): Int {
+func binaryPowerOf(kind: String): Int {
     return when (kind) {
         "==", "!=" -> 2
         "<", "<=", ">", ">=", "<=>" -> 3
@@ -47,7 +47,7 @@ fun binaryPowerOf(kind: String): Int {
 }
 
 /// The connective a token spells, with `&&`, `||` and `^` as aliases.
-fun logicalOpOf(kind: String): String {
+func logicalOpOf(kind: String): String {
     return when (kind) {
         "and", "&&" -> "and"
         "or", "||" -> "or"
@@ -60,7 +60,7 @@ fun logicalOpOf(kind: String): String {
     }
 }
 
-fun isAssignOp(kind: String): Bool {
+func isAssignOp(kind: String): Bool {
     return when (kind) {
         "=", "+=", "-=", "*=", "/=", "%=", "**=", "^/=" -> true
         else -> false
@@ -69,7 +69,7 @@ fun isAssignOp(kind: String): Bool {
 
 /// What a compound assignment contributes to the tree: `+=` reads as `+`,
 /// and plain `=` as itself.
-fun assignOpName(kind: String): String {
+func assignOpName(kind: String): String {
     return when (kind) {
         "+=" -> "+"
         "-=" -> "-"
@@ -92,25 +92,25 @@ package class Parser(val toks: List<Token>) {
     var failed: Bool = false
     package var errorPrefix: String = ""
 
-    fun peek(): Token {
+    func peek(): Token {
         val i = this.pos.min(this.toks.size - 1)
         return this.toks[i]
     }
 
-    fun peekAt(k: Int): Token {
+    func peekAt(k: Int): Token {
         val i = (this.pos + k).min(this.toks.size - 1)
         return this.toks[i]
     }
 
-    fun advance(): Token {
+    func advance(): Token {
         val t = this.peek()
         if (this.pos < this.toks.size - 1) { this.pos += 1 }
         return t
     }
 
-    fun at(kind: String): Bool { this.peek().kind == kind }
+    func at(kind: String): Bool { this.peek().kind == kind }
 
-    fun eat(kind: String): Bool {
+    func eat(kind: String): Bool {
         if (this.at(kind)) {
             this.advance()
             return true
@@ -149,7 +149,7 @@ package class Parser(val toks: List<Token>) {
     }
 
     /// The name, or "" after a quiet failure.
-    fun expectIdent(ctx: String): String {
+    func expectIdent(ctx: String): String {
         if (this.at("ident")) {
             return this.advance().text
         }
@@ -162,7 +162,7 @@ package class Parser(val toks: List<Token>) {
     }
 
     /// True when the token after this one could name a declaration.
-    fun namesDeclaration(): Bool { this.peekAt(1).kind == "ident" }
+    func namesDeclaration(): Bool { this.peekAt(1).kind == "ident" }
 
     /// A visibility modifier, when one is written.
     ///
@@ -171,7 +171,7 @@ package class Parser(val toks: List<Token>) {
     /// declaration, while `internal` and `protected` are held for
     /// visibilities the language does not have yet and are refused where
     /// they appear rather than silently ignored.
-    fun visibility(): String {
+    func visibility(): String {
         val t = this.peek()
         val k = t.kind
         if (k == "internal" or k == "protected") {
@@ -192,7 +192,7 @@ package class Parser(val toks: List<Token>) {
 
     // ---- program --------------------------------------------------------
 
-    package fun program(): ProgramN {
+    package func program(): ProgramN {
         val out = ProgramN()
         while (true) {
             this.skipSemis()
@@ -204,7 +204,7 @@ package class Parser(val toks: List<Token>) {
 
     /// The `as name` after an import, when one is written. `as` is not a
     /// reserved word: it is only this clause, and only right here.
-    fun importAlias(): String {
+    func importAlias(): String {
         val t = this.peek()
         unless (t.kind == "ident" and t.text == "as") { return "" }
         unless (this.peekAt(1).kind == "ident") { return "" }
@@ -212,27 +212,43 @@ package class Parser(val toks: List<Token>) {
         return this.expectIdent("a name for the imported module")
     }
 
-    fun item(): ItemN {
+    func item(): ItemN {
         val vis = this.visibility()
         return this.itemAfterVis(vis)
     }
 
     /// `constexpr` is contextual, like `record` and `weak`: it introduces a
-    /// declaration only when `val` or `fun` follows, so `val constexpr = 3`
+    /// declaration only when `val` or `func` follows, so `val constexpr = 3`
     /// stays a perfectly good binding.
-    fun atConstexpr(): Bool {
+    func atConstexpr(): Bool {
         val t = this.peek()
         unless (t.kind == "ident" and t.text == "constexpr") { return false }
         val n = this.peekAt(1).kind
-        return n == "val" or n == "fun" or n == "var" or n == "proc"
+        return n == "val" or n == "func" or n == "var" or n == "proc"
     }
 
-    fun itemAfterVis(vis: String): ItemN {
+    /// The word this language used to spell `func`. It is lexed rather than
+    /// read as a name so that an old file gets one clear sentence instead of
+    /// a cascade of nonsense, and it is refused rather than accepted so that
+    /// there is one spelling and not two.
+    proc refuseOldFun() {
+        if (this.at("fun")) {
+            val t = this.peek()
+            this.failNote(
+                t.line, t.col,
+                "`fun` is spelled `func`",
+                "the word changed; nothing else about the declaration did"
+            )
+        }
+    }
+
+    func itemAfterVis(vis: String): ItemN {
+        this.refuseOldFun()
         val t = this.peek()
         if (this.atConstexpr()) {
-            if (this.peekAt(1).kind == "fun") {
+            if (this.peekAt(1).kind == "func") {
                 this.advance()
-                val i = ItemN("fun", t.line, t.col)
+                val i = ItemN("func", t.line, t.col)
                 val f = this.funDecl(vis)
                 f.constexpr = true
                 i.funDecl = f
@@ -246,8 +262,8 @@ package class Parser(val toks: List<Token>) {
             i.stmt = s
             return i
         }
-        if (t.kind == "fun" or t.kind == "proc") {
-            val i = ItemN("fun", t.line, t.col)
+        if (t.kind == "func" or t.kind == "proc") {
+            val i = ItemN("func", t.line, t.col)
             i.funDecl = this.funDecl(vis)
             return i
         }
@@ -281,7 +297,7 @@ package class Parser(val toks: List<Token>) {
             )
             return ItemN("native", t.line, t.col)
         }
-        if (t.kind == "ident" and t.text == "extern" and this.peekAt(1).kind == "fun") {
+        if (t.kind == "ident" and t.text == "extern" and this.peekAt(1).kind == "func") {
             val i = ItemN("extern", t.line, t.col)
             i.externDecl = this.externDecl(vis)
             return i
@@ -357,7 +373,7 @@ package class Parser(val toks: List<Token>) {
                 this.failNote(
                     t.line, t.col,
                     "`${vis}` can only precede a declaration",
-                    "a visibility is written on a `fun`, `proc`, `class`, `record`, `trait`, `val` or `var`"
+                    "a visibility is written on a `func`, `proc`, `class`, `record`, `trait`, `val` or `var`"
                 )
             }
         }
@@ -367,10 +383,10 @@ package class Parser(val toks: List<Token>) {
 
     // ---- declarations ---------------------------------------------------
 
-    fun funDecl(vis: String): FunN {
+    func funDecl(vis: String): FunN {
         val start = this.peek()
-        val isFun = this.at("fun")
-        this.advance() // fun or proc
+        val isFun = this.at("func")
+        this.advance() // func or proc
         val name = this.expectIdent(if (isFun) { "a function name" } else { "a name" })
         val f = FunN(name, start.line, start.col)
         f.vis = vis
@@ -381,15 +397,15 @@ package class Parser(val toks: List<Token>) {
         return f
     }
 
-    /// The `: T` after a parameter list — required on `fun`, rejected on
+    /// The `: T` after a parameter list — required on `func`, rejected on
     /// `proc`, which is the point of the split.
-    fun returnType(isFun: Bool, name: String): TypeEx? {
+    func returnType(isFun: Bool, name: String): TypeEx? {
         unless (isFun) {
             if (this.at(":")) {
                 val t = this.peek()
                 this.failNote(
                     t.line, t.col, "`proc ${name}` cannot declare a return type",
-                    "a `proc` returns nothing; use `fun` if it produces a value"
+                    "a `proc` returns nothing; use `func` if it produces a value"
                 )
             }
             return null
@@ -397,7 +413,7 @@ package class Parser(val toks: List<Token>) {
         unless (this.at(":")) {
             val t = this.peek()
             this.failNote(
-                t.line, t.col, "`fun ${name}` must declare what it returns",
+                t.line, t.col, "`func ${name}` must declare what it returns",
                 "write `: Type`, or declare it with `proc` if it returns nothing"
             )
             return null
@@ -406,7 +422,7 @@ package class Parser(val toks: List<Token>) {
         return this.typeExpr()
     }
 
-    fun typeParamList(): List<TParamN> {
+    func typeParamList(): List<TParamN> {
         val out: List<TParamN> = []
         unless (this.at("<")) { return out }
         this.advance()
@@ -430,7 +446,7 @@ package class Parser(val toks: List<Token>) {
         return out
     }
 
-    fun paramList(): List<ParamN> {
+    func paramList(): List<ParamN> {
         this.expect("(", "to start a parameter list")
         val out: List<ParamN> = []
         while (not this.at(")")) {
@@ -454,7 +470,7 @@ package class Parser(val toks: List<Token>) {
         return out
     }
 
-    fun classDecl(isRecord: Bool, vis: String): ClassN {
+    func classDecl(isRecord: Bool, vis: String): ClassN {
         val start = this.peek()
         unless (isRecord) { this.expect("class", "to start a class declaration") }
         val name = this.expectIdent(
@@ -524,7 +540,7 @@ package class Parser(val toks: List<Token>) {
             if (this.at("}") or this.at("eof")) { break }
             val mvis = this.visibility()
             val m = this.peek()
-            if (m.kind == "fun" or m.kind == "proc") {
+            if (m.kind == "func" or m.kind == "proc") {
                 c.methods.add(this.funDecl(mvis))
             } else if (m.kind == "val" or m.kind == "var" or (m.kind == "ident" and m.text == "weak" and (this.peekAt(1).kind == "val" or this.peekAt(1).kind == "var"))) {
                 val isWeak = m.kind == "ident"
@@ -557,7 +573,7 @@ package class Parser(val toks: List<Token>) {
                 c.fields.add(fd)
             } else {
                 this.failHere(
-                    "expected `fun`, `proc`, `val` or `var` in a class body, found ${describeToken(m)}"
+                    "expected `func`, `proc`, `val` or `var` in a class body, found ${describeToken(m)}"
                 )
             }
         }
@@ -565,7 +581,7 @@ package class Parser(val toks: List<Token>) {
         return c
     }
 
-    fun traitDecl(vis: String): TraitN {
+    func traitDecl(vis: String): TraitN {
         val start = this.peek()
         this.advance() // trait
         val name = this.expectIdent("a trait name")
@@ -576,7 +592,7 @@ package class Parser(val toks: List<Token>) {
             this.skipSemis()
             if (this.at("}") or this.at("eof")) { break }
             val mstart = this.peek()
-            val isFun = this.at("fun")
+            val isFun = this.at("func")
             if (isFun) {
                 this.advance()
             } else {
@@ -597,10 +613,10 @@ package class Parser(val toks: List<Token>) {
         return t
     }
 
-    fun externDecl(vis: String): ExternN {
+    func externDecl(vis: String): ExternN {
         val start = this.peek()
         this.advance() // extern
-        this.expect("fun", "after `extern`")
+        this.expect("func", "after `extern`")
         val name = this.expectIdent("a function name")
         val x = ExternN(name, start.line, start.col)
         x.vis = vis
@@ -632,7 +648,7 @@ package class Parser(val toks: List<Token>) {
 
     // ---- statements -----------------------------------------------------
 
-    fun block(): BlockN {
+    func block(): BlockN {
         this.expect("{", "to open a block")
         val out = BlockN()
         while (true) {
@@ -644,7 +660,8 @@ package class Parser(val toks: List<Token>) {
         return out
     }
 
-    fun stmt(): StmtN {
+    func stmt(): StmtN {
+        this.refuseOldFun()
         val t = this.peek()
         var isConstexpr = false
         if (this.atConstexpr()) {
@@ -654,7 +671,7 @@ package class Parser(val toks: List<Token>) {
                 this.failNote(
                     t.line,
                     t.col,
-                    "`constexpr` goes before `val` or `fun`",
+                    "`constexpr` goes before `val` or `func`",
                     "a `var` can be assigned to and a `proc` returns nothing, so neither has one value to compute"
                 )
             }
@@ -822,8 +839,8 @@ package class Parser(val toks: List<Token>) {
             s.body = this.block()
             return s
         }
-        if (t.kind == "fun" or t.kind == "proc") {
-            val s = StmtN("fun", t.line, t.col)
+        if (t.kind == "func" or t.kind == "proc") {
+            val s = StmtN("func", t.line, t.col)
             s.funDecl = this.funDecl("")
             return s
         }
@@ -881,7 +898,7 @@ package class Parser(val toks: List<Token>) {
     /// True when the tokens ahead read `if (cond) X` or `unless (cond) X`
     /// with `X` not `{` — the guarded-return form. A `{` there means the
     /// old return-an-if-expression, which keeps its meaning.
-    fun guardedReturnAhead(): Bool {
+    func guardedReturnAhead(): Bool {
         unless (this.at("if") or this.at("unless")) { return false }
         unless (this.peekAt(1).kind == "(") { return false }
         var depth = 0
@@ -906,7 +923,7 @@ package class Parser(val toks: List<Token>) {
     /// `(a, _, c)` — the shared half of every destructuring form. An empty
     /// list is reported at the pattern's head — the type name, or the `(`
     /// of a tuple pattern — which is why the position comes from the caller.
-    fun bindList(atLine: Int, atCol: Int): List<String> {
+    func bindList(atLine: Int, atCol: Int): List<String> {
         this.expect("(", "to start a destructuring pattern")
         val out: List<String> = []
         while (not this.at(")")) {
@@ -933,7 +950,7 @@ package class Parser(val toks: List<Token>) {
 
     // ---- expressions ----------------------------------------------------
 
-    fun expr(): Ex {
+    func expr(): Ex {
         val cond = this.binary(0)
         // The ternary sits below everything else: `c ? a : b` selects on a
         // `Bool`, and a third branch (`c ? less : equal : greater`) selects
@@ -955,7 +972,7 @@ package class Parser(val toks: List<Token>) {
         return e
     }
 
-    fun binary(minBp: Int): Ex {
+    func binary(minBp: Int): Ex {
         var lhs = this.unary()
         while (true) {
             val t = this.peek()
@@ -1063,7 +1080,7 @@ package class Parser(val toks: List<Token>) {
         return lhs
     }
 
-    fun unary(): Ex {
+    func unary(): Ex {
         val t = this.peek()
         val op = when (t.kind) {
             "-" -> "neg"
@@ -1078,7 +1095,7 @@ package class Parser(val toks: List<Token>) {
         return node
     }
 
-    fun postfix(): Ex {
+    func postfix(): Ex {
         // Errors about a call or an index point at the whole expression.
         val start = this.peek()
         var e = this.primary()
@@ -1126,7 +1143,7 @@ package class Parser(val toks: List<Token>) {
         return e
     }
 
-    fun argList(): List<ArgN> {
+    func argList(): List<ArgN> {
         this.expect("(", "to start an argument list")
         val out: List<ArgN> = []
         while (not this.at(")")) {
@@ -1143,7 +1160,7 @@ package class Parser(val toks: List<Token>) {
         return out
     }
 
-    fun tuple(items: List<Ex>, t: Token): Ex {
+    func tuple(items: List<Ex>, t: Token): Ex {
         if (items.size < 2 or items.size > 5) {
             this.failNote(
                 t.line, t.col,
@@ -1159,7 +1176,7 @@ package class Parser(val toks: List<Token>) {
         return node
     }
 
-    fun primary(): Ex {
+    func primary(): Ex {
         val t = this.peek()
         if (t.kind == "int") {
             this.advance()
@@ -1234,7 +1251,7 @@ package class Parser(val toks: List<Token>) {
         return Ex("null", t.line, t.col)
     }
 
-    fun stringExpr(t: Token): Ex {
+    func stringExpr(t: Token): Ex {
         if (t.parts.size == 1 and t.parts[0].isLit) {
             val node = Ex("str", t.line, t.col)
             node.text = t.parts[0].text
@@ -1256,7 +1273,7 @@ package class Parser(val toks: List<Token>) {
     }
 
     /// A whole fragment as one expression — `${...}` holes and nothing else.
-    fun exprOnly(): Ex {
+    func exprOnly(): Ex {
         val e = this.expr()
         this.skipSemis()
         unless (this.at("eof")) {
@@ -1265,7 +1282,7 @@ package class Parser(val toks: List<Token>) {
         return e
     }
 
-    fun ifExpr(): Ex {
+    func ifExpr(): Ex {
         val start = this.peek()
         val negated = this.at("unless")
         val word = if (negated) { "unless" } else { "if" }
@@ -1304,7 +1321,7 @@ package class Parser(val toks: List<Token>) {
         return node
     }
 
-    fun whenExpr(): Ex {
+    func whenExpr(): Ex {
         val start = this.peek()
         this.expect("when", "to start a `when`")
         val node = Ex("when", start.line, start.col)
@@ -1322,7 +1339,7 @@ package class Parser(val toks: List<Token>) {
         return node
     }
 
-    fun whenArm(): ArmN {
+    func whenArm(): ArmN {
         val start = this.peek()
         val arm = ArmN(start.line, start.col)
         if (this.eat("else")) {
@@ -1398,7 +1415,7 @@ package class Parser(val toks: List<Token>) {
 
     /// `{` opens a lambda with parameters, a map literal, or a lambda whose
     /// one parameter is the implicit `it` — tried in that order.
-    fun braceExpr(): Ex {
+    func braceExpr(): Ex {
         val start = this.peek()
         this.expect("{", "to open a lambda or map literal")
         val save = this.pos
@@ -1424,7 +1441,7 @@ package class Parser(val toks: List<Token>) {
     }
 
     /// Tries to read `x: T, y ->`. On anything else the caller rolls back.
-    fun lambdaParams(): (Bool, List<ParamN>) {
+    func lambdaParams(): (Bool, List<ParamN>) {
         val out: List<ParamN> = []
         if (this.at("->")) {
             this.advance()
@@ -1447,7 +1464,7 @@ package class Parser(val toks: List<Token>) {
         return false, out
     }
 
-    fun lambdaBody(start: Token, params: List<ParamN>): Ex {
+    func lambdaBody(start: Token, params: List<ParamN>): Ex {
         val node = Ex("lambda", start.line, start.col)
         node.params = params
         val b = BlockN()
@@ -1464,7 +1481,7 @@ package class Parser(val toks: List<Token>) {
     /// `{}` and `{ k: v, ... }`; rolled back by the caller when the braces
     /// hold something else. Only the first key is tentative: once its `:` is
     /// seen this is a map, and later errors are real errors.
-    fun tryMapLiteral(start: Token): (Bool, Ex) {
+    func tryMapLiteral(start: Token): (Bool, Ex) {
         val node = Ex("map", start.line, start.col)
         this.skipSemis()
         if (this.eat("}")) {
@@ -1493,7 +1510,7 @@ package class Parser(val toks: List<Token>) {
 
     // ---- types ----------------------------------------------------------
 
-    fun typeExpr(): TypeEx {
+    func typeExpr(): TypeEx {
         val t = this.peek()
         // `borrow T` / `own T`: an ownership mode, contextual — `borrow`
         // alone can still name a type, so the word only counts when a type
@@ -1546,7 +1563,7 @@ package class Parser(val toks: List<Token>) {
                 out.args = params
             } else {
                 this.advance()
-                out = TypeEx("fun", t.line, t.col)
+                out = TypeEx("func", t.line, t.col)
                 out.args = params
                 out.ret = this.typeExpr()
             }

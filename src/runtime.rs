@@ -144,9 +144,9 @@ fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool, depth: usize
             }
         }
         Value::Range(a, b) => format!("{}..{}", a, b),
-        Value::Fun(c) => format!("<fun {}>", c.name),
-        Value::VmFun(c) => format!("<fun {}>", c.func.name),
-        Value::Native(f) => format!("<fun {}>", f.name),
+        Value::Fun(c) => format!("<func {}>", c.name),
+        Value::VmFun(c) => format!("<func {}>", c.func.name),
+        Value::Native(f) => format!("<func {}>", f.name),
         Value::List(items) => {
             let snapshot = items.borrow().clone();
             let mut parts = Vec::with_capacity(snapshot.len());

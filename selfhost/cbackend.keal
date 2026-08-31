@@ -15,12 +15,12 @@ import "./runtimesrc.keal"
 // ---- names and small helpers --------------------------------------------
 
 /// Prefixes every Keal name, so none can collide with C's own.
-fun mangle(name: String): String { "k_" + flatten(name) }
+func mangle(name: String): String { "k_" + flatten(name) }
 
 /// A Keal name as C can spell it. Only one character needs the treatment:
 /// the `#` the checker mints when two files declare the same name, which is
 /// unwritable in Keal and illegal in C.
-fun flatten(name: String): String {
+func flatten(name: String): String {
     unless (name.contains("#")) { return name }
     var out = ""
     var i = 0
@@ -33,12 +33,12 @@ fun flatten(name: String): String {
 }
 
 /// A method's part of the function name it becomes.
-fun mangleMethod(name: String): String { "m_" + flatten(name) }
+func mangleMethod(name: String): String { "m_" + flatten(name) }
 
 /// Whether the class declares the hook the runtime calls at death.
 /// Whether this class declares that field `weak`. The declaration is the
 /// single source of truth — the same one the interpreters read.
-fun classFieldIsWeak(c: ClassN, name: String): Bool {
+func classFieldIsWeak(c: ClassN, name: String): Bool {
     for (p in c.ctor) {
         if (p.fieldKind != "" and p.name == name and p.weak) { return true }
     }
@@ -48,7 +48,7 @@ fun classFieldIsWeak(c: ClassN, name: String): Bool {
     return false
 }
 
-fun classHasDeinit(c: ClassN): Bool {
+func classHasDeinit(c: ClassN): Bool {
     for (m in c.methods) {
         if (m.name == "deinit") { return true }
     }
@@ -56,11 +56,11 @@ fun classHasDeinit(c: ClassN): Bool {
 }
 
 /// The C struct a class is emitted as.
-fun structName(class_: String): String { "K_" + flatten(class_) }
+func structName(class_: String): String { "K_" + flatten(class_) }
 
 /// The `Keal_Name` mirror struct's exact text — the by-value contract a
 /// record shares with C across an extern boundary.
-fun mirrorStructC(name: String, fields: List<SField>): String {
+func mirrorStructC(name: String, fields: List<SField>): String {
     var out = "#ifndef KEAL_MIRROR_${name}\n#define KEAL_MIRROR_${name}\ntypedef struct Keal_${name} {\n"
     for (f in fields) {
         val ct = when (f.ty.kind) {
@@ -78,7 +78,7 @@ fun mirrorStructC(name: String, fields: List<SField>): String {
 }
 
 /// A type as a C identifier fragment, for specialisation names.
-fun mangleType(t: Ty): String {
+func mangleType(t: Ty): String {
     return when (t.kind) {
         "Int" -> "Int"
         "Float" -> "Float"
@@ -120,7 +120,7 @@ fun mangleType(t: Ty): String {
     }
 }
 
-fun structNameOf(class_: String, args: List<Ty>): String {
+func structNameOf(class_: String, args: List<Ty>): String {
     if (args.size == 0) { return structName(class_) }
     var parts = ""
     var first = true
@@ -134,7 +134,7 @@ fun structNameOf(class_: String, args: List<Ty>): String {
 
 /// What a written type is called, for a message about it. Unlike the
 /// checker's version, a function type reads as just "a function" here.
-fun cTypeExName(te: TypeEx): String {
+func cTypeExName(te: TypeEx): String {
     return when (te.kind) {
         "named" -> te.name
         "nullable" -> cTypeExName(te.inner!!) + "?"
@@ -143,7 +143,7 @@ fun cTypeExName(te: TypeEx): String {
     }
 }
 
-fun applyLogicalC(op: String, a: String, b: String): String {
+func applyLogicalC(op: String, a: String, b: String): String {
     return when (op) {
         "and" -> "(${a} && ${b})"
         "or" -> "(${a} || ${b})"
@@ -157,7 +157,7 @@ fun applyLogicalC(op: String, a: String, b: String): String {
 
 /// When the left operand alone settles a connective, the result it forces.
 /// Absent (null) for the pairs that always read the right operand.
-fun shortCircuitC(op: String, left: Bool): Bool? {
+func shortCircuitC(op: String, left: Bool): Bool? {
     if (op == "and" and not left) { return false }
     if (op == "or" and left) { return true }
     if (op == "nand" and not left) { return true }
@@ -169,9 +169,9 @@ fun shortCircuitC(op: String, left: Bool): Bool? {
 /// A double C will read back as exactly this value — and exactly the string
 /// the oracle prints, since the oracle's two branches match Keal's own float
 /// rendering.
-fun formatDouble(f: Float): String { "${f}" }
+func formatDouble(f: Float): String { "${f}" }
 
-fun utf8Bytes(cp: Int): List<Int> {
+func utf8Bytes(cp: Int): List<Int> {
     if (cp < 128) { return [cp] }
     if (cp < 2048) {
         return [192 + cp / 64, 128 + cp % 64]
@@ -182,18 +182,18 @@ fun utf8Bytes(cp: Int): List<Int> {
     return [240 + cp / 262144, 128 + (cp / 4096) % 64, 128 + (cp / 64) % 64, 128 + cp % 64]
 }
 
-fun hex2(b: Int): String {
+func hex2(b: Int): String {
     val digits = "0123456789abcdef"
     return digits[b / 16] + digits[b % 16]
 }
 
-fun byteLen(s: String): Int {
+func byteLen(s: String): Int {
     var n = 0
     for (c in s) { n += byteWidth(c) }
     return n
 }
 
-fun cString(s: String): String {
+func cString(s: String): String {
     var out = "\""
     for (c in s) {
         for (b in utf8Bytes(c.code())) {
@@ -219,7 +219,7 @@ fun cString(s: String): String {
 }
 
 /// A one-line, comment-safe rendering, for the literal table.
-fun cComment(s: String): String {
+func cComment(s: String): String {
     var flat = ""
     for (c in s) {
         val cp = c.code()
@@ -236,7 +236,7 @@ fun cComment(s: String): String {
 // ---- type predicates ----------------------------------------------------
 
 /// True for a type whose values hold a reference that must be released.
-fun countedC(t: Ty): Bool {
+func countedC(t: Ty): Bool {
     return when (t.kind) {
         "Str", "Class", "List", "Map", "Fun" -> true
         // Whether an `Any` counts depends on its tag; the calls decide.
@@ -247,7 +247,7 @@ fun countedC(t: Ty): Bool {
 }
 
 /// The function that takes a reference to a value of this type.
-fun retainFn(t: Ty): String? {
+func retainFn(t: Ty): String? {
     return when (t.kind) {
         "Str" -> "keal_str_retain"
         "Class" -> structNameOf(t.name, t.args) + "_retain"
@@ -261,7 +261,7 @@ fun retainFn(t: Ty): String? {
 }
 
 /// The function that gives one back.
-fun releaseFn(t: Ty): String? {
+func releaseFn(t: Ty): String? {
     return when (t.kind) {
         "Str" -> "keal_str_release"
         "Class" -> structNameOf(t.name, t.args) + "_release"
@@ -278,7 +278,7 @@ fun releaseFn(t: Ty): String? {
 /// shape, and the same name the runtime gives its own, so a container's
 /// element thunk pairs with its mark by construction. `Any` has none: it
 /// travels by value, so the call site names it.
-fun markFn(t: Ty): String? {
+func markFn(t: Ty): String? {
     return when (t.kind) {
         "Str" -> "keal_str_mark"
         "Class" -> structNameOf(t.name, t.args) + "_mark"
@@ -292,7 +292,7 @@ fun markFn(t: Ty): String? {
 
 /// One field's contribution to a walk: `Any` by value, everything else by
 /// the pointer its type's mark takes.
-fun markLine(t: Ty, expr: String): String? {
+func markLine(t: Ty, expr: String): String? {
     if (t.kind == "Any") { return "keal_any_mark(${expr});" }
     val f = markFn(t)
     if (f == null) { return null }
@@ -300,21 +300,21 @@ fun markLine(t: Ty, expr: String): String? {
 }
 
 /// Wraps an expression in a retain, where the type needs one.
-fun retained(t: Ty, expr: String): String {
+func retained(t: Ty, expr: String): String {
     val f = retainFn(t)
     if (f == null) { return expr }
     return "${f}(${expr})"
 }
 
 /// True when `T?` needs the tagged form rather than a pointer.
-fun isValueOpt(t: Ty): Bool {
+func isValueOpt(t: Ty): Bool {
     unless (t.kind == "Nullable") { return false }
     val inner = t.args[0].kind
     return inner == "Int" or inner == "Float" or inner == "Bool"
 }
 
 /// True for a type held behind a pointer, which has null to spare.
-fun isReference(t: Ty): Bool {
+func isReference(t: Ty): Bool {
     return when (t.kind) {
         "Str", "Class", "List", "Map", "Fun" -> true
         else -> false
@@ -324,7 +324,7 @@ fun isReference(t: Ty): Bool {
 // The nullable-value helpers: how `Int?`, `Float?` and `Bool?` are built,
 // tested and unwrapped.
 
-fun optWrap(inner: Ty, v: String): String {
+func optWrap(inner: Ty, v: String): String {
     return when (inner.kind) {
         "Int" -> "(KealOptI64){ true, ${v} }"
         "Float" -> "(KealOptF64){ true, ${v} }"
@@ -333,7 +333,7 @@ fun optWrap(inner: Ty, v: String): String {
     }
 }
 
-fun optNull(inner: Ty): String {
+func optNull(inner: Ty): String {
     return when (inner.kind) {
         "Int" -> "(KealOptI64){ false, 0 }"
         "Float" -> "(KealOptF64){ false, 0.0 }"
@@ -342,7 +342,7 @@ fun optNull(inner: Ty): String {
     }
 }
 
-fun optHas(inner: Ty, x: String): String {
+func optHas(inner: Ty, x: String): String {
     return when (inner.kind) {
         "Int", "Float" -> "${x}.has"
         "Bool" -> "(${x} != 2)"
@@ -350,7 +350,7 @@ fun optHas(inner: Ty, x: String): String {
     }
 }
 
-fun optGet(inner: Ty, x: String): String {
+func optGet(inner: Ty, x: String): String {
     return when (inner.kind) {
         "Int", "Float" -> "${x}.v"
         "Bool" -> "(bool)(${x} == 1)"
@@ -359,7 +359,7 @@ fun optGet(inner: Ty, x: String): String {
 }
 
 /// Names a construct the backend cannot compile.
-fun describeExprC(e: Ex): String {
+func describeExprC(e: Ex): String {
     return when (e.kind) {
         "list" -> "list literals"
         "map" -> "map literals"
@@ -415,7 +415,7 @@ proc lambdaFreesInStmt(s: StmtN, var out: Map<String, Bool>) {
         for (st in s.body!!.stmts) { lambdaFreesInStmt(st, out) }
         return
     }
-    if (s.kind == "fun") {
+    if (s.kind == "func") {
         for (st in s.funDecl!!.body.stmts) { lambdaFreesInStmt(st, out) }
     }
 }
@@ -510,7 +510,7 @@ proc lambdaFreesInExpr(e: Ex, var out: Map<String, Bool>) {
     }
 }
 
-fun lambdaFreeNames(stmts: List<StmtN>): Map<String, Bool> {
+func lambdaFreeNames(stmts: List<StmtN>): Map<String, Bool> {
     val out: Map<String, Bool> = {}
     for (s in stmts) { lambdaFreesInStmt(s, out) }
     return out
@@ -549,7 +549,7 @@ proc collectFree(stmts: List<StmtN>, var bound: List<String>, var free: List<Str
             collectFreeExpr(s.ex!!, bound, free)
             bound.add(s.name)
             collectFree(s.body!!.stmts, bound, free)
-        } else if (s.kind == "fun") {
+        } else if (s.kind == "func") {
             val f = s.funDecl!!
             bound.add(f.name)
             val inner: List<String> = []
@@ -663,7 +663,7 @@ proc collectFreeExpr(e: Ex, var bound: List<String>, var free: List<String>) {
 /// "float" or "ptr" (with the C type pointed at and the retain prefix).
 class CElem(val kind: String, val ctype: String, val prefix: String)
 
-fun elemWord(e: CElem, v: String): String {
+func elemWord(e: CElem, v: String): String {
     return when (e.kind) {
         "int" -> "(KealWord){ .i = ${v} }"
         "bool" -> "(KealWord){ .i = (int64_t)(${v}) }"
@@ -673,7 +673,7 @@ fun elemWord(e: CElem, v: String): String {
     }
 }
 
-fun elemUnword(e: CElem, w: String): String {
+func elemUnword(e: CElem, w: String): String {
     return when (e.kind) {
         "int" -> "${w}.i"
         "bool" -> "(bool)${w}.i"
@@ -683,7 +683,7 @@ fun elemUnword(e: CElem, w: String): String {
     }
 }
 
-fun keyEqFn(e: CElem): String {
+func keyEqFn(e: CElem): String {
     if (e.kind == "ptr") { return "keal_key_eq_str" }
     return "keal_key_eq_word"
 }
@@ -711,7 +711,7 @@ class CapInfo(val field: String, val ty: Ty)
 /// A lambda capture: its name, type, and whether it is taken as a cell.
 class Capture(val name: String, val ty: Ty, val isCell: Bool)
 
-fun mapCopyTy(m: Map<String, Ty>): Map<String, Ty> {
+func mapCopyTy(m: Map<String, Ty>): Map<String, Ty> {
     val out: Map<String, Ty> = {}
     for (k in m.keys()) { out[k] = m[k]!! }
     return out
@@ -803,7 +803,7 @@ class CBackend() {
 
     /// The checker's answer for `e`, with the current instantiation's
     /// substitution applied. Nothing in this backend reads `e.ty` raw.
-    fun ety(e: Ex): Ty? {
+    func ety(e: Ex): Ty? {
         val t = e.ty
         if (t == null) { return null }
         return substitute(t, this.tsubst)
@@ -832,13 +832,13 @@ class CBackend() {
         this.body.add("    ".repeat(this.indent) + s)
     }
 
-    fun temp(): String {
+    func temp(): String {
         this.nextTemp += 1
         return "_t${this.nextTemp}"
     }
 
     /// A condition, bound to a name so the C never reads `if ((a == b))`.
-    fun condition(cond: Ex): String {
+    func condition(cond: Ex): String {
         val c = this.expr(cond)
         val t = this.temp()
         this.line("const bool ${t} = ${c};")
@@ -849,7 +849,7 @@ class CBackend() {
 
     /// The C type a Keal type is emitted as, or null when this backend
     /// cannot represent it.
-    fun ctype(t: Ty, file: Int, atLine: Int, col: Int): String? {
+    func ctype(t: Ty, file: Int, atLine: Int, col: Int): String? {
         if (t.kind == "Int") { return "int64_t" }
         if (t.kind == "Float") { return "double" }
         if (t.kind == "Bool") { return "bool" }
@@ -907,7 +907,7 @@ class CBackend() {
 
     /// How a list element of this type is stored in a `KealWord`, or null
     /// when it cannot be one yet.
-    fun elemKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
+    func elemKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
         // An empty literal types as `List<Nothing>`, and `Nothing` has no
         // values, so any representative will do.
         if (t.kind == "Never" or t.kind == "Int") { return CElem("int", "", "") }
@@ -955,7 +955,7 @@ class CBackend() {
     /// per-type function for anything with structure. `null` when the type
     /// cannot cross, which the checker already refused.
     /// The class a weak field points at, as its C struct name.
-    fun weakTargetOf(t: Ty, file: Int, atLine: Int, col: Int): String? {
+    func weakTargetOf(t: Ty, file: Int, atLine: Int, col: Int): String? {
         var inner = t
         if (t.kind == "Nullable") { inner = t.args[0] }
         unless (inner.kind == "Class") { return null }
@@ -965,7 +965,7 @@ class CBackend() {
 
     /// A value on its way into a field: a weak field takes the second
     /// count, everything else takes the first.
-    fun storedFieldValue(c: ClassN, field: String, t: Ty, v: String, file: Int, atLine: Int, col: Int): String {
+    func storedFieldValue(c: ClassN, field: String, t: Ty, v: String, file: Int, atLine: Int, col: Int): String {
         if (this.weakMode and classFieldIsWeak(c, field)) {
             val target = this.weakTargetOf(t, file, atLine, col)
             if (target != null) { return "${target}_weak_retain(${v})" }
@@ -978,7 +978,7 @@ class CBackend() {
     /// one layout get a tag: scalars, strings, `List<Any>`, and classes at
     /// their all-`Any` (or arg-free) instantiation. That rule is what keeps
     /// native narrowing honest — the payload always is what the tag says.
-    fun anyTiOf(t: Ty, file: Int, atLine: Int, col: Int): String? {
+    func anyTiOf(t: Ty, file: Int, atLine: Int, col: Int): String? {
         if (t.kind == "Int") { return "&keal_ti_int" }
         if (t.kind == "Float") { return "&keal_ti_float" }
         if (t.kind == "Bool") { return "&keal_ti_bool" }
@@ -1015,7 +1015,7 @@ class CBackend() {
 
     /// A value crossing into an `Any` hole, borrowed in, borrowed out.
     /// What has no tag is refused by name, where it tries to cross.
-    fun anyOf(source: Ty?, v: String, file: Int, atLine: Int, col: Int): String {
+    func anyOf(source: Ty?, v: String, file: Int, atLine: Int, col: Int): String {
         val src = source
         if (src == null) { return v }
         if (src.kind == "Any" or src.kind == "Error") { return v }
@@ -1055,7 +1055,7 @@ class CBackend() {
 
     /// Reads a narrowed `Any`'s payload, borrowed — the tagged variable
     /// keeps its reference for as long as the narrowed scope runs.
-    fun anyPayload(t: Ty, v: String, file: Int, atLine: Int, col: Int): String? {
+    func anyPayload(t: Ty, v: String, file: Int, atLine: Int, col: Int): String? {
         if (t.kind == "Int") { return "(${v}.w.i)" }
         if (t.kind == "Bool") { return "((bool)${v}.w.i)" }
         if (t.kind == "Float") { return "(${v}.w.d)" }
@@ -1083,7 +1083,7 @@ class CBackend() {
     /// What the checker resolved an `is` target to: bare containers test
     /// the container alone, a bare class tests the class alone — its
     /// arguments, if any, read back as `Any`.
-    fun isTarget(te: TypeEx, file: Int, atLine: Int, col: Int): Ty? {
+    func isTarget(te: TypeEx, file: Int, atLine: Int, col: Int): Ty? {
         unless (te.kind == "named" and te.args.size == 0) {
             this.unsupported(file, atLine, col, "`is` on this type")
             return null
@@ -1116,7 +1116,7 @@ class CBackend() {
     /// The `is` test itself: a tag compare. A type no value can carry
     /// natively — a payload the backend refused at every entry — tests
     /// false, which is exactly what it would have answered.
-    fun anyIsTest(target: Ty, v: String, file: Int, atLine: Int, col: Int): String {
+    func anyIsTest(target: Ty, v: String, file: Int, atLine: Int, col: Int): String {
         if (target.kind == "Any") { return "(${v}.ti != NULL)" }
         if (target.kind == "Unit" or target.kind == "Never" or target.kind == "Range" or target.kind == "Map" or target.kind == "Fun") {
             return "false"
@@ -1130,7 +1130,7 @@ class CBackend() {
     // The same test, asked of the value being unwound: a `catch` that
     // names a type takes only what that type can hold. A type no value
     // can carry natively tests false, which is what it would answer.
-    fun unwindTest(target: Ty, file: Int, atLine: Int, col: Int): String {
+    func unwindTest(target: Ty, file: Int, atLine: Int, col: Int): String {
         if (target.kind == "Any") { return "keal_unwind_is_any()" }
         if (target.kind == "Unit" or target.kind == "Never" or target.kind == "Range" or target.kind == "Map" or target.kind == "Fun") {
             return "false"
@@ -1141,7 +1141,7 @@ class CBackend() {
         return "false"
     }
 
-    fun copyExprOf(t: Ty, v: String, depth: String, file: Int, atLine: Int, col: Int): String? {
+    func copyExprOf(t: Ty, v: String, depth: String, file: Int, atLine: Int, col: Int): String? {
         val k = t.kind
         if (k == "Int" or k == "Float" or k == "Bool" or k == "Unit" or k == "Range") {
             return v
@@ -1189,7 +1189,7 @@ class CBackend() {
     /// answers its name. Bodies check the same depth cap the interpreters
     /// check, with the same message; on an unwind they release what they
     /// built and poison-return, so a caught cycle panic leaks nothing.
-    fun ensureCopyFn(t: Ty, file: Int, atLine: Int, col: Int): String? {
+    func ensureCopyFn(t: Ty, file: Int, atLine: Int, col: Int): String? {
         val name = "kcopy_" + mangleType(t)
         if (this.copyFns.contains(name)) { return name }
         this.copyFns[name] = true
@@ -1273,7 +1273,7 @@ class CBackend() {
         return null
     }
 
-    fun keyKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
+    func keyKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
         if (t.kind == "Never" or t.kind == "Int" or t.kind == "Bool" or t.kind == "Float" or t.kind == "Str") {
             return this.elemKind(t, file, atLine, col)
         }
@@ -1282,7 +1282,7 @@ class CBackend() {
     }
 
     /// The thunk handed to `keal_list_new`, generated once per pointer kind.
-    fun releaserThunk(elem: CElem): String {
+    func releaserThunk(elem: CElem): String {
         if (elem.kind == "any") { return "keal_any_box_release" }
         unless (elem.kind == "ptr") { return "NULL" }
         val name = "rel_" + elem.prefix
@@ -1305,7 +1305,7 @@ class CBackend() {
         // The declaration tables come first: everything below looks callees
         // up in them.
         for (item in program.items) {
-            if (item.kind == "fun") {
+            if (item.kind == "func") {
                 val f = item.funDecl!!
                 this.globalFuns[f.name] = true
                 this.funDecls[f.name] = f
@@ -1357,7 +1357,7 @@ class CBackend() {
             if (item.kind == "class") { this.classFunctions(item.classDecl!!) }
         }
         for (item in program.items) {
-            if (item.kind == "fun") { this.function(item.funDecl!!) }
+            if (item.kind == "func") { this.function(item.funDecl!!) }
         }
         this.emitMain(program)
     }
@@ -1420,7 +1420,7 @@ class CBackend() {
 
     /// Emits one specialisation of a generic class, and everything it
     /// carries, compiled under the substitution the arguments dictate.
-    fun instantiateClass(name: String, args0: List<Ty>, file: Int, atLine: Int, col: Int): String? {
+    func instantiateClass(name: String, args0: List<Ty>, file: Int, atLine: Int, col: Int): String? {
         // Arguments may mention the parameters of whatever instantiation is
         // already in progress; resolve them before naming anything.
         val args: List<Ty> = []
@@ -1500,7 +1500,7 @@ class CBackend() {
     }
 
     /// Emits one specialisation of a generic method, returning its C name.
-    fun instantiateMethod(class_: String, classArgs0: List<Ty>, method: String, margs0: List<Ty>, file: Int, atLine: Int, col: Int): String? {
+    func instantiateMethod(class_: String, classArgs0: List<Ty>, method: String, margs0: List<Ty>, file: Int, atLine: Int, col: Int): String? {
         val margs: List<Ty> = []
         for (a in margs0) { margs.add(substitute(a, this.tsubst)) }
         val classArgs: List<Ty> = []
@@ -1590,7 +1590,7 @@ class CBackend() {
     }
 
     /// Emits one specialisation of a generic function, returning its C name.
-    fun instantiateFunction(name: String, args0: List<Ty>, file: Int, atLine: Int, col: Int): String? {
+    func instantiateFunction(name: String, args0: List<Ty>, file: Int, atLine: Int, col: Int): String? {
         val args: List<Ty> = []
         for (a in args0) { args.add(substitute(a, this.tsubst)) }
         var parts = ""
@@ -2122,7 +2122,7 @@ class CBackend() {
     /// for every other method, which compiles as written. The message type
     /// is the class's own parameter, read out of the instantiation's
     /// substitution — the checker has already required it copyable.
-    fun actorMethodBody(c: ClassN, method: String, sn: String, file: Int, atLine: Int, col: Int): String? {
+    func actorMethodBody(c: ClassN, method: String, sn: String, file: Int, atLine: Int, col: Int): String? {
         var isOp = false
         if (c.name == "ActorRef" and method == "send") { isOp = true }
         if (c.name == "Outbox" and (method == "post" or method == "drain")) { isOp = true }
@@ -2297,7 +2297,7 @@ class CBackend() {
 
     /// A declared type, as the checker resolved it. Written types are rare
     /// in the supported subset, so the few shapes that appear are enough.
-    fun resolvedTy(te: TypeEx, file: Int, atLine: Int, col: Int): Ty? {
+    func resolvedTy(te: TypeEx, file: Int, atLine: Int, col: Int): Ty? {
         if (te.kind == "boundary") {
             return this.resolvedTy(te.inner!!, file, atLine, col)
         }
@@ -2331,7 +2331,7 @@ class CBackend() {
             this.unsupported(file, atLine, col, "the type `${cTypeExName(te.inner!!)}?`")
             return null
         }
-        if (te.kind == "fun") {
+        if (te.kind == "func") {
             val ps: List<Ty> = []
             for (p in te.args) {
                 val t = this.resolvedTy(p, file, atLine, col)
@@ -2538,7 +2538,7 @@ class CBackend() {
 
     /// Resolves a name: an alias set up for a default argument wins, then a
     /// capture reads through the environment, then the C variable itself.
-    fun varRef(name: String): String {
+    func varRef(name: String): String {
         val aliases = this.paramAlias
         if (aliases != null) {
             val v = aliases[name]
@@ -2591,11 +2591,11 @@ class CBackend() {
     }
 
     /// Binds a counted expression to a temp this block owns.
-    fun ownTemp(expr: String): String {
+    func ownTemp(expr: String): String {
         return this.ownTempOf(Ty("Str"), expr)
     }
 
-    fun ownTempOf(t: Ty, expr: String): String {
+    func ownTempOf(t: Ty, expr: String): String {
         val tv = this.temp()
         val c = this.ctype(t, 0, 0, 0) ?: "void*"
         this.line("${c} ${tv} = ${expr};")
@@ -2910,7 +2910,7 @@ class CBackend() {
             this.line(if (s.kind == "break") { "break;" } else { "continue;" })
             return
         }
-        if (s.kind == "fun") {
+        if (s.kind == "func") {
             val f = s.funDecl!!
             this.unsupported(f.file, f.line, f.col, "nested functions")
             return
@@ -3085,7 +3085,7 @@ class CBackend() {
     /// Emits whatever `e` needs as statements and returns a C rvalue for it.
     /// A counted result is always an owned reference; the receiving block
     /// releases it.
-    fun expr(e: Ex): String {
+    func expr(e: Ex): String {
         if (e.kind == "int") { return "INT64_C(${e.iVal})" }
         if (e.kind == "float") { return formatDouble(e.fVal) }
         if (e.kind == "bool") { return e.text }
@@ -3233,7 +3233,7 @@ class CBackend() {
     }
 
     /// A lambda becomes a top-level C function and an environment struct.
-    fun lambda(e: Ex): String {
+    func lambda(e: Ex): String {
         val ft0 = this.ety(e)
         if (ft0 == null or ft0.kind != "Fun") {
             this.unsupported(e.file, e.line, e.col, "a lambda with no inferred type")
@@ -3503,7 +3503,7 @@ class CBackend() {
 
     /// Calls a closure value with already-rendered arguments, through the
     /// cast its static type dictates.
-    fun callClosure(ft: Ty, closure: String, args: List<String>, file: Int, atLine: Int, col: Int): String? {
+    func callClosure(ft: Ty, closure: String, args: List<String>, file: Int, atLine: Int, col: Int): String? {
         val fret = ft.ret!!
         var retC = "void"
         unless (fret.kind == "Unit") {
@@ -3526,7 +3526,7 @@ class CBackend() {
     }
 
     /// The map methods: membership, and the keys and values as lists.
-    fun mapMethod(e: Ex, obj: Ex, name: String): String? {
+    func mapMethod(e: Ex, obj: Ex, name: String): String? {
         unless (name == "contains" or name == "containsKey" or name == "keys" or name == "values") {
             return null
         }
@@ -3566,7 +3566,7 @@ class CBackend() {
     }
 
     /// `map`, `filter`, `fold` and `forEach` on a list, as inline loops.
-    fun listHigherOrder(e: Ex, obj: Ex, name: String, elemTy: Ty): String? {
+    func listHigherOrder(e: Ex, obj: Ex, name: String, elemTy: Ty): String? {
         unless (name == "map" or name == "filter" or name == "fold" or name == "forEach") {
             return null
         }
@@ -3688,7 +3688,7 @@ class CBackend() {
 
     /// The string methods the self-hosted compiler uses, each backed by a
     /// runtime function mirroring the interpreters' semantics.
-    fun builtinOperatorMethod(e: Ex, obj: Ex, name: String, receiverTy: Ty): String? {
+    func builtinOperatorMethod(e: Ex, obj: Ex, name: String, receiverTy: Ty): String? {
         val n = e.args.size
         if (receiverTy.kind == "Int") {
             if ((name == "plus" or name == "minus" or name == "times" or name == "div" or name == "rem") and n == 1) {
@@ -3807,7 +3807,7 @@ class CBackend() {
         return null
     }
 
-    fun stringBuiltin(e: Ex, obj: Ex, name: String): String? {
+    func stringBuiltin(e: Ex, obj: Ex, name: String): String? {
         val n = e.args.size
         if (name == "substring" and n == 2) {
             val s = this.expr(obj)
@@ -3895,7 +3895,7 @@ class CBackend() {
         return null
     }
 
-    fun intBuiltin(e: Ex, obj: Ex, name: String): String? {
+    func intBuiltin(e: Ex, obj: Ex, name: String): String? {
         val n = e.args.size
         if (name == "toFloat" and n == 0) {
             val v = this.expr(obj)
@@ -3931,7 +3931,7 @@ class CBackend() {
         return null
     }
 
-    fun floatBuiltin(e: Ex, obj: Ex, name: String): String? {
+    func floatBuiltin(e: Ex, obj: Ex, name: String): String? {
         val n = e.args.size
         if ((name == "toInt" or name == "floor" or name == "ceil" or name == "round") and n == 0) {
             val v = this.expr(obj)
@@ -3977,7 +3977,7 @@ class CBackend() {
     /// The equality a `contains` scan or a list comparison applies, by
     /// element kind; anything deeper than a word or a string is refused
     /// rather than guessed. `what` names the construct in the refusal.
-    fun elemEqFn(elemTy: Ty, file: Int, atLine: Int, col: Int, what: String): String? {
+    func elemEqFn(elemTy: Ty, file: Int, atLine: Int, col: Int, what: String): String? {
         if (elemTy.kind == "Str") { return "keal_key_eq_str" }
         if (elemTy.kind == "Float") { return "keal_key_eq_f64" }
         if (elemTy.kind == "Int" or elemTy.kind == "Bool" or elemTy.kind == "Never") {
@@ -4000,7 +4000,7 @@ class CBackend() {
         return null
     }
 
-    fun listBuiltin(e: Ex, obj: Ex, name: String, elemTy: Ty): String? {
+    func listBuiltin(e: Ex, obj: Ex, name: String, elemTy: Ty): String? {
         val n = e.args.size
         if (name == "removeAt" and n == 1) {
             val elem = this.elemKind(elemTy, e.file, e.line, e.col)
@@ -4190,7 +4190,7 @@ class CBackend() {
         return null
     }
 
-    fun mapLiteral(e: Ex): String {
+    func mapLiteral(e: Ex): String {
         val mt = this.ety(e)
         if (mt == null or mt.kind != "Map") { return "0" }
         val kt = mt.args[0]
@@ -4218,7 +4218,7 @@ class CBackend() {
 
     /// Like `reprCall`, but failure is the caller's to handle: no error is
     /// recorded.
-    fun tryRepr(t: Ty, expr: String, file: Int, atLine: Int, col: Int): String? {
+    func tryRepr(t: Ty, expr: String, file: Int, atLine: Int, col: Int): String? {
         val before = this.errors.size
         val r = this.reprCall(t, expr, file, atLine, col)
         if (r == null) {
@@ -4229,7 +4229,7 @@ class CBackend() {
 
     /// How a value of `t` is rendered *inside* another value — quoted for
     /// strings, recursive for containers.
-    fun reprCall(t: Ty, expr: String, file: Int, atLine: Int, col: Int): String? {
+    func reprCall(t: Ty, expr: String, file: Int, atLine: Int, col: Int): String? {
         if (t.kind == "Any") { return "keal_any_repr(${expr})" }
         if (t.kind == "Str") { return "keal_str_repr(keal_str_retain(${expr}))" }
         if (t.kind == "Int") { return "keal_str_from_int(${expr})" }
@@ -4253,7 +4253,7 @@ class CBackend() {
     }
 
     /// The function that renders a `Map<K, V>`, generated once per pair.
-    fun mapShow(kt: Ty, vt: Ty, file: Int, atLine: Int, col: Int): String? {
+    func mapShow(kt: Ty, vt: Ty, file: Int, atLine: Int, col: Int): String? {
         val key = "map|${tyShow(kt)}|${tyShow(vt)}"
         val cached = this.listShows[key]
         if (cached != null) { return cached }
@@ -4272,7 +4272,7 @@ class CBackend() {
         return name
     }
 
-    fun listLiteral(e: Ex): String {
+    func listLiteral(e: Ex): String {
         val lt = this.ety(e)
         if (lt == null or lt.kind != "List") { return "0" }
         val elemTy = lt.args[0]
@@ -4292,7 +4292,7 @@ class CBackend() {
         return t
     }
 
-    fun indexGet(e: Ex): String {
+    func indexGet(e: Ex): String {
         val obj = e.kids[0]
         val index = e.kids[1]
         val ot = this.ety(obj)
@@ -4327,7 +4327,7 @@ class CBackend() {
 
     /// The function that renders a `List<elem>`, generated once per element
     /// type. Inside a list, a string is quoted, as the interpreters print it.
-    fun listShow(elemTy: Ty, file: Int, atLine: Int, col: Int): String? {
+    func listShow(elemTy: Ty, file: Int, atLine: Int, col: Int): String? {
         val key = tyShow(elemTy)
         val cached = this.listShows[key]
         if (cached != null) { return cached }
@@ -4344,7 +4344,7 @@ class CBackend() {
     }
 
     /// `m[k]`, with `?: fallback` fused in when the caller supplies one.
-    fun mapGet(e: Ex, obj: Ex, index: Ex, fallback: Ex?): String {
+    func mapGet(e: Ex, obj: Ex, index: Ex, fallback: Ex?): String {
         val ot = this.ety(obj)
         if (ot == null or ot.kind != "Map") { return "0" }
         val kt = ot.args[0]
@@ -4403,7 +4403,7 @@ class CBackend() {
 
     /// `a ?: b` reaches `b` only when `a` is absent, so the fallback is
     /// emitted inside the branch rather than before it.
-    fun elvis(e: Ex): String {
+    func elvis(e: Ex): String {
         val lhs = e.kids[0]
         val rhs = e.kids[1]
         // The map idiom `m[k] ?: fallback` compiles as one lookup.
@@ -4492,7 +4492,7 @@ class CBackend() {
     }
 
     /// Reading a field yields an owned reference when the field is counted.
-    fun field(e: Ex): String {
+    func field(e: Ex): String {
         val obj = e.kids[0]
         val name = e.text
         // The built-in properties, which are fields of the runtime structs.
@@ -4558,7 +4558,7 @@ class CBackend() {
 
     /// The body of a `?.`: the access happens only when the receiver is
     /// there, and the whole thing is null when it is not.
-    fun guarded(e: Ex, receiver: String, access: String): String {
+    func guarded(e: Ex, receiver: String, access: String): String {
         val ty = this.ety(e)
         if (ty == null) { return "0" }
         val c = this.ctype(ty, e.file, e.line, e.col)
@@ -4580,7 +4580,7 @@ class CBackend() {
         return slot
     }
 
-    fun methodCall(e: Ex): String {
+    func methodCall(e: Ex): String {
         val obj = e.kids[0]
         val name = e.text
         val safe = e.safe
@@ -4718,7 +4718,7 @@ class CBackend() {
     }
 
     /// A `when` compiles to a chain of tests inside `do { } while (0)`.
-    fun whenExpr(e: Ex): String {
+    func whenExpr(e: Ex): String {
         // A branch join of `Any` is a value like any other — the slot is
         // the tagged pair, and each branch boxes into it on the way in —
         // except in statement position, where the value is discarded and
@@ -4901,7 +4901,7 @@ class CBackend() {
 
     /// Emits an arm's test against the subject, returning the condition to
     /// branch on, or "" for an unguarded `else`.
-    fun armTest(arm: ArmN, subjectSlot: String, subjectTy: Ty?): String {
+    func armTest(arm: ArmN, subjectSlot: String, subjectTy: Ty?): String {
         val conds: List<String> = []
         if (arm.patternKind == "values") {
             val hits: List<String> = []
@@ -4949,7 +4949,7 @@ class CBackend() {
     }
 
     /// `subject == candidate`, spelled correctly for the subject's type.
-    fun equality(t: Ty, slot: String, rhs: String, at: Ex): String {
+    func equality(t: Ty, slot: String, rhs: String, at: Ex): String {
         if (t.kind == "Str") { return "(keal_str_cmp(${slot}, ${rhs}) == 0)" }
         if (t.kind == "Int" or t.kind == "Float" or t.kind == "Bool") {
             return "(${slot} == ${rhs})"
@@ -5020,7 +5020,7 @@ class CBackend() {
         }
     }
 
-    fun intern(s: String): Int {
+    func intern(s: String): Int {
         var i = 0
         while (i < this.stringLiterals.size) {
             if (this.stringLiterals[i] == s) { return i }
@@ -5030,7 +5030,7 @@ class CBackend() {
         return this.stringLiterals.size - 1
     }
 
-    fun binary(e: Ex): String {
+    func binary(e: Ex): String {
         val op = e.text
         val lhs = e.kids[0]
         val rhs = e.kids[1]
@@ -5198,7 +5198,7 @@ class CBackend() {
 
     /// Emits a value rendered as an owned string, for concatenation and
     /// interpolation.
-    fun toStringValue(e: Ex): String {
+    func toStringValue(e: Ex): String {
         val ty = this.ety(e)
         val v = this.expr(e)
         if (ty == null) {
@@ -5269,7 +5269,7 @@ class CBackend() {
         return this.ownTemp(call)
     }
 
-    fun interpolate(e: Ex): String {
+    func interpolate(e: Ex): String {
         var acc = ""
         var hasAcc = false
         for (part in e.parts) {
@@ -5291,7 +5291,7 @@ class CBackend() {
         return "keal_str_empty()"
     }
 
-    fun logical(e: Ex): String {
+    func logical(e: Ex): String {
         val op = e.text
         val lhs = e.kids[0]
         val rhs = e.kids[1]
@@ -5327,7 +5327,7 @@ class CBackend() {
     /// `c ? a : b` and `c ? less : equal : greater`: the `if` expression's
     /// slot mechanics, with expressions for branches. The condition is
     /// emitted once; a `Comp` reads its sign into a temp for the split.
-    fun ternary(e: Ex): String {
+    func ternary(e: Ex): String {
         val discard = this.discardJoin
         this.discardJoin = false
         val ety0 = this.ety(e)
@@ -5403,7 +5403,7 @@ class CBackend() {
         this.closeScope()
     }
 
-    fun ifExpr(e: Ex): String {
+    func ifExpr(e: Ex): String {
         // A branch join of `Any` is a value like any other — the slot is
         // the tagged pair, and each branch boxes into it on the way in —
         // except in statement position, where the value is discarded and
@@ -5486,7 +5486,7 @@ class CBackend() {
         this.closeScope()
     }
 
-    fun call(e: Ex): String {
+    func call(e: Ex): String {
         val callee = e.kids[0]
         val args = e.args
         // Anything of function type is callable through its closure; a name
@@ -5814,7 +5814,7 @@ class CBackend() {
     /// Renders a call's arguments against the declaration's parameters:
     /// positional first, then named into their slots, then each missing slot
     /// filled by emitting its default at the call site.
-    fun renderArgsWithDefaults(params: List<ParamN>, calleeSubst: List<SubstPair>, args: List<ArgN>, file: Int, atLine: Int, col: Int): List<String>? {
+    func renderArgsWithDefaults(params: List<ParamN>, calleeSubst: List<SubstPair>, args: List<ArgN>, file: Int, atLine: Int, col: Int): List<String>? {
         val slots: List<String> = []
         val filled: List<Bool> = []
         for (p in params) {
@@ -5899,7 +5899,7 @@ class CBackend() {
     /// Emits `e` coerced to `target`: `Int` into `Int?`, `null` into the
     /// absent form. Everywhere a plain value meets a nullable slot goes
     /// through here.
-    fun coercedTo(e: Ex, target: Ty): String {
+    func coercedTo(e: Ex, target: Ty): String {
         if (target.kind == "Any") {
             val src = this.ety(e)
             val v = this.expr(e)
@@ -5920,7 +5920,7 @@ class CBackend() {
     }
 
     /// Binds a call's result according to its type, or emits it for effect.
-    fun finishCall(e: Ex, call: String): String {
+    func finishCall(e: Ex, call: String): String {
         val ty = this.ety(e)
         if (ty == null) { return call }
         if (ty.kind == "Unit") {
@@ -6126,7 +6126,7 @@ class CBackend() {
 
     // ---- assembly ------------------------------------------------------
 
-    fun finish(): String {
+    func finish(): String {
         var out = ""
         out += "/* Generated by the Keal compiler. Do not edit. */\n"
         if (this.actorsMode) {
@@ -6234,14 +6234,14 @@ if (checker.errors.size > 0) {
 /// Whether any `try` appears anywhere — including inside lambdas and the
 /// blocks that `if`/`when` expressions carry. Only such a program pays for
 /// the unwind machinery.
-fun hasTryStmts(stmts: List<StmtN>): Bool {
+func hasTryStmts(stmts: List<StmtN>): Bool {
     for (s in stmts) {
         if (hasTryStmt(s)) { return true }
     }
     return false
 }
 
-fun hasTryStmt(s: StmtN): Bool {
+func hasTryStmt(s: StmtN): Bool {
     if (s.kind == "try") { return true }
     val init = s.init
     if (init != null and hasTryExpr(init)) { return true }
@@ -6263,7 +6263,7 @@ fun hasTryStmt(s: StmtN): Bool {
     return false
 }
 
-fun hasTryExpr(e: Ex): Bool {
+func hasTryExpr(e: Ex): Bool {
     for (k in e.kids) {
         if (hasTryExpr(k)) { return true }
     }
@@ -6299,7 +6299,7 @@ fun hasTryExpr(e: Ex): Bool {
     return false
 }
 
-fun programHasTry(program: ProgramN): Bool {
+func programHasTry(program: ProgramN): Bool {
     for (item in program.items) {
         val s = item.stmt
         if (s != null and hasTryStmt(s)) { return true }
@@ -6326,11 +6326,11 @@ for (d in checker.warnings.sortedBy({ w ->
 /// Whether the user program touches the actor machinery — the types, the
 /// system, or the capture-copying primitive `spawn` leans on. The prelude
 /// alone never triggers it: unused generics are not emitted.
-fun actorNameHits(n: String): Bool {
+func actorNameHits(n: String): Bool {
     return n == "ActorSystem" or n == "ActorRef" or n == "copyClosure"
 }
 
-fun actorInType(t: TypeEx): Bool {
+func actorInType(t: TypeEx): Bool {
     if (t.kind == "named") {
         if (actorNameHits(t.name)) { return true }
         for (a in t.args) {
@@ -6343,7 +6343,7 @@ fun actorInType(t: TypeEx): Bool {
         if (inner != null) { return actorInType(inner) }
         return false
     }
-    if (t.kind == "fun") {
+    if (t.kind == "func") {
         for (a in t.args) {
             if (actorInType(a)) { return true }
         }
@@ -6354,14 +6354,14 @@ fun actorInType(t: TypeEx): Bool {
     return false
 }
 
-fun actorInStmts(stmts: List<StmtN>): Bool {
+func actorInStmts(stmts: List<StmtN>): Bool {
     for (s in stmts) {
         if (actorInStmt(s)) { return true }
     }
     return false
 }
 
-fun actorInStmt(s: StmtN): Bool {
+func actorInStmt(s: StmtN): Bool {
     val te = s.tyEx
     if (te != null and actorInType(te)) { return true }
     val init = s.init
@@ -6380,7 +6380,7 @@ fun actorInStmt(s: StmtN): Bool {
     return false
 }
 
-fun actorInFun(f: FunN): Bool {
+func actorInFun(f: FunN): Bool {
     for (p in f.params) {
         val te = p.tyEx
         if (te != null and actorInType(te)) { return true }
@@ -6390,7 +6390,7 @@ fun actorInFun(f: FunN): Bool {
     return actorInStmts(f.body.stmts)
 }
 
-fun actorInClass(c: ClassN): Bool {
+func actorInClass(c: ClassN): Bool {
     for (p in c.ctor) {
         val te = p.tyEx
         if (te != null and actorInType(te)) { return true }
@@ -6405,7 +6405,7 @@ fun actorInClass(c: ClassN): Bool {
     return false
 }
 
-fun actorInExpr(e: Ex): Bool {
+func actorInExpr(e: Ex): Bool {
     if (e.kind == "ident" and actorNameHits(e.text)) { return true }
     val ite = e.tyEx
     if (ite != null and actorInType(ite)) { return true }
@@ -6448,7 +6448,7 @@ fun actorInExpr(e: Ex): Bool {
     return false
 }
 
-fun programUsesActors(program: ProgramN): Bool {
+func programUsesActors(program: ProgramN): Bool {
     // The prelude *declares* the actor classes, so mentioning them there is
     // not using them: the file that declares `ActorSystem` is excluded, and
     // a program that never names an actor keeps plain counts and no pthread.
@@ -6471,7 +6471,7 @@ fun programUsesActors(program: ProgramN): Bool {
 }
 
 /// Whether any class in the program declares a `weak` field.
-fun programUsesWeak(program: ProgramN): Bool {
+func programUsesWeak(program: ProgramN): Bool {
     for (item in program.items) {
         val c = item.classDecl
         if (item.kind == "class" and c != null) {

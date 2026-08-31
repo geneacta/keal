@@ -14,7 +14,7 @@ val Empty(nothing) = Empty()
 val WithBody(n1, n2) = WithBody(1)
 val Point(dup, dup) = Point(1, 2)
 
-fun kind(v: Any): String {
+func kind(v: Any): String {
     return when (v) {
         is Pair<Int, Int>(p, q2) -> "pair"
         else -> "other"

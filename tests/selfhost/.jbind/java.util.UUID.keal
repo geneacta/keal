@@ -8,14 +8,14 @@ import "jvm.keal"
 // ---- java.util.UUID ----
 
 var jbindClsUUID = 0
-fun jbindClassUUID(): Int {
+func jbindClassUUID(): Int {
     if (jbindClsUUID == 0) { jbindClsUUID = jvmClass("java/util/UUID") }
     return jbindClsUUID
 }
 
 public class UUID(val handle: Int) : Ord {
     var released: Bool = false
-    public fun toString(): String { return jvmToString(this.handle) }
+    public func toString(): String { return jvmToString(this.handle) }
     proc free() {
         unless (this.released) {
             this.released = true
@@ -23,47 +23,47 @@ public class UUID(val handle: Int) : Ord {
         }
     }
     proc deinit() { this.free() }
-    fun getLeastSignificantBits(): Int {
+    func getLeastSignificantBits(): Int {
         return jvmCallLong(this.handle, "getLeastSignificantBits", "()J")
     }
-    fun getMostSignificantBits(): Int {
+    func getMostSignificantBits(): Int {
         return jvmCallLong(this.handle, "getMostSignificantBits", "()J")
     }
-    fun version(): Int {
+    func version(): Int {
         return jvmCallInt(this.handle, "version", "()I")
     }
-    fun variant(): Int {
+    func variant(): Int {
         return jvmCallInt(this.handle, "variant", "()I")
     }
-    fun timestamp(): Int {
+    func timestamp(): Int {
         return jvmCallLong(this.handle, "timestamp", "()J")
     }
-    fun clockSequence(): Int {
+    func clockSequence(): Int {
         return jvmCallInt(this.handle, "clockSequence", "()I")
     }
-    fun node(): Int {
+    func node(): Int {
         return jvmCallLong(this.handle, "node", "()J")
     }
-    fun hashCode(): Int {
+    func hashCode(): Int {
         return jvmCallInt(this.handle, "hashCode", "()I")
     }
-    fun compareTo(a0: UUID): Int {
+    func compareTo(a0: UUID): Int {
         jvmArgObj(a0.handle)
         return jvmCallInt(this.handle, "compareTo", "(Ljava/util/UUID;)I")
     }
 }
 
-fun uuidNew(a0: Int, a1: Int): UUID {
+func uuidNew(a0: Int, a1: Int): UUID {
     jvmArgLong(a0)
     jvmArgLong(a1)
     return UUID(jvmNew(jbindClassUUID(), "(JJ)V"))
 }
 
-fun uuidRandomUUID(): UUID {
+func uuidRandomUUID(): UUID {
     return UUID(jvmStaticObj(jbindClassUUID(), "randomUUID", "()Ljava/util/UUID;"))
 }
 
-fun uuidFromString(a0: String): UUID {
+func uuidFromString(a0: String): UUID {
     jvmArgStr(a0)
     return UUID(jvmStaticObj(jbindClassUUID(), "fromString", "(Ljava/lang/String;)Ljava/util/UUID;"))
 }

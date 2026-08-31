@@ -1,4 +1,4 @@
-//! `keal bindgen header.h` — C prototypes in, `extern fun` declarations out.
+//! `keal bindgen header.h` — C prototypes in, `extern funcc` declarations out.
 //!
 //! The mapping is deliberately exact: only types whose ABI Keal can promise
 //! are bound — `int64_t`/`long long`, `double`, `bool`, `const char*` as
@@ -230,7 +230,7 @@ fn tokenize(s: &str) -> Vec<String> {
 }
 
 const KEAL_KEYWORDS: &[&str] = &[
-    "val", "var", "fun", "proc", "class", "if", "else", "unless", "when", "is", "in", "for",
+    "val", "var", "func", "proc", "class", "if", "else", "unless", "when", "is", "in", "for",
     "while", "return", "break", "continue", "null", "true", "false", "this", "import", "not",
     "and", "or", "xor", "xnor", "nand", "nor", "implies", "borrow", "own",
 ];
@@ -345,7 +345,7 @@ fn bind(decl: &str) -> Bound {
     };
     // A generated header binding exists to be imported: the whole file is
     // the boundary someone else is meant to call across.
-    Bound::Fun(format!("public extern fun {}({}){}", name, rendered.join(", "), ret_part))
+    Bound::Fun(format!("public extern func {}({}){}", name, rendered.join(", "), ret_part))
 }
 
 /// The Keal spelling of a C type, `Ok(None)` for `void`, or the reason it

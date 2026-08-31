@@ -1,6 +1,6 @@
-public fun open(): Int { secret() }
-fun secret(): Int { 42 }
-package fun shared(): Int { 7 }
+public func open(): Int { secret() }
+func secret(): Int { 42 }
+package func shared(): Int { 7 }
 class Kept(val n: Int)
 
 public class Counter(public var n: Int) {

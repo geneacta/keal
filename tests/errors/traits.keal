@@ -1,27 +1,27 @@
 trait Show {
-    fun show(): String
-    fun tag(prefix: String): String
+    func show(): String
+    func tag(prefix: String): String
 }
 
 trait Ordered {
-    fun compareTo(other: Self): Int
+    func compareTo(other: Self): Int
 }
 
 // Missing `tag` entirely, and `show` has the wrong return type.
 class Broken(val n: Int) : Show {
-    fun show(): Int { this.n }
+    func show(): Int { this.n }
 }
 
 // `Self` must be read as the implementing class, not as anything else.
 class Wrong(val n: Int) : Ordered {
-    fun compareTo(other: Int): Int { this.n - other }
+    func compareTo(other: Int): Int { this.n - other }
 }
 
 class Missing(val n: Int) : Ordered
 
 class Twice(val n: Int) : Show, Show {
-    fun show(): String { "" }
-    fun tag(prefix: String): String { prefix }
+    func show(): String { "" }
+    func tag(prefix: String): String { prefix }
 }
 
 class NotATrait(val n: Int) : Broken

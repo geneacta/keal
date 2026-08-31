@@ -273,7 +273,7 @@ fn fetch_puts_a_dependency_where_an_import_finds_it() {
     std::fs::create_dir_all(&project).expect("cannot make the project directory");
     std::fs::write(
         dep.join("shapes.keal"),
-        "public record Circle(val r: Float)\npublic fun area(c: Circle): Float { 3.0 * c.r * c.r }\n",
+        "public record Circle(val r: Float)\npublic func area(c: Circle): Float { 3.0 * c.r * c.r }\n",
     )
     .expect("cannot write the dependency");
 
@@ -615,7 +615,7 @@ fn the_index_finds_a_package_and_pins_it() {
     // A package with three version tags and one that is not a version. The
     // interesting pair is v1.2.0 and v1.10.0: sorted as text the wrong one
     // wins, and everybody reading it expects the other.
-    std::fs::write(pkg.join("shapes.keal"), "public fun area(): Int { 7 }\n").unwrap();
+    std::fs::write(pkg.join("shapes.keal"), "public func area(): Int { 7 }\n").unwrap();
     init(&pkg);
     git(&["add", "-A"], &pkg);
     git(&["commit", "-qm", "x"], &pkg);
@@ -728,7 +728,7 @@ fn a_dependency_may_have_dependencies() {
         git(&["tag", tag], at);
     };
 
-    std::fs::write(deep.join("deep.keal"), "public fun deep(): Int { 42 }\n").unwrap();
+    std::fs::write(deep.join("deep.keal"), "public func deep(): Int { 42 }\n").unwrap();
     commit(&deep, "v1");
 
     std::fs::write(
@@ -741,7 +741,7 @@ fn a_dependency_may_have_dependencies() {
     .unwrap();
     std::fs::write(
         mid.join("mid.keal"),
-        "import \"dep:deep/deep.keal\"\npublic fun middle(): Int { deep() + 1 }\n",
+        "import \"dep:deep/deep.keal\"\npublic func middle(): Int { deep() + 1 }\n",
     )
     .unwrap();
     commit(&mid, "v1");
@@ -782,7 +782,7 @@ fn a_dependency_may_have_dependencies() {
     }
 
     // And two versions of one name, which nothing can pick between.
-    std::fs::write(deep.join("deep.keal"), "public fun deep(): Int { 99 }\n").unwrap();
+    std::fs::write(deep.join("deep.keal"), "public func deep(): Int { 99 }\n").unwrap();
     git(&["add", "-A"], &deep);
     git(&["commit", "-qm", "y"], &deep);
     git(&["tag", "v2"], &deep);
@@ -1189,7 +1189,7 @@ fn a_constexpr_that_cannot_finish_is_refused() {
     let forever = dir.join("forever.keal");
     std::fs::write(
         &forever,
-        "constexpr fun spin(): Int {\n    var i = 0\n    while (true) { i += 1 }\n    return i\n}\nconstexpr val X = spin()\n",
+        "constexpr func spin(): Int {\n    var i = 0\n    while (true) { i += 1 }\n    return i\n}\nconstexpr val X = spin()\n",
     )
     .unwrap();
     let out = Command::new(BIN).arg("check").arg(&forever).output().expect("cannot run keal");
@@ -1204,7 +1204,7 @@ fn a_constexpr_that_cannot_finish_is_refused() {
     let deep = dir.join("deep.keal");
     std::fs::write(
         &deep,
-        "constexpr fun down(n: Int): Int { return down(n + 1) }\nconstexpr val X = down(0)\n",
+        "constexpr func down(n: Int): Int { return down(n + 1) }\nconstexpr val X = down(0)\n",
     )
     .unwrap();
     let out = Command::new(BIN).arg("check").arg(&deep).output().expect("cannot run keal");

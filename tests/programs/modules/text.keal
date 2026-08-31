@@ -1,4 +1,4 @@
 // This module imports another one; the diamond is loaded only once.
 import "./geometry.keal"
 
-package fun describe(v: Vec2): String { "${v} of length ${v.length()}" }
+package func describe(v: Vec2): String { "${v} of length ${v.length()}" }

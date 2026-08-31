@@ -54,7 +54,7 @@ assert(base ^/ 2 == 3.0, "Float ^/ with an Int literal")
 
 // Overloading: a class with Pow gets `**` through `pow`.
 class Poly(val degree: Int) : Pow {
-    fun pow(other: Poly): Poly { return Poly(this.degree * other.degree) }
+    func pow(other: Poly): Poly { return Poly(this.degree * other.degree) }
 }
 assert((Poly(3) ** Poly(4)).degree == 12, "`**` through the Pow trait")
 
@@ -71,6 +71,6 @@ assert(compare(2.5, 2.5).isEqual(), "compare on floats")
 assert(compare(1, 2) == Comp(-1), "Comp is a record: value equality")
 
 class Version(val major: Int) : Ord {
-    fun compareTo(other: Version): Int { return this.major - other.major }
+    func compareTo(other: Version): Int { return this.major - other.major }
 }
 assert(compare(Version(3), Version(1)).isGreater(), "compare on an Ord class")

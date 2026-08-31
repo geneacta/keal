@@ -9,19 +9,19 @@ class Counter {
     var n: Int = 0
     proc bump() { this.n += 1 }
     proc add(k: Int) { this.n += k }
-    fun value(): Int { this.n }
+    func value(): Int { this.n }
 }
 
 class Accumulator {
     var text: String = ""
     proc append(s: String) { this.text += s }
-    fun result(): String { this.text }
+    func result(): String { this.text }
 }
 
 class Vec2(val x: Float, val y: Float) {
-    fun plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
-    fun scaled(k: Float): Vec2 { Vec2(this.x * k, this.y * k) }
-    fun toString(): String { "(${this.x}, ${this.y})" }
+    func plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
+    func scaled(k: Float): Vec2 { Vec2(this.x * k, this.y * k) }
+    func toString(): String { "(${this.x}, ${this.y})" }
 }
 
 // A field computed from the constructor's parameters.
@@ -63,12 +63,12 @@ println(v.plus(Vec2(1.0, 1.0)))
 println(Sized(3, 4).area)
 
 // Instances held in locals, passed as arguments, and returned.
-fun further(a: Point, b: Point): Point {
+func further(a: Point, b: Point): Point {
     return Point(a.x + b.x, a.y + b.y)
 }
 println(further(Point(1, 2), Point(10, 20)))
 
-fun describe(pt: Point): String {
+func describe(pt: Point): String {
     if (pt.x > pt.y) { return "wide" }
     return "tall"
 }

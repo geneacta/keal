@@ -9,8 +9,8 @@
 // points at.
 
 class Box(val n: Int, val ratio: Float, val ok: Bool, val label: String) {
-    fun doubled(): Int { this.n * 2 }
-    fun name(): String { this.label }
+    func doubled(): Int { this.n * 2 }
+    func name(): String { this.label }
 }
 
 val some: Box? = Box(21, 1.5, true, "here")
@@ -59,7 +59,7 @@ val ratio: Float = 1 / 2
 println(ratio)
 val third: Float = 3 / 2
 println(third)
-fun half(x: Float): Float { x }
+func half(x: Float): Float { x }
 println(half(1 / 2))
 println(half(-1 / 2))
 val mixed: Float = 1 + 1 / 4

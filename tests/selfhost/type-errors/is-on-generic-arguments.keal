@@ -1,4 +1,4 @@
 class Box<T>(val v: T)
 val b = Box(1)
 val t = b is Box<Int>
-fun g<T>(x: T): Bool { return x is T }
+func g<T>(x: T): Bool { return x is T }

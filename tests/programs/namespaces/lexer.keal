@@ -3,4 +3,4 @@
 
 public record Node(val kind: String, val text: String)
 
-public fun parse(src: String): Node { Node("token", src) }
+public func parse(src: String): Node { Node("token", src) }

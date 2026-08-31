@@ -19,7 +19,7 @@ usually assume it is.
 
 **Compiling a Keal program is running its author's code.** A source
 file may contain a `native """ ... """` block, which is C pasted
-verbatim into the generated translation unit, and `extern fun`, which
+verbatim into the generated translation unit, and `extern func`, which
 calls any symbol on the link line. Both are documented features, not
 holes. `keal build` also invokes a C compiler and a linker with the
 arguments it was given. **So: do not compile Keal source you would not

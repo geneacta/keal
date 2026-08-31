@@ -55,7 +55,7 @@ pub fn emit_only(path: &str, audit: bool) -> ExitCode {
 /// Builds an executable. `extras` fall into three kinds:
 ///
 /// * **sources** (`.c`, `.cpp`, `.cc`, `.cxx`, `.C`) — compiled alongside,
-///   where the implementations behind `extern fun` live when a `native`
+///   where the implementations behind `extern func` live when a `native`
 ///   block is not enough. Any C++ among them makes `c++` the linker.
 /// * **link inputs** (`.a`, `.so`, `.dylib`, `.o`, `-l...`, `-L...`) —
 ///   handed to the link step untouched. This is how a Rust `staticlib`, a

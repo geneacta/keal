@@ -5,7 +5,7 @@ println((3 <=> 8).toString())
 println(3 <=> 8 ? "less" : "equal" : "greater")
 println("kiwi" <=> "kiwi" ? "less" : "equal" : "greater")
 
-fun rank(a: Int, b: Int): String {
+func rank(a: Int, b: Int): String {
     return a <=> b ? "${a} first" : "tie" : "${b} first"
 }
 println(rank(2, 9))

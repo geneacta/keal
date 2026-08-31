@@ -2,7 +2,7 @@
 // IMPLIES, their laws, their short-circuiting, and their precedence.
 
 /// The four rows of a two-input truth table, in TT TF FT FF order.
-fun rows(f: (Bool, Bool) -> Bool): List<Bool> {
+func rows(f: (Bool, Bool) -> Bool): List<Bool> {
     return [f(true, true), f(true, false), f(false, true), f(false, false)]
 }
 
@@ -31,7 +31,7 @@ for (a in [true, false]) {
 
 // Short-circuiting: the right operand must not be evaluated.
 var calls = 0
-fun touch(): Bool { calls += 1; return true }
+func touch(): Bool { calls += 1; return true }
 assert((false nand touch()), "nand short-circuits on false")
 assert(not (true nor touch()), "nor short-circuits on true")
 assert((false implies touch()), "implies short-circuits on false")
@@ -40,7 +40,7 @@ assert((true xor touch()) == false, "xor always evaluates the right operand")
 assert(calls == 1, "xor evaluated it")
 
 // `implies` guards its right operand, so a null check carries across it.
-fun safe(s: String?): Bool { s != null implies s.length > 0 }
+func safe(s: String?): Bool { s != null implies s.length > 0 }
 assert(safe(null), "vacuously true")
 assert(safe("ab"), "true side")
 assert(not safe(""), "false side")

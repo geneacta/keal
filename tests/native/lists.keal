@@ -43,7 +43,7 @@ println(floats)
 val flags = [true, false]
 println(flags)
 
-fun sum(items: List<Int>): Int {
+func sum(items: List<Int>): Int {
     var acc = 0
     for (v in items) { acc += v }
     return acc
@@ -51,6 +51,6 @@ fun sum(items: List<Int>): Int {
 println(sum(xs))
 println(sum([10, 20, 30]))
 
-fun firstNames(): List<String> { return ["x", "y"] }
+func firstNames(): List<String> { return ["x", "y"] }
 println(firstNames())
 println("list is ${xs}")

@@ -1,36 +1,36 @@
 // Traits: required methods, default methods, and type-parameter bounds.
 
 trait Show {
-    fun show(): String
+    func show(): String
     // A default body; an implementer may take it or override it.
-    fun shout(): String { this.show().toUpper() }
+    func shout(): String { this.show().toUpper() }
 }
 
 trait Ordered {
     // `Self` stands for whichever type implements the trait.
-    fun compareTo(other: Self): Int
+    func compareTo(other: Self): Int
 }
 
 class Version(val major: Int, val minor: Int) : Show, Ordered {
-    fun show(): String { "v${this.major}.${this.minor}" }
-    fun compareTo(other: Version): Int {
+    func show(): String { "v${this.major}.${this.minor}" }
+    func compareTo(other: Version): Int {
         if (this.major != other.major) { return this.major - other.major }
         return this.minor - other.minor
     }
 }
 
 class Tag(val name: String) : Show {
-    fun show(): String { "#${this.name}" }
-    fun shout(): String { "<<${this.name}>>" }   // overrides the default
+    func show(): String { "#${this.name}" }
+    func shout(): String { "<<${this.name}>>" }   // overrides the default
 }
 
 class Score(val points: Int) : Ordered {
-    fun compareTo(other: Score): Int { this.points - other.points }
+    func compareTo(other: Score): Int { this.points - other.points }
 }
 
-fun describe<T: Show>(value: T): String { value.show() }
+func describe<T: Show>(value: T): String { value.show() }
 
-fun largest<T: Ordered>(xs: List<T>, fallback: T): T {
+func largest<T: Ordered>(xs: List<T>, fallback: T): T {
     var best = fallback
     for (x in xs) {
         if (x.compareTo(best) > 0) { best = x }
@@ -39,7 +39,7 @@ fun largest<T: Ordered>(xs: List<T>, fallback: T): T {
 }
 
 // A parameter may carry several bounds at once.
-fun loudest<T: Show + Ordered>(a: T, b: T): String {
+func loudest<T: Show + Ordered>(a: T, b: T): String {
     return if (a.compareTo(b) > 0) { a.shout() } else { b.shout() }
 }
 
@@ -59,6 +59,6 @@ assert(loudest(v1, v2) == "V2.0", "both bounds in use")
 
 // A trait method reached through a bound, inside a generic class.
 class Labelled<T: Show>(val value: T) {
-    fun label(): String { "[${this.value.show()}]" }
+    func label(): String { "[${this.value.show()}]" }
 }
 assert(Labelled(Tag("a")).label() == "[#a]", "a bound on a class type parameter")

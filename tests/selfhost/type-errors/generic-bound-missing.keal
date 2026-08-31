@@ -1,4 +1,4 @@
-fun first<T>(xs: List<T>): T? { return xs.first() }
+func first<T>(xs: List<T>): T? { return xs.first() }
 val e = first([])
-fun ident<T>(x: T): T { return x }
+func ident<T>(x: T): T { return x }
 val g = ident

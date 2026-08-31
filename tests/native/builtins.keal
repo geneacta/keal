@@ -88,7 +88,7 @@ val third = slots[2]
 println(third ?: "-")
 
 // A statement `if` whose branches disagree needs no value.
-fun pick(flag: Bool): Int {
+func pick(flag: Bool): Int {
     if (flag) {
         println("yes")
     } else {

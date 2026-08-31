@@ -10,13 +10,13 @@ static char* frame(const char* s) { (void)s; return 0; }
 static int64_t denoise(int64_t x) { return k_gamma(x); }
 """
 
-fun gamma(v: Int): Int { return v * v / 255 }
+func gamma(v: Int): Int { return v * v / 255 }
 
-extern fun luma(p: Pixel): Int
-extern fun frame(s: borrow String): own String
-extern fun denoise(x: Int): Int
+extern func luma(p: Pixel): Int
+extern func frame(s: borrow String): own String
+extern func denoise(x: Int): Int
 
-fun main2(): Int {
+func main2(): Int {
     val p = Pixel(200, 120, 40)
     val l = luma(p)
     val f = frame("q")

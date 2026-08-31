@@ -1,1 +1,1 @@
-extern fun f(): Int = 42
+extern func f(): Int = 42

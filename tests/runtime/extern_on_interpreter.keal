@@ -1,7 +1,7 @@
 native """
 #include <math.h>
 """
-extern fun sin(x: Float): Float
+extern func sin(x: Float): Float
 
 println("before")
 println(sin(0.0))

@@ -6,7 +6,7 @@
 class Token(val kind: String, val text: String)
 
 /// Splits `src` into tokens. Returns null on the first unrecognised character.
-fun tokenize(src: String): List<Token>? {
+func tokenize(src: String): List<Token>? {
     val out: List<Token> = []
     var i = 0
     while (i < src.length) {
@@ -50,21 +50,21 @@ class Parser(val tokens: List<Token>) {
     var pos: Int = 0
     var error: String? = null
 
-    fun peek(): Token { this.tokens[this.pos] }
+    func peek(): Token { this.tokens[this.pos] }
 
-    fun advance(): Token {
+    func advance(): Token {
         val t = this.tokens[this.pos]
         if (this.pos < this.tokens.size - 1) { this.pos += 1 }
         return t
     }
 
-    fun fail(message: String): Float {
+    func fail(message: String): Float {
         // Only the first error is worth reporting; later ones are noise.
         if (this.error == null) { this.error = message }
         return 0.0
     }
 
-    fun expr(): Float {
+    func expr(): Float {
         var value = this.term()
         while (this.peek().kind == "+" or this.peek().kind == "-") {
             val op = this.advance().kind
@@ -74,7 +74,7 @@ class Parser(val tokens: List<Token>) {
         return value
     }
 
-    fun term(): Float {
+    func term(): Float {
         var value = this.unary()
         while (this.peek().kind in ["*", "/", "%"]) {
             val op = this.advance().kind
@@ -88,7 +88,7 @@ class Parser(val tokens: List<Token>) {
         return value
     }
 
-    fun unary(): Float {
+    func unary(): Float {
         if (this.peek().kind == "-") {
             this.advance()
             return -this.unary()
@@ -96,7 +96,7 @@ class Parser(val tokens: List<Token>) {
         return this.atom()
     }
 
-    fun atom(): Float {
+    func atom(): Float {
         val t = this.advance()
         if (t.kind == "number") {
             return t.text.toFloat() ?: this.fail("malformed number `${t.text}`")

@@ -16,5 +16,5 @@ assert(setting.value == 5, "and its own Node is a different type")
 val n: config.Node = config.parse("depth")
 assert(n.value == 5, "a type can be written through the alias too")
 
-fun describe(node: Node): String { node.kind }
+func describe(node: Node): String { node.kind }
 assert(describe(token) == "token", "the bare `Node` is the unaliased one")

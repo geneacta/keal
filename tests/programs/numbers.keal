@@ -46,7 +46,7 @@ assert(total == 10, "for over a range")
 // integers whose quotient is then converted.
 val widened: Float = 1 / 2
 assert(widened == 0.5, "a widened literal divides as a Float")
-fun asFloat(x: Float): Float { x }
+func asFloat(x: Float): Float { x }
 assert(asFloat(1 / 2) == 0.5, "widened at an argument")
 assert(asFloat(1 + 1 / 4) == 1.25, "widened through a mixed expression")
 assert(asFloat(-1 / 2) == -0.5, "widened under a negation")

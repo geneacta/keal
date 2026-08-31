@@ -4,12 +4,12 @@ val TEXT = "the quick brown fox jumps over the lazy dog " +
     "the dog barks and the fox runs the fox is quick"
 
 /// Splits on whitespace, drops punctuation, and lowercases.
-fun words(text: String): List<String> {
+func words(text: String): List<String> {
     val cleaned = text.toLower().replace(",", " ").replace(".", " ")
     return cleaned.split(" ").filter({ it != "" })
 }
 
-fun countWords(text: String): Map<String, Int> {
+func countWords(text: String): Map<String, Int> {
     val counts: Map<String, Int> = {}
     for (word in words(text)) {
         counts[word] = (counts[word] ?: 0) + 1
@@ -18,14 +18,14 @@ fun countWords(text: String): Map<String, Int> {
 }
 
 /// Keys ordered by descending count, ties broken alphabetically.
-fun ranked(counts: Map<String, Int>): List<String> {
+func ranked(counts: Map<String, Int>): List<String> {
     val keys = counts.keys().sorted()
     return keys.sortedBy({ -(counts[it] ?: 0) })
 }
 
-fun bar(n: Int): String { "#".repeat(n) }
+func bar(n: Int): String { "#".repeat(n) }
 
-fun padded(s: String, width: Int): String {
+func padded(s: String, width: Int): String {
     if (s.length >= width) { return s }
     return s + " ".repeat(width - s.length)
 }

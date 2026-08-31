@@ -1,4 +1,4 @@
-fun render(v: Any): String {
+func render(v: Any): String {
     return when (v) {
         is Int -> "int:${v + 1}"
         is String -> "str:${v.toUpper()}"
@@ -14,7 +14,7 @@ println(render(null))
 
 record Circle(val r: Float)
 record Duo(val a: Int, val b: String)
-fun area(shape: Any): Float {
+func area(shape: Any): Float {
     return when (shape) {
         is Circle(r) if (r > 10.0) -> r
         is Circle(r) -> r * 2.0
@@ -44,7 +44,7 @@ for (v in xs) {
 println(total)
 
 val g: Any = "hidden"
-fun peek(): String {
+func peek(): String {
     if (g is String) { return "${g.length}" }
     return "?"
 }

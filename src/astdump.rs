@@ -151,7 +151,7 @@ fn vis_prefix(vis: Vis) -> String {
 
 fn item_node(item: &Item) -> String {
     match item {
-        Item::Fun(f) => fun_node("fun", f),
+        Item::Fun(f) => fun_node("func", f),
         Item::Class(c) => class_node(c),
         Item::Trait(t) => trait_node(t),
         Item::Import { path, alias, span } => match alias {
@@ -360,7 +360,7 @@ fn stmt_node(s: &Stmt) -> String {
                 indent(&block_node("body", body))
             )
         }
-        StmtKind::Fun(f) => fun_node("fun", f),
+        StmtKind::Fun(f) => fun_node("func", f),
         StmtKind::Class(c) => class_node(c),
     }
 }

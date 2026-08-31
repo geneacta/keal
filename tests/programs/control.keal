@@ -17,7 +17,7 @@ val computed = if (true) {
 assert(computed == 6, "a block's value is its last expression")
 
 // `when` with a subject.
-fun describe(n: Int): String {
+func describe(n: Int): String {
     return when (n) {
         0 -> "zero"
         1, 2, 3 -> "small"
@@ -31,7 +31,7 @@ assert(describe(7) == "medium", "when: range arm")
 assert(describe(99) == "large", "when: else")
 
 // `when` without a subject behaves like a chain of conditions.
-fun bucket(n: Int): String {
+func bucket(n: Int): String {
     return when {
         n < 0 -> "negative"
         n == 0 -> "zero"
@@ -43,7 +43,7 @@ assert(bucket(0) == "zero", "subject-less when")
 assert(bucket(1) == "positive", "subject-less when")
 
 // `when` with `is` narrows the subject inside the arm.
-fun render(v: Any): String {
+func render(v: Any): String {
     return when (v) {
         is Int -> "int:${v + 1}"
         is String -> "str:${v.toUpper()}"
@@ -79,7 +79,7 @@ assert(pairs == 6, "break leaves only the inner loop")
 
 // Short-circuit evaluation.
 var calls = 0
-fun bump(): Bool {
+func bump(): Bool {
     calls += 1
     return true
 }
@@ -93,21 +93,21 @@ assert(calls == 0, "the right operand of `or` was never evaluated")
 // `unless (c)` is `if (not c)`. It takes an `else`, works as an expression,
 // and narrows types exactly as the `if` it stands for would.
 
-fun classify(n: Int): String {
+func classify(n: Int): String {
     unless (n > 0) { return "not positive" }
     return "positive"
 }
 assert(classify(5) == "positive", "unless as a guard")
 assert(classify(-1) == "not positive", "the guard fired")
 
-fun parity(n: Int): String {
+func parity(n: Int): String {
     return unless (n % 2 == 0) { "odd" } else { "even" }
 }
 assert(parity(3) == "odd", "unless as an expression")
 assert(parity(4) == "even", "its else branch")
 
 // Chains mix freely: `if`, `else unless`, `else if`, `else`.
-fun size(n: Int): String {
+func size(n: Int): String {
     if (n > 100) {
         return "huge"
     } else unless (n > 10) {
@@ -121,14 +121,14 @@ assert(size(5) == "small", "else unless branch")
 assert(size(50) == "medium", "final else")
 
 // Smart casts pass through untouched, in both directions.
-fun lengthOf(s: String?): Int {
+func lengthOf(s: String?): Int {
     unless (s != null) { return 0 }
     return s.length
 }
 assert(lengthOf("abcd") == 4, "narrowed after an unless guard")
 assert(lengthOf(null) == 0, "the guard returned")
 
-fun firstChar(s: String?): String {
+func firstChar(s: String?): String {
     unless (s == null) { return s[0] }
     return "?"
 }
@@ -143,18 +143,18 @@ for (b in [true, false]) {
 }
 
 // Every shape of the if/unless/else family, since they compose freely.
-fun ifElse(n: Int): String { if (n > 0) { "pos" } else { "neg" } }
-fun unlessElse(n: Int): String { unless (n > 0) { "neg" } else { "pos" } }
-fun ifElseIfElse(n: Int): String {
+func ifElse(n: Int): String { if (n > 0) { "pos" } else { "neg" } }
+func unlessElse(n: Int): String { unless (n > 0) { "neg" } else { "pos" } }
+func ifElseIfElse(n: Int): String {
     if (n > 10) { "big" } else if (n > 0) { "small" } else { "neg" }
 }
-fun ifElseUnlessElse(n: Int): String {
+func ifElseUnlessElse(n: Int): String {
     if (n > 10) { "big" } else unless (n > 0) { "neg" } else { "small" }
 }
-fun unlessElseIfElse(n: Int): String {
+func unlessElseIfElse(n: Int): String {
     unless (n > 0) { "neg" } else if (n > 10) { "big" } else { "small" }
 }
-fun unlessElseUnlessElse(n: Int): String {
+func unlessElseUnlessElse(n: Int): String {
     unless (n > 10) { "small" } else unless (n > 100) { "big" } else { "huge" }
 }
 

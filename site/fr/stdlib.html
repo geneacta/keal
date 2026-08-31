@@ -52,18 +52,18 @@
 <a href="#the-standard-library-Eq"><span class="k k-trait">trait</span>Eq</a>
 <a href="#the-standard-library-Ord"><span class="k k-trait">trait</span>Ord</a>
 <a href="#the-standard-library-Comp"><span class="k k-record">record</span>Comp</a>
-<a href="#the-standard-library-compare"><span class="k k-fun">fun</span>compare</a>
+<a href="#the-standard-library-compare"><span class="k k-func">func</span>compare</a>
 <a href="#the-standard-library-Tuple2"><span class="k k-record">record</span>Tuple2</a>
 <a href="#the-standard-library-Tuple3"><span class="k k-record">record</span>Tuple3</a>
 <a href="#the-standard-library-Tuple4"><span class="k k-record">record</span>Tuple4</a>
 <a href="#the-standard-library-Tuple5"><span class="k k-record">record</span>Tuple5</a>
 <a href="#the-standard-library-SeqIter"><span class="k k-class">class</span>SeqIter</a>
 <a href="#the-standard-library-Sequence"><span class="k k-class">class</span>Sequence</a>
-<a href="#the-standard-library-seq"><span class="k k-fun">fun</span>seq</a>
-<a href="#the-standard-library-iterate"><span class="k k-fun">fun</span>iterate</a>
+<a href="#the-standard-library-seq"><span class="k k-func">func</span>seq</a>
+<a href="#the-standard-library-iterate"><span class="k k-func">func</span>iterate</a>
 <a href="#the-standard-library-ActorRef"><span class="k k-class">class</span>ActorRef</a>
 <a href="#the-standard-library-Outbox"><span class="k k-class">class</span>Outbox</a>
-<a href="#the-standard-library-outbox"><span class="k k-fun">fun</span>outbox</a>
+<a href="#the-standard-library-outbox"><span class="k k-func">func</span>outbox</a>
 <a href="#the-standard-library-ActorSystem"><span class="k k-class">class</span>ActorSystem</a>
 </div><div class="smain prose"><h1>La bibliothèque standard</h1><p class="lede">Généré par <code>keal doc</code> depuis le prélude — les signatures ci-dessous sont celles du compilateur lui-même.</p>
 
@@ -71,44 +71,44 @@
 <section id="the-standard-library-Add">
 <pre class="sig">trait Add</pre>
 <div class="members">
-<pre class="sig m">fun plus(other: Self): Self</pre>
+<pre class="sig m">func plus(other: Self): Self</pre>
 </div>
 </section>
 <section id="the-standard-library-Sub">
 <pre class="sig">trait Sub</pre>
 <div class="members">
-<pre class="sig m">fun minus(other: Self): Self</pre>
+<pre class="sig m">func minus(other: Self): Self</pre>
 </div>
 </section>
 <section id="the-standard-library-Mul">
 <pre class="sig">trait Mul</pre>
 <div class="members">
-<pre class="sig m">fun times(other: Self): Self</pre>
+<pre class="sig m">func times(other: Self): Self</pre>
 </div>
 </section>
 <section id="the-standard-library-Div">
 <pre class="sig">trait Div</pre>
 <div class="members">
-<pre class="sig m">fun div(other: Self): Self</pre>
+<pre class="sig m">func div(other: Self): Self</pre>
 </div>
 </section>
 <section id="the-standard-library-Rem">
 <pre class="sig">trait Rem</pre>
 <div class="members">
-<pre class="sig m">fun rem(other: Self): Self</pre>
+<pre class="sig m">func rem(other: Self): Self</pre>
 </div>
 </section>
 <section id="the-standard-library-Neg">
 <pre class="sig">trait Neg</pre>
 <div class="members">
-<pre class="sig m">fun negate(): Self</pre>
+<pre class="sig m">func negate(): Self</pre>
 </div>
 </section>
 <section id="the-standard-library-Pow">
 <pre class="sig">trait Pow</pre>
 <p><code>a ** b</code> is <code>a.pow(b)</code> — power, right-associative, tighter than <code>*</code>.</p>
 <div class="members">
-<pre class="sig m">fun pow(other: Self): Self</pre>
+<pre class="sig m">func pow(other: Self): Self</pre>
 </div>
 </section>
 <section id="the-standard-library-Root">
@@ -116,7 +116,7 @@
 <p><code>a ^/ b</code> is <code>a.root(b)</code> — the b-th root, the inverse of <code>**</code>. (<code>//</code>
 belongs to comments, so the root wears the power's hat.)</p>
 <div class="members">
-<pre class="sig m">fun root(other: Self): Self</pre>
+<pre class="sig m">func root(other: Self): Self</pre>
 </div>
 </section>
 <section id="the-standard-library-Eq">
@@ -124,7 +124,7 @@ belongs to comments, so the root wears the power's hat.)</p>
 <p>Structural equality. Without it, <code>==</code> on two instances compares identity,
 so two separately built values are never equal.</p>
 <div class="members">
-<pre class="sig m">fun equals(other: Self): Bool</pre>
+<pre class="sig m">func equals(other: Self): Bool</pre>
 </div>
 </section>
 <section id="the-standard-library-Ord">
@@ -133,7 +133,7 @@ so two separately built values are never equal.</p>
 number according as the receiver is less than, equal to, or greater than
 <code>other</code> — the same convention as <code>Int.compareTo</code>.</p>
 <div class="members">
-<pre class="sig m">fun compareTo(other: Self): Int</pre>
+<pre class="sig m">func compareTo(other: Self): Int</pre>
 </div>
 </section>
 <section id="the-standard-library-Comp">
@@ -141,16 +141,16 @@ number according as the receiver is less than, equal to, or greater than
 <p>The outcome of a comparison: less, equal or greater — exactly one.</p>
 <div class="members">
 <pre class="sig m">val sign: Int</pre>
-<pre class="sig m">fun isLess(): Bool</pre>
-<pre class="sig m">fun isEqual(): Bool</pre>
-<pre class="sig m">fun isGreater(): Bool</pre>
-<pre class="sig m">fun isAtMost(): Bool</pre>
-<pre class="sig m">fun isAtLeast(): Bool</pre>
-<pre class="sig m">fun toString(): String</pre>
+<pre class="sig m">func isLess(): Bool</pre>
+<pre class="sig m">func isEqual(): Bool</pre>
+<pre class="sig m">func isGreater(): Bool</pre>
+<pre class="sig m">func isAtMost(): Bool</pre>
+<pre class="sig m">func isAtLeast(): Bool</pre>
+<pre class="sig m">func toString(): String</pre>
 </div>
 </section>
 <section id="the-standard-library-compare">
-<pre class="sig">fun compare&lt;T: Ord&gt;(a: T, b: T): Comp</pre>
+<pre class="sig">func compare&lt;T: Ord&gt;(a: T, b: T): Comp</pre>
 <p>Compares two values of any ordered type — <code>Int</code>, <code>Float</code>, <code>String</code>, or
 your own <code>: Ord</code> class — as a <code>Comp</code>.</p>
 </section>
@@ -203,44 +203,44 @@ Calling <code>nextFn</code> without a true <code>hasNextFn</code> first is the c
 fresh pass, so a sequence built from a stable source can be walked twice.</p>
 <div class="members">
 <pre class="sig m">val iterFn: () -&gt; SeqIter&lt;T&gt;</pre>
-<pre class="sig m">fun iterator(): SeqIter&lt;T&gt;</pre>
-<pre class="sig m">fun map&lt;R&gt;(transform: (T) -&gt; R): Sequence&lt;R&gt;</pre>
+<pre class="sig m">func iterator(): SeqIter&lt;T&gt;</pre>
+<pre class="sig m">func map&lt;R&gt;(transform: (T) -&gt; R): Sequence&lt;R&gt;</pre>
 <p>Transforms each element as it is pulled.</p>
-<pre class="sig m">fun filter(predicate: (T) -&gt; Bool): Sequence&lt;T&gt;</pre>
+<pre class="sig m">func filter(predicate: (T) -&gt; Bool): Sequence&lt;T&gt;</pre>
 <p>Keeps the elements the predicate accepts. One element of lookahead,
 held in a one-slot buffer, is what makes <code>hasNext</code> honest.</p>
-<pre class="sig m">fun take(n: Int): Sequence&lt;T&gt;</pre>
+<pre class="sig m">func take(n: Int): Sequence&lt;T&gt;</pre>
 <p>At most <code>n</code> elements, then stops pulling.</p>
-<pre class="sig m">fun drop(n: Int): Sequence&lt;T&gt;</pre>
+<pre class="sig m">func drop(n: Int): Sequence&lt;T&gt;</pre>
 <p>Skips the first <code>n</code> elements, lazily: nothing is pulled until the
 downstream asks.</p>
-<pre class="sig m">fun takeWhile(predicate: (T) -&gt; Bool): Sequence&lt;T&gt;</pre>
+<pre class="sig m">func takeWhile(predicate: (T) -&gt; Bool): Sequence&lt;T&gt;</pre>
 <p>Elements while the predicate holds; the first refusal ends the
 sequence and nothing after it is pulled.</p>
-<pre class="sig m">fun dropWhile(predicate: (T) -&gt; Bool): Sequence&lt;T&gt;</pre>
+<pre class="sig m">func dropWhile(predicate: (T) -&gt; Bool): Sequence&lt;T&gt;</pre>
 <p>Skips the leading run the predicate accepts, keeps everything after.</p>
-<pre class="sig m">fun flatMap&lt;R&gt;(transform: (T) -&gt; Sequence&lt;R&gt;): Sequence&lt;R&gt;</pre>
+<pre class="sig m">func flatMap&lt;R&gt;(transform: (T) -&gt; Sequence&lt;R&gt;): Sequence&lt;R&gt;</pre>
 <p>Substitutes a whole sequence for each element and flattens, still
 pulling one element at a time.</p>
-<pre class="sig m">fun toList(): List&lt;T&gt;</pre>
+<pre class="sig m">func toList(): List&lt;T&gt;</pre>
 <pre class="sig m">proc forEach(action: (T) -&gt; Unit)</pre>
-<pre class="sig m">fun fold&lt;R&gt;(initial: R, operation: (R, T) -&gt; R): R</pre>
-<pre class="sig m">fun count(): Int</pre>
-<pre class="sig m">fun any(predicate: (T) -&gt; Bool): Bool</pre>
+<pre class="sig m">func fold&lt;R&gt;(initial: R, operation: (R, T) -&gt; R): R</pre>
+<pre class="sig m">func count(): Int</pre>
+<pre class="sig m">func any(predicate: (T) -&gt; Bool): Bool</pre>
 <p>True as soon as one element passes; pulls no further.</p>
-<pre class="sig m">fun all(predicate: (T) -&gt; Bool): Bool</pre>
+<pre class="sig m">func all(predicate: (T) -&gt; Bool): Bool</pre>
 <p>False as soon as one element fails; pulls no further.</p>
-<pre class="sig m">fun first(): T?</pre>
+<pre class="sig m">func first(): T?</pre>
 <p>The first element, or null for an empty sequence.</p>
 </div>
 </section>
 <section id="the-standard-library-seq">
-<pre class="sig">fun seq&lt;T&gt;(xs: List&lt;T&gt;): Sequence&lt;T&gt;</pre>
+<pre class="sig">func seq&lt;T&gt;(xs: List&lt;T&gt;): Sequence&lt;T&gt;</pre>
 <p>A sequence over a list. The list is read as the sequence is pulled, one
 index at a time.</p>
 </section>
 <section id="the-standard-library-iterate">
-<pre class="sig">fun iterate&lt;T&gt;(seed: T, step: (T) -&gt; T): Sequence&lt;T&gt;</pre>
+<pre class="sig">func iterate&lt;T&gt;(seed: T, step: (T) -&gt; T): Sequence&lt;T&gt;</pre>
 <p>The infinite sequence <code>seed, step(seed), step(step(seed)), ...</code>. Pair it
 with <code>take</code> or <code>takeWhile</code>; a plain <code>toList</code> on it will not come back.</p>
 </section>
@@ -269,14 +269,14 @@ unless one actor alone is posting.</p>
 <div class="members">
 <pre class="sig m">val items: List&lt;T&gt;</pre>
 <pre class="sig m">proc post(v: T)</pre>
-<pre class="sig m">fun drain(): List&lt;T&gt;</pre>
+<pre class="sig m">func drain(): List&lt;T&gt;</pre>
 <p>Everything posted so far, in arrival order — as **copies**: what
 leaves the box is yours alone, so draining twice aliases nothing,
 on any scheduler.</p>
 </div>
 </section>
 <section id="the-standard-library-outbox">
-<pre class="sig">fun outbox&lt;T&gt;(): Outbox&lt;T&gt;</pre>
+<pre class="sig">func outbox&lt;T&gt;(): Outbox&lt;T&gt;</pre>
 <p>An empty outbox; <code>Outbox&lt;Int&gt;([])</code> written the readable way.</p>
 </section>
 <section id="the-standard-library-ActorSystem">
@@ -286,7 +286,7 @@ delivers until every mailbox is empty.</p>
 <div class="members">
 <pre class="sig m">var handlers: List&lt;(ActorRef&lt;M&gt;, M) -&gt; Unit&gt;</pre>
 <pre class="sig m">var mailboxes: List&lt;List&lt;M&gt;&gt;</pre>
-<pre class="sig m">fun spawn(handler: (ActorRef&lt;M&gt;, M) -&gt; Unit): ActorRef&lt;M&gt;</pre>
+<pre class="sig m">func spawn(handler: (ActorRef&lt;M&gt;, M) -&gt; Unit): ActorRef&lt;M&gt;</pre>
 <p>A new actor. The handler receives the actor's own ref — for replies
 and self-sends — and one message; its state lives in what the
 handler's closure captured, and **each actor gets its own copy of

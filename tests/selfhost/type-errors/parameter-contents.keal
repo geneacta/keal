@@ -26,6 +26,6 @@ proc changes(xs: List<Int>, m: Map<String, Int>, b: Box) {
 }
 
 // Reading is free, and so is building something new.
-fun reads(xs: List<Int>): Int {
+func reads(xs: List<Int>): Int {
     return xs.size + xs.sorted().size + xs.map({ x -> x + 1 }).size
 }

@@ -44,31 +44,32 @@
 <p>Everything below is implemented and covered by the test suite.</p>
 <hr>
 <h2 id="1-files-statements-and-semicolons">1. Files, statements and semicolons</h2>
-<p>A file is a sequence of declarations (<code>fun</code>, <code>class</code>, <code>import</code>) and statements. Statements at the top level run in order; declarations are visible everywhere in the program, including before the line that declares them.</p>
+<p>A file is a sequence of declarations (<code>func</code>, <code>class</code>, <code>import</code>) and statements. Statements at the top level run in order; declarations are visible everywhere in the program, including before the line that declares them.</p>
 <pre class="lang-keal"><code>greet()                       // fine: `greet` is declared below
 
-fun greet() { println(&quot;hi&quot;) }</code></pre>
+func greet() { println(&quot;hi&quot;) }</code></pre>
 <p>Semicolons are optional. A newline ends a statement whenever the line so far could be a complete statement, so this works as written:</p>
 <pre class="lang-keal"><code>val a = 1
 val b = 2
 val c = a +
         b                     // continues: a line cannot end with `+`</code></pre>
 <p>The one consequence worth remembering: <strong>an opening brace must sit on the same line as the construct it belongs to.</strong></p>
-<pre class="lang-keal"><code>fun f() {                     // correct
+<pre class="lang-keal"><code>func f() {                     // correct
 }
 
-fun g()
+func g()
 {                             // error: the newline ended the declaration
 }</code></pre>
 <p>Newlines inside <code>(...)</code> and <code>[...]</code> never end a statement, so argument lists and list literals may be spread over several lines freely.</p>
 <p>Comments are <code>// line</code>, and <code>/* block */</code>, which nests.</p>
 <p>A file may begin with <code>#!/usr/bin/env keal</code>, which is ignored, so a script can be made executable and run directly.</p>
 <h3 id="reserved-words">Reserved words</h3>
-<p>Thirty-seven words are reserved: none of them can be the name of anything.</p>
-<div class="tablewrap"><table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><strong>Declarations</strong></td><td><code>fun</code> <code>proc</code> <code>class</code> <code>val</code> <code>var</code> <code>import</code></td></tr><tr><td><strong>Visibility</strong></td><td><code>public</code> <code>private</code> <code>package</code> <code>internal</code> <code>protected</code></td></tr><tr><td><strong>Control flow</strong></td><td><code>if</code> <code>unless</code> <code>else</code> <code>when</code> <code>while</code> <code>for</code> <code>in</code> <code>break</code> <code>continue</code> <code>return</code></td></tr><tr><td><strong>Errors</strong></td><td><code>try</code> <code>catch</code> <code>throw</code></td></tr><tr><td><strong>Values</strong></td><td><code>true</code> <code>false</code> <code>null</code> <code>this</code> <code>is</code></td></tr><tr><td><strong>Connectives</strong></td><td><code>not</code> <code>and</code> <code>or</code> <code>xor</code> <code>xnor</code> <code>nand</code> <code>nor</code> <code>implies</code></td></tr></tbody></table></div>
+<p>Thirty-eight words are reserved: none of them can be the name of anything.</p>
+<div class="tablewrap"><table><thead><tr><th></th><th></th></tr></thead><tbody><tr><td><strong>Declarations</strong></td><td><code>func</code> <code>proc</code> <code>class</code> <code>val</code> <code>var</code> <code>import</code> <code>fun</code></td></tr><tr><td><strong>Visibility</strong></td><td><code>public</code> <code>private</code> <code>package</code> <code>internal</code> <code>protected</code></td></tr><tr><td><strong>Control flow</strong></td><td><code>if</code> <code>unless</code> <code>else</code> <code>when</code> <code>while</code> <code>for</code> <code>in</code> <code>break</code> <code>continue</code> <code>return</code></td></tr><tr><td><strong>Errors</strong></td><td><code>try</code> <code>catch</code> <code>throw</code></td></tr><tr><td><strong>Values</strong></td><td><code>true</code> <code>false</code> <code>null</code> <code>this</code> <code>is</code></td></tr><tr><td><strong>Connectives</strong></td><td><code>not</code> <code>and</code> <code>or</code> <code>xor</code> <code>xnor</code> <code>nand</code> <code>nor</code> <code>implies</code></td></tr></tbody></table></div>
+<p><code>fun</code> is reserved for one reason only: it is what <code>func</code> used to be called, and a file that still says it gets one clear sentence — `<code>​</code>fun<code> is spelled </code>func<code>​</code>` — instead of a cascade of nonsense from a word read as a name. It will stop being reserved once nothing is left that spells it the old way.</p>
 <p><code>internal</code> and <code>protected</code> name no rule today. They are reserved anyway, so that the day the language grows a visibility between <code>package</code> and <code>public</code>, or one that reaches a class's own kind, no existing program has to be renamed to make room for it. Writing one is refused where it appears rather than quietly ignored.</p>
 <p>Six more words are <strong>contextual</strong>: they introduce a declaration where one follows, and stay ordinary names everywhere else.</p>
-<div class="tablewrap"><table><thead><tr><th>Word</th><th>Where it means something</th></tr></thead><tbody><tr><td><code>record</code></td><td>before a name: <code>record Point(...)</code></td></tr><tr><td><code>trait</code></td><td>before a name: <code>trait Show { ... }</code></td></tr><tr><td><code>weak</code></td><td>before a field: <code>weak var parent: Node?</code></td></tr><tr><td><code>constexpr</code></td><td>before <code>val</code> or <code>fun</code>: <code>constexpr val KB = 1024</code></td></tr><tr><td><code>native</code></td><td>before a string block</td></tr><tr><td><code>extern</code></td><td>before <code>fun</code>: <code>extern fun sqrt(...)</code></td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Word</th><th>Where it means something</th></tr></thead><tbody><tr><td><code>record</code></td><td>before a name: <code>record Point(...)</code></td></tr><tr><td><code>trait</code></td><td>before a name: <code>trait Show { ... }</code></td></tr><tr><td><code>weak</code></td><td>before a field: <code>weak var parent: Node?</code></td></tr><tr><td><code>constexpr</code></td><td>before <code>val</code> or <code>func</code>: <code>constexpr val KB = 1024</code></td></tr><tr><td><code>native</code></td><td>before a string block</td></tr><tr><td><code>extern</code></td><td>before <code>func</code>: <code>extern func sqrt(...)</code></td></tr></tbody></table></div>
 <p>So <code>val record = 3</code> is a perfectly good binding, and always will be. The line between the two lists is deliberate: a word becomes reserved when reading it as a name would make a program ambiguous, and not before.</p>
 <hr>
 <h2 id="2-values-and-types">2. Values and types</h2>
@@ -134,7 +135,7 @@ true nor slow()        // false
 false implies slow()   // true — an implication with a false premise holds</code></pre>
 <p><code>xor</code> and <code>xnor</code> <strong>always</strong> evaluate both operands: neither can be decided from one side alone.</p>
 <p><strong><code>implies</code> and null checks.</strong> Because the right operand of <code>implies</code> is only reached when the left one is true, a null check on the left carries across it:</p>
-<pre class="lang-koda"><code>fun nonEmpty(s: String?): Bool { s != null implies s.length &gt; 0 }</code></pre>
+<pre class="lang-koda"><code>func nonEmpty(s: String?): Bool { s != null implies s.length &gt; 0 }</code></pre>
 <h3 id="blocks-are-expressions">Blocks are expressions</h3>
 <p>The value of a block is the value of its last expression. This is why <code>if</code> and <code>when</code> can produce values, and why <code>return</code> is optional at the end of a function.</p>
 <pre class="lang-keal"><code>val size = if (n &lt; 10) { &quot;small&quot; } else { &quot;large&quot; }
@@ -147,7 +148,7 @@ val computed = if (ready) {
     0
 }
 
-fun double(n: Int): Int { n * 2 }   // no `return` needed</code></pre>
+func double(n: Int): Int { n * 2 }   // no `return` needed</code></pre>
 <p>Braces are mandatory on <code>if</code>, <code>while</code> and <code>for</code> bodies. An <code>if</code> used as a value must have an <code>else</code>.</p>
 <h3 id="unless"><code>unless</code></h3>
 <p><code>unless (c)</code> is <code>if (not c)</code>, and is the same construct in every other respect: it takes an <code>else</code>, it works as an expression, and it narrows types the same way.</p>
@@ -157,7 +158,7 @@ fun double(n: Int): Int { n * 2 }   // no `return` needed</code></pre>
 
 val parity = unless (n % 2 == 0) { &quot;odd&quot; } else { &quot;even&quot; }</code></pre>
 <p>It reads best as a guard, where <code>if (not ...)</code> needs a moment's thought:</p>
-<pre class="lang-keal"><code>fun lengthOf(s: String?): Int {
+<pre class="lang-keal"><code>func lengthOf(s: String?): Int {
     unless (s != null) { return 0 }
     return s.length              // narrowed, exactly as after an `if`
 }</code></pre>
@@ -208,7 +209,7 @@ xs.map({ it * 2 })           // the implicit `it`
 val now = { -&gt; time() }      // no parameters</code></pre>
 <p>A lambda's value is its last expression. <code>return</code> inside a lambda is an error, because it would be ambiguous about which function it leaves.</p>
 <p>Lambdas close over variables, not values:</p>
-<pre class="lang-keal"><code>fun counter(): () -&gt; Int {
+<pre class="lang-keal"><code>func counter(): () -&gt; Int {
     var n = 0
     return { -&gt; n += 1; n }
 }
@@ -243,7 +244,7 @@ if (v is String) { v.toUpper() }        // `is` narrows too</code></pre>
 <p>A <code>var</code> is never narrowed — anything the branch calls could reassign it. Copy it into a <code>val</code> first, and the checker will say so.</p>
 <h3 id="is"><code>is</code></h3>
 <p><code>is</code> tests a value's outer type at run time; <code>!is</code> is its negation. Only what survives to run time can be tested — the outer shape — so <code>is List&lt;Int&gt;</code>, <code>is T</code> and <code>is (Int) -&gt; Int</code> are each rejected with the reason, while <code>is List</code> and a bare class name are accepted:</p>
-<pre class="lang-keal"><code>fun describe(v: Any): String {
+<pre class="lang-keal"><code>func describe(v: Any): String {
     return when (v) {
         is Int -&gt; &quot;int ${v + 1}&quot;
         is List -&gt; &quot;list of ${v.size}&quot;
@@ -253,12 +254,12 @@ if (v is String) { v.toUpper() }        // `is` narrows too</code></pre>
 <hr>
 <h2 id="7-functions">7. Functions</h2>
 <p>Keal has two declaration words, and which one you use says whether there is a result:</p>
-<pre class="lang-keal"><code>fun add(a: Int, b: Int): Int { a + b }      // produces a value, and says which
+<pre class="lang-keal"><code>func add(a: Int, b: Int): Int { a + b }      // produces a value, and says which
 
 proc greet(name: String) {                    // produces nothing
     println(&quot;hello, ${name}&quot;)
 }</code></pre>
-<p>A <code>fun</code> <strong>must</strong> declare what it returns. A <code>proc</code> <strong>cannot</strong>: it returns nothing, so there is no <code>Unit</code> or <code>void</code> to write anywhere in the language. The rule is enforced both ways — <code>fun f(n: Int) { ... }</code> and <code>proc f(n: Int): Int { ... }</code> are each rejected at the declaration.</p>
+<p>A <code>func</code> <strong>must</strong> declare what it returns. A <code>proc</code> <strong>cannot</strong>: it returns nothing, so there is no <code>Unit</code> or <code>void</code> to write anywhere in the language. The rule is enforced both ways — <code>func f(n: Int) { ... }</code> and <code>proc f(n: Int): Int { ... }</code> are each rejected at the declaration.</p>
 <p>A <code>proc</code> may still <code>return</code> early, just with no value:</p>
 <pre class="lang-keal"><code>proc maybeLog(s: String, keep: Bool) {
     if (not keep) { return }
@@ -267,8 +268,8 @@ proc greet(name: String) {                    // produces nothing
 <p>The result of a <code>proc</code> cannot be used, because there is none:</p>
 <pre class="lang-keal"><code>val x = greet(&quot;Ada&quot;)        // error: expression produces no value
 println(greet(&quot;Ada&quot;))       // error: argument `value` produces no value</code></pre>
-<p>Everything below is the same for both, so it says <code>fun</code> and means either.</p>
-<pre class="lang-keal"><code>fun greet(name: String, greeting: String = &quot;hello&quot;): String {
+<p>Everything below is the same for both, so it says <code>func</code> and means either.</p>
+<pre class="lang-keal"><code>func greet(name: String, greeting: String = &quot;hello&quot;): String {
     return &quot;${greeting}, ${name}!&quot;
 }</code></pre>
 <p>Parameter types are mandatory. Defaults may refer to earlier parameters. Arguments may be passed by name, in any order, and named arguments must come after positional ones:</p>
@@ -276,11 +277,11 @@ println(greet(&quot;Ada&quot;))       // error: argument `value` produces no val
 greet(&quot;Ada&quot;, greeting = &quot;hi&quot;)
 greet(greeting = &quot;hi&quot;, name = &quot;Ada&quot;)</code></pre>
 <p>Functions are values, and may be nested:</p>
-<pre class="lang-keal"><code>fun apply(x: Int, f: (Int) -&gt; Int): Int { f(x) }
+<pre class="lang-keal"><code>func apply(x: Int, f: (Int) -&gt; Int): Int { f(x) }
 apply(5, { it * it })                    // 25
 
-fun outer(base: Int): Int {
-    fun inner(k: Int): Int { base + k }  // captures `base`
+func outer(base: Int): Int {
+    func inner(k: Int): Int { base + k }  // captures `base`
     return inner(1) + inner(2)
 }</code></pre>
 <p>A function with a declared return type must produce one on every path, either by <code>return</code> or as its last expression.</p>
@@ -308,17 +309,17 @@ fill(squares, 5)             // and now it holds five</code></pre>
     val magnitude: Float = sqrt(x * x + y * y)   // sees constructor parameters
     var label: String = &quot;?&quot;
 
-    fun plus(other: Point): Point {
+    func plus(other: Point): Point {
         return Point(this.x + other.x, this.y + other.y)
     }
 
-    fun toString(): String { &quot;${this.label}(${this.x}, ${this.y})&quot; }
+    func toString(): String { &quot;${this.label}(${this.x}, ${this.y})&quot; }
 }
 
 val p = Point(3.0, 4.0)
 p.label = &quot;P&quot;
 println(p)                  // P(3.0, 4.0)</code></pre>
-<ul><li>Constructor parameters marked <code>val</code>/<code>var</code> become fields; unmarked ones are visible only to field initializers.</li><li>Field initializers run top to bottom and may use <code>this</code> and the fields above them.</li><li>Members are always accessed through <code>this</code> inside a method.</li><li>A class with no body needs no braces: <code>class Pair(val a: Int, val b: String)</code>.</li><li>Defining <code>fun toString(): String</code> changes how <code>println</code> and interpolation render the instance; otherwise they print <code>Point(x=3.0, y=4.0)</code>.</li><li>Instances compare by <strong>identity</strong>. Structural comparison would loop forever on a cyclic object graph, so <code>==</code> on two separately built instances is <code>false</code>.</li><li>There is no inheritance, no interfaces and no static members yet.</li></ul>
+<ul><li>Constructor parameters marked <code>val</code>/<code>var</code> become fields; unmarked ones are visible only to field initializers.</li><li>Field initializers run top to bottom and may use <code>this</code> and the fields above them.</li><li>Members are always accessed through <code>this</code> inside a method.</li><li>A class with no body needs no braces: <code>class Pair(val a: Int, val b: String)</code>.</li><li>Defining <code>func toString(): String</code> changes how <code>println</code> and interpolation render the instance; otherwise they print <code>Point(x=3.0, y=4.0)</code>.</li><li>Instances compare by <strong>identity</strong>. Structural comparison would loop forever on a cyclic object graph, so <code>==</code> on two separately built instances is <code>false</code>.</li><li>There is no inheritance, no interfaces and no static members yet.</li></ul>
 <p>Classes may only be declared at the top level.</p>
 <hr>
 <h2 id="9-records">9. Records</h2>
@@ -331,7 +332,7 @@ Point(1, 2) == Point(1, 2)                 // true — a class would say false
 Point(1, 2).toString()                     // &quot;Point(x=1, y=2)&quot;</code></pre>
 <p>A record may declare methods, take type parameters and implement traits, like any other class:</p>
 <pre class="lang-keal"><code>record Version(val major: Int, val minor: Int) : Ord {
-    fun compareTo(other: Version): Int {
+    func compareTo(other: Version): Int {
         if (this.major != other.major) { return this.major - other.major }
         return this.minor - other.minor
     }
@@ -351,7 +352,7 @@ val Point(_, only) = p            // `_` skips a field
 var Point(mx, my) = p             // `var` makes them assignable</code></pre>
 <p>The pattern lists the <strong>constructor</strong> fields, in order, and must name all of them. A field declared in the class body is not positional and takes no part. Classes with a primary constructor destructure as readily as records.</p>
 <p>In a <code>when</code> arm, <code>is T(...)</code> tests the type and binds in one move:</p>
-<pre class="lang-keal"><code>fun area(shape: Any): Float {
+<pre class="lang-keal"><code>func area(shape: Any): Float {
     return when (shape) {
         is Circle(r) -&gt; 3.14159 * r * r
         is Square(s) -&gt; s * s
@@ -362,7 +363,7 @@ var Point(mx, my) = p             // `var` makes them assignable</code></pre>
 <p>A generic class can be tested but not at particular type arguments — they do not survive to run time — so <code>is Pair(a, b)</code> is accepted, binds <code>a</code> and <code>b</code> as <code>Any</code>, and <code>is Pair&lt;Int, Int&gt;(a, b)</code> is rejected.</p>
 <h3 id="tuples">Tuples</h3>
 <p>Several values of different types travel together as a tuple, without having to declare a record for them:</p>
-<pre class="lang-keal"><code>fun divmod(a: Int, b: Int): (Int, Int) {
+<pre class="lang-keal"><code>func divmod(a: Int, b: Int): (Int, Int) {
     return a / b, a % b        // no parentheses needed after `return`
 }
 
@@ -383,21 +384,21 @@ val (a, b) = inner</code></pre>
 <p>Two things tuples deliberately do not replace. A group of values that share a type is a <strong>list</strong>, <code>[a, b, c]</code>. And to take the first of several values that is present, <code>?:</code> already does exactly that, anywhere rather than only in a <code>return</code>:</p>
 <pre class="lang-keal"><code>return a ?: b ?: c ?: &quot;none&quot;</code></pre>
 <h2 id="10-generics">10. Generics</h2>
-<p>Functions and classes may take type parameters. They are written after the name, as in <code>fun name&lt;T&gt;(...)</code> and <code>class Box&lt;T&gt;</code>:</p>
-<pre class="lang-koda"><code>fun firstOr&lt;T&gt;(xs: List&lt;T&gt;, fallback: T): T {
+<p>Functions and classes may take type parameters. They are written after the name, as in <code>func name&lt;T&gt;(...)</code> and <code>class Box&lt;T&gt;</code>:</p>
+<pre class="lang-koda"><code>func firstOr&lt;T&gt;(xs: List&lt;T&gt;, fallback: T): T {
     for (x in xs) { return x }
     return fallback
 }
 
-fun mapAll&lt;T, R&gt;(xs: List&lt;T&gt;, f: (T) -&gt; R): List&lt;R&gt; {
+func mapAll&lt;T, R&gt;(xs: List&lt;T&gt;, f: (T) -&gt; R): List&lt;R&gt; {
     val out: List&lt;R&gt; = []
     for (x in xs) { out.add(f(x)) }
     return out
 }
 
 class Box&lt;T&gt;(val value: T) {
-    fun get(): T { this.value }
-    fun then&lt;R&gt;(f: (T) -&gt; R): Box&lt;R&gt; { Box(f(this.value)) }
+    func get(): T { this.value }
+    func then&lt;R&gt;(f: (T) -&gt; R): Box&lt;R&gt; { Box(f(this.value)) }
 }</code></pre>
 <p>Type arguments are inferred from the call, one argument at a time, so a later lambda knows the type an earlier argument fixed:</p>
 <pre class="lang-koda"><code>mapAll([1, 2, 3], { it * 10 })     // T = Int, then R = Int
@@ -409,44 +410,44 @@ mapAll([&quot;a&quot;, &quot;bb&quot;], { it.length }) // T = String, then R = I
 <h2 id="11-traits">11. Traits</h2>
 <p>A trait is a named set of method signatures. It is what type-parameter bounds are written in.</p>
 <pre class="lang-koda"><code>trait Show {
-    fun show(): String
-    fun shout(): String { this.show().toUpper() }   // a default body
+    func show(): String
+    func shout(): String { this.show().toUpper() }   // a default body
 }
 
 trait Ordered {
-    fun compareTo(other: Self): Int
+    func compareTo(other: Self): Int
 }
 
 class Version(val major: Int, val minor: Int) : Show, Ordered {
-    fun show(): String { &quot;v${this.major}.${this.minor}&quot; }
-    fun compareTo(other: Version): Int {
+    func show(): String { &quot;v${this.major}.${this.minor}&quot; }
+    func compareTo(other: Version): Int {
         if (this.major != other.major) { return this.major - other.major }
         return this.minor - other.minor
     }
 }</code></pre>
 <ul><li>A method with a body is a <strong>default</strong>: an implementer inherits it, or overrides it by declaring its own.</li><li><code>Self</code> stands for the implementing type. In <code>Version</code>, <code>compareTo</code> takes a <code>Version</code>.</li><li>The checker verifies that every required method is present and that its signature matches once <code>Self</code> is read as the class.</li></ul>
 <p>A <strong>bound</strong> makes a trait's methods reachable through a type parameter. Several bounds are joined with <code>+</code>:</p>
-<pre class="lang-koda"><code>fun describe&lt;T: Show&gt;(value: T): String { value.show() }
+<pre class="lang-koda"><code>func describe&lt;T: Show&gt;(value: T): String { value.show() }
 
-fun loudest&lt;T: Show + Ordered&gt;(a: T, b: T): String {
+func loudest&lt;T: Show + Ordered&gt;(a: T, b: T): String {
     return if (a.compareTo(b) &gt; 0) { a.shout() } else { b.shout() }
 }</code></pre>
 <p>Without a bound, nothing is known about a type parameter and no method can be called on it. Bounds apply to classes too: <code>class Labelled&lt;T: Show&gt;(...)</code>.</p>
 <p>A default method's body is checked in each class that inherits it, not once in the abstract — the same rule C++ templates follow. A trait nobody implements is therefore never type-checked.</p>
 <h2 id="12-operator-overloading">12. Operator overloading</h2>
 <p>Operators are wired to the traits the prelude declares. A class that implements one gains the operator; nothing else changes.</p>
-<div class="tablewrap"><table><thead><tr><th>Operator</th><th>Trait</th><th>Method</th></tr></thead><tbody><tr><td><code>a + b</code></td><td><code>Add</code></td><td><code>fun plus(other: Self): Self</code></td></tr><tr><td><code>a - b</code></td><td><code>Sub</code></td><td><code>fun minus(other: Self): Self</code></td></tr><tr><td><code>a * b</code></td><td><code>Mul</code></td><td><code>fun times(other: Self): Self</code></td></tr><tr><td><code>a / b</code></td><td><code>Div</code></td><td><code>fun div(other: Self): Self</code></td></tr><tr><td><code>a % b</code></td><td><code>Rem</code></td><td><code>fun rem(other: Self): Self</code></td></tr><tr><td><code>-a</code></td><td><code>Neg</code></td><td><code>fun negate(): Self</code></td></tr><tr><td><code>a == b</code>, <code>a != b</code></td><td><code>Eq</code></td><td><code>fun equals(other: Self): Bool</code></td></tr><tr><td><code>a &lt; b</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code></td><td><code>Ord</code></td><td><code>fun compareTo(other: Self): Int</code></td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Operator</th><th>Trait</th><th>Method</th></tr></thead><tbody><tr><td><code>a + b</code></td><td><code>Add</code></td><td><code>func plus(other: Self): Self</code></td></tr><tr><td><code>a - b</code></td><td><code>Sub</code></td><td><code>func minus(other: Self): Self</code></td></tr><tr><td><code>a * b</code></td><td><code>Mul</code></td><td><code>func times(other: Self): Self</code></td></tr><tr><td><code>a / b</code></td><td><code>Div</code></td><td><code>func div(other: Self): Self</code></td></tr><tr><td><code>a % b</code></td><td><code>Rem</code></td><td><code>func rem(other: Self): Self</code></td></tr><tr><td><code>-a</code></td><td><code>Neg</code></td><td><code>func negate(): Self</code></td></tr><tr><td><code>a == b</code>, <code>a != b</code></td><td><code>Eq</code></td><td><code>func equals(other: Self): Bool</code></td></tr><tr><td><code>a &lt; b</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code></td><td><code>Ord</code></td><td><code>func compareTo(other: Self): Int</code></td></tr></tbody></table></div>
 <pre class="lang-koda"><code>class Vec2(val x: Float, val y: Float) : Add, Neg, Eq {
-    fun plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
-    fun negate(): Vec2 { Vec2(-this.x, -this.y) }
-    fun equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
+    func plus(other: Vec2): Vec2 { Vec2(this.x + other.x, this.y + other.y) }
+    func negate(): Vec2 { Vec2(-this.x, -this.y) }
+    func equals(other: Vec2): Bool { this.x == other.x and this.y == other.y }
 }
 
 Vec2(1.0, 2.0) + Vec2(3.0, 4.0)     // Vec2(4.0, 6.0)</code></pre>
 <p><code>a + b</code> on a class is <em>rewritten</em> into <code>a.plus(b)</code>, and <code>a &lt; b</code> into <code>a.compareTo(b) &lt; 0</code>. The methods stay ordinary methods: you can call <code>a.plus(b)</code> yourself.</p>
 <p><strong>Equality is the exception.</strong> <code>==</code> already works on every type by comparing identity, so a class without <code>Eq</code> is not an error — it simply keeps comparing identity, and two separately built instances are never equal. Implementing <code>Eq</code> is how a class opts into structural equality.</p>
 <p><strong>The built-in types implement these traits too.</strong> <code>Int</code> and <code>Float</code> provide all of them, <code>String</code> provides <code>Add</code>, <code>Eq</code> and <code>Ord</code>, and <code>Bool</code> provides <code>Eq</code>. So a bound is satisfied by a built-in as readily as by your own type:</p>
-<pre class="lang-koda"><code>fun total&lt;T: Add&gt;(xs: List&lt;T&gt;, zero: T): T {
+<pre class="lang-koda"><code>func total&lt;T: Add&gt;(xs: List&lt;T&gt;, zero: T): T {
     var acc = zero
     for (x in xs) { acc = acc + x }
     return acc
@@ -460,8 +461,8 @@ total([Vec2(1.0, 1.0)], Vec2(0.0, 0.0))  // Vec2(1.0, 1.0)</code></pre>
 <pre class="lang-keal"><code>import &quot;./geometry.keal&quot;</code></pre>
 <p>Paths are relative to the importing file. A file is loaded at most once, so diamond imports and cycles are both fine, and what an import brings in is one flat namespace — there is no <code>geometry.</code> prefix yet.</p>
 <p>What it brings in is what the imported file <strong>let</strong> it bring in. A declaration that says nothing about who may name it is private to its own file:</p>
-<pre class="lang-keal"><code>fun rounded(x: Float): Int { ... }        // this file&#x27;s business
-package fun parse(src: String): Ast { ... }  // the files beside it
+<pre class="lang-keal"><code>func rounded(x: Float): Int { ... }        // this file&#x27;s business
+package func parse(src: String): Ast { ... }  // the files beside it
 public class Ast(val root: Node) { ... }     // anyone who imports it</code></pre>
 <div class="tablewrap"><table><thead><tr><th>Written</th><th>Who may name it</th></tr></thead><tbody><tr><td>nothing, or <code>private</code></td><td>the file that declares it</td></tr><tr><td><code>package</code></td><td>every file in the same directory</td></tr><tr><td><code>public</code></td><td>every file that imports it</td></tr></tbody></table></div>
 <p>A <strong>package is a directory</strong>. Nothing declares it and nothing names it: the files that sit together are the ones that can see each other's <code>package</code> declarations, which is what lets a group of files collaborate without promising anything to the outside.</p>
@@ -482,7 +483,7 @@ version = &quot;0.1.0&quot;
 geometry = { git = &quot;https://github.com/someone/geometry&quot;, tag = &quot;v1.2.0&quot; }</code></pre>
 <p><code>keal fetch</code> clones each one and checks out what was named. Nothing else in the compiler touches the network: a <code>dep:</code> import reads what is on disk, so a project that commits <code>.keal/deps/</code> builds without git.</p>
 <p>There is no <code>package</code> declaration, no version resolution and no registry — <a href="docs.html">packages and namespaces</a> argues why, and in what order the rest would come.</p>
-<p>The modifier goes on a top-level <code>fun</code>, <code>proc</code>, <code>class</code>, <code>record</code>, <code>trait</code>, <code>extern fun</code>, <code>val</code> or <code>var</code> — and on a class's own members:</p>
+<p>The modifier goes on a top-level <code>func</code>, <code>proc</code>, <code>class</code>, <code>record</code>, <code>trait</code>, <code>extern func</code>, <code>val</code> or <code>var</code> — and on a class's own members:</p>
 <pre class="lang-keal"><code>public class Counter(public var n: Int) {
     var steps: Int = 0                    // the class&#x27;s own business
     public proc bump() { this.n += 1; this.steps += 1 }
@@ -549,8 +550,8 @@ try {
 <pre class="lang-keal"><code>constexpr val KB = 1024
 constexpr val MB = KB * KB          // 1048576, before the program starts
 constexpr val BANNER = (&quot;the &quot; + NAME).toUpper()</code></pre>
-<p>A <code>constexpr fun</code> is a function such a binding may call. Its body may use bindings, assignment, <code>if</code>, <code>when</code>, <code>while</code>, <code>for</code>, <code>break</code>, <code>continue</code> and <code>return</code> — enough to build something:</p>
-<pre class="lang-keal"><code>constexpr fun squares(n: Int): List&lt;Int&gt; {
+<p>A <code>constexpr func</code> is a function such a binding may call. Its body may use bindings, assignment, <code>if</code>, <code>when</code>, <code>while</code>, <code>for</code>, <code>break</code>, <code>continue</code> and <code>return</code> — enough to build something:</p>
+<pre class="lang-keal"><code>constexpr func squares(n: Int): List&lt;Int&gt; {
     var out: List&lt;Int&gt; = []
     for (i in 1..n) { out.add(i * i) }
     return out
@@ -561,27 +562,27 @@ constexpr val TABLE: List&lt;Int&gt; = squares(64)   // a literal in the binary<
 <p><strong>What it refuses, and why it refuses rather than falls back.</strong> Anything that touches the world (printing, files, <code>extern</code>, <code>native</code>, actors), an object, a lambda, <code>null</code>, <code>this</code>, or a call to a function not declared <code>constexpr</code>. A <code>constexpr</code> that quietly ran at run time instead would make the word worth nothing, so where the promise cannot be kept the compiler says so by name:</p>
 <pre><code>error: `constexpr` cannot evaluate a lambda
   = note: a `constexpr` runs at compile time, so it is held to arithmetic,
-    strings, lists, maps and calls to other `constexpr fun`s</code></pre>
+    strings, lists, maps and calls to other `constexpr func`s</code></pre>
 <p>Failures are the program's own failures, arriving early. <code>9223372036854775807 + 1</code> is <code>integer overflow</code> at compile time; <code>[1, 2][5]</code> is <code>index 5 is out of bounds for a list of 2 element(s)</code>. Nothing about the arithmetic changes — only when you find out.</p>
 <p><strong>It always finishes.</strong> A <code>constexpr</code> gets a step budget and 256 frames. Past either, it is refused:</p>
 <pre><code>error: this `constexpr` did not finish
   = note: it ran past the compile-time step budget; a loop that does not
     end at compile time would be a compiler that does not end</code></pre>
 <p>That limit is the point. A compiler that gives a wrong answer is a bug; a compiler that never answers is not a tool at all.</p>
-<p><code>constexpr</code> is contextual, so <code>val constexpr = 7</code> is still a perfectly good binding. It goes before <code>val</code> and <code>fun</code> only: a <code>var</code> can be assigned to and a <code>proc</code> returns nothing, so neither has one value to compute.</p>
+<p><code>constexpr</code> is contextual, so <code>val constexpr = 7</code> is still a perfectly good binding. It goes before <code>val</code> and <code>func</code> only: a <code>var</code> can be assigned to and a <code>proc</code> returns nothing, so neither has one value to compute.</p>
 <hr>
 <h2 id="16-how-a-program-runs">16. How a program runs</h2>
 <p>Keal compiles to bytecode and runs it on a virtual machine. That is an implementation detail with one visible consequence: <code>keal --ast file.keal</code> runs the same program on the tree-walking evaluator instead, and the two are required to agree on every byte they print. If they ever do not, that is a bug — please report it with the program that shows it.</p>
 <h2 id="17-calling-c-and-c">17. Calling C and C++</h2>
-<p>A <code>native</code> block passes text verbatim into the C that <code>keal build</code> generates: headers, inline helper functions, declarations. <code>extern fun</code> then binds a symbol with a signature the checker enforces at every call:</p>
+<p>A <code>native</code> block passes text verbatim into the C that <code>keal build</code> generates: headers, inline helper functions, declarations. <code>extern func</code> then binds a symbol with a signature the checker enforces at every call:</p>
 <pre class="lang-keal"><code>native &quot;&quot;&quot;
 #include &lt;math.h&gt;
 static int64_t triple(int64_t n) { return n * 3; }
 &quot;&quot;&quot;
 
-extern fun sin(x: Float): Float
-extern fun triple(n: Int): Int
-extern fun pow(base: Float, exponent: Float): Float = &quot;pow&quot;</code></pre>
+extern func sin(x: Float): Float
+extern func triple(n: Int): Int
+extern func pow(base: Float, exponent: Float): Float = &quot;pow&quot;</code></pre>
 <p>The <code>= "symbol"</code> names the C symbol when it differs from the Keal name.</p>
 <p>Three rules, each there for a reason:</p>
 <ul><li><strong>Only <code>Int</code>, <code>Float</code> and <code>Bool</code> cross.</strong> They carry no ownership, so neither side has to guess who frees what — the boundary <code>docs/memory.md</code> section 6 drew. Strings and objects will need an explicit ownership story before they cross; refusing now beats leaking later.</li><li><strong>Every symbol must be declared</strong> — by an included header or by the <code>native</code> block itself. Keal does not guess prototypes, because a guessed prototype that disagrees with a header is exactly the kind of quiet miscompilation this backend refuses on principle.</li><li><strong>Extern functions run natively only.</strong> The interpreters refuse a call by name and point at <code>keal build</code>.</li></ul>

@@ -127,9 +127,9 @@ fn document(module: &str, text: &str) -> Result<Section, String> {
     for item in &program.items {
         match item {
             Item::Fun(f) => entries.push(Entry {
-                kind: "fun",
+                kind: "func",
                 name: f.name.clone(),
-                signature: fun_sig(f, "fun"),
+                signature: fun_sig(f, "func"),
                 doc: doc_of(f.span.line as usize),
                 members: Vec::new(),
             }),
@@ -157,7 +157,7 @@ fn document(module: &str, text: &str) -> Result<Section, String> {
                     ));
                 }
                 for m in &c.methods {
-                    members.push((fun_sig(m, if m.ret.is_some() { "fun" } else { "proc" }),
+                    members.push((fun_sig(m, if m.ret.is_some() { "func" } else { "proc" }),
                         doc_of(m.span.line as usize)));
                 }
                 entries.push(Entry {
@@ -173,7 +173,7 @@ fn document(module: &str, text: &str) -> Result<Section, String> {
                     .methods
                     .iter()
                     .map(|m| {
-                        let tag = if m.decl.ret.is_some() { "fun" } else { "proc" };
+                        let tag = if m.decl.ret.is_some() { "func" } else { "proc" };
                         let suffix = if m.has_default { "  (default)" } else { "" };
                         (format!("{}{}", fun_sig(&m.decl, tag), suffix),
                             doc_of(m.decl.span.line as usize))
@@ -286,7 +286,7 @@ fn extern_sig(x: &ExternDecl) -> String {
         Some(t) => format!(": {}", ty(t)),
         None => String::new(),
     };
-    format!("extern fun {}({}){}", x.name, params(&x.params), ret)
+    format!("extern func {}({}){}", x.name, params(&x.params), ret)
 }
 
 fn escape(s: &str) -> String {

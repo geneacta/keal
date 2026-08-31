@@ -6,5 +6,5 @@ import "./namespace-lib/two.keal"
 
 println(parse("x"))
 
-fun holds(n: Node): Int { n.n }
+func holds(n: Node): Int { n.n }
 println(holds(Node(1)))

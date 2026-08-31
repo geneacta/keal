@@ -3,7 +3,7 @@
 // `keal layout` quotes. Smart casts unwrap: after a null check the checker
 // reads the bare type, and the backend reads through the tag to match.
 
-fun firstEven(xs: List<Int>): Int? {
+func firstEven(xs: List<Int>): Int? {
     for (x in xs) {
         if (x % 2 == 0) { return x }
     }
@@ -26,7 +26,7 @@ val declaredNull: Int? = null
 println(declaredNull ?: 42)
 println(declaredNull)
 
-fun describe(n: Int?): String {
+func describe(n: Int?): String {
     if (n == null) { return "none" }
     return "got ${n}"
 }
@@ -52,6 +52,6 @@ println(bnull)
 val m = {"a": 1}
 println(m["a"] ?: 0)
 
-fun chain(n: Int?): Int { return n ?: 100 }
+func chain(n: Int?): Int { return n ?: 100 }
 println(chain(3))
 println(chain(null))

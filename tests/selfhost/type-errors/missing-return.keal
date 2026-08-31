@@ -1,3 +1,3 @@
-fun g(): Int {
+func g(): Int {
   val a = 1
 }

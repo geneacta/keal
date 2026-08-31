@@ -32,34 +32,34 @@ package class Ty(package val kind: String) {
     package var ret: Ty? = null
 }
 
-fun ty(kind: String): Ty { Ty(kind) }
+func ty(kind: String): Ty { Ty(kind) }
 
-package fun tyList(inner: Ty): Ty {
+package func tyList(inner: Ty): Ty {
     val t = Ty("List")
     t.args = [inner]
     return t
 }
 
-package fun tyMap(k: Ty, v: Ty): Ty {
+package func tyMap(k: Ty, v: Ty): Ty {
     val t = Ty("Map")
     t.args = [k, v]
     return t
 }
 
-package fun tyClass(name: String, args: List<Ty>): Ty {
+package func tyClass(name: String, args: List<Ty>): Ty {
     val t = Ty("Class")
     t.name = name
     t.args = args
     return t
 }
 
-package fun tyParam(name: String): Ty {
+package func tyParam(name: String): Ty {
     val t = Ty("Param")
     t.name = name
     return t
 }
 
-package fun tyFun(params: List<PTy>, ret: Ty): Ty {
+package func tyFun(params: List<PTy>, ret: Ty): Ty {
     val t = Ty("Fun")
     t.params = params
     t.ret = ret
@@ -67,7 +67,7 @@ package fun tyFun(params: List<PTy>, ret: Ty): Ty {
 }
 
 /// A function type whose parameters are positional and nameless.
-package fun tyFunOf(params: List<Ty>, ret: Ty): Ty {
+package func tyFunOf(params: List<Ty>, ret: Ty): Ty {
     val ps: List<PTy> = []
     for (p in params) { ps.add(PTy("", p, false)) }
     return tyFun(ps, ret)
@@ -75,7 +75,7 @@ package fun tyFunOf(params: List<Ty>, ret: Ty): Ty {
 
 /// How many elements a tuple record holds, if this name is one.
 /// Mirrors `strip_prefix("Tuple")` + `parse::<usize>`: digits only.
-package fun tupleArity(name: String): Int? {
+package func tupleArity(name: String): Int? {
     unless (name.startsWith("Tuple")) { return null }
     val rest = name.drop(5)
     if (rest == "") { return null }
@@ -88,7 +88,7 @@ package fun tupleArity(name: String): Int? {
 
 /// Wraps in `Nullable`, collapsing `T??` and leaving the types that already
 /// admit null alone.
-package fun tyNullable(t: Ty): Ty {
+package func tyNullable(t: Ty): Ty {
     return when (t.kind) {
         "Nullable", "Any", "Null", "Never", "Error" -> t
         else -> {
@@ -100,7 +100,7 @@ package fun tyNullable(t: Ty): Ty {
 }
 
 /// Strips one level of `?`; `Null` becomes `Never`.
-package fun tyNonNull(t: Ty): Ty {
+package func tyNonNull(t: Ty): Ty {
     return when (t.kind) {
         "Nullable" -> t.args[0]
         "Null" -> Ty("Never")
@@ -108,18 +108,18 @@ package fun tyNonNull(t: Ty): Ty {
     }
 }
 
-package fun tyIsNullable(t: Ty): Bool {
+package func tyIsNullable(t: Ty): Bool {
     return when (t.kind) {
         "Nullable", "Null", "Any", "Error" -> true
         else -> false
     }
 }
 
-package fun tyIsNumeric(t: Ty): Bool { t.kind == "Int" or t.kind == "Float" }
+package func tyIsNumeric(t: Ty): Bool { t.kind == "Int" or t.kind == "Float" }
 
 /// Structural equality, matching Rust's derived `PartialEq` — including
 /// function parameter names and defaults.
-package fun tyEq(a: Ty, b: Ty): Bool {
+package func tyEq(a: Ty, b: Ty): Bool {
     if (a.kind != b.kind) { return false }
     return when (a.kind) {
         "Class" -> (a.name == b.name) and tyArgsEq(a.args, b.args)
@@ -131,7 +131,7 @@ package fun tyEq(a: Ty, b: Ty): Bool {
     }
 }
 
-fun tyArgsEq(a: List<Ty>, b: List<Ty>): Bool {
+func tyArgsEq(a: List<Ty>, b: List<Ty>): Bool {
     if (a.size != b.size) { return false }
     var i = 0
     while (i < a.size) {
@@ -141,7 +141,7 @@ fun tyArgsEq(a: List<Ty>, b: List<Ty>): Bool {
     return true
 }
 
-fun funEq(a: Ty, b: Ty): Bool {
+func funEq(a: Ty, b: Ty): Bool {
     if (a.params.size != b.params.size) { return false }
     var i = 0
     while (i < a.params.size) {
@@ -156,7 +156,7 @@ fun funEq(a: Ty, b: Ty): Bool {
 }
 
 /// Can a value of `a` be used where `b` is expected?
-package fun assignableTo(a: Ty, b: Ty): Bool {
+package func assignableTo(a: Ty, b: Ty): Bool {
     if (tyEq(a, b)) { return true }
     if (a.kind == "Error" or b.kind == "Error") { return true }
     if (a.kind == "Never") { return true }
@@ -200,7 +200,7 @@ package fun assignableTo(a: Ty, b: Ty): Bool {
 }
 
 /// True when any type parameter still appears inside this type.
-fun hasParams(t: Ty): Bool {
+func hasParams(t: Ty): Bool {
     return when (t.kind) {
         "Param", "Self" -> true
         "List", "Nullable" -> hasParams(t.args[0])
@@ -213,7 +213,7 @@ fun hasParams(t: Ty): Bool {
 
 /// Rewrites every type parameter named in `subst`; absent names stay as they
 /// are. `Self` substitutes under its reserved key like any parameter.
-package fun substitute(t: Ty, subst: Map<String, Ty>): Ty {
+package func substitute(t: Ty, subst: Map<String, Ty>): Ty {
     return when (t.kind) {
         "Param" -> subst[t.name] ?: t
         "Self" -> subst["Self"] ?: t
@@ -234,14 +234,14 @@ package fun substitute(t: Ty, subst: Map<String, Ty>): Ty {
     }
 }
 
-package fun substituteFun(ft: Ty, subst: Map<String, Ty>): Ty {
+package func substituteFun(ft: Ty, subst: Map<String, Ty>): Ty {
     val ps: List<PTy> = []
     for (p in ft.params) { ps.add(PTy(p.name, substitute(p.ty, subst), p.hasDefault, p.mutable)) }
     return tyFun(ps, substitute(ft.ret!!, subst))
 }
 
 /// A substitution that only replaces `Self`.
-package fun selfSubst(t: Ty): Map<String, Ty> {
+package func selfSubst(t: Ty): Map<String, Ty> {
     val s: Map<String, Ty> = {}
     s["Self"] = t
     return s
@@ -249,7 +249,7 @@ package fun selfSubst(t: Ty): Map<String, Ty> {
 
 /// Matches a declared type against an actual one, recording what each type
 /// parameter must be. Returns false only when the shapes cannot correspond.
-package fun unify(declared: Ty, actual: Ty, var subst: Map<String, Ty>): Bool {
+package func unify(declared: Ty, actual: Ty, var subst: Map<String, Ty>): Bool {
     if (actual.kind == "Error" or actual.kind == "Never") { return true }
     if (declared.kind == "Self") { return true }
     if (declared.kind == "Param") {
@@ -304,7 +304,7 @@ package fun unify(declared: Ty, actual: Ty, var subst: Map<String, Ty>): Bool {
 }
 
 /// The least type both `a` and `b` fit into.
-package fun tyJoin(a: Ty, b: Ty): Ty {
+package func tyJoin(a: Ty, b: Ty): Ty {
     if (tyEq(a, b)) { return a }
     if (a.kind == "Error" or b.kind == "Error") { return Ty("Error") }
     if (a.kind == "Never") { return b }
@@ -319,7 +319,7 @@ package fun tyJoin(a: Ty, b: Ty): Ty {
 }
 
 /// Element type produced by `for (x in this)`, if iterable.
-package fun iterElem(t: Ty): Ty? {
+package func iterElem(t: Ty): Ty? {
     return when (t.kind) {
         "List" -> t.args[0]
         "Range" -> Ty("Int")
@@ -330,7 +330,7 @@ package fun iterElem(t: Ty): Ty? {
 }
 
 /// Renders a type the way diagnostics and the typed dump spell it.
-package fun tyShow(t: Ty): String {
+package func tyShow(t: Ty): String {
     return when (t.kind) {
         "Int" -> "Int"
         "Float" -> "Float"

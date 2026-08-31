@@ -4,12 +4,12 @@
 // computed — so a default that mentions one, or one with a side effect,
 // behaves exactly as on the interpreters.
 
-fun greet(name: String, greeting: String = "hello", punct: String = "!"): String {
+func greet(name: String, greeting: String = "hello", punct: String = "!"): String {
     return "${greeting}, ${name}${punct}"
 }
 
 // A later default may read an earlier parameter.
-fun rectangle(width: Int, height: Int = width): Int { width * height }
+func rectangle(width: Int, height: Int = width): Int { width * height }
 
 record Account(val owner: String, val balance: Int = 0)
 
@@ -34,7 +34,7 @@ c.bump(10)
 println(c.n)
 
 // Defaults on a generic, written in terms of T's instantiation.
-fun pad<T>(xs: List<T>, filler: T, upTo: Int = 3): List<T> {
+func pad<T>(xs: List<T>, filler: T, upTo: Int = 3): List<T> {
     val out = xs.map({ x: T -> x })
     while (out.size < upTo) { out.add(filler) }
     return out
@@ -44,8 +44,8 @@ println(pad(["a"], "?", 5))
 
 // A default whose evaluation has a side effect runs only when needed.
 var calls = 0
-fun tick(): Int { calls += 1; return calls }
-fun withTick(n: Int = tick()): Int { n }
+func tick(): Int { calls += 1; return calls }
+func withTick(n: Int = tick()): Int { n }
 println(withTick(99))
 println(calls)
 println(withTick())

@@ -1,11 +1,11 @@
 // Tuples: several values of different types travelling together, without
 // having to declare a record for them.
 
-fun divmod(a: Int, b: Int): (Int, Int) {
+func divmod(a: Int, b: Int): (Int, Int) {
     return a / b, a % b
 }
 
-fun stats(xs: List<Int>): (Int, Int, Float) {
+func stats(xs: List<Int>): (Int, Int, Float) {
     var lo = xs[0]
     var hi = xs[0]
     var sum = 0
@@ -17,7 +17,7 @@ fun stats(xs: List<Int>): (Int, Int, Float) {
     return lo, hi, sum.toFloat() / xs.size.toFloat()
 }
 
-fun labelled(n: Int): (String, Int, Bool) { return "n", n, n > 0 }
+func labelled(n: Int): (String, Int, Bool) { return "n", n, n > 0 }
 
 // `return a, b` needs no parentheses; the comma is enough.
 val (q, r) = divmod(17, 5)
@@ -51,7 +51,7 @@ assert(pairs.size == 2, "a list of tuples")
 assert(pairs.map({ p -> p.second }) == ["a", "b"], "mapped over")
 assert(pairs[0] == (1, "a"), "and compared")
 
-fun swap<A, B>(t: (A, B)): (B, A) {
+func swap<A, B>(t: (A, B)): (B, A) {
     val (x, y) = t
     return y, x
 }
@@ -68,7 +68,7 @@ assert(v1 + v2 + v3 + v4 + v5 == 15, "five elements")
 
 // The two things tuples do not replace, because these already worked:
 // `?:` takes the first value that is present, anywhere, not only in a return.
-fun firstPresent(x: String?, y: String?, z: String?): String {
+func firstPresent(x: String?, y: String?, z: String?): String {
     return x ?: y ?: z ?: "none"
 }
 assert(firstPresent(null, null, "third") == "third", "elvis chains")

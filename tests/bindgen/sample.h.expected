@@ -5,27 +5,27 @@
 
 native "#include \"tests/bindgen/sample.h\""
 
-public extern fun add64(a: Int, b: Int): Int
+public extern func add64(a: Int, b: Int): Int
 
-public extern fun triple(n: Int): Int
+public extern func triple(n: Int): Int
 
-public extern fun scale(x: Float, factor: Float): Float
+public extern func scale(x: Float, factor: Float): Float
 
-public extern fun flag_of(n: Int): Bool
+public extern func flag_of(n: Int): Bool
 
-public extern fun count_vowels(text: borrow String): Int
+public extern func count_vowels(text: borrow String): Int
 
-public extern fun shout(text: borrow String): own String
+public extern func shout(text: borrow String): own String
 
-public extern fun reset(): Unit
+public extern func reset(): Unit
 
-public extern fun tick(): Unit
+public extern func tick(): Unit
 
-public extern fun vec2_dot(a: Vec2, b: Vec2): Float
+public extern func vec2_dot(a: Vec2, b: Vec2): Float
 
-public extern fun vec2_scale(v: Vec2, k: Float): Vec2
+public extern func vec2_scale(v: Vec2, k: Float): Vec2
 
-public extern fun unnamed_params(arg0: Int, arg1: Float): Int
+public extern func unnamed_params(arg0: Int, arg1: Float): Int
 
 // skipped plain_int: `int` is not exactly an `int64_t`; wrap it in a function that takes and returns int64_t
 
@@ -43,4 +43,4 @@ public extern fun unnamed_params(arg0: Int, arg1: Float): Int
 
 // skipped mask: `unsigned int` is not exactly an `int64_t`; wrap it in a function that takes and returns int64_t
 
-public extern fun guarded_add(a: Int, b: Int): Int
+public extern func guarded_add(a: Int, b: Int): Int

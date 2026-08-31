@@ -47,7 +47,7 @@ val cfg = Config({"x": 10})
 println(cfg)
 println(cfg.values["x"] ?: 0)
 
-fun tally(words: List<String>): Map<String, Int> {
+func tally(words: List<String>): Map<String, Int> {
     val counts: Map<String, Int> = {}
     for (w in words) {
         counts[w] = (counts[w] ?: 0) + 1

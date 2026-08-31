@@ -1,5 +1,5 @@
-fun add(a: Int, b: Int): Int { a + b }
-fun greet(name: String, greeting: String = "hi"): String { "${greeting} ${name}" }
+func add(a: Int, b: Int): Int { a + b }
+func greet(name: String, greeting: String = "hi"): String { "${greeting} ${name}" }
 
 class Point(val x: Int, val y: Int)
 

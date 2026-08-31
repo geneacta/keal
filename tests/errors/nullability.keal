@@ -1,4 +1,4 @@
-fun length(s: String?): Int {
+func length(s: String?): Int {
     return s.length
 }
 
@@ -11,7 +11,7 @@ val alsoPointless = notNullable?.length
 val neverNull = "x" ?: "y"
 
 var mutable: String? = "x"
-fun readMutable(): Int {
+func readMutable(): Int {
     if (mutable != null) {
         return mutable.length
     }

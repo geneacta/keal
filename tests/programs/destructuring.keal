@@ -36,7 +36,7 @@ mx += 1
 assert(mx == 11 and my == 20, "mutable destructuring")
 
 // In a `when` arm, `is T(...)` tests the type and binds in one move.
-fun area(shape: Any): Float {
+func area(shape: Any): Float {
     return when (shape) {
         is Circle(r) -> 3.0 * r * r
         is Square(s) -> s * s
@@ -48,7 +48,7 @@ assert(area(Square(3.0)) == 9.0, "is Square(s)")
 assert(area("neither") == 0.0, "else")
 
 // The bindings belong to the arm, so a later arm may reuse the names.
-fun describe(v: Any): String {
+func describe(v: Any): String {
     return when (v) {
         is Point(a, b) -> "point ${a + b}"
         is Pair(a, b) -> "pair ${a} ${b}"
@@ -76,7 +76,7 @@ assert(readers.map({ f -> f() }) == [1, 3], "each closure captured its own turn"
 
 // A destructured binding is an ordinary binding: it narrows, it shadows in an
 // inner scope, and it works inside a function.
-fun originDistance(p: Point): Int {
+func originDistance(p: Point): Int {
     val Point(px, py) = p
     return px.abs() + py.abs()
 }
@@ -87,7 +87,7 @@ assert(originDistance(Point(-3, 4)) == 7, "inside a function")
 // An arm may carry an extra condition, judged after its bindings are in
 // scope. A guarded arm may not fire, so it never counts as the catch-all.
 
-fun size(shape: Any): String {
+func size(shape: Any): String {
     return when (shape) {
         is Circle(r) if (r > 10.0) -> "huge circle"
         is Circle(r) -> "circle ${r}"
@@ -103,7 +103,7 @@ assert(size(Square(3.0)) == "square 3.0", "and its fallback")
 assert(size("x") == "unknown", "else")
 
 // Guards work on value and range patterns too.
-fun bucket(n: Int): String {
+func bucket(n: Int): String {
     return when (n) {
         0 -> "zero"
         in 1..100 if (n % 2 == 0) -> "small even"
@@ -117,7 +117,7 @@ assert(bucket(7) == "small odd", "same range, guard failed")
 assert(bucket(500) == "large", "else")
 
 // A guard sees the arm's bindings, and the value they came from.
-fun deep(v: Any): Int {
+func deep(v: Any): Int {
     return when (v) {
         is Circle(r) if (r.toInt() > 5) -> r.toInt()
         else -> 0
@@ -128,7 +128,7 @@ assert(deep(Circle(1.0)) == 0, "and rejected it")
 
 // Because a guarded arm may not fire, what it rules out is not established
 // for the arms below: `s` is still nullable in the second arm.
-fun label(s: String?): String {
+func label(s: String?): String {
     return when {
         s == null if (false) -> "never"
         s == null -> "none"
