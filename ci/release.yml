@@ -145,4 +145,7 @@ jobs:
           files: artifacts/**/*.tar.gz
           body_path: notes.md
           generate_release_notes: true
-          draft: true
+          # Published, not held back: the four criteria are green on the
+          # machine that cut the tag and green again on every platform this
+          # workflow builds for, so there is nothing left to read over first.
+          draft: false

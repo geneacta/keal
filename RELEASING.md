@@ -71,11 +71,11 @@ last tag is one the suite actually checks.
 4. **Tag and push:**
 
    ```sh
-   git tag -a v0.8.0 -m "dependencies, the cycle audit, Windows
+   git tag -a v1.0.0 -m "the language is finished enough to build on
 
-   A project names what it depends on in \`keal.toml\` ...
+   Kotlin's shape over a C-family syntax ...
    "
-   git push origin v0.8.0
+   git push origin v1.0.0
    ```
 
    The message is not a label: it becomes the top of the release notes, so
@@ -83,16 +83,16 @@ last tag is one the suite actually checks.
    what is still missing.
 
 5. The `release` workflow (see [`ci/README.md`](ci/README.md)) builds the
-   compiler for macOS arm64, macOS x86_64 and Linux x86_64, runs the
-   suite and the bootstrap on each, and opens a **draft** release with
-   the three archives attached.
-6. **Read the notes and publish.** The draft's notes are already written:
-   the workflow puts the tag's own message at the top — which is why step 4
-   asks for a real one rather than a version number — then the permanent
-   installing section from `ci/release-notes.md`, then GitHub's generated
-   commit list under both. That list is raw material and stays at the
-   bottom. Read what came out, add what a reader needs and the tag message
-   did not carry, and publish.
+   compiler for macOS arm64, macOS x86_64, Linux x86_64 and Windows,
+   runs the suite and the bootstrap on each, and **publishes** the release
+   with the archives attached.
+   It publishes rather than drafts because the four criteria above were
+   green on the machine that cut the tag and are green again on every
+   platform the workflow builds for — there is nothing left to read over
+   first. The notes are already written: the tag's own message at the top,
+   which is why step 4 asks for a real one rather than a version number,
+   then the permanent installing section from `ci/release-notes.md`, then
+   GitHub's generated commit list under both as raw material.
 
 ## What ships in an archive
 
