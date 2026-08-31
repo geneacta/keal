@@ -59,7 +59,20 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
-**v1.0.0 IS TAGGED AND PUSHED (2026-08-31).**
+**v1.0.0 IS PUBLISHED (2026-08-31).**
+https://github.com/geneacta/keal/releases/tag/v1.0.0 — four archives, all
+four legs green, marked Latest. The macOS arm64 archive was downloaded and
+run before this line was written: `keal version`, `keal run` and
+`keal build` on an enum program, both engines agreeing.
+THE TAG MOVED TWICE, and the rule that governed it is worth keeping: a tag
+moves for an answer that is WRONG, never for an improvement. Both moves
+were defects the Windows session and I found between the tag and the
+publish — a message dropped unparsed, and a path silently pointing
+elsewhere. A third fix (canonical drive-letter case, `node_modules` in
+`.gitignore`) changed no observable behaviour, so it rode main instead.
+Moving a tag is only safe while nothing points at it: neither failed run
+reached the publish job, so there was no release and no artifact.
+
 RELEASING.md's 1.0 criterion used to read "the semantics are frozen, which
 they are not: macros are still open". Macros landed, and so did everything
 else the list carried. The criterion was then TESTED rather than asserted:
