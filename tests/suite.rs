@@ -605,7 +605,20 @@ fn the_language_server_answers() {
     // What the editor is holding differs from what is on disk: a type error
     // on a line the file does not have. Only an overlay can see it.
     let buffer = "enum Level { Debug, Info }\nval here = Level.Debug\nprintln(here)\nval bad: Int = \"x\"\n";
-    let uri = format!("file://{}", file.display());
+    // The URI an editor would actually send: forward slashes throughout,
+    // and a leading one before a Windows drive letter. Building it from a
+    // `Display`ed path instead is how this test failed on Windows and
+    // nowhere else — `file://D:\a\...` puts `\a` inside a JSON string,
+    // which is not an escape, so every message carrying a URI was thrown
+    // away unparsed while the two that carried none went through.
+    let uri = {
+        let text = file.to_string_lossy().replace('\\', "/");
+        if text.starts_with('/') {
+            format!("file://{}", text)
+        } else {
+            format!("file:///{}", text)
+        }
+    };
 
     let frame = |v: &str| format!("Content-Length: {}\r\n\r\n{}", v.len(), v);
     let mut input = String::new();

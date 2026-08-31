@@ -991,10 +991,16 @@ fn uri_to_path(uri: &Json) -> Option<PathBuf> {
     }
     out.push_str(&String::from_utf8_lossy(&raw));
     // Windows sends `/C:/x`, and a leading slash there is not part of the
-    // path.
-    let out = if cfg!(windows) && out.len() > 2 && out.as_bytes()[0] == b'/' && out.as_bytes()[2] == b':'
-    {
-        out[1..].to_string()
+    // path. It also sends `/` throughout, where the rest of the process
+    // deals in `\` — and this path is a `HashMap` key, so the two spellings
+    // have to become one here rather than be trusted to compare equal.
+    let out = if cfg!(windows) {
+        let out = if out.len() > 2 && out.as_bytes()[0] == b'/' && out.as_bytes()[2] == b':' {
+            out[1..].to_string()
+        } else {
+            out
+        };
+        out.replace('/', "\\")
     } else {
         out
     };
