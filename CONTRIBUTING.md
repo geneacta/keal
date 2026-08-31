@@ -73,7 +73,16 @@ error, just a fact `cargo test --release` settles.
    test that platform does not have, and the bug it was written for will
    be found there first.
 
-6. **Say it plainly.** Diagnostics explain and suggest (`-- note:` with
+6. **Nothing decodes bytes without saying how.** Every `open()` and every
+   `subprocess` call in `site/*.py` names `encoding="utf-8"`, and every
+   write names `newline=""`. Python takes both from the machine's locale
+   otherwise, and a machine whose codepage is cp1252 will mis-decode the
+   compiler's own output into a page and exit 0 — the failure that does
+   not fail. The same rule is why a diagnostic never embeds
+   `std::io::Error`'s text: it is the operating system's sentence, in the
+   operating system's language.
+
+7. **Say it plainly.** Diagnostics explain and suggest (`-- note:` with
    the fix). Comments state constraints, not narration. Costs and limits
    go in the docs, not under the rug: see `docs/types.md` (the type
    rules), `docs/memory.md` (the memory model), `docs/drop.md`

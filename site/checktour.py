@@ -72,7 +72,7 @@ def main():
             if have_cc:
                 exe = os.path.join(tmp, "chapter%d" % i)
                 built = subprocess.run([keal, "build", path, "-o", exe],
-                                       capture_output=True, text=True)
+                                       capture_output=True, text=True, encoding="utf-8")
                 if built.returncode == 0:
                     runs.append(("native code", [exe]))
                 elif native_only(code):
@@ -85,7 +85,9 @@ def main():
                 print("  (%d. %s skipped: no C compiler)" % (i, title))
 
             for engine, cmd in runs:
-                r = subprocess.run(cmd, capture_output=True, text=True)
+                # `text=True` alone would decode in the machine's locale
+                # encoding; a snippet's output is UTF-8 wherever it runs.
+                r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
                 got = r.stdout.rstrip("\n")
                 if r.returncode != 0:
                     failures.append("%d. %s — %s exited %d:\n%s"

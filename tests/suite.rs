@@ -506,23 +506,49 @@ fn the_site_is_what_its_generator_would_write() {
         String::from_utf8_lossy(&built.stderr)
     );
 
-    let mut drifted = Vec::new();
+    // Two ways a page can differ, and they want different sentences: one is
+    // a page saying something else, the other is a generator writing `\r\n`.
+    // Listing twenty pages that differ only in line endings buries the one
+    // that says something else, which is how a mojibake page went unread.
+    let mut changed = Vec::new();
+    let mut only_endings = Vec::new();
     for entry in std::fs::read_dir(&site).expect("cannot read the rebuilt site") {
         let path = entry.expect("cannot read an entry").path();
-        if path.extension().map(|e| e == "html").unwrap_or(false) {
-            let name = path.file_name().expect("a file has a name");
-            let committed = root().join("site").join(name);
-            let (a, b) = (std::fs::read(&path).unwrap_or_default(), std::fs::read(&committed).unwrap_or_default());
-            if a != b {
-                drifted.push(name.to_string_lossy().into_owned());
+        if !path.extension().map(|e| e == "html").unwrap_or(false) {
+            continue;
+        }
+        let name = path.file_name().expect("a file has a name").to_string_lossy().into_owned();
+        let built = std::fs::read(&path).unwrap_or_default();
+        let committed = std::fs::read(root().join("site").join(&name)).unwrap_or_default();
+        if built == committed {
+            continue;
+        }
+        let flatten = |b: &[u8]| -> Vec<u8> {
+            let mut out = Vec::with_capacity(b.len());
+            for c in b {
+                if *c != b'\r' {
+                    out.push(*c);
+                }
             }
+            out
+        };
+        if flatten(&built) == flatten(&committed) {
+            only_endings.push(name);
+        } else {
+            changed.push(name);
         }
     }
     let _ = std::fs::remove_dir_all(&dir);
     assert!(
-        drifted.is_empty(),
-        "these pages are not what the generator would write; run `python3 site/build.py`: {}",
-        drifted.join(", ")
+        changed.is_empty(),
+        "these pages say something the generator would not write; run `python3 site/build.py`: {}",
+        changed.join(", ")
+    );
+    assert!(
+        only_endings.is_empty(),
+        "the generator wrote {} page(s) with different line endings, which it must not: {}",
+        only_endings.len(),
+        only_endings.join(", ")
     );
 }
 
