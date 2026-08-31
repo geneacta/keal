@@ -379,7 +379,7 @@ fun describeExprC(e: Ex): String {
 // Every name any lambda inside a frame mentions without binding it — the set
 // of variables that must live in cells if they are mutable.
 
-proc lambdaFreesInStmt(s: StmtN, out: Map<String, Bool>) {
+proc lambdaFreesInStmt(s: StmtN, var out: Map<String, Bool>) {
     if (s.kind == "let" or s.kind == "destructure") {
         lambdaFreesInExpr(s.init!!, out)
         return
@@ -420,7 +420,7 @@ proc lambdaFreesInStmt(s: StmtN, out: Map<String, Bool>) {
     }
 }
 
-proc lambdaFreesInExpr(e: Ex, out: Map<String, Bool>) {
+proc lambdaFreesInExpr(e: Ex, var out: Map<String, Bool>) {
     if (e.kind == "lambda") {
         val bound: List<String> = []
         for (p in e.params) { bound.add(p.name) }
@@ -519,7 +519,7 @@ fun lambdaFreeNames(stmts: List<StmtN>): Map<String, Bool> {
 /// Collects the names a lambda body mentions that it did not bind itself, in
 /// first-mention order. Scoping is approximated by never removing a binding,
 /// which can only shrink the free set.
-proc collectFree(stmts: List<StmtN>, bound: List<String>, free: List<String>) {
+proc collectFree(stmts: List<StmtN>, var bound: List<String>, var free: List<String>) {
     for (s in stmts) {
         if (s.kind == "let") {
             collectFreeExpr(s.init!!, bound, free)
@@ -560,7 +560,7 @@ proc collectFree(stmts: List<StmtN>, bound: List<String>, free: List<String>) {
     }
 }
 
-proc collectFreeExpr(e: Ex, bound: List<String>, free: List<String>) {
+proc collectFreeExpr(e: Ex, var bound: List<String>, var free: List<String>) {
     if (e.kind == "ident") {
         if (not bound.contains(e.text) and not free.contains(e.text)) {
             free.add(e.text)

@@ -435,9 +435,14 @@ package class Parser(val toks: List<Token>) {
         val out: List<ParamN> = []
         while (not this.at(")")) {
             val start = this.peek()
+            // `var` before the name says this function may change what the
+            // parameter holds. Without it, the contents belong to whoever
+            // passed them.
+            val mutable = this.eat("var")
             val name = this.expectIdent("a parameter name")
             this.expect(":", "after a parameter name")
             val p = ParamN(name, start.line, start.col)
+            p.mutable = mutable
             p.tyEx = this.typeExpr()
             if (this.eat("=")) {
                 p.default = this.expr()

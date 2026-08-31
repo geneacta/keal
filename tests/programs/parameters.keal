@@ -1,0 +1,71 @@
+// The contents of a parameter belong to whoever passed them. A function
+// that will change them says so in its signature, with `var` before the
+// name — and one that does not say so cannot, which is what makes reading
+// the signature worth anything.
+
+proc fill(var out: List<Int>, n: Int) {
+    for (i in 0..n) { out.add(i * i) }
+}
+
+val squares: List<Int> = []
+fill(squares, 5)
+assert(squares.size == 5, "the callee filled the caller's list")
+assert(squares[4] == 16, "and with what it said it would")
+
+proc tally(words: List<String>, var counts: Map<String, Int>) {
+    for (w in words) {
+        counts[w] = (counts[w] ?: 0) + 1
+    }
+}
+
+val counts: Map<String, Int> = {}
+tally(["a", "b", "a"], counts)
+assert(counts["a"] == 2, "a map is filled the same way")
+
+class Box(var n: Int)
+
+proc bump(var b: Box) { b.n += 1 }
+
+val b = Box(1)
+bump(b)
+assert(b.n == 2, "a `var` field is reached through a `var` parameter")
+
+// Reading is always free: nothing below changes anything, so nothing below
+// needs the word.
+fun biggest(xs: List<Int>): Int {
+    var best = xs[0]
+    for (x in xs) {
+        if (x > best) { best = x }
+    }
+    return best
+}
+assert(biggest([3, 9, 4]) == 9, "reading a parameter needs no permission")
+
+// So is building something new from it: `sorted`, `map`, `filter` and the
+// rest answer about a list rather than changing it.
+fun doubled(xs: List<Int>): List<Int> {
+    return xs.map({ x -> x * 2 })
+}
+val given: List<Int> = [1, 2]
+val got = doubled(given)
+assert(got[1] == 4, "a new list came back")
+assert(given.size == 2, "and the one given is untouched")
+
+// A local copy is the way to change something without touching the
+// caller's — the word is about the caller's value, not about the name.
+fun withZero(xs: List<Int>): List<Int> {
+    val mine: List<Int> = []
+    mine.add(0)
+    for (x in xs) { mine.add(x) }
+    return mine
+}
+val base: List<Int> = [7]
+assert(withZero(base).size == 2, "a local list is the function's own")
+assert(base.size == 1, "and the parameter was never touched")
+
+// The promise holds through a call: `relay` may change what it was given,
+// so it may pass it on to something else that will.
+proc relay(var xs: List<Int>) { fill(xs, 2) }
+val relayed: List<Int> = []
+relay(relayed)
+assert(relayed.size == 2, "a `var` parameter may be handed on")

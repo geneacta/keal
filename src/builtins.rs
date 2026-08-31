@@ -9,11 +9,11 @@
 use crate::types::{FunType, ParamType, Type};
 
 fn p(name: &str, ty: Type) -> ParamType {
-    ParamType { name: name.into(), ty, has_default: false }
+    ParamType { name: name.into(), ty, has_default: false, mutable: false }
 }
 
 fn opt(name: &str, ty: Type) -> ParamType {
-    ParamType { name: name.into(), ty, has_default: true }
+    ParamType { name: name.into(), ty, has_default: true, mutable: false }
 }
 
 fn sig(params: Vec<ParamType>, ret: Type) -> Option<FunType> {

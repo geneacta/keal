@@ -38,6 +38,7 @@ fun whyImmutable(kind: String): String {
     return when (kind) {
         "val" -> "it is declared with `val`; use `var` to make it mutable"
         "param" -> "parameters cannot be reassigned; copy it into a `var` first"
+        "mutparam" -> "parameters cannot be reassigned; copy it into a `var` first"
         "loop" -> "the loop variable is rebound on each iteration"
         "fun" -> "a function declaration cannot be reassigned"
         else -> ""
@@ -172,7 +173,7 @@ fun canWiden(e: Ex): Bool {
     return false
 }
 
-proc widen(e: Ex) {
+proc widen(var e: Ex) {
     // The node's recorded type has to follow its new shape: a backend reads
     // the type, not the literal, and `1 / 2` typed Int is integer division
     // however its leaves are now spelled.
@@ -981,7 +982,7 @@ package class Checker() {
     /// back over it. The folder reports through its own five fields, so a
     /// failure becomes exactly one diagnostic here, as it does in the
     /// Rust half.
-    proc foldConstexpr(s: StmtN, init: Ex) {
+    proc foldConstexpr(var s: StmtN, init: Ex) {
         val folder = Folder(this.constexprFuns)
         var outer: List<CBind> = []
         var i = 0
@@ -1070,7 +1071,7 @@ package class Checker() {
             var t = Ty("Error")
             val te = p.tyEx
             if (te != null) { t = this.resolve(te) }
-            params.add(PTy(p.name, t, p.default != null))
+            params.add(PTy(p.name, t, p.default != null, p.mutable))
         }
         var ret = Ty("Unit")
         val rte = f.ret
@@ -1457,7 +1458,7 @@ package class Checker() {
         this.popTypeParams()
     }
 
-    proc checkFunBody(f: FunN, thisT: Ty?) {
+    proc checkFunBody(var f: FunN, thisT: Ty?) {
         this.validateTypeParams(f.typeParams)
         this.pushTypeParams(f.typeParams)
         val ft = this.funTypeInner(f)
@@ -1472,7 +1473,7 @@ package class Checker() {
                 val dt = this.checkCoerced(d, pt.ty)
                 this.expectAssignable(dt, pt.ty, d.file, d.line, d.col, "default value")
             }
-            this.declare(p.name, pt.ty, "param")
+            this.declare(p.name, pt.ty, if (p.mutable) { "mutparam" } else { "param" })
             i += 1
         }
         val retT = ft.ret!!
@@ -1887,14 +1888,14 @@ package class Checker() {
 
     // ---- statements ----------------------------------------------------
 
-    fun checkBlock(b: BlockN): Ty {
+    fun checkBlock(var b: BlockN): Ty {
         this.pushScope()
         val t = this.checkStmts(b.stmts)
         this.popScope()
         return t
     }
 
-    fun checkStmts(stmts: List<StmtN>): Ty {
+    fun checkStmts(var stmts: List<StmtN>): Ty {
         var result = Ty("Unit")
         var diverged = false
         val last = stmts.size - 1
@@ -1913,7 +1914,7 @@ package class Checker() {
         return result
     }
 
-    fun checkStmt(s: StmtN): Ty {
+    fun checkStmt(var s: StmtN): Ty {
         // Only a guard that is itself a statement may narrow its successors.
         this.guardNarrowing = null
         if (s.kind == "let") {
@@ -2239,7 +2240,7 @@ package class Checker() {
     // ---- expressions ---------------------------------------------------
 
     /// Checks `e` against `expected`, applying integer-literal widening.
-    fun checkCoerced(e: Ex, expected: Ty): Ty {
+    fun checkCoerced(var e: Ex, expected: Ty): Ty {
         val t = this.checkExpr(e, expected)
         if (t.kind == "Int" and expected.kind == "Float" and canWiden(e)) {
             widen(e)
@@ -2254,7 +2255,7 @@ package class Checker() {
     /// An alias is not a binding and never becomes one, so this can only be
     /// the qualified form; and once rewritten, everything below sees the
     /// ordinary name it would have seen from an unaliased import.
-    proc unqualify(e: Ex) {
+    proc unqualify(var e: Ex) {
         unless (e.kind == "field" or e.kind == "method") { return }
         if (e.safe) { return }
         if (e.kids.size == 0) { return }
@@ -2282,7 +2283,7 @@ package class Checker() {
 
     /// Types an expression and records the answer on the node, so a backend
     /// never has to work it out again.
-    fun checkExpr(e: Ex, expected: Ty?): Ty {
+    fun checkExpr(var e: Ex, expected: Ty?): Ty {
         val t = this.checkExprInner(e, expected)
         e.ty = t
         // Taken unconditionally, so it can never outlive the node it was
@@ -2295,7 +2296,7 @@ package class Checker() {
         return t
     }
 
-    fun checkExprInner(e: Ex, expected: Ty?): Ty {
+    fun checkExprInner(var e: Ex, expected: Ty?): Ty {
         this.unqualify(e)
         if (e.kind == "int") { return Ty("Int") }
         if (e.kind == "float") { return Ty("Float") }
@@ -2745,6 +2746,12 @@ package class Checker() {
                 }
                 return Ty("Error")
             }
+            if (this.mutatingMethod(base, name)) {
+                val p = this.borrowedParam(e.kids[0])
+                unless (p == "") {
+                    this.refuseMutation(e.file, e.line, e.col, p, "`.${name}(...)`")
+                }
+            }
             val t = this.methodCall(base, name, e.args, e, expected)
             if (r.nullable) { return tyNullable(t) }
             return t
@@ -2854,7 +2861,7 @@ package class Checker() {
         return Ty("Error")
     }
 
-    fun methodCall(base: Ty, name: String, args: List<ArgN>, e: Ex, expected: Ty?): Ty {
+    fun methodCall(base: Ty, name: String, var args: List<ArgN>, var e: Ex, expected: Ty?): Ty {
         if (base.kind == "Error") {
             for (a in args) {
                 this.checkExpr(a.value, null)
@@ -3016,7 +3023,7 @@ package class Checker() {
         return ft.ret!!
     }
 
-    fun checkCall(e: Ex, expected: Ty?): Ty {
+    fun checkCall(var e: Ex, expected: Ty?): Ty {
         val callee = e.kids[0]
         val args = e.args
         if (callee.kind == "ident" and callee.text == "copyClosure" and this.lookup("copyClosure") == null and args.size == 1) {
@@ -3114,7 +3121,7 @@ package class Checker() {
         return this.callFunType(ct, args, e, what)
     }
 
-    fun callFunType(ct: Ty, args: List<ArgN>, e: Ex, what: String): Ty {
+    fun callFunType(ct: Ty, args: List<ArgN>, var e: Ex, what: String): Ty {
         if (ct.kind == "Fun") {
             return this.checkArgs(ct, [], args, e, what, null)
         }
@@ -3131,7 +3138,7 @@ package class Checker() {
         return Ty("Error")
     }
 
-    fun checkGlobalCall(name: String, args: List<ArgN>, e: Ex): Ty {
+    fun checkGlobalCall(name: String, var args: List<ArgN>, e: Ex): Ty {
         for (a in args) {
             unless (a.name == "") {
                 this.errorNote(
@@ -3184,7 +3191,7 @@ package class Checker() {
     /// solving `typeParams` as it goes. Each argument is checked against the
     /// parameter type with whatever has been solved so far substituted in,
     /// then contributes what it proves back to the solution.
-    fun checkArgs(ft: Ty, typeParams: List<PDef>, args: List<ArgN>, e: Ex, what: String, expected: Ty?): Ty {
+    fun checkArgs(ft: Ty, typeParams: List<PDef>, args: List<ArgN>, var e: Ex, what: String, expected: Ty?): Ty {
         val subst: Map<String, Ty> = {}
         val filled: List<Bool> = []
         for (p in ft.params) { filled.add(false) }
@@ -3241,6 +3248,18 @@ package class Checker() {
                     arg.value.file, arg.value.line, arg.value.col,
                     "argument `${ft.params[slot].name}`"
                 )
+                // The promise has to hold through a call, or it holds
+                // nowhere: handing a borrowed parameter to something that
+                // says `var` is the same change, made one frame down.
+                if (ft.params[slot].mutable) {
+                    val p = this.borrowedParam(arg.value)
+                    unless (p == "") {
+                        this.refuseMutation(
+                            arg.value.file, arg.value.line, arg.value.col,
+                            p, "passing it as `var ${ft.params[slot].name}`"
+                        )
+                    }
+                }
             } else {
                 this.checkExpr(arg.value, null)
             }
@@ -3288,10 +3307,68 @@ package class Checker() {
         return ret
     }
 
+    /// The name at the bottom of a chain of `.field`, `[i]` and `.method()`
+    /// — what a mutation would actually reach. `a.b[2].c` roots at `a`.
+    fun mutationRoot(e: Ex): String {
+        val k = e.kind
+        if (k == "ident") { return e.text }
+        if (k == "field" or k == "index" or k == "method" or k == "notnull") {
+            return this.mutationRoot(e.kids[0])
+        }
+        return ""
+    }
+
+    /// A parameter the caller still owns: written without `var`, so this
+    /// function promised not to change what it holds. Empty when the name is
+    /// anything else, which is every other binding in the language.
+    fun borrowedParam(e: Ex): String {
+        val name = this.mutationRoot(e)
+        if (name == "") { return "" }
+        val b = this.lookup(name)
+        if (b == null) { return "" }
+        if (b.kind == "param") { return name }
+        return ""
+    }
+
+    /// Says no, once, in the same words wherever the change was written.
+    proc refuseMutation(file: Int, atLine: Int, atCol: Int, name: String, what: String) {
+        this.errorNote(
+            file, atLine, atCol,
+            "`${name}` is a parameter, so ${what} is not allowed",
+            "the contents of a parameter belong to whoever passed them; write `var` before the parameter's name to say this function may change them"
+        )
+    }
+
+    /// The built-in methods that change their receiver rather than answering
+    /// about it. Everything else on a `List` or a `Map` — `map`, `filter`,
+    /// `sorted`, `keys` — builds something new and is free.
+    fun mutatingMethod(base: Ty, name: String): Bool {
+        if (base.kind == "List") {
+            return name == "add" or name == "addAll" or name == "insert" or name == "set" or name == "removeAt" or name == "clear"
+        }
+        if (base.kind == "Map") {
+            return name == "set" or name == "remove" or name == "clear"
+        }
+        return false
+    }
+
     /// Returns the target's type plus, when it cannot be assigned, what the
     /// target is and why. The target's type is recorded on its node — a
     /// backend needs it to know what a compound assignment means.
-    fun checkAssignTarget(target: Ex): (Ty, String, String) {
+    fun checkAssignTarget(var target: Ex): (Ty, String, String) {
+        // Every target that is not a bare name reaches *through* something,
+        // and what it reaches through may be a parameter this function
+        // promised not to change. One test, at the one place every target
+        // passes.
+        unless (target.kind == "ident") {
+            val p = this.borrowedParam(target)
+            unless (p == "") {
+                var what = "changing it"
+                if (target.kind == "index") { what = "assigning into it" }
+                if (target.kind == "field") { what = "assigning to `.${target.text}`" }
+                this.refuseMutation(target.file, target.line, target.col, p, what)
+            }
+        }
         val (t, what, why) = this.assignTargetInner(target)
         target.ty = t
         return t, what, why
@@ -3378,7 +3455,7 @@ package class Checker() {
     /// the left operand is a user type or a bounded type parameter. The
     /// right operand is deliberately not checked before that decision, so
     /// whichever path is taken checks it exactly once.
-    fun checkBinary(e: Ex): Ty {
+    fun checkBinary(var e: Ex): Ty {
         val op = e.text
         // `a <=> b` is the prelude's `compare(a, b)` wearing an operator:
         // the rewrite reuses the generic call path, so `Ord` bounds, the
@@ -3443,7 +3520,7 @@ package class Checker() {
     }
 
     /// Replaces `a OP b` with the call the operator stands for.
-    fun rewriteOperator(e: Ex, lt: Ty, op: String, method: String): Ty {
+    fun rewriteOperator(var e: Ex, lt: Ty, op: String, method: String): Ty {
         val lhs = e.kids[0]
         val rhs = e.kids[1]
         val args: List<ArgN> = [ArgN("", rhs)]
@@ -3498,7 +3575,7 @@ package class Checker() {
         return Ty("Bool")
     }
 
-    fun rewriteUnaryNeg(e: Ex, t: Ty): Ty {
+    fun rewriteUnaryNeg(var e: Ex, t: Ty): Ty {
         unless (this.implements(t, "Neg")) {
             if (t.kind != "Error") {
                 this.errorNote(
@@ -3776,7 +3853,7 @@ package class Checker() {
     /// Whether sharing a value of this type between actors can never be a
     /// data race: "" when it cannot, the reason when it can. The addresses
     /// (`ActorRef`, `Outbox`) pass by decree — they are the channels.
-    fun mutableReason(t: Ty, seen: List<String>): String {
+    fun mutableReason(t: Ty, var seen: List<String>): String {
         val k = t.kind
         if (k == "Int" or k == "Float" or k == "Bool" or k == "Str" or k == "Unit" or k == "Null" or k == "Never" or k == "Range" or k == "Error") {
             return ""
@@ -3853,7 +3930,7 @@ package class Checker() {
     /// Whether `copy` can carry a value of this type: "" when it can,
     /// the reason when it cannot. Recursive classes are fine as *types*;
     /// a cyclic *value* is the runtime's to refuse.
-    fun copyBlocker(t: Ty, seen: List<String>): String {
+    fun copyBlocker(t: Ty, var seen: List<String>): String {
         val k = t.kind
         if (k == "Int" or k == "Float" or k == "Bool" or k == "Str" or k == "Unit" or k == "Null" or k == "Never" or k == "Range" or k == "Error") {
             return ""
@@ -3912,7 +3989,7 @@ package class Checker() {
         return out
     }
 
-    proc collectNarrowings(cond: Ex, positive: Bool, out: List<Fact>) {
+    proc collectNarrowings(cond: Ex, positive: Bool, var out: List<Fact>) {
         if (cond.kind == "unary" and cond.text == "not") {
             this.collectNarrowings(cond.kids[0], not positive, out)
             return
@@ -3972,7 +4049,7 @@ package class Checker() {
     /// Solves a call's type parameters and reports any that stayed unknown.
     /// Every parameter must come out concrete: a monomorphising backend has
     /// no boxed representation to fall back on.
-    fun finishInference(ft: Ty, typeParams: List<PDef>, subst: Map<String, Ty>, expected: Ty?, e: Ex, what: String): Ty {
+    fun finishInference(ft: Ty, typeParams: List<PDef>, var subst: Map<String, Ty>, expected: Ty?, var e: Ex, what: String): Ty {
         var ret = substitute(ft.ret!!, subst)
         // A parameter that appears only in the return type can still be
         // pinned down by the context the call sits in. The test is whether
@@ -4103,7 +4180,7 @@ fun synthRecordEquals(c: ClassN): FunN {
 
 /// The free names of a spawn handler's body — the same walk the backends
 /// use for captures, so the checker judges exactly what will be copied.
-proc spawnFreeInStmts(stmts: List<StmtN>, bound: List<String>, free: List<String>) {
+proc spawnFreeInStmts(stmts: List<StmtN>, var bound: List<String>, var free: List<String>) {
     for (s in stmts) {
         if (s.kind == "let") {
             spawnFreeInExpr(s.init!!, bound, free)
@@ -4142,7 +4219,7 @@ proc spawnFreeInStmts(stmts: List<StmtN>, bound: List<String>, free: List<String
     }
 }
 
-proc spawnFreeInExpr(e: Ex, bound: List<String>, free: List<String>) {
+proc spawnFreeInExpr(e: Ex, var bound: List<String>, var free: List<String>) {
     if (e.kind == "ident") {
         if (not bound.contains(e.text) and not free.contains(e.text)) {
             free.add(e.text)

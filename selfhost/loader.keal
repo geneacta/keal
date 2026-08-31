@@ -177,7 +177,7 @@ package class Loader() {
 
 // ---- stamping every node with its file id -------------------------------
 
-proc stampItem(i: ItemN, f: Int) {
+proc stampItem(var i: ItemN, f: Int) {
     i.file = f
     val fd = i.funDecl
     if (fd != null) { stampFun(fd, f) }
@@ -191,7 +191,7 @@ proc stampItem(i: ItemN, f: Int) {
     if (st != null) { stampStmt(st, f) }
 }
 
-proc stampFun(fn: FunN, f: Int) {
+proc stampFun(var fn: FunN, f: Int) {
     fn.file = f
     for (tp in fn.typeParams) {
         for (b in tp.bounds) { stampTypeEx(b, f) }
@@ -202,7 +202,7 @@ proc stampFun(fn: FunN, f: Int) {
     stampBlock(fn.body, f)
 }
 
-proc stampParam(p: ParamN, f: Int) {
+proc stampParam(var p: ParamN, f: Int) {
     p.file = f
     val t = p.tyEx
     if (t != null) { stampTypeEx(t, f) }
@@ -210,7 +210,7 @@ proc stampParam(p: ParamN, f: Int) {
     if (d != null) { stampEx(d, f) }
 }
 
-proc stampClass(c: ClassN, f: Int) {
+proc stampClass(var c: ClassN, f: Int) {
     c.file = f
     for (tp in c.typeParams) {
         for (b in tp.bounds) { stampTypeEx(b, f) }
@@ -233,12 +233,12 @@ proc stampClass(c: ClassN, f: Int) {
     for (m in c.methods) { stampFun(m, f) }
 }
 
-proc stampTrait(t: TraitN, f: Int) {
+proc stampTrait(var t: TraitN, f: Int) {
     t.file = f
     for (m in t.methods) { stampFun(m.decl, f) }
 }
 
-proc stampExtern(x: ExternN, f: Int) {
+proc stampExtern(var x: ExternN, f: Int) {
     x.file = f
     for (p in x.params) { stampParam(p, f) }
     val r = x.ret
@@ -249,7 +249,7 @@ proc stampBlock(b: BlockN, f: Int) {
     for (s in b.stmts) { stampStmt(s, f) }
 }
 
-proc stampStmt(s: StmtN, f: Int) {
+proc stampStmt(var s: StmtN, f: Int) {
     s.file = f
     val t = s.tyEx
     if (t != null) { stampTypeEx(t, f) }
@@ -278,7 +278,7 @@ proc stampStmt(s: StmtN, f: Int) {
     if (cd != null) { stampClass(cd, f) }
 }
 
-proc stampEx(e: Ex, f: Int) {
+proc stampEx(var e: Ex, f: Int) {
     e.file = f
     for (k in e.kids) { stampEx(k, f) }
     for (a in e.args) { stampEx(a.value, f) }
@@ -312,7 +312,7 @@ proc stampEx(e: Ex, f: Int) {
     for (v in e.values) { stampEx(v, f) }
 }
 
-proc stampTypeEx(t: TypeEx, f: Int) {
+proc stampTypeEx(var t: TypeEx, f: Int) {
     t.file = f
     for (a in t.args) { stampTypeEx(a, f) }
     val inner = t.inner

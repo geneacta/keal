@@ -73,6 +73,10 @@ pub struct ParamType {
     pub name: String,
     pub ty: Type,
     pub has_default: bool,
+    /// Written `var`: the function may change what this parameter holds.
+    /// A call site reads it to know whether handing over a value it does
+    /// not own would break a promise of its own.
+    pub mutable: bool,
 }
 
 impl FunType {
@@ -85,6 +89,7 @@ impl FunType {
                     name: p.name.clone(),
                     ty: p.ty.substitute(subst),
                     has_default: p.has_default,
+                    mutable: p.mutable,
                 })
                 .collect(),
             ret: self.ret.substitute(subst),
@@ -94,7 +99,7 @@ impl FunType {
 
 impl ParamType {
     pub fn positional(ty: Type) -> ParamType {
-        ParamType { name: String::new(), ty, has_default: false }
+        ParamType { name: String::new(), ty, has_default: false, mutable: false }
     }
 }
 
@@ -237,6 +242,7 @@ impl Type {
                         name: p.name.clone(),
                         ty: p.ty.substitute(subst),
                         has_default: p.has_default,
+                        mutable: p.mutable,
                     })
                     .collect(),
                 ret: ft.ret.substitute(subst),

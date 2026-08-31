@@ -5608,6 +5608,7 @@ impl CBackend {
                             name: cp.name.clone(),
                             ty: Some(cp.ty.clone()),
                             default: cp.default.clone(),
+                            mutable: false,
                             span: cp.span,
                         })
                         .collect();

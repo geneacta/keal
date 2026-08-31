@@ -1,0 +1,31 @@
+// What a parameter without `var` refuses, by name. The word is a promise
+// to the caller, so every way of breaking it is refused where it is
+// written — including handing the value to something else that would.
+
+proc fill(var out: List<Int>) { out.add(1) }
+
+class Box(var n: Int)
+
+proc changes(xs: List<Int>, m: Map<String, Int>, b: Box) {
+    // A method that changes its receiver.
+    xs.add(1)
+    xs.clear()
+    m.set("a", 1)
+
+    // An assignment that reaches through the parameter.
+    xs[0] = 3
+    m["a"] = 1
+    b.n = 9
+
+    // And through a chain, which roots at the same parameter.
+    xs.first()
+
+    // Handing it to something that says it will change it: the same
+    // change, one frame down.
+    fill(xs)
+}
+
+// Reading is free, and so is building something new.
+fun reads(xs: List<Int>): Int {
+    return xs.size + xs.sorted().size + xs.map({ x -> x + 1 }).size
+}

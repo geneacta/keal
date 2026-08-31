@@ -30,6 +30,8 @@ enum BindKind {
     Val,
     Var,
     Param,
+    /// A parameter written `var`: this function may change what it holds.
+    MutParam,
     Loop,
     Fun,
 }
@@ -39,7 +41,9 @@ impl BindKind {
         match self {
             BindKind::Val => "it is declared with `val`; use `var` to make it mutable",
             BindKind::Var => "",
-            BindKind::Param => "parameters cannot be reassigned; copy it into a `var` first",
+            BindKind::Param | BindKind::MutParam => {
+                "parameters cannot be reassigned; copy it into a `var` first"
+            }
             BindKind::Loop => "the loop variable is rebound on each iteration",
             BindKind::Fun => "a function declaration cannot be reassigned",
         }
@@ -821,7 +825,7 @@ impl Checker {
             if p.default.is_some() {
                 self.error(p.span, "an extern parameter cannot have a default");
             }
-            params.push(ParamType { name: p.name.clone(), ty, has_default: false });
+            params.push(ParamType { name: p.name.clone(), ty, has_default: false, mutable: false });
         }
         let (ret_mode, ret_inner) = match x.ret.as_ref().map(|t| &t.kind) {
             Some(TypeExprKind::Boundary { mode, inner }) => {
@@ -926,6 +930,7 @@ impl Checker {
                 name: p.name.clone(),
                 ty: p.ty.as_ref().map(|t| self.resolve(t)).unwrap_or(Type::Error),
                 has_default: p.default.is_some(),
+                mutable: p.mutable,
             })
             .collect();
         let ret = f.ret.as_ref().map(|t| self.resolve(t)).unwrap_or(Type::Unit);
@@ -1191,6 +1196,7 @@ impl Checker {
                 name: p.name.clone(),
                 ty: ty.clone(),
                 has_default: p.default.is_some(),
+                mutable: false,
             });
             if let Some(mutable) = p.field {
                 if fields.iter().any(|(n, _)| *n == p.name) {
@@ -1334,7 +1340,8 @@ impl Checker {
                 let dt = self.check_coerced(default, &pt.ty);
                 self.expect_assignable(&dt, &pt.ty, default.span, "default value");
             }
-            self.declare(&p.name, pt.ty.clone(), BindKind::Param);
+            let kind = if p.mutable { BindKind::MutParam } else { BindKind::Param };
+            self.declare(&p.name, pt.ty.clone(), kind);
         }
         self.returns.push(ReturnCtx::Fun(ft.ret.clone()));
         let body_ty = self.check_block(Rc::make_mut(&mut f.body));
@@ -2472,6 +2479,7 @@ impl Checker {
                         name: p.name.clone(),
                         ty,
                         has_default: false,
+                        mutable: false,
                     });
                 }
 
@@ -2630,6 +2638,11 @@ impl Checker {
                         return Type::Error;
                     }
                 };
+                if Self::mutating_method(&base, &name) {
+                    if let Some(p) = self.borrowed_param(obj) {
+                        self.refuse_mutation(span, &p, &format!("`.{}(...)`", name));
+                    }
+                }
                 let t = self.method_call(&base, &name, args, span, expected);
                 if nullable {
                     t.nullable()
@@ -3203,6 +3216,20 @@ impl Checker {
                         arg.value.span,
                         &format!("argument `{}`", ft.params[i].name),
                     );
+                    // The promise has to hold through a call, or it holds
+                    // nowhere: handing a borrowed parameter to something
+                    // that says `var` is the same change, made one frame
+                    // down.
+                    if ft.params[i].mutable {
+                        if let Some(pname) = self.borrowed_param(&arg.value) {
+                            let (span, slot) = (arg.value.span, ft.params[i].name.clone());
+                            self.refuse_mutation(
+                                span,
+                                &pname,
+                                &format!("passing it as `var {}`", slot),
+                            );
+                        }
+                    }
                 }
                 None => {
                     self.check_expr(&mut arg.value, None);
@@ -3251,10 +3278,69 @@ impl Checker {
 
     /// Returns the target's type and, when it cannot be assigned, a
     /// description of the target plus the reason.
+    /// The name at the bottom of a chain of `.field`, `[i]` and `.method()`
+    /// — what a mutation would actually reach. `a.b[2].c` roots at `a`.
+    fn mutation_root(e: &Expr) -> Option<&str> {
+        match &e.kind {
+            ExprKind::Ident(name) => Some(name),
+            ExprKind::Field { obj, .. }
+            | ExprKind::Index { obj, .. }
+            | ExprKind::MethodCall { obj, .. } => Self::mutation_root(obj),
+            ExprKind::NotNull(inner) => Self::mutation_root(inner),
+            _ => None,
+        }
+    }
+
+    /// A parameter the caller still owns: written without `var`, so this
+    /// function promised not to change what it holds. `None` when the name
+    /// is anything else, which is every other binding in the language.
+    fn borrowed_param(&self, e: &Expr) -> Option<String> {
+        let name = Self::mutation_root(e)?;
+        let b = self.lookup(name)?;
+        (b.kind == BindKind::Param).then(|| name.to_string())
+    }
+
+    /// Says no, once, in the same words wherever the change was written.
+    fn refuse_mutation(&mut self, span: Span, name: &str, what: &str) {
+        self.error_note(
+            span,
+            format!("`{}` is a parameter, so {} is not allowed", name, what),
+            "the contents of a parameter belong to whoever passed them; write `var` before the parameter's name to say this function may change them",
+        );
+    }
+
+    /// The built-in methods that change their receiver rather than
+    /// answering about it. Everything else on a `List` or a `Map` — `map`,
+    /// `filter`, `sorted`, `keys` — builds something new and is free.
+    fn mutating_method(base: &Type, name: &str) -> bool {
+        match base {
+            Type::List(_) => {
+                matches!(name, "add" | "addAll" | "insert" | "set" | "removeAt" | "clear")
+            }
+            Type::Map(_, _) => matches!(name, "set" | "remove" | "clear"),
+            _ => false,
+        }
+    }
+
     fn check_assign_target(
         &mut self,
         target: &mut Expr,
     ) -> (Type, Option<(String, String)>) {
+        // Every target that is not a bare name reaches *through* something,
+        // and what it reaches through may be a parameter this function
+        // promised not to change. One test, at the one place every target
+        // passes.
+        if !matches!(target.kind, ExprKind::Ident(_)) {
+            if let Some(p) = self.borrowed_param(target) {
+                let what = match &target.kind {
+                    ExprKind::Index { .. } => "assigning into it".to_string(),
+                    ExprKind::Field { name, .. } => format!("assigning to `.{}`", name),
+                    _ => "changing it".to_string(),
+                };
+                let span = target.span;
+                self.refuse_mutation(span, &p, &what);
+            }
+        }
         let result = self.assign_target_inner(target);
         // A target is an expression too, and a backend needs its type — for a
         // compound assignment it decides whether `+=` is checked arithmetic
@@ -4152,6 +4238,7 @@ fn synth_record_equals(c: &ClassDecl) -> FunDecl {
             name: "other".to_string(),
             ty: Some(self_ty),
             default: None,
+            mutable: false,
             span,
         }]),
         ret: Some(named("Bool", Vec::new())),

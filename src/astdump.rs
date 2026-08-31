@@ -192,7 +192,8 @@ fn tparam_node(tp: &TypeParam) -> String {
 }
 
 fn param_node(p: &Param) -> String {
-    let mut head = format!("param {}", p.name);
+    let kw = if p.mutable { "var " } else { "" };
+    let mut head = format!("param {}{}", kw, p.name);
     if let Some(t) = &p.ty {
         head.push_str(&format!(": {}", type_line(t)));
     }

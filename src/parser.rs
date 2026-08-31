@@ -507,11 +507,17 @@ impl Parser {
         self.expect(Tok::LParen, "to start a parameter list")?;
         let mut params = Vec::new();
         while !self.at(&Tok::RParen) {
-            let (name, span) = self.expect_ident("a parameter name")?;
+            // `var` before the name says this function may change what the
+            // parameter holds. Without it, the contents belong to whoever
+            // passed them. The span starts at the word, as a declaration's
+            // span does everywhere else.
+            let span = self.span();
+            let mutable = self.eat(&Tok::Var);
+            let (name, _) = self.expect_ident("a parameter name")?;
             self.expect(Tok::Colon, "after a parameter name")?;
             let ty = Some(self.type_expr()?);
             let default = if self.eat(&Tok::Assign) { Some(self.expr()?) } else { None };
-            params.push(Param { name, ty, default, span });
+            params.push(Param { name, ty, default, mutable, span });
             if !self.eat(&Tok::Comma) {
                 break;
             }
@@ -1510,7 +1516,7 @@ impl Parser {
         }
         self.pos = save;
 
-        let params = vec![Param { name: "it".into(), ty: None, default: None, span }];
+        let params = vec![Param { name: "it".into(), ty: None, default: None, mutable: false, span }];
         self.lambda_body(span, params)
     }
 
@@ -1561,7 +1567,7 @@ impl Parser {
             let Tok::Ident(name) = self.peek().clone() else { return None };
             self.advance();
             let ty = if self.eat(&Tok::Colon) { Some(self.type_expr().ok()?) } else { None };
-            params.push(Param { name, ty, default: None, span });
+            params.push(Param { name, ty, default: None, mutable: false, span });
             if self.eat(&Tok::Comma) {
                 continue;
             }

@@ -28,6 +28,10 @@ package class ParamN(package val name: String, package val line: Int, package va
     package var file: Int = 0
     package var tyEx: TypeEx? = null
     package var default: Ex? = null
+    /// `var` before the name: this function may change what the parameter
+    /// holds, and its caller can read that in the signature. Without it the
+    /// contents are the caller's, and the checker keeps them that way.
+    package var mutable: Bool = false
 }
 
 package class TParamN(package val name: String) {

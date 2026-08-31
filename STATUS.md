@@ -59,6 +59,40 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**A SIGNATURE CAN PROMISE NOT TO CHANGE WHAT IT WAS GIVEN — DONE.**
+`final` was already the default and needed no word (a parameter cannot be
+reassigned, a `val` field cannot be written from anywhere, a record's fields
+are immutable). What was missing was the CONTENTS. Now: what a parameter
+holds belongs to whoever passed it, and a function that will change it
+writes `var` before the name.
+FOUR WAYS IN, ALL CLOSED: a mutating method on the receiver (six on List,
+three on Map — everything else answers ABOUT a value and is free); an
+assignment reaching through it (`p[i] =`, `p.f =`); and PASSING IT TO
+SOMETHING THAT SAYS `var`. That last one is what makes the rest worth
+anything — a promise a call could quietly break is not a promise. It needed
+`mutable` on `ParamType`/`PTy` so a call site can read it.
+IMPLEMENTATION: one funnel each. `mutation_root` walks a chain of
+`.field`/`[i]`/`.method()`/`!!` down to the name; `borrowed_param` says
+whether that name is a `BindKind::Param` (not `MutParam`). The assignment
+test sits in `check_assign_target`, before `assign_target_inner`, because
+every non-ident target passes through there exactly once.
+THE MEASUREMENT THAT DECIDED THE DEFAULT: 0 hits in the whole corpus and
+examples; ~70 in `selfhost/`, every one an honest accumulator or the checker
+writing types onto its own AST nodes. So immutable-by-default was
+affordable, and marking those 70 turned an invisible property of the
+compiler into something its signatures now state —
+`fun checkExpr(var e: Ex, expected: Ty?)` says what it does.
+THE BOUNDARY, STATED IN docs/language.md §7: `var` describes what THIS
+function and the calls it makes will do. It is not a claim about the value
+forever — a function may still store what it was given somewhere that
+outlives the call. Doing better means tracking a borrow through the heap,
+which is a different and much larger language.
+Span note: a parameter's span starts at `var` when it is there, as a
+declaration's span does everywhere else — oracle and twin both.
+Corpus: `tests/programs/parameters.keal` (assertions),
+`tests/selfhost/type-errors/parameter-contents.keal` (seven refusals,
+oracle and twin identical).
+
 **THE PACKAGE INDEX — DONE. It is an index, NOT a registry, and that
 distinction is the whole design.** `docs/packages.md` argued a registry
 comes last because a registry is A SERVICE SOMEBODY HAS TO RUN. That
@@ -895,10 +929,8 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
    measurements recorded in threads.md). `Any` natively — DONE. `weak` —
    DONE. Visibility, namespaces and dependencies — DONE. Typed exceptions
    — DONE, all three engines. The audit's cycle-versus-global rule — DONE.
-   `constexpr` — DONE. The package index — DONE. What is left: a way for a
-   signature to promise it will not change what it was given (`final` is
-   already the default for reassignment; the CONTENTS of a parameter are
-   still open), and macros, deliberately last. See README "What remains".
+   `constexpr` — DONE. The package index — DONE. Parameter contents — DONE.
+   What is left: macros, deliberately last. See README "What remains".
 
 ## Key file map
 

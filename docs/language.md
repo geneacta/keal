@@ -547,6 +547,52 @@ fun outer(base: Int): Int {
 A function with a declared return type must produce one on every path, either
 by `return` or as its last expression.
 
+### What a function may change
+
+A parameter cannot be reassigned. That has always been true, and it needs no
+word: `final` is the default and there is no way to turn it off.
+
+The contents are a separate promise, and Keal keeps that one too. **What a
+parameter holds belongs to whoever passed it**, and a function that intends
+to change it says so with `var` before the name:
+
+```keal
+proc fill(var out: List<Int>, n: Int) {
+    for (i in 0..n) { out.add(i * i) }
+}
+
+val squares: List<Int> = []
+fill(squares, 5)             // and now it holds five
+```
+
+Without the word, the checker refuses every way of changing it — a method
+that changes its receiver, an assignment that reaches through it, and handing
+it on to something else that would:
+
+```keal
+proc broken(xs: List<Int>) {
+    xs.add(1)                // error: `xs` is a parameter, so `.add(...)` is not allowed
+    xs[0] = 3                // error: ... so assigning into it is not allowed
+    fill(xs, 2)              // error: ... so passing it as `var out` is not allowed
+}
+```
+
+That last one is what makes the rest worth anything: a promise that a call
+could quietly break is not a promise.
+
+Reading is always free, and so is building something new. `size`, `sorted`,
+`map`, `filter`, `keys` — everything that answers *about* a value rather than
+changing it — needs no permission. Only six list methods and three map
+methods change their receiver, and those are the only ones the word is about.
+
+**The boundary, stated rather than left to be found.** `var` describes what
+*this function and the calls it makes* will do. It is not a claim about the
+value forever: a function may still store what it was given somewhere that
+outlives the call, and whoever holds it afterwards is bound by nothing. Doing
+better than that means tracking a borrow through the heap, which is a
+different and much larger language than this one. What is here is the promise
+a signature can keep, and it keeps it.
+
 ---
 
 ## 8. Classes

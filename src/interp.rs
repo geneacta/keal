@@ -1066,6 +1066,7 @@ fn ctor_params(class: &ClassDecl) -> Vec<Param> {
             name: p.name.clone(),
             ty: Some(p.ty.clone()),
             default: p.default.clone(),
+            mutable: false,
             span: p.span,
         })
         .collect()

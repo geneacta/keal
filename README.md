@@ -38,6 +38,10 @@ At a glance:
   `keal.toml` and fetched with `keal fetch`. `keal search` and `keal add`
   find one and pin it, reading an index that is itself a git repository —
   no service, and nothing that breaks if it disappears
+* **Nothing changes behind your back** — a parameter cannot be reassigned,
+  and what it *holds* belongs to the caller unless the signature says `var`.
+  The checker refuses every way around it, a call to something that would
+  included
 * **Reference counting** with a fully documented memory model — inspect any
   program's layout with `keal layout`
 * **Native compilation** (`keal build`) ~84× faster than the VM, with **C and
@@ -579,7 +583,11 @@ lockfile included. And the last place the three engines could be told apart
 closed: they now report the same objects outliving the same program, which
 took four separate fixes and a machine nobody here owns. And the audit
 stopped being a list to interpret: it names which survivors are a cycle and
-which a top-level binding is holding on purpose. Packages gained the last
+which a top-level binding is holding on purpose. A signature can promise not
+to change what it was given: the contents of a parameter belong to whoever
+passed them unless it says `var`, and the checker refuses every way of
+breaking that — including handing the value on to something that would.
+Packages gained the last
 thing they were missing — a way to find one whose URL you do not know —
 without gaining a service anybody has to run: `keal search` and `keal add`
 read an index that is an ordinary git repository, one small file per
@@ -605,17 +613,6 @@ were the last thing on this list to be half-done, and are not anymore:
   following one would let a cycle report itself as reachable. What is still
   missing is the collector, and why there is none is argued in
   [`docs/memory.md`](docs/memory.md) §5.
-* **A promise not to change what you were given.** `final` is already the
-  default and needs no word: a parameter cannot be reassigned, a `val`
-  field cannot be written from anywhere, and a record's fields are
-  immutable. What is missing is the *other* half — nothing stops a function
-  changing the **contents** of what it is handed. `l.add(9)`, `m["k"] = v`
-  and a write to a `var` field all go through a parameter today, and a
-  signature cannot say they will not. That is a real gap and a real design
-  question: the cheap version (a word on a parameter) is a promise the
-  checker can keep, and the expensive version (transitive, through every
-  field it can reach) is the one that has bitten every language that tried
-  it.
 * **Macros** — deliberately last: the language keeps earning features the
   hard way first.
 * Windows used to be here. It is not: the whole suite runs there on both

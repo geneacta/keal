@@ -284,6 +284,24 @@ fun outer(base: Int): Int {
     return inner(1) + inner(2)
 }</code></pre>
 <p>A function with a declared return type must produce one on every path, either by <code>return</code> or as its last expression.</p>
+<h3 id="what-a-function-may-change">What a function may change</h3>
+<p>A parameter cannot be reassigned. That has always been true, and it needs no word: <code>final</code> is the default and there is no way to turn it off.</p>
+<p>The contents are a separate promise, and Keal keeps that one too. <strong>What a parameter holds belongs to whoever passed it</strong>, and a function that intends to change it says so with <code>var</code> before the name:</p>
+<pre class="lang-keal"><code>proc fill(var out: List&lt;Int&gt;, n: Int) {
+    for (i in 0..n) { out.add(i * i) }
+}
+
+val squares: List&lt;Int&gt; = []
+fill(squares, 5)             // and now it holds five</code></pre>
+<p>Without the word, the checker refuses every way of changing it — a method that changes its receiver, an assignment that reaches through it, and handing it on to something else that would:</p>
+<pre class="lang-keal"><code>proc broken(xs: List&lt;Int&gt;) {
+    xs.add(1)                // error: `xs` is a parameter, so `.add(...)` is not allowed
+    xs[0] = 3                // error: ... so assigning into it is not allowed
+    fill(xs, 2)              // error: ... so passing it as `var out` is not allowed
+}</code></pre>
+<p>That last one is what makes the rest worth anything: a promise that a call could quietly break is not a promise.</p>
+<p>Reading is always free, and so is building something new. <code>size</code>, <code>sorted</code>, <code>map</code>, <code>filter</code>, <code>keys</code> — everything that answers <em>about</em> a value rather than changing it — needs no permission. Only six list methods and three map methods change their receiver, and those are the only ones the word is about.</p>
+<p><strong>The boundary, stated rather than left to be found.</strong> <code>var</code> describes what <em>this function and the calls it makes</em> will do. It is not a claim about the value forever: a function may still store what it was given somewhere that outlives the call, and whoever holds it afterwards is bound by nothing. Doing better than that means tracking a borrow through the heap, which is a different and much larger language than this one. What is here is the promise a signature can keep, and it keeps it.</p>
 <hr>
 <h2 id="8-classes">8. Classes</h2>
 <pre class="lang-keal"><code>class Point(val x: Float, val y: Float) {

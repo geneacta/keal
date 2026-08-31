@@ -128,7 +128,8 @@ fun pTParam(tp: TParamN): String {
 }
 
 fun pParam(p: ParamN): String {
-    var head = "param ${p.name}"
+    val kw = if (p.mutable) { "var " } else { "" }
+    var head = "param ${kw}${p.name}"
     val t = p.tyEx
     if (t != null) { head += ": " + typeLine(t) }
     head += " ${p.line}:${p.col}"

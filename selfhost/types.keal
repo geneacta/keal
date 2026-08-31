@@ -15,7 +15,15 @@
 // too; `tyEq` reproduces that exactly, because `assignableTo` leans on where
 // the Rust code uses `==` and where it deliberately does not.
 
-package class PTy(package val name: String, package val ty: Ty, package val hasDefault: Bool)
+/// `mutable` is `var` before the parameter's name: the function may change
+/// what it holds, and a call site reads it to know whether handing over a
+/// value it does not own would break a promise of its own.
+package class PTy(
+    package val name: String,
+    package val ty: Ty,
+    package val hasDefault: Bool,
+    package val mutable: Bool = false
+)
 
 package class Ty(package val kind: String) {
     package var name: String = ""
@@ -219,7 +227,7 @@ package fun substitute(t: Ty, subst: Map<String, Ty>): Ty {
         }
         "Fun" -> {
             val ps: List<PTy> = []
-            for (p in t.params) { ps.add(PTy(p.name, substitute(p.ty, subst), p.hasDefault)) }
+            for (p in t.params) { ps.add(PTy(p.name, substitute(p.ty, subst), p.hasDefault, p.mutable)) }
             tyFun(ps, substitute(t.ret!!, subst))
         }
         else -> t
@@ -228,7 +236,7 @@ package fun substitute(t: Ty, subst: Map<String, Ty>): Ty {
 
 package fun substituteFun(ft: Ty, subst: Map<String, Ty>): Ty {
     val ps: List<PTy> = []
-    for (p in ft.params) { ps.add(PTy(p.name, substitute(p.ty, subst), p.hasDefault)) }
+    for (p in ft.params) { ps.add(PTy(p.name, substitute(p.ty, subst), p.hasDefault, p.mutable)) }
     return tyFun(ps, substitute(ft.ret!!, subst))
 }
 
@@ -241,7 +249,7 @@ package fun selfSubst(t: Ty): Map<String, Ty> {
 
 /// Matches a declared type against an actual one, recording what each type
 /// parameter must be. Returns false only when the shapes cannot correspond.
-package fun unify(declared: Ty, actual: Ty, subst: Map<String, Ty>): Bool {
+package fun unify(declared: Ty, actual: Ty, var subst: Map<String, Ty>): Bool {
     if (actual.kind == "Error" or actual.kind == "Never") { return true }
     if (declared.kind == "Self") { return true }
     if (declared.kind == "Param") {

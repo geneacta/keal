@@ -122,6 +122,10 @@ pub struct Param {
     pub name: String,
     pub ty: Option<TypeExpr>,
     pub default: Option<Expr>,
+    /// `var` before the name: this function may change what the parameter
+    /// holds, and its caller can read that in the signature. Without it the
+    /// contents are the caller's, and the checker keeps them that way.
+    pub mutable: bool,
     pub span: Span,
 }
 
