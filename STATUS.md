@@ -59,6 +59,29 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**The cycle audit, on the interpreters. DONE; the native half is next.**
+`KEAL_AUDIT=1 keal run prog.keal` prints, at exit, what outlived the
+program by type — the evidence `docs/memory.md` §5 promised instead of a
+collector. `src/value.rs` gained a `pub mod audit`: a thread-local
+`HashMap<String, i64>`, `born`/`died` called from `Instance::new` and the
+`Drop` impl, and `report()` from `main.rs` after the program's values are
+gone. `wanted()` reads the environment ONCE through a `OnceLock`, so the
+counts cannot be made to lie mid-run, and a program that does not ask
+pays one boolean read per object — output byte-identical.
+THE ONE SUBTLETY: the drop hook's copy in `value.rs` is a MOVE, not a
+birth, and the original is dying as it is made — so it calls `born`
+explicitly to cancel the `died` that follows. Every other instance now
+comes from `Instance::new` (interp, VM, and `native.rs`'s deep copy).
+Report goes to stderr, sorted by class, with the note that names `weak`.
+Tests: `tests/audit/cycle.keal` (a cycle beside an acyclic pair whose
+deinits do run) + `the_audit_names_what_outlived_the_program`, which also
+asserts the audit stays silent when unasked. Suite 34/34, corpora
+656/656.
+NEXT: carry the counters into `keal build` — a `KEAL_AUDIT` define like
+`KEAL_ACTORS`/`KEAL_WEAK`, per-class counters in the generated C, and the
+twin mirroring the emission. Not done, and the docs say so rather than
+implying three engines already agree.
+
 **Dependencies, step one: `keal.toml` + `keal fetch` + `dep:` imports.
 DONE.** A project's manifest names it and lists what it depends on, each
 a git repository at an exact `tag` or `rev`; `keal fetch` (Rust-only

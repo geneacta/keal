@@ -236,6 +236,45 @@ fn fetch_puts_a_dependency_where_an_import_finds_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The cycle audit: with `KEAL_AUDIT` set, a program says at exit what it
+/// left behind, by type. Counting is the whole of it — nothing here
+/// diagnoses a cycle, it reports the evidence one leaves. Both engines
+/// must count the same objects, and a program without the variable set
+/// must print exactly what it printed before the audit existed.
+#[test]
+fn the_audit_names_what_outlived_the_program() {
+    let path = "tests/audit/cycle.keal";
+    let quiet = keal(&["--vm", path]);
+    assert!(quiet.success);
+    assert!(
+        !quiet.stderr.contains("audit:"),
+        "the audit spoke without being asked:\n{}",
+        quiet.stderr
+    );
+
+    for engine in ENGINES {
+        let out = Command::new(BIN)
+            .args([engine, path])
+            .current_dir(root())
+            .env("KEAL_AUDIT", "1")
+            .output()
+            .expect("cannot run the audit");
+        assert!(out.status.success());
+        let err = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(
+            err.contains("2 object(s) outlived the program")
+                && err.contains("1 Item")
+                && err.contains("1 Owner"),
+            "{} did not report the cycle:\n{}",
+            engine,
+            err
+        );
+        // The pair without a back edge dies, and says so on the way out.
+        let printed = String::from_utf8_lossy(&out.stdout);
+        assert!(printed.contains("owner 3 died"), "the acyclic pair did not run its deinit");
+    }
+}
+
 #[test]
 fn examples_run_successfully() {
     for file in keal_files("examples") {

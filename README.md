@@ -573,9 +573,10 @@ cycle dies on schedule and every `deinit` runs.)
   order and why a version range would be a lie today.
 * **Cycles across several classes still leak silently** — `weak` breaks
   the ones you can see, and the checker cautions about the shape that
-  voids a `deinit`; a cycle nobody marked is still never freed. The next
-  step is an opt-in run-time audit that names what outlived the program,
-  by type — evidence rather than guesswork. Why there is no cycle
+  voids a `deinit`; a cycle nobody marked is still never freed. What
+  exists now is evidence: `KEAL_AUDIT=1 keal run prog.keal` names what
+  outlived the program, by type, on either interpreter. Carrying the
+  counters into `keal build` is the next step. Why there is no cycle
   collector is argued in [`docs/memory.md`](docs/memory.md) §5.
 * **Typed exceptions** — `catch (e)` binds the message as a `String`
   today; catching by kind (and letting `throw` carry a value) is the

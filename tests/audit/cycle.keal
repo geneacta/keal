@@ -1,0 +1,30 @@
+// What the audit is for. Two objects point at each other, so neither's
+// count ever reaches zero and neither is freed — and `deinit` never runs,
+// which is the part that matters more than the memory. The pair below it
+// has no back edge and dies on schedule.
+
+class Owner(val id: Int) {
+    var held: Item? = null
+    proc deinit() { println("owner ${this.id} died") }
+}
+
+class Item(val id: Int) {
+    var owner: Owner? = null
+    proc deinit() { println("item ${this.id} died") }
+}
+
+proc cyclic() {
+    val o = Owner(1)
+    val it = Item(2)
+    o.held = it
+    it.owner = o
+}
+
+proc acyclic() {
+    val o = Owner(3)
+    val it = Item(4)
+    o.held = it
+}
+
+cyclic()
+acyclic()

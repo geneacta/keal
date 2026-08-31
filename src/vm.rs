@@ -627,11 +627,7 @@ impl Vm {
                         let weak = crate::value::class_field_is_weak(&class.decl, name);
                         fields.push((name.clone(), Instance::slot_for(weak, v)));
                     }
-                    let instance = Rc::new(Instance {
-                        class: class.decl.clone(),
-                        fields: RefCell::new(fields),
-                        dropped: std::cell::Cell::new(false),
-                    });
+                    let instance = Rc::new(Instance::new(class.decl.clone(), fields));
                     self.frames.last_mut().unwrap().this = Some(Value::Instance(instance));
                 }
                 Op::InitField(n) => {

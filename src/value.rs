@@ -104,6 +104,76 @@ impl Slot {
     }
 }
 
+/// The audit: how many objects of each class are alive right now.
+///
+/// Reference counting frees what stops being reachable, and a cycle is
+/// exactly what never does. Nothing here diagnoses one — it counts what
+/// outlived the program, by type, which is evidence a programmer can act on
+/// rather than a guess. The counters are kept only when the audit is asked
+/// for, so a program that does not ask pays a single boolean read per
+/// object.
+pub mod audit {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    thread_local! {
+        static LIVE: RefCell<HashMap<String, i64>> = RefCell::new(HashMap::new());
+    }
+
+    /// Whether `KEAL_AUDIT` was set when the program started. Read once:
+    /// changing the environment mid-run must not make the counts lie.
+    pub fn wanted() -> bool {
+        use std::sync::OnceLock;
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var_os("KEAL_AUDIT").is_some())
+    }
+
+    pub fn born(class: &str) {
+        if !wanted() {
+            return;
+        }
+        LIVE.with(|l| *l.borrow_mut().entry(class.to_string()).or_insert(0) += 1);
+    }
+
+    pub fn died(class: &str) {
+        if !wanted() {
+            return;
+        }
+        LIVE.with(|l| {
+            if let Some(n) = l.borrow_mut().get_mut(class) {
+                *n -= 1;
+            }
+        });
+    }
+
+    /// What is still alive, by class, in a stable order.
+    pub fn survivors() -> Vec<(String, i64)> {
+        let mut out: Vec<(String, i64)> =
+            LIVE.with(|l| l.borrow().iter().filter(|(_, n)| **n > 0).map(|(k, v)| (k.clone(), *v)).collect());
+        out.sort();
+        out
+    }
+
+    /// The report, printed to standard error so it never joins a program's
+    /// own output. Says nothing at all unless the audit was asked for.
+    pub fn report() {
+        if !wanted() {
+            return;
+        }
+        let alive = survivors();
+        if alive.is_empty() {
+            eprintln!("audit: nothing outlived the program");
+            return;
+        }
+        let total: i64 = alive.iter().map(|(_, n)| n).sum();
+        eprintln!("audit: {} object(s) outlived the program", total);
+        for (class, n) in alive {
+            eprintln!("  {} {}", n, class);
+        }
+        eprintln!("  = note: a class that survives its last reference is in a cycle; `weak` on the back edge breaks it");
+    }
+}
+
 pub struct Instance {
     pub class: Rc<ClassDecl>,
     /// Kept as a vector so fields print in declaration order; classes have
@@ -118,8 +188,17 @@ pub struct Instance {
 /// `proc drop()` does not just vanish when its last reference dies — its
 /// contents move into a fresh instance that waits on the pending queue,
 /// and the engine runs `drop` on it at the next statement boundary.
+impl Instance {
+    /// Every instance is born here, so the audit sees every one.
+    pub fn new(class: Rc<ClassDecl>, fields: Vec<(Rc<str>, Slot)>) -> Instance {
+        audit::born(&class.name);
+        Instance { class, fields: RefCell::new(fields), dropped: std::cell::Cell::new(false) }
+    }
+}
+
 impl Drop for Instance {
     fn drop(&mut self) {
+        audit::died(&self.class.name);
         if self.dropped.get() {
             return;
         }
@@ -130,6 +209,7 @@ impl Drop for Instance {
         // Marked before it ever queues — like the native backend's
         // `kdropped` — so the hook runs at most once however this copy
         // dies, including a queue that no longer exists at teardown.
+        audit::born(&self.class.name);
         let copy = Instance {
             class: self.class.clone(),
             fields,

@@ -793,11 +793,7 @@ impl Interp {
             }
         }
 
-        let instance = Rc::new(Instance {
-            class: class.clone(),
-            fields: RefCell::new(fields),
-            dropped: std::cell::Cell::new(false),
-        });
+        let instance = Rc::new(Instance::new(class.clone(), fields));
         // Field initializers may use `this` and the fields declared above them.
         scope.define("this", Value::Instance(instance.clone()));
         for f in &class.fields {

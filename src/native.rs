@@ -187,11 +187,7 @@ pub fn deep_copy(v: &Value, span: Span, depth: usize) -> R<Value> {
                 };
                 fields.push((n.clone(), copied));
             }
-            Value::Instance(Rc::new(Instance {
-                class: i.class.clone(),
-                fields: RefCell::new(fields),
-                dropped: std::cell::Cell::new(false),
-            }))
+            Value::Instance(Rc::new(Instance::new(i.class.clone(), fields)))
         }
         Value::Fun(_) | Value::VmFun(_) | Value::Native(_) => {
             return err(span, "a function is its environment, and environments do not copy");

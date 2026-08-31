@@ -315,10 +315,35 @@ A warning that cries wolf on correct code is worse than no warning. The
 narrow rule fires nowhere in this repository except where it is
 demonstrated on purpose.
 
-That leaves accidental cycles across several classes undiagnosed, which
-is honest rather than solved: an opt-in run-time audit — count what was
-allocated and never freed, by type — is the next step, and it reports
-evidence rather than guessing.
+That leaves accidental cycles across several classes undiagnosed by the
+checker, and the answer is evidence rather than a better guess. Set
+`KEAL_AUDIT` and a program says, on the way out, what it left behind:
+
+```
+$ KEAL_AUDIT=1 keal run notes.keal
+audit: 2 object(s) outlived the program
+  1 Item
+  1 Owner
+  = note: a class that survives its last reference is in a cycle; `weak` on the back edge breaks it
+```
+
+It counts; it does not diagnose. An object that outlives the program is one
+whose count never reached zero, and on the interpreters that can only be a
+cycle — which is why the report is worth reading even though it names types
+rather than objects: the pair of names *is* the shape of the cycle, and
+`weak` on one of the two edges is what ends it. Put the word on the back
+edge and the same run reports `nothing outlived the program`.
+
+The counters exist only when the variable is set, so a program that does not
+ask pays one boolean read per object and prints exactly what it printed
+before. The report goes to standard error, so it never joins a program's own
+output.
+
+Two limits, stated rather than left to be discovered. It is the two
+interpreters that count today — `keal build` does not carry the counters
+yet — and a type that survives for an ordinary reason (a global that lives
+to the end of the program) is reported like any other. The audit is a place
+to start looking, not a verdict.
 
 ---
 
