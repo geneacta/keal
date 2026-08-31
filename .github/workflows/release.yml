@@ -35,16 +35,14 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: keal-linux-x86_64
-          # Windows gets the compiler and both interpreters. `keal build`
-          # is not among them: the generated C is compiled with `cc` and
-          # flags MSVC does not take, and the actor runtime is pthreads.
-          # Non-blocking until it has been green a few times — a platform
-          # nobody here can test must not hold a release shut.
+          # Windows is held to the same standard as the rest, and blocks
+          # like the rest. What it needs beyond the others is a C compiler
+          # that is not MSVC — see the step below, and `docs/interop.md`
+          # for why.
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             name: keal-windows-x86_64
     runs-on: ${{ matrix.os }}
-    continue-on-error: ${{ matrix.optional == true }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,8 +51,44 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # A Windows runner has no `cc`, and the compiler this runtime needs is
+      # not MSVC: overflow is checked with GCC and Clang builtins. Nor is any
+      # compiler enough — an LLVM `clang` on a Windows runner targets MSVC,
+      # rejects `-pthread`, and would satisfy a naive "does a compiler
+      # answer" check while building nothing. So the test is what the
+      # toolchain IS, not that one exists, and the step asserts the answer
+      # rather than trusting it: without this every test that compiles C
+      # skips itself, and a green Windows leg would mean far less than it
+      # appears to.
+      - name: A C compiler that is not MSVC
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -e
+          # Chocolatey's `mingw` is GCC for x86_64-w64-mingw32 with POSIX
+          # threads, which the actor scheduler needs; it no-ops when already
+          # installed, so there is nothing to guess about the image.
+          choco install mingw --no-progress -y
+          echo 'C:\ProgramData\mingw64\mingw64\bin' >> "$GITHUB_PATH"
+          export PATH="/c/ProgramData/mingw64/mingw64/bin:$PATH"
+          gcc --version | head -1
+          gcc -dumpmachine
+          gcc -dumpmachine | grep -q mingw \
+            || { echo "that gcc does not target mingw32; the runtime needs one that does"; exit 1; }
+          gcc -v 2>&1 | grep -q 'Thread model: posix' \
+            || { echo "that MinGW has win32 threads; actor programs need the POSIX build"; exit 1; }
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
+
+      # Says which toolchains this runner has, so a skipped test in the log
+      # below can be read as a fact about the machine rather than a mystery.
+      - name: What this machine has
+        shell: bash
+        run: |
+          bin=./target/${{ matrix.target }}/release/keal
+          [ -x "$bin.exe" ] && bin="$bin.exe"
+          "$bin" doctor || true
 
       # The suite is the release criterion: three engines agreeing, the
       # self-hosted twins byte-identical, and the bootstrap fixed point.
@@ -62,9 +96,11 @@ jobs:
         run: cargo test --release
 
       # The bootstrap compiles the self-hosted compiler through C, so it
-      # needs the toolchain `keal build` needs.
+      # needs the toolchain the step above installs. `shell: bash` because
+      # PowerShell is the default on Windows and cannot run a `.sh`; Git Bash
+      # is there, and the script runs clean under it.
       - name: Bootstrap to its fixed point
-        if: runner.os != 'Windows'
+        shell: bash
         run: ./bootstrap.sh
 
       - name: Package
