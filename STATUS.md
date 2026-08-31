@@ -59,7 +59,12 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
-**1.0.1 — THE OVERLAY IS KEYED BY WHAT THE FILESYSTEM CALLS A FILE.**
+**1.0.1 IS PUBLISHED (2026-08-31).** The overlay is keyed by what the
+filesystem calls a file. The macOS arm64 archive was downloaded and the bug
+it fixes replayed against the SHIPPED binary, not the local one: `Lib.keal`
+on disk, held edited in the editor, imported as `./lib.keal` — the buffer
+wins now.
+
 Found by the Windows session after I asked it to push back rather than
 agree; its first two attempts said my previous fix was unnecessary (it was
 — `PathBuf` folds the Windows drive prefix and treats both separators
