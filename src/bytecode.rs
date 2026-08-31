@@ -246,6 +246,10 @@ pub struct Function {
     pub cells: u16,
     /// Where each captured cell comes from, in order.
     pub captures: Vec<Capture>,
+    /// Whether the body ever says `this`. A closure that does not must not
+    /// hold the receiver: a method returning one that did made the object
+    /// hold the closure and the closure hold the object.
+    pub uses_this: bool,
 }
 
 pub struct ParamInfo {

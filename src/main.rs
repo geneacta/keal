@@ -64,11 +64,13 @@ usage:
                               --jvm <path> sets the emitted import path,
                               --cache <dir> writes the module a no-path
                               `import java.time.LocalDate` loads)
-    keal build [--audit] <file.keal> [sources... libs... flags...]
+    keal [--audit] build <file.keal> [sources... libs... flags...]
                               compile to a native executable; extras may be
                               C/C++ sources, .a/.so/.o link inputs, -l/-L
-                              linker flags and -I/-D compile flags;
-                              --audit makes the program say at exit what it
+                              linker flags and -I/-D compile flags.
+                              Keal's own flags come before the file — what
+                              follows it belongs to the program. --audit
+                              makes the built program say at exit what it
                               left behind, by type, as `KEAL_AUDIT=1` does
                               on the interpreters
     keal repl                 start an interactive session
@@ -99,26 +101,48 @@ enum Engine {
     Ast,
 }
 
+/// The words that are commands rather than a program's path.
+fn is_subcommand(word: &str) -> bool {
+    matches!(
+        word,
+        "run" | "check" | "layout" | "emit-c" | "build" | "repl" | "version" | "help"
+            | "tokens" | "ast" | "types" | "cgen" | "emit-header" | "bindgen" | "doc"
+            | "doctor" | "jbind" | "fetch"
+    )
+}
+
 fn real_main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut engine = Engine::Bytecode;
-    // `--audit` is a build switch and may be written anywhere on the line,
-    // like `--ast` and `--vm`: it is a question about the run, not a file.
     let mut audit = false;
-    args.retain(|a| match a.as_str() {
-        "--audit" => {
-            audit = true;
-            false
+    // These belong to `keal`, and only before the file does: everything from
+    // the program's path onwards is the program's own, including a `--audit`
+    // it wants for itself — which the self-hosted compiler does.
+    let mut seen_path = false;
+    args.retain(|a| {
+        if seen_path {
+            return true;
         }
-        "--ast" => {
-            engine = Engine::Ast;
-            false
+        match a.as_str() {
+            "--audit" => {
+                audit = true;
+                false
+            }
+            "--ast" => {
+                engine = Engine::Ast;
+                false
+            }
+            "--vm" => {
+                engine = Engine::Bytecode;
+                false
+            }
+            other => {
+                if !other.starts_with('-') && !is_subcommand(other) {
+                    seen_path = true;
+                }
+                true
+            }
         }
-        "--vm" => {
-            engine = Engine::Bytecode;
-            false
-        }
-        _ => true,
     });
     if args.first().map(|a| a.as_str()) == Some("jbind") {
         return jbind::run(&args[1..]);

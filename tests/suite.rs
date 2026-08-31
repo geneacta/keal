@@ -416,7 +416,7 @@ fn the_native_audit_says_what_the_interpreters_say() {
 
     let built = Command::new(BIN)
         .current_dir(&dir)
-        .args(["build", "--audit"])
+        .args(["--audit", "build"])
         .arg(&src)
         .output()
         .expect("cannot run keal build");

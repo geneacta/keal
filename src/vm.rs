@@ -84,7 +84,12 @@ impl Vm {
         };
         // Reported while the globals are still alive, because they are: a
         // top-level object lives to the end of the program on every engine,
-        // so every engine counts it as having outlived one.
+        // so every engine counts it as having outlived one. The stack is
+        // not part of that: what is left on it is an intermediate the
+        // program can no longer reach, and a compiled program has nowhere
+        // to keep one.
+        self.stack.clear();
+        self.frames.clear();
         crate::value::audit::report();
         out
     }
@@ -657,7 +662,8 @@ impl Vm {
                             Capture::Enclosing(i) => frame!().captured[*i as usize].clone(),
                         })
                         .collect();
-                    let this = frame!().this.clone();
+                    // Only a closure that says `this` holds the receiver.
+                    let this = if target.uses_this { frame!().this.clone() } else { None };
                     self.push(Value::VmFun(Rc::new(VmClosure {
                         func: target,
                         captured: Rc::new(captured),

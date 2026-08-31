@@ -132,14 +132,17 @@ pub mod audit {
         if !wanted() {
             return;
         }
-        LIVE.with(|l| *l.borrow_mut().entry(class.to_string()).or_insert(0) += 1);
+        // `try_with`, not `with`: an object can die during thread-local
+        // teardown, after these counters are gone, and a program that asked
+        // for an audit must not be repaid with a panic at the very end.
+        let _ = LIVE.try_with(|l| *l.borrow_mut().entry(class.to_string()).or_insert(0) += 1);
     }
 
     pub fn died(class: &str) {
         if !wanted() {
             return;
         }
-        LIVE.with(|l| {
+        let _ = LIVE.try_with(|l| {
             if let Some(n) = l.borrow_mut().get_mut(class) {
                 *n -= 1;
             }
@@ -148,8 +151,9 @@ pub mod audit {
 
     /// What is still alive, by class, in a stable order.
     pub fn survivors() -> Vec<(String, i64)> {
-        let mut out: Vec<(String, i64)> =
-            LIVE.with(|l| l.borrow().iter().filter(|(_, n)| **n > 0).map(|(k, v)| (k.clone(), *v)).collect());
+        let mut out: Vec<(String, i64)> = LIVE
+            .try_with(|l| l.borrow().iter().filter(|(_, n)| **n > 0).map(|(k, v)| (k.clone(), *v)).collect())
+            .unwrap_or_default();
         out.sort();
         out
     }
@@ -421,12 +425,17 @@ impl Scope {
     /// released, so an object bound beside the closure never dies and its
     /// `deinit` never runs, which is a difference from the other two engines.
     ///
-    /// It only unpicks a scope nothing escaped from, and it is strict about
-    /// what that means: every closure over this scope must be held by this
-    /// scope alone, and nothing else may hold the scope. A closure that got
-    /// out can still be called, and calling it reads names through the scope
-    /// chain — a sequence's iterator asking for the `advance` bound beside
-    /// it — so a scope anything escaped from is left exactly as it was.
+    /// The test is about the SCOPE, not about the closures: nothing outside
+    /// may hold it. A closure that got out can still be called, and calling
+    /// it reads names through the scope chain — a sequence's iterator asking
+    /// for the `advance` bound beside it — so if anything else holds this
+    /// scope, its bindings have to stay exactly where they are.
+    ///
+    /// A closure that got out while nothing else holds the scope is a
+    /// different case, and the one `takeWhile` makes: dropping the binding
+    /// leaves the closure alive in whoever took it, and the scope alive
+    /// through the closure, so the chain still resolves — but the loop is
+    /// gone, and everything dies when the escapee does.
     ///
     /// Called when a scope is finished with rather than from `Drop`, which a
     /// cyclic scope never reaches.
@@ -438,8 +447,7 @@ impl Scope {
                 .iter()
                 .rev()
                 .filter(|n| match vars.get(&***n) {
-                    // Held by this binding and nothing else, or it escaped.
-                    Some(Value::Fun(c)) => Rc::ptr_eq(&c.env, this) && Rc::strong_count(c) == 1,
+                    Some(Value::Fun(c)) => Rc::ptr_eq(&c.env, this),
                     _ => false,
                 })
                 .cloned()

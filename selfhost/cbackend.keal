@@ -1204,6 +1204,11 @@ class CBackend() {
             }
             this.decls += "${sn}* ${name}(${sn}* o, int64_t depth);\n"
             var body = "\n${sn}* ${name}(${sn}* o, int64_t depth) {\n    ${cap}\n    ${sn}* c = (${sn}*)keal_alloc(sizeof(${sn}));\n    memset((void*)c, 0, sizeof(*c));\n    c->rc = 1;\n"
+            if (this.auditMode) {
+                // A copy is a new object, and dies like one: without this the
+                // audit counts every deep copy's death and none of its births.
+                body += "    keal_audit_born(${cString(t.name)});\n"
+            }
             for (f in raw) {
                 val ft = substitute(substitute(f.ty, subst), this.tsubst)
                 val cv = this.copyExprOf(ft, "o->" + mangle(f.name), "depth + 1", file, atLine, col)

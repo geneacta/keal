@@ -221,6 +221,8 @@ impl Compiler {
 
         let state = self.fns.pop().unwrap();
         let main = Function {
+            // The top level has no receiver to hold.
+            uses_this: false,
             name: Rc::from("<main>"),
             params: Vec::new(),
             chunk: state.chunk,
@@ -373,7 +375,14 @@ impl Compiler {
         let params = self.bind_params(f.params.iter().map(|p| (p.name.as_str(), p.default.as_ref())))?;
         self.block_body(&f.body.stmts, true, f.span)?;
         let _ = takes_this;
-        let func = self.finish_function(Rc::from(f.name.as_str()), params);
+        // A closure holds the receiver only if its body reaches for it —
+        // nested lambdas included, which is why the free-variable walk
+        // answers this rather than a scan of the statements.
+        let mut bound: Vec<String> = f.params.iter().map(|p| p.name.clone()).collect();
+        let mut free: Vec<String> = Vec::new();
+        crate::cbackend::collect_free(&f.body.stmts, &mut bound, &mut free);
+        let uses_this = free.iter().any(|n| n == "this");
+        let func = self.finish_function_with(Rc::from(f.name.as_str()), params, uses_this);
         self.functions.push(Rc::new(func));
         Ok((self.functions.len() - 1) as u32)
     }
@@ -422,6 +431,15 @@ impl Compiler {
     }
 
     fn finish_function(&mut self, name: Rc<str>, params: Vec<ParamInfo>) -> Function {
+        self.finish_function_with(name, params, true)
+    }
+
+    fn finish_function_with(
+        &mut self,
+        name: Rc<str>,
+        params: Vec<ParamInfo>,
+        uses_this: bool,
+    ) -> Function {
         let state = self.fns.pop().unwrap();
         Function {
             name,
@@ -430,6 +448,7 @@ impl Compiler {
             locals: state.max_slots,
             cells: state.next_cell,
             captures: state.captures,
+            uses_this,
         }
     }
 
@@ -1275,6 +1294,7 @@ fn placeholder_class(c: &ClassDecl) -> Rc<RtClass> {
         name: Rc::from(c.name.as_str()),
         decl: Rc::new(c.clone()),
         ctor: Rc::new(Function {
+            uses_this: true,
             name: Rc::from(c.name.as_str()),
             params: Vec::new(),
             chunk: Chunk::new(),

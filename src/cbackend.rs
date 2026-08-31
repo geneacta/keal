@@ -5198,6 +5198,12 @@ impl CBackend {
                     f = name,
                     cap = cap
                 );
+                if self.audit_mode {
+                    // A copy is a new object, and dies like one: without this
+                    // the audit counts every deep copy's death and none of
+                    // its births.
+                    let _ = writeln!(body, "    keal_audit_born({});", c_string(cname));
+                }
                 for (fname, ft) in &fields {
                     let cv = self.copy_expr_of(ft, &format!("o->{}", mangle(fname)), "depth + 1", span)?;
                     let _ = write!(body, "    c->{} = {};\n", mangle(fname), cv);
