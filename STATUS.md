@@ -59,7 +59,7 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
-**THE REPOSITORY SAYS 1.0.0. THE TAG IS TONY'S TO PUSH.**
+**v1.0.0 IS TAGGED AND PUSHED (2026-08-31).**
 RELEASING.md's 1.0 criterion used to read "the semantics are frozen, which
 they are not: macros are still open". Macros landed, and so did everything
 else the list carried. The criterion was then TESTED rather than asserted:
@@ -70,9 +70,19 @@ only make an INVALID program VALID, which is the definition of additive.
 WHAT 1.0 FREEZES: the language. What it does NOT: the standard library
 (grows by addition), the emitted C (an implementation detail the suite
 holds to the interpreters), and it claims no ecosystem.
-`git tag -a v1.0.0` then `git push origin v1.0.0` fires the release
-workflow, which builds macOS arm64/x86_64, Linux and Windows-msvc, runs the
-whole suite on each, and opens a DRAFT release.
+THE FOUR CRITERIA WERE RUN BEFORE THE TAG, one at a time: suite 41/41,
+bootstrap to its fixed point, fuzz 3000 clean, and `leaks` reporting 0 on
+six native binaries (enums, operators-index, stdlib-collections, macros,
+actor-many, trycatch).
+The tag's message IS the release notes — the workflow reads
+`git tag -l --format='%(contents)'` — so it was written as paragraphs a
+reader wants, not as a version number.
+NOT A DRAFT: `ci/release.yml` says `draft: false` now. The INSTALLED copy
+under `.github/workflows/` still says `true`, because pushing that file
+needs the `workflow` OAuth scope this session does not have. Until Tony
+runs `gh auth refresh -s workflow`, the release is published by hand after
+the build with `gh release edit <tag> --draft=false`, which the `repo`
+scope covers.
 
 **THE LANGUAGE SERVER — `keal lsp`, DONE.** Diagnostics as you type, hover
 types, go to definition, find references, rename, document outline,
