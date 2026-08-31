@@ -44,7 +44,7 @@ jobs:
             name: keal-windows-x86_64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: dtolnay/rust-toolchain@stable
@@ -60,23 +60,14 @@ jobs:
       # rather than trusting it: without this every test that compiles C
       # skips itself, and a green Windows leg would mean far less than it
       # appears to.
+      # A Windows runner has no `cc`, and the compiler this runtime needs is
+      # not MSVC. The script asserts what it installed rather than trusting
+      # it, and lives in the repository so its logic can change without
+      # pasting this file through a web UI again.
       - name: A C compiler that is not MSVC
         if: runner.os == 'Windows'
         shell: bash
-        run: |
-          set -e
-          # Chocolatey's `mingw` is GCC for x86_64-w64-mingw32 with POSIX
-          # threads, which the actor scheduler needs; it no-ops when already
-          # installed, so there is nothing to guess about the image.
-          choco install mingw --no-progress -y
-          echo 'C:\ProgramData\mingw64\mingw64\bin' >> "$GITHUB_PATH"
-          export PATH="/c/ProgramData/mingw64/mingw64/bin:$PATH"
-          gcc --version | head -1
-          gcc -dumpmachine
-          gcc -dumpmachine | grep -q mingw \
-            || { echo "that gcc does not target mingw32; the runtime needs one that does"; exit 1; }
-          gcc -v 2>&1 | grep -q 'Thread model: posix' \
-            || { echo "that MinGW has win32 threads; actor programs need the POSIX build"; exit 1; }
+        run: bash ci/windows-toolchain.sh
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
@@ -115,7 +106,7 @@ jobs:
           cp README.md LICENSE dist-release/
           tar -czf ${{ matrix.name }}.tar.gz -C dist-release .
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: ${{ matrix.name }}.tar.gz
@@ -124,16 +115,34 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
+      # `body_path` is the notes a person wrote; `generate_release_notes`
+      # appends GitHub's commit list under them. The commit list is raw
+      # material, not notes — it says what changed, never what it means.
+      # The notes are the tag's own message — written when the tag was cut,
+      # by whoever knew what it contained — above the permanent footer that
+      # says how to install the thing. GitHub's generated commit list goes
+      # under both: raw material, not notes.
+      - name: Compose the notes
+        shell: bash
+        run: |
+          tag='${{ inputs.tag || github.ref_name }}'
+          git fetch --force --tags --quiet origin "$tag"
+          git tag -l --format='%(contents)' "$tag" > notes.md
+          printf '\n' >> notes.md
+          cat ci/release-notes.md >> notes.md
+          cat notes.md
+
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: artifacts/**/*.tar.gz
+          body_path: notes.md
           generate_release_notes: true
           draft: true
