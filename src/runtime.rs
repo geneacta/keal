@@ -19,19 +19,29 @@ pub struct RtError {
     pub diag: Diag,
     /// Call stack at the point of failure, innermost first.
     pub frames: Vec<(String, Span)>,
+    /// What was thrown, for a `catch` that names a type. Every built-in
+    /// failure throws its own message, so this is a `String` unless a
+    /// program's `throw` said otherwise — which is why `catch (e: String)`
+    /// catches an overflow as readily as a `throw "..."`.
+    pub value: Option<crate::value::Value>,
 }
 
 pub type R<T> = Result<T, Flow>;
 
 /// Builds a runtime error at `span`.
 pub fn err<T>(span: Span, msg: impl Into<String>) -> R<T> {
-    Err(Flow::Err(RtError { diag: Diag::new(span, msg), frames: Vec::new() }))
+    let msg = msg.into();
+    let value = Some(crate::value::Value::str(&msg));
+    Err(Flow::Err(RtError { diag: Diag::new(span, msg), frames: Vec::new(), value }))
 }
 
 pub fn err_note<T>(span: Span, msg: impl Into<String>, note: impl Into<String>) -> R<T> {
+    let msg = msg.into();
+    let value = Some(crate::value::Value::str(&msg));
     Err(Flow::Err(RtError {
         diag: Diag::new(span, msg).with_note(note),
         frames: Vec::new(),
+        value,
     }))
 }
 

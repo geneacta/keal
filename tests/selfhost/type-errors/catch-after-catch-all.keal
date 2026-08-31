@@ -1,0 +1,12 @@
+// Clauses are tried in order, so a clause behind the one that catches
+// everything can never run. Saying so is better than letting it look live.
+
+record Bad(val why: String)
+
+try {
+    throw Bad("x")
+} catch (e) {
+    println(e)
+} catch (e: Bad) {
+    println(e.why)
+}

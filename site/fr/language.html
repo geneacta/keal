@@ -505,6 +505,26 @@ geometry = { git = &quot;https://github.com/someone/geometry&quot;, tag = &quot;
   |              ^
   = note: use `?.`, `!!`, or check for null first</code></pre>
 <p>At run time, the failures the type system cannot rule out — division by zero, an index out of range, <code>!!</code> on null, runaway recursion — abort with a message and a call stack.</p>
+<h3 id="throw-and-catch">throw and catch</h3>
+<p><code>throw</code> raises any value; <code>try</code> runs a block and <code>catch</code> takes what it raised:</p>
+<pre class="lang-keal"><code>record Refused(val why: String, val at: Int)
+
+try {
+    if (n &gt; 10) { throw Refused(&quot;too big&quot;, n) }
+    if (n &lt; 0) { throw n }
+    use(n)
+} catch (e: Refused) {
+    println(&quot;refused ${e.why} at ${e.at}&quot;)
+} catch (e: Int) {
+    println(&quot;an Int: ${e}&quot;)
+} catch (e) {
+    println(e)
+}</code></pre>
+<p>Clauses are tried in order. <strong>A clause that names a type</strong> takes only what that type can hold, and binds the value whole. <strong>A clause that names none</strong> takes anything and binds the <em>message</em> — the value as a program would print it — which is why it always has something to say and why it must come last; a clause behind it is refused as unreachable.</p>
+<p>When no clause matches, the value goes on unwinding to the <code>try</code> outside, unchanged. And every built-in failure raises its own message, so <code>catch (e: String)</code> catches an overflow as readily as a <code>throw "..."</code>.</p>
+<p><code>return</code>, <code>break</code> and <code>continue</code> are jumps, not failures, and pass through a <code>try</code> untouched. A <code>try</code> whose body and whose catch-all both return counts as returning, like an <code>if</code>/<code>else</code> that does — a typed clause alone does not, because it may not run.</p>
+<p>One thing cannot be thrown: a function. A signature has no run-time identity, so no <code>catch</code> could name one.</p>
+<p><strong>Not yet native.</strong> <code>keal build</code> refuses <code>catch (e: T)</code> by name; the interpreters have it. Carrying the thrown value through the C unwind rather than its message is the work outstanding.</p>
 <hr>
 <h2 id="16-how-a-program-runs">16. How a program runs</h2>
 <p>Keal compiles to bytecode and runs it on a virtual machine. That is an implementation detail with one visible consequence: <code>keal --ast file.keal</code> runs the same program on the tree-walking evaluator instead, and the two are required to agree on every byte they print. If they ever do not, that is a bug — please report it with the program that shows it.</p>

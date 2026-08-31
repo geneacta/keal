@@ -819,14 +819,32 @@ impl Parser {
                 self.advance();
                 let body = self.block()?;
                 // A newline between `}` and `catch` inserted a virtual `;`;
-                // `catch` is mandatory, so skipping is safe.
+                // at least one `catch` is mandatory, so skipping is safe.
                 self.skip_semis();
-                self.expect(Tok::Catch, "after the `try` block")?;
-                self.expect(Tok::LParen, "after `catch`")?;
-                let (name, _) = self.expect_ident("a name for the caught message")?;
-                self.expect(Tok::RParen, "after the caught message's name")?;
-                let handler = self.block()?;
-                StmtKind::Try { body, name, handler }
+                let mut clauses = Vec::new();
+                loop {
+                    let span = self.span();
+                    self.expect(Tok::Catch, "after the `try` block")?;
+                    self.expect(Tok::LParen, "after `catch`")?;
+                    let (name, _) = self.expect_ident("a name for what is caught")?;
+                    let ty = if self.eat(&Tok::Colon) { Some(self.type_expr()?) } else { None };
+                    self.expect(Tok::RParen, "after the caught value's name")?;
+                    let handler = self.block()?;
+                    clauses.push(Catch { name, ty, handler, span });
+                    // Another clause may follow, over a newline as `else` may.
+                    let more = {
+                        let mut i = 0;
+                        while matches!(self.peek_at(i), Tok::Semi) {
+                            i += 1;
+                        }
+                        matches!(self.peek_at(i), Tok::Catch)
+                    };
+                    if !more {
+                        break;
+                    }
+                    self.skip_semis();
+                }
+                StmtKind::Try { body, clauses }
             }
             Tok::While => {
                 self.advance();

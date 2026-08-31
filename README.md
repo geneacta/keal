@@ -588,9 +588,11 @@ took four separate fixes and a machine nobody here owns.)
   is missing is a rule that tells an accidental cycle from a global that
   simply lived to the end. Why there is no cycle collector is argued in
   [`docs/memory.md`](docs/memory.md) §5.
-* **Typed exceptions** — `catch (e)` binds the message as a `String`
-  today; catching by kind (and letting `throw` carry a value) is the
-  natural second step now that all three engines unwind.
+* **Typed exceptions, natively.** `throw` carries any value and
+  `catch (e: Refused)` takes only what that type holds — on both
+  interpreters. `keal build` refuses a typed clause by name: the C unwind
+  carries the message rather than the value, and giving it the value is the
+  work left.
 * **`constexpr` evaluation** — the tree-walking interpreter is kept as the
   reference implementation partly so it can become the compile-time
   evaluator.

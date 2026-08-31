@@ -327,12 +327,18 @@ fn stmt_node(s: &Stmt) -> String {
         StmtKind::Break => format!("break {}", at(s.span)),
         StmtKind::Continue => format!("continue {}", at(s.span)),
         StmtKind::Throw(e) => format!("throw {}\n{}", at(s.span), indent(&expr_node(e))),
-        StmtKind::Try { body, name, handler } => format!(
-            "try {}\n{}\n{}",
-            at(s.span),
-            indent(&block_node("body", body)),
-            indent(&block_node(&format!("catch {}", name), handler))
-        ),
+        StmtKind::Try { body, clauses } => {
+            let mut out = format!("try {}\n{}", at(s.span), indent(&block_node("body", body)));
+            for c in clauses {
+                let head = match &c.ty {
+                    Some(t) => format!("catch {}: {}", c.name, type_line(t)),
+                    None => format!("catch {}", c.name),
+                };
+                out.push('\n');
+                out.push_str(&indent(&block_node(&head, &c.handler)));
+            }
+            out
+        }
         StmtKind::While { cond, body } => format!(
             "while {}\n{}\n{}",
             at(s.span),

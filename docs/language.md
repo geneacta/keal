@@ -1056,6 +1056,49 @@ At run time, the failures the type system cannot rule out — division by zero,
 an index out of range, `!!` on null, runaway recursion — abort with a message
 and a call stack.
 
+### throw and catch
+
+`throw` raises any value; `try` runs a block and `catch` takes what it
+raised:
+
+```keal
+record Refused(val why: String, val at: Int)
+
+try {
+    if (n > 10) { throw Refused("too big", n) }
+    if (n < 0) { throw n }
+    use(n)
+} catch (e: Refused) {
+    println("refused ${e.why} at ${e.at}")
+} catch (e: Int) {
+    println("an Int: ${e}")
+} catch (e) {
+    println(e)
+}
+```
+
+Clauses are tried in order. **A clause that names a type** takes only what
+that type can hold, and binds the value whole. **A clause that names none**
+takes anything and binds the *message* — the value as a program would print
+it — which is why it always has something to say and why it must come last;
+a clause behind it is refused as unreachable.
+
+When no clause matches, the value goes on unwinding to the `try` outside,
+unchanged. And every built-in failure raises its own message, so
+`catch (e: String)` catches an overflow as readily as a `throw "..."`.
+
+`return`, `break` and `continue` are jumps, not failures, and pass through a
+`try` untouched. A `try` whose body and whose catch-all both return counts as
+returning, like an `if`/`else` that does — a typed clause alone does not,
+because it may not run.
+
+One thing cannot be thrown: a function. A signature has no run-time identity,
+so no `catch` could name one.
+
+**Not yet native.** `keal build` refuses `catch (e: T)` by name; the
+interpreters have it. Carrying the thrown value through the C unwind rather
+than its message is the work outstanding.
+
 ---
 
 ## 16. How a program runs

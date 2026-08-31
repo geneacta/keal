@@ -200,21 +200,46 @@ impl Interp {
             StmtKind::Continue => Err(Flow::Continue),
             StmtKind::Throw(e) => {
                 let v = self.eval(e, env)?;
-                let msg = match v {
-                    Value::Str(s) => s.to_string(),
-                    other => other.type_name(),
-                };
-                Err(Flow::Err(RtError { diag: Diag::new(s.span, msg), frames: Vec::new() }))
+                // The message is the value as a program would print it, so a
+                // `catch (e)` reads something useful whatever was thrown.
+                let msg = crate::runtime::display(self, &v, s.span)?;
+                Err(Flow::Err(RtError {
+                    diag: Diag::new(s.span, msg),
+                    frames: Vec::new(),
+                    value: Some(v),
+                }))
             }
-            StmtKind::Try { body, name, handler } => {
+            StmtKind::Try { body, clauses } => {
                 match self.exec_block(body, env) {
                     // A panic is caught; `return`/`break`/`continue` are jumps
                     // and pass through untouched.
                     Err(Flow::Err(e)) => {
-                        let scope = Scope::child(env);
-                        scope.define(name, Value::str(&e.diag.msg));
-                        self.exec_stmts(&handler.stmts, &scope)?;
-                        Ok(Value::Unit)
+                        for c in clauses {
+                            let bound = match (&c.ty, &e.value) {
+                                // A clause that names a type takes only what
+                                // that type can hold, and takes it whole.
+                                (Some(ty), Some(v)) => {
+                                    if self.type_matches(v, ty) {
+                                        Some(v.clone())
+                                    } else {
+                                        None
+                                    }
+                                }
+                                (Some(_), None) => None,
+                                // A clause that names none takes anything,
+                                // and takes the message.
+                                (None, _) => Some(Value::str(&e.diag.msg)),
+                            };
+                            if let Some(v) = bound {
+                                let scope = Scope::child(env);
+                                scope.define(&c.name, v);
+                                self.exec_stmts(&c.handler.stmts, &scope)?;
+                                Scope::close(&scope);
+                                return Ok(Value::Unit);
+                            }
+                        }
+                        // Nothing matched: it goes on unwinding, unchanged.
+                        Err(Flow::Err(e))
                     }
                     Err(jump) => Err(jump),
                     Ok(_) => Ok(Value::Unit),

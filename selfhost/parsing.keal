@@ -732,13 +732,24 @@ package class Parser(val toks: List<Token>) {
             val s = StmtN("try", t.line, t.col)
             s.body = this.block()
             // A newline between `}` and `catch` inserted a virtual `;`;
-            // `catch` is mandatory, so skipping is safe.
+            // at least one `catch` is mandatory, so skipping is safe.
             this.skipSemis()
-            this.expect("catch", "after the `try` block")
-            this.expect("(", "after `catch`")
-            s.name = this.expectIdent("a name for the caught message")
-            this.expect(")", "after the caught message's name")
-            s.handler = this.block()
+            var more = true
+            while (more) {
+                val ct = this.peek()
+                this.expect("catch", "after the `try` block")
+                this.expect("(", "after `catch`")
+                val cname = this.expectIdent("a name for what is caught")
+                val c = CatchN(cname, ct.line, ct.col)
+                if (this.eat(":")) { c.tyEx = this.typeExpr() }
+                this.expect(")", "after the caught value's name")
+                c.handler = this.block()
+                s.catches.add(c)
+                // Another clause may follow, over a newline as `else` may.
+                var i = 0
+                while (this.peekAt(i).kind == ";") { i += 1 }
+                if (this.peekAt(i).kind == "catch") { this.skipSemis() } else { more = false }
+            }
             return s
         }
         if (t.kind == "while") {

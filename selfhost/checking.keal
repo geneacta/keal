@@ -1965,21 +1965,49 @@ package class Checker() {
             return Ty("Never")
         }
         if (s.kind == "throw") {
+            // Anything may be thrown; what a `catch (e)` binds is the
+            // message, which every value has.
             val v = s.ex!!
-            val t = this.checkCoerced(v, Ty("Str"))
-            this.expectAssignable(t, Ty("Str"), v.file, v.line, v.col, "thrown value")
+            val t = this.checkExpr(v, null)
+            if (t.kind == "Fun") {
+                this.errorNote(
+                    v.file, v.line, v.col,
+                    "a function cannot be thrown",
+                    "a function's signature has no run-time identity, so no `catch` could name it"
+                )
+            }
             return Ty("Never")
         }
         if (s.kind == "try") {
             val bt = this.checkBlock(s.body!!)
-            this.pushScope()
-            this.declare(s.name, Ty("Str"), "val")
-            val ht = this.checkStmts(s.handler!!.stmts)
-            this.popScope()
-            // `try { return a } catch (e) { return b }` leaves no way
-            // out the bottom, and counts as returning like an
-            // if/else that does.
-            if (bt.kind == "Never" and ht.kind == "Never") { return Ty("Never") }
+            var allNever = bt.kind == "Never"
+            var seenUntyped = false
+            for (c in s.catches) {
+                if (seenUntyped) {
+                    this.errorNote(
+                        s.file, c.line, c.col,
+                        "this `catch` can never run",
+                        "the clause above it catches everything, so nothing reaches this one"
+                    )
+                }
+                val te = c.tyEx
+                var bound = Ty("Str")
+                if (te == null) {
+                    seenUntyped = true
+                } else {
+                    bound = this.resolve(te)
+                }
+                this.pushScope()
+                this.declare(c.name, bound, "val")
+                val ht = this.checkStmts(c.handler.stmts)
+                this.popScope()
+                allNever = allNever and ht.kind == "Never"
+            }
+            // `try { return a } catch (e) { return b }` leaves no way out the
+            // bottom, and counts as returning like an if/else that does — but
+            // only when every way out is closed, which a typed clause alone
+            // never is.
+            if (allNever and seenUntyped) { return Ty("Never") }
             return Ty("Unit")
         }
         if (s.kind == "while") {
@@ -4039,8 +4067,10 @@ proc spawnFreeInStmts(stmts: List<StmtN>, bound: List<String>, free: List<String
             spawnFreeInStmts(s.body!!.stmts, bound, free)
         } else if (s.kind == "try") {
             spawnFreeInStmts(s.body!!.stmts, bound, free)
-            bound.add(s.name)
-            spawnFreeInStmts(s.handler!!.stmts, bound, free)
+            for (c in s.catches) {
+                bound.add(c.name)
+                spawnFreeInStmts(c.handler.stmts, bound, free)
+            }
         } else if (s.kind == "fun") {
             val f = s.funDecl!!
             bound.add(f.name)

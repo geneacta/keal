@@ -67,3 +67,58 @@ try {
     println(r)
 } catch (e) { caught = e }
 assert(caught != "", "panic crossed the native map call")
+
+// A `throw` carries a value, and a `catch` may name the type it will take.
+// The clauses are tried in order; the one without a type catches whatever
+// is left and binds the message, which every value has.
+record Refused(val why: String, val at: Int)
+
+fun classify(n: Int): String {
+    try {
+        if (n > 10) { throw Refused("too big", n) }
+        if (n < 0) { throw n }
+        if (n == 7) { throw "seven is unlucky" }
+        return "fine"
+    } catch (e: Refused) {
+        return "refused ${e.why} at ${e.at}"
+    } catch (e: Int) {
+        return "an Int: ${e}"
+    } catch (e) {
+        return "a message: ${e}"
+    }
+}
+
+assert(classify(3) == "fine", "no throw")
+assert(classify(20) == "refused too big at 20", "a record, caught whole")
+assert(classify(-1) == "an Int: -1", "a scalar, caught by type")
+assert(classify(7) == "a message: seven is unlucky", "a string falls to the last clause")
+
+// A clause that matches nothing lets the panic go on unwinding.
+fun outer(): String {
+    try {
+        try {
+            throw Refused("inner", 1)
+        } catch (e: Int) {
+            return "wrong"
+        }
+    } catch (e: Refused) {
+        return "the outer clause took it: ${e.why}"
+    }
+    return "unreached"
+}
+assert(outer() == "the outer clause took it: inner", "an unmatched clause rethrows")
+
+// A built-in failure is a thrown String, so a typed clause can name it.
+fun overflowMessage(): String {
+    try {
+        val big = 9223372036854775807
+        println(big + 1)
+        return "no overflow"
+    } catch (e: String) {
+        return "caught: ${e}"
+    }
+    // A clause that names a type is not a promise to catch: the function
+    // still has to say what it does when nothing did.
+    return "unreached"
+}
+assert(overflowMessage() == "caught: integer overflow", "built-ins throw their message")

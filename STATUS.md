@@ -59,6 +59,35 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**TYPED EXCEPTIONS — on the interpreters; the native half is next.**
+`throw` carries ANY value now (a function is the one refusal: a signature
+has no run-time identity to catch it by). `try` takes a LIST of clauses,
+tried in order: `catch (e: T)` binds the value whole when its type
+matches, `catch (e)` binds the MESSAGE and must come last (a clause behind
+it is refused as unreachable). No match rethrows unchanged. Built-in
+failures throw their own message, so `catch (e: String)` catches an
+overflow.
+MECHANISM: `RtError` gained `value: Option<Value>` — built-ins fill it
+with their message, so there is one path and not two. The VM lands on its
+handler with the VALUE pushed (not the message) and the clauses compile to
+`Dup; IsType; JumpIfFalse` chains, the catch-all to `Interpolate(1)`, and
+a fall-through to `Throw` — no new opcodes. `Op::Throw` takes any value.
+The tree-walker uses `type_matches`, the same test `is` uses.
+NATIVE REFUSES BY NAME ("catching by type"), oracle and twin: the C unwind
+carries a message buffer, and carrying the value wants the `KealAny`
+machinery instead — tag and payload, which already exists. That is the
+next piece.
+TWIN: `CatchN`, clause parsing, `pTry`, the checker's clause loop, and —
+the bug this found — the LOADER NEVER STAMPED a try's handler with its
+file. Harmless while a handler had no type to resolve; the moment a clause
+carried one it resolved against `<prelude>`, which declares none of a
+program's classes.
+Corpus: `tests/programs/exceptions.keal` grew the typed cases (record,
+Int, String, an unmatched clause rethrowing to an outer one, and a
+built-in overflow caught as a String); `throw-not-a-string.keal` is gone
+because `throw 42` is legal now, replaced by `throw-a-function.keal` and
+`catch-after-catch-all.keal`.
+
 **WINDOWS IS DONE, on both ABIs.** 36/36 on
 `x86_64-pc-windows-gnu` and 36/36 on the `x86_64-pc-windows-msvc` the
 release workflow ships — compiler, both interpreters, native builds,

@@ -103,8 +103,16 @@ package class StmtN(package val kind: String, package val line: Int, package val
     package var ex: Ex? = null             // expr / return value / while cond / for iter
     package var body: BlockN? = null       // while / for / try
     package var handler: BlockN? = null    // try: the catch block (`name` binds the message)
+    package var catches: List<CatchN> = []  // try: every clause, in order
     package var funDecl: FunN? = null
     package var classDecl: ClassN? = null
+}
+
+/// One `catch` clause: what it binds, what it will catch, and what it runs.
+package class CatchN(package val name: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var tyEx: TypeEx? = null       // `catch (e: Overflow)`; null catches all
+    package var handler: BlockN = BlockN()
 }
 
 package class FunN(package var name: String, package val line: Int, package val col: Int) {

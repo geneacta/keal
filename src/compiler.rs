@@ -607,7 +607,7 @@ impl Compiler {
                 self.expr(e)?;
                 self.emit(Op::Throw, span);
             }
-            StmtKind::Try { body, name, handler } => {
+            StmtKind::Try { body, clauses } => {
                 let push_at = self.fs().chunk.emit_jump(Op::PushHandler, span);
                 self.fs().handlers += 1;
                 self.push_scope();
@@ -615,14 +615,42 @@ impl Compiler {
                 self.pop_scope();
                 self.fs().handlers -= 1;
                 self.emit(Op::PopHandler, span);
-                let done = self.fs().chunk.emit_jump(Op::Jump, span);
-                // The unwinder lands here with the panic message pushed.
+                let mut done = vec![self.fs().chunk.emit_jump(Op::Jump, span)];
+                // The unwinder lands here with the thrown value pushed, and
+                // the clauses are tried in order against it.
                 self.fs().chunk.patch(push_at);
-                self.push_scope();
-                self.declare_and_store(name, span);
-                self.compile_stmts(&handler.stmts, false)?;
-                self.pop_scope();
-                self.fs().chunk.patch(done);
+                for c in clauses {
+                    match &c.ty {
+                        Some(ty) => {
+                            self.emit(Op::Dup, c.span);
+                            let n = self.fs().chunk.name(&type_test_name(ty));
+                            self.emit(Op::IsType(n, false), c.span);
+                            let next = self.fs().chunk.emit_jump(Op::JumpIfFalse, c.span);
+                            self.push_scope();
+                            self.declare_and_store(&c.name, c.span);
+                            self.compile_stmts(&c.handler.stmts, false)?;
+                            self.pop_scope();
+                            done.push(self.fs().chunk.emit_jump(Op::Jump, c.span));
+                            self.fs().chunk.patch(next);
+                        }
+                        None => {
+                            // The clause that catches everything binds the
+                            // message, which every value has.
+                            self.emit(Op::Interpolate(1), c.span);
+                            self.push_scope();
+                            self.declare_and_store(&c.name, c.span);
+                            self.compile_stmts(&c.handler.stmts, false)?;
+                            self.pop_scope();
+                            done.push(self.fs().chunk.emit_jump(Op::Jump, c.span));
+                        }
+                    }
+                }
+                // Nothing matched: the value goes on unwinding, unchanged,
+                // to whatever `try` is outside this one.
+                self.emit(Op::Throw, span);
+                for d in done {
+                    self.fs().chunk.patch(d);
+                }
             }
             StmtKind::While { cond, body } => self.while_loop(cond, body, span)?,
             StmtKind::For { var, iter, body, .. } => self.for_loop(var, iter, body, span)?,
@@ -1399,11 +1427,11 @@ fn collect_idents_in_nested_stmt(s: &Stmt, out: &mut HashSet<String>) {
         StmtKind::Return(Some(e)) => collect_idents_in_nested_expr(e, out),
         StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
         StmtKind::Throw(e) => collect_idents_in_nested_expr(e, out),
-        StmtKind::Try { body, handler, .. } => {
+        StmtKind::Try { body, clauses } => {
             for s in &body.stmts {
                 collect_idents_in_nested_stmt(s, out);
             }
-            for s in &handler.stmts {
+            for s in clauses.iter().flat_map(|c| c.handler.stmts.iter()) {
                 collect_idents_in_nested_stmt(s, out);
             }
         }
@@ -1450,10 +1478,12 @@ fn collect_all_idents_stmts(stmts: &[Stmt], out: &mut HashSet<String>) {
             StmtKind::Return(Some(e)) => collect_all_idents_expr(e, out),
             StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
             StmtKind::Throw(e) => collect_all_idents_expr(e, out),
-            StmtKind::Try { body, name, handler } => {
-                out.insert(name.clone());
+            StmtKind::Try { body, clauses } => {
                 collect_all_idents_stmts(&body.stmts, out);
-                collect_all_idents_stmts(&handler.stmts, out);
+                for c in clauses {
+                    out.insert(c.name.clone());
+                    collect_all_idents_stmts(&c.handler.stmts, out);
+                }
             }
             StmtKind::While { cond, body } => {
                 collect_all_idents_expr(cond, out);
@@ -1600,9 +1630,11 @@ pub(crate) fn walk_block(b: &Block, f: &mut dyn FnMut(&Expr) -> bool) {
             StmtKind::Return(Some(e)) => walk_expr(e, f),
             StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
             StmtKind::Throw(e) => walk_expr(e, f),
-            StmtKind::Try { body, handler, .. } => {
+            StmtKind::Try { body, clauses } => {
                 walk_block(body, f);
-                walk_block(handler, f);
+                for c in clauses {
+                    walk_block(&c.handler, f);
+                }
             }
             StmtKind::While { cond, body } => {
                 walk_expr(cond, f);

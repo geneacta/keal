@@ -1,0 +1,7 @@
+// Anything may be thrown, and `catch (e)` binds its message — so `throw 42`
+// is fine now. A function is the exception: a signature has no run-time
+// identity, so no `catch` could ever name one to catch it by.
+
+fun helper(): Int { 1 }
+
+throw helper

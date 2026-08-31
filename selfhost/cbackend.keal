@@ -375,7 +375,9 @@ proc lambdaFreesInStmt(s: StmtN, out: Map<String, Bool>) {
     }
     if (s.kind == "try") {
         for (st in s.body!!.stmts) { lambdaFreesInStmt(st, out) }
-        for (st in s.handler!!.stmts) { lambdaFreesInStmt(st, out) }
+        for (c in s.catches) {
+            for (st in c.handler.stmts) { lambdaFreesInStmt(st, out) }
+        }
         return
     }
     if (s.kind == "while") {
@@ -511,8 +513,10 @@ proc collectFree(stmts: List<StmtN>, bound: List<String>, free: List<String>) {
             collectFreeExpr(s.ex!!, bound, free)
         } else if (s.kind == "try") {
             collectFree(s.body!!.stmts, bound, free)
-            bound.add(s.name)
-            collectFree(s.handler!!.stmts, bound, free)
+            for (c in s.catches) {
+                bound.add(c.name)
+                collectFree(c.handler.stmts, bound, free)
+            }
         } else if (s.kind == "while") {
             collectFreeExpr(s.ex!!, bound, free)
             collectFree(s.body!!.stmts, bound, free)
@@ -2711,6 +2715,17 @@ class CBackend() {
             return
         }
         if (s.kind == "try") {
+            // Catching by type is not emitted yet: it wants the thrown value
+            // carried through the unwind rather than its message, and the
+            // backend refuses by name until it does.
+            for (c in s.catches) {
+                if (c.tyEx != null) {
+                    this.unsupported(s.file, c.line, c.col, "catching by type")
+                    return
+                }
+            }
+            if (s.catches.size == 0) { return }
+            val first = s.catches[0]
             // The body runs under a counted `try`; any panic in its
             // dynamic extent unwinds — every frame releasing its own
             // holdings on the way — to the catch label, which adopts
@@ -2742,12 +2757,12 @@ class CBackend() {
             this.line("{")
             this.indent += 1
             this.openScope()
-            val eVar = mangle(s.name)
+            val eVar = mangle(first.name)
             val source = if (caught) { "keal_unwind_take()" } else { "keal_str_empty()" }
             this.line("KealStr* ${eVar} = ${source};")
             this.own(eVar, Ty("Str"))
-            this.declareLocal(s.name, Ty("Str"), false)
-            for (st in s.handler!!.stmts) {
+            this.declareLocal(first.name, Ty("Str"), false)
+            for (st in first.handler.stmts) {
                 this.seqStmt(st)
             }
             this.closeScope()
@@ -6074,8 +6089,9 @@ fun hasTryStmt(s: StmtN): Bool {
     if (ex != null and hasTryExpr(ex)) { return true }
     val b = s.body
     if (b != null and hasTryStmts(b.stmts)) { return true }
-    val h = s.handler
-    if (h != null and hasTryStmts(h.stmts)) { return true }
+    for (c in s.catches) {
+        if (hasTryStmts(c.handler.stmts)) { return true }
+    }
     val fd = s.funDecl
     if (fd != null and hasTryStmts(fd.body.stmts)) { return true }
     val cd = s.classDecl
@@ -6194,8 +6210,9 @@ fun actorInStmt(s: StmtN): Bool {
     if (ex != null and actorInExpr(ex)) { return true }
     val b = s.body
     if (b != null and actorInStmts(b.stmts)) { return true }
-    val h = s.handler
-    if (h != null and actorInStmts(h.stmts)) { return true }
+    for (c in s.catches) {
+        if (actorInStmts(c.handler.stmts)) { return true }
+    }
     val fd = s.funDecl
     if (fd != null and actorInFun(fd)) { return true }
     val cd = s.classDecl

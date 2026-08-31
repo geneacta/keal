@@ -184,6 +184,16 @@ pub struct FieldDecl {
     pub span: Span,
 }
 
+/// One `catch` clause: what it binds, what it will catch, and what it runs.
+#[derive(Clone, Debug)]
+pub struct Catch {
+    pub name: String,
+    /// `catch (e: Overflow)`. `None` catches everything and binds a message.
+    pub ty: Option<TypeExpr>,
+    pub handler: Block,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug)]
 pub struct Block {
     pub stmts: Vec<Stmt>,
@@ -215,7 +225,11 @@ pub enum StmtKind {
     /// `try { ... } catch (name) { ... }` — runs the body; any panic raised
     /// dynamically inside it binds its message to `name` and runs the
     /// handler. `return`/`break`/`continue` pass through uncaught.
-    Try { body: Block, name: String, handler: Block },
+    /// `try { } catch (e) { }`, and any number of typed clauses before the
+    /// untyped one. A clause with a type catches only what that type can
+    /// hold; a clause without one catches everything, and binds the
+    /// message rather than the value, which is what every `throw` has.
+    Try { body: Block, clauses: Vec<Catch> },
     /// A nested function declaration.
     Fun(FunDecl),
     Class(ClassDecl),

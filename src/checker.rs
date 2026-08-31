@@ -572,6 +572,18 @@ impl Checker {
         }
     }
 
+    /// What may be thrown. Everything can be, except what has no value to
+    /// carry — a lambda has no run-time identity to catch it by.
+    fn rejectgeneric_thrown(&mut self, t: &Type, span: Span) {
+        if matches!(t, Type::Fun(_)) {
+            self.error_note(
+                span,
+                "a function cannot be thrown",
+                "a function's signature has no run-time identity, so no `catch` could name it",
+            );
+        }
+    }
+
     fn lookup(&self, name: &str) -> Option<&Binding> {
         self.scopes.iter().rev().find_map(|s| s.get(name))
     }
@@ -1837,20 +1849,42 @@ impl Checker {
                 Type::Never
             }
             StmtKind::Throw(e) => {
-                let t = self.check_coerced(e, &Type::Str);
-                self.expect_assignable(&t, &Type::Str, e.span, "thrown value");
+                // Anything may be thrown; what a `catch (e)` binds is the
+                // message, which every value has.
+                let t = self.check_expr(e, None);
+                self.rejectgeneric_thrown(&t, e.span);
                 Type::Never
             }
-            StmtKind::Try { body, name, handler } => {
+            StmtKind::Try { body, clauses } => {
                 let bt = self.check_block(body);
-                self.push_scope();
-                self.declare(&name.clone(), Type::Str, BindKind::Val);
-                let ht = self.check_stmts(&mut handler.stmts);
-                self.pop_scope();
+                let mut all_never = bt == Type::Never;
+                let mut seen_untyped = false;
+                for c in clauses.iter_mut() {
+                    if seen_untyped {
+                        self.error_note(
+                            c.span,
+                            "this `catch` can never run",
+                            "the clause above it catches everything, so nothing reaches this one",
+                        );
+                    }
+                    let bound = match &c.ty {
+                        Some(t) => self.resolve(t),
+                        None => {
+                            seen_untyped = true;
+                            Type::Str
+                        }
+                    };
+                    self.push_scope();
+                    self.declare(&c.name.clone(), bound, BindKind::Val);
+                    let ht = self.check_stmts(&mut c.handler.stmts);
+                    self.pop_scope();
+                    all_never = all_never && ht == Type::Never;
+                }
                 // `try { return a } catch (e) { return b }` leaves no way
-                // out the bottom, and counts as returning like an
-                // if/else that does.
-                if bt == Type::Never && ht == Type::Never {
+                // out the bottom, and counts as returning like an if/else
+                // that does — but only when every way out is closed, which
+                // a typed clause alone never is.
+                if all_never && seen_untyped {
                     Type::Never
                 } else {
                     Type::Unit

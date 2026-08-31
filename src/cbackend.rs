@@ -2083,7 +2083,16 @@ impl CBackend {
                 self.line(format!("keal_panic({}->bytes, {});", m, s.span.line));
                 self.check_unwind();
             }
-            StmtKind::Try { body, name, handler } => {
+            StmtKind::Try { body, clauses } => {
+                // Catching by type is not emitted yet: it wants the thrown
+                // value carried through the unwind rather than its message,
+                // and the backend refuses by name until it does.
+                if let Some(c) = clauses.iter().find(|c| c.ty.is_some()) {
+                    self.unsupported(c.span, "catching by type");
+                    return;
+                }
+                let Some(first) = clauses.first() else { return };
+                let (name, handler) = (&first.name, &first.handler);
                 // The body runs under a counted `try`; any panic in its
                 // dynamic extent unwinds — every frame releasing its own
                 // holdings on the way — to the catch label, which adopts
@@ -5999,11 +6008,11 @@ fn lambda_frees_in_stmt(s: &Stmt, out: &mut std::collections::HashSet<String>) {
         StmtKind::Return(Some(e)) => lambda_frees_in_expr(e, out),
         StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
         StmtKind::Throw(e) => lambda_frees_in_expr(e, out),
-        StmtKind::Try { body, handler, .. } => {
+        StmtKind::Try { body, clauses } => {
             for st in &body.stmts {
                 lambda_frees_in_stmt(st, out);
             }
-            for st in &handler.stmts {
+            for st in clauses.iter().flat_map(|c| c.handler.stmts.iter()) {
                 lambda_frees_in_stmt(st, out);
             }
         }
@@ -6161,10 +6170,12 @@ pub(crate) fn collect_free(stmts: &[Stmt], bound: &mut Vec<String>, free: &mut V
             StmtKind::Return(Some(e)) => collect_free_expr(e, bound, free),
             StmtKind::Return(None) | StmtKind::Break | StmtKind::Continue => {}
             StmtKind::Throw(e) => collect_free_expr(e, bound, free),
-            StmtKind::Try { body, name, handler } => {
+            StmtKind::Try { body, clauses } => {
                 collect_free(&body.stmts, bound, free);
-                bound.push(name.clone());
-                collect_free(&handler.stmts, bound, free);
+                for c in clauses {
+                    bound.push(c.name.clone());
+                    collect_free(&c.handler.stmts, bound, free);
+                }
             }
             StmtKind::While { cond, body } => {
                 collect_free_expr(cond, bound, free);
@@ -6549,8 +6560,8 @@ fn program_uses_actors(p: &Program) -> bool {
                     || in_expr(iter)
                     || in_stmts(&body.stmts)
             }
-            StmtKind::Try { body, handler, .. } => {
-                in_stmts(&body.stmts) || in_stmts(&handler.stmts)
+            StmtKind::Try { body, clauses } => {
+                in_stmts(&body.stmts) || clauses.iter().any(|c| in_stmts(&c.handler.stmts))
             }
             StmtKind::Fun(f) => in_fun(f),
             StmtKind::Class(c) => in_class(c),

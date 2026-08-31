@@ -278,7 +278,11 @@ impl Vm {
                             self.stack.pop();
                         }
                         self.frames.last_mut().unwrap().ip = h.target;
-                        self.push(Value::str(&e.diag.msg));
+                        // The value, not the message: the clauses behind
+                        // this label test it, and the one that catches
+                        // everything turns it into a message itself.
+                        let thrown = e.value.clone().unwrap_or_else(|| Value::str(&e.diag.msg));
+                        self.push(thrown);
                     }
                     _ => return Err(Flow::Err(e)),
                 },
@@ -532,11 +536,15 @@ impl Vm {
                 }
                 Op::Throw => {
                     let v = self.pop();
-                    let msg = match v {
-                        Value::Str(s) => s.to_string(),
-                        other => other.type_name(),
-                    };
-                    return err(span, msg);
+                    // The message is the value as a program would print it,
+                    // so a `catch (e)` reads something useful whatever was
+                    // thrown — and the value rides along for a `catch (e: T)`.
+                    let msg = crate::runtime::display(self, &v, span)?;
+                    return Err(Flow::Err(crate::runtime::RtError {
+                        diag: crate::span::Diag::new(span, msg),
+                        frames: Vec::new(),
+                        value: Some(v),
+                    }));
                 }
 
                 Op::MakeList(n) => {

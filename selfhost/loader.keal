@@ -261,6 +261,17 @@ proc stampStmt(s: StmtN, f: Int) {
     if (e != null) { stampEx(e, f) }
     val b = s.body
     if (b != null) { stampBlock(b, f) }
+    val h = s.handler
+    if (h != null) { stampBlock(h, f) }
+    // A `catch` clause carries a type now, and an unstamped type resolves
+    // against the prelude — which is a file that declares none of a
+    // program's classes.
+    for (c in s.catches) {
+        c.file = f
+        val ct = c.tyEx
+        if (ct != null) { stampTypeEx(ct, f) }
+        stampBlock(c.handler, f)
+    }
     val fd = s.funDecl
     if (fd != null) { stampFun(fd, f) }
     val cd = s.classDecl
