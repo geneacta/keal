@@ -799,7 +799,7 @@ char *shout(const char *text) {
     char *out = (char *)malloc(n + 2);
     for (size_t i = 0; i < n; i++) { out[i] = (char)toupper((unsigned char)text[i]); }
     out[n] = '!';
-    out[n + 1] = ' ';
+    out[n + 1] = '\0';
     return out;
 }
 void reset(void) {}

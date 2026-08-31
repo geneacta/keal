@@ -12,6 +12,23 @@ and in what order to build it.
 
 ---
 
+## What the C boundary needs on Windows
+
+The generated C is C11 and portable, with one exception that decides the
+toolchain: overflow is checked with `__builtin_mul_overflow` and its
+siblings, which are GCC and Clang builtins. **MSVC cannot compile the
+runtime**, and a default Rust install on Windows brings exactly MSVC — so
+the compiler will build there and `keal build` will not, until a second
+toolchain is installed.
+
+Install **MinGW-w64 in a POSIX-threads flavour** (the `win32` and `mcf`
+flavours ship no `pthread.h`, and the actor scheduler needs one), or LLVM
+clang targeting mingw32. `keal build` looks for `CC`, then `cc`, `gcc`,
+`clang`, and takes the first that answers; `keal doctor` names the one it
+found. Where the only compiler present is `cl.exe`, the error says that
+rather than reporting no compiler at all — it is the difference between a
+puzzle and an instruction.
+
 ## Where we stand (tier 0 — shipped)
 
 Working today, tested by the suite (`extern_programs_build_and_run`):

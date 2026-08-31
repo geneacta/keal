@@ -45,7 +45,20 @@ pub fn run() -> ExitCode {
     let cc = crate::nativebuild::c_driver();
     for p in PROBES {
         let tool = if p.tool == "cc" { cc.as_str() } else { p.tool };
-        let found = Command::new(tool).args(p.args).output();
+        let mut found = crate::nativebuild::command_for(tool).args(p.args).output();
+        // Windows ships some of these as `.bat` shims, and Rust's PATH
+        // search appends only `.exe` — it does not read PATHEXT. A tool
+        // reported missing because of that would be a lie.
+        if cfg!(windows) && found.is_err() {
+            for ext in [".bat", ".cmd"] {
+                let shim = format!("{}{}", tool, ext);
+                let retry = Command::new(&shim).args(p.args).output();
+                if retry.is_ok() {
+                    found = retry;
+                    break;
+                }
+            }
+        }
         let line = match &found {
             Ok(out) if out.status.success() => {
                 let all = format!(

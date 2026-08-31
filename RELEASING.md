@@ -70,13 +70,19 @@ all a user needs: the prelude and the C runtime are compiled into the
 binary, so there is nothing to install beside it. A C compiler is only
 needed for `keal build`, and `keal doctor` will say whether one is there.
 
-Three platforms are built and tested: macOS on Apple silicon, macOS on
-Intel, and Linux x86_64. **Windows builds the compiler and both
-interpreters, and is not blocking**: `keal build` is not supported there
-yet, because the generated C is handed to `cc` with flags MSVC does not
-take and the actor runtime is pthreads. A Windows user gets a language
-that runs; compiling to a native executable is what they do not get, and
-saying so is better than shipping a binary that fails at the last step.
+Four platforms are built and tested, and held to the same standard:
+macOS on Apple silicon, macOS on Intel, Linux x86_64 and Windows x86_64.
+
+**What a Windows user needs, and why.** The compiler itself needs nothing
+but Rust. `keal build` needs a C driver, and not any of them: the runtime
+checks arithmetic overflow with the GCC and Clang builtins, so **MSVC
+cannot compile it** — which matters because MSVC is exactly what a default
+Rust install on Windows brings. Install **MinGW-w64**, and a
+**POSIX-threads build** of it: the actor scheduler wants `pthread.h`, and
+the `win32` and `mcf` flavours do not have one. LLVM clang works if it
+targets mingw32. `keal doctor` reports which driver it found, and a build
+that finds only `cl.exe` says so by name rather than reporting no compiler
+at all.
 
 ## What is not automated, and why
 

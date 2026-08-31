@@ -83,13 +83,56 @@ fn driver(var: &str, candidates: &[&str]) -> String {
         return named;
     }
     for name in candidates {
-        if Command::new(name).arg("--version").output().is_ok() {
+        if command_for(name).arg("--version").output().is_ok() {
             return name.to_string();
         }
     }
     // Nothing answered: name the conventional one, so the message a caller
     // prints says what it looked for.
     candidates[0].to_string()
+}
+
+/// A driver name as a command. `CC` is allowed to carry arguments — people
+/// set `CC="zig cc"`, and on Windows they reach for it precisely because
+/// there is no `cc` — so the first word is the program and the rest are
+/// arguments it always gets.
+pub fn command_for(driver: &str) -> Command {
+    let mut parts = driver.split_whitespace();
+    let program = parts.next().unwrap_or(driver);
+    let mut cmd = Command::new(program);
+    for arg in parts {
+        cmd.arg(arg);
+    }
+    cmd
+}
+
+/// What to say when nothing answered. On Windows the likely truth is
+/// specific enough to be worth naming: the toolchain a Rust install brings
+/// is MSVC, and MSVC is the one compiler this runtime cannot use.
+pub fn no_compiler_advice() -> Vec<String> {
+    let mut out = Vec::new();
+    if cfg!(windows) && Command::new("cl").output().is_ok() {
+        out.push(
+            "`cl.exe` (MSVC) is installed, and it cannot build the Keal runtime: \
+             the overflow checks are GCC/Clang builtins"
+                .to_string(),
+        );
+        out.push(
+            "install MinGW-w64 (a POSIX-threads build, which actors need) or LLVM clang \
+             targeting mingw32, and put it on PATH"
+                .to_string(),
+        );
+        return out;
+    }
+    out.push("set CC to a C compiler, or install one".to_string());
+    if cfg!(windows) {
+        out.push(
+            "on Windows that means MinGW-w64 (a POSIX-threads build, which actors need) \
+             or LLVM clang targeting mingw32"
+                .to_string(),
+        );
+    }
+    out
 }
 
 pub fn build(path: &str, extras: &[String]) -> ExitCode {
@@ -137,7 +180,7 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
     // C says whether it wants one. A program without actors then builds on
     // a toolchain that has no threads library at all.
     let threaded = c.contains("#define KEAL_ACTORS");
-    let mut compile_cmd = Command::new(&cc);
+    let mut compile_cmd = command_for(&cc);
     compile_cmd.args(["-O2", "-std=c11"]);
     if threaded {
         compile_cmd.arg("-pthread");
@@ -157,7 +200,9 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
         }
         Err(e) => {
             eprintln!("error: cannot run `{}`: {}", cc, e);
-            eprintln!("  = note: set CC to a C compiler, or install one");
+            for line in no_compiler_advice() {
+                eprintln!("  = note: {}", line);
+            }
             return ExitCode::FAILURE;
         }
     }
@@ -178,7 +223,7 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
         }
         let sobj = format!("{}-x{}.o", base, i);
         let driver = if is_cpp(extra) { &cxx } else { &cc };
-        let mut sc = Command::new(driver);
+        let mut sc = command_for(driver);
         sc.arg("-O2");
         if is_cpp(extra) {
             sc.arg("-std=c++17");
@@ -203,7 +248,7 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
     }
 
     let linker = if any_cpp { &cxx } else { &cc };
-    let mut cmd = Command::new(linker);
+    let mut cmd = command_for(linker);
     cmd.args(["-O2", "-o", &out]);
     if threaded {
         cmd.arg("-pthread");
