@@ -17,3 +17,8 @@ examples/interop/polyglot/.jbind/
 # scratch binaries from local runs
 /mini
 .DS_Store
+
+# Python leaves this behind every time anything runs the site's scripts —
+# the generator, the tour check, the drift check. Untracked noise is where
+# a real change hides, so it is named rather than swept up by hand.
+site/__pycache__/
