@@ -155,6 +155,18 @@ TOUR = [
      "<code>keal build</code> compile via C11 vers un vrai exécutable, et ce qu'il ne peut pas compiler, il le refuse en le nommant — il ne compile jamais de travers.",
      'native """\n#include <math.h>\nstatic double keal_hypot(double a, double b) { return hypot(a, b); }\n"""\n\nextern func hypot(a: Float, b: Float): Float = "keal_hypot"\n\nprintln(hypot(3.0, 4.0))',
      "5.0"),
+
+    ("constexpr", "constexpr",
+     "A promise about <em>when</em> the work happens: the compiler runs it and writes the answer into the program as a literal. Where it cannot, it refuses by name rather than quietly leaving the work for run time — and it always finishes, because a compiler that never answers is not a tool.",
+     "Une promesse sur le <em>moment</em> où le travail a lieu : le compilateur l'exécute et écrit la réponse dans le programme, sous forme de littéral. Là où il ne peut pas, il refuse en le nommant plutôt que de laisser discrètement le travail à l'exécution — et il termine toujours, car un compilateur qui ne répond jamais n'est pas un outil.",
+     'constexpr func squares(n: Int): List<Int> {\n    var out: List<Int> = []\n    for (i in 1..n) { out.add(i * i) }\n    return out\n}\n\nconstexpr val KB = 1024\nconstexpr val TABLE: List<Int> = squares(8)\nprintln("${KB * KB} ${TABLE.size} ${TABLE[6]}")',
+     "1048576 7 49"),
+
+    ("Macros", "Macros",
+     "A named piece of syntax, spliced where it is written. The <code>!</code> is not decoration: a macro may assign to what it was given, run an argument twice or never, and let a <code>return</code> pass through to the function around it — three things a call cannot do.",
+     "Un morceau de syntaxe nommé, inséré là où il est écrit. Le <code>!</code> n'est pas décoratif : une macro peut affecter ce qu'on lui donne, exécuter un argument deux fois ou jamais, et laisser un <code>return</code> traverser jusqu'à la fonction autour — trois choses qu'un appel ne peut pas faire.",
+     'macro swap(a, b) {\n    val held = a\n    a = b\n    b = held\n}\n\nmacro guard(cond, fallback) {\n    unless (cond) { return fallback }\n}\n\nfunc describe(n: Int): String {\n    guard!(n > 0, "not positive")\n    return "ok"\n}\n\nvar p = 1\nvar q = 2\nswap!(p, q)\nprintln("${p} ${q} ${describe(-3)} ${describe(7)}")',
+     "2 1 not positive ok"),
 ]
 
 # ---- the reference documents converted from docs/ ------------------------

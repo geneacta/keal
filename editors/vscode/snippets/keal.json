@@ -9,6 +9,16 @@
     "body": ["proc ${1:name}(${2:param}: ${3:Int}) {", "\t$0", "}"],
     "description": "A procedure, which returns nothing"
   },
+  "Macro": {
+    "prefix": "macro",
+    "body": ["macro ${1:name}(${2:a}) {", "\t$0", "}"],
+    "description": "A macro: syntax spliced where it is written, called `name!(x)`"
+  },
+  "Compile-time binding": {
+    "prefix": "constexpr",
+    "body": ["constexpr val ${1:NAME} = $0"],
+    "description": "A value the compiler computes and writes back as a literal"
+  },
   "Record": {
     "prefix": "record",
     "body": ["record ${1:Name}(val ${2:field}: ${3:Int})$0"],

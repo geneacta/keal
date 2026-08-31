@@ -40,8 +40,9 @@ nothing in the extension prevents it, and the manifest is already filled
 in.
 
 **What you get:** highlighting for the whole language (including `weak`,
-`deinit`, `try`/`catch`/`throw` and the eight connectives), bracket and
-comment behaviour, and the snippets in [`vscode/snippets`](vscode/snippets).
+`deinit`, `try`/`catch`/`throw`, `constexpr`, `macro` and its `name!(...)`
+call form, and the eight connectives), bracket and comment behaviour, and the
+snippets in [`vscode/snippets`](vscode/snippets).
 
 **Diagnostics inline.** The extension carries no language server yet, so
 errors appear where you ask for them rather than as you type. A task that

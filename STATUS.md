@@ -994,9 +994,18 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
 ## Key file map
 
 `src/` Rust oracle (lexer/parser/checker/cbackend/interp/vm/compiler/
-runtime.rs shared semantics/runtime.c native runtime/prelude.keal).
+runtime.rs shared semantics/runtime.c native runtime/prelude.keal), plus
+constfold.rs (the `constexpr` evaluator), macros.rs (expansion), manifest.rs
++ fetch.rs (dependencies) and registry.rs (`search`/`add`/`index` — CLI
+only, deliberately not mirrored).
 `selfhost/` the Keal compiler (lexing/parsing/ast/astprint/checking/
-checker=driver/cbackend/loader/types/builtins + generated preludesrc,
-runtimesrc). `lib/jvm.keal` JVM gateway. `tests/` corpora (native,
-native-extern, selfhost/{errors,parse-errors,type-errors}, programs,
-bindgen). `bootstrap.sh` → `dist/kealc`. Suite: `tests/suite.rs`.
+checker=driver/cbackend/loader/types/builtins/constfold/macros + generated
+preludesrc, runtimesrc). `lib/jvm.keal` JVM gateway. `tests/` corpora
+(audit, native, native-extern, selfhost/{errors,parse-errors,type-errors},
+programs, bindgen, fuzz). `bootstrap.sh` → `dist/kealc`. Suite:
+`tests/suite.rs`.
+DOCS THAT MOVE WITH THE LANGUAGE, and are easy to forget: README (features +
+"What remains"), docs/language.md (the reference AND its reserved/contextual
+word tables), TUTORIAL.md, site/content.py (the TOUR list — its outputs are
+checked by `site/checktour.py`, and the chapter COUNT is in site/build.py),
+editors/vscode/{syntaxes,snippets} and editors/README.md.

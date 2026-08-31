@@ -23,9 +23,11 @@ error, just a fact `cargo test --release` settles.
 
 1. **Oracle and twin, byte for byte.** Every compiler-stage change lands
    in the Rust oracle (`src/lexer.rs`, `parser.rs`, `checker.rs`,
-   `cbackend.rs`) *and* in the self-hosted twin (`selfhost/lexing.keal`,
-   `parsing.keal`, `checking.keal`, `cbackend.keal`), and the four dump
-   commands must agree byte-for-byte over the whole corpus:
+   `cbackend.rs`, and `constfold.rs` / `macros.rs` for the two passes that
+   rewrite the tree) *and* in the self-hosted twin (`selfhost/lexing.keal`,
+   `parsing.keal`, `checking.keal`, `cbackend.keal`, `constfold.keal`,
+   `macros.keal`), and the four dump commands must agree byte-for-byte over
+   the whole corpus:
 
    ```sh
    keal tokens f.keal   ↔   keal selfhost/lexer.keal f.keal
@@ -51,7 +53,16 @@ error, just a fact `cargo test --release` settles.
    `selfhost/runtimesrc.keal` (each wraps the file in a raw-string
    function; the header comment in each says so).
 
-4. **New behavior comes with tests.**
+4. **A new AST node gets stamped with its file.** The twin's loader walks a
+   parsed tree and writes each node's file id onto it
+   (`selfhost/loader.keal`). A node added without a line there defaults to
+   file 0, which is the prelude — so a diagnostic blames `<prelude>`, and a
+   type written in that node resolves against a file that declares none of
+   the program's classes. This has been shipped twice: once on a `catch`
+   clause's handler, once on a `macro` declaration. When you add a field
+   that holds a node, add the line that stamps it.
+
+5. **New behavior comes with tests.**
    * `tests/programs/` — self-checking programs (`assert`, silent, exit 0),
      run on both interpreters.
    * `tests/native/` — programs with printed output and an `.expected`
@@ -62,7 +73,7 @@ error, just a fact `cargo test --release` settles.
      fuzzer; run a few thousand programs when you touch the checker.
    * `UPDATE_EXPECT=1 cargo test --release` rewrites snapshots.
 
-5. **A test may skip because it cannot run, never because it would rather
+6. **A test may skip because it cannot run, never because it would rather
    not.** Plenty of tests here stand down when a machine has no C
    compiler, no JDK, no git, no Python — the check genuinely cannot
    happen, and saying so is right. That is not the same as a test that
@@ -73,7 +84,7 @@ error, just a fact `cargo test --release` settles.
    test that platform does not have, and the bug it was written for will
    be found there first.
 
-6. **Nothing decodes bytes without saying how.** Every `open()` and every
+7. **Nothing decodes bytes without saying how.** Every `open()` and every
    `subprocess` call in `site/*.py` names `encoding="utf-8"`, and every
    write names `newline=""`. Python takes both from the machine's locale
    otherwise, and a machine whose codepage is cp1252 will mis-decode the
@@ -82,7 +93,7 @@ error, just a fact `cargo test --release` settles.
    `std::io::Error`'s text: it is the operating system's sentence, in the
    operating system's language.
 
-7. **Say it plainly.** Diagnostics explain and suggest (`-- note:` with
+8. **Say it plainly.** Diagnostics explain and suggest (`-- note:` with
    the fix). Comments state constraints, not narration. Costs and limits
    go in the docs, not under the rug: see `docs/types.md` (the type
    rules), `docs/memory.md` (the memory model), `docs/drop.md`

@@ -64,8 +64,8 @@
     "declarations": {
       "patterns": [
         {
-          "comment": "A function or procedure, with its name and type parameters.",
-          "match": "\\b(func|proc)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "comment": "A function, procedure or macro, with its name and type parameters.",
+          "match": "\\b(func|proc|macro)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.declaration.function.keal"
@@ -219,7 +219,12 @@
         },
         {
           "name": "keyword.declaration.keal",
-          "match": "\\b(val|var|func|proc|class|record|trait|weak|extern|native)\\b"
+          "match": "\\b(val|var|func|proc|class|record|trait|weak|extern|native|macro|constexpr)\\b"
+        },
+        {
+          "comment": "A macro call. The `!` says the code is spliced here rather than called, which a reader has to be able to see.",
+          "name": "entity.name.function.macro.keal",
+          "match": "\\b([A-Za-z_][A-Za-z0-9_]*)!(?=\\()"
         },
         {
           "comment": "The destructor hook, which the runtime calls rather than the program.",

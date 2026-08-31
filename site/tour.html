@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Keal — the tour</title>
-<meta name="description" content="Twelve chapters, every snippet real and its output verified.">
+<meta name="description" content="Fourteen chapters, every snippet real and its output verified.">
 <link rel="canonical" href="https://geneacta.github.io/keal/tour.html">
 <link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/tour.html">
 <link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/tour.html">
@@ -13,12 +13,12 @@
 <meta property="og:site_name" content="Keal">
 <meta property="og:locale" content="en_GB">
 <meta property="og:title" content="Keal — the tour">
-<meta property="og:description" content="Twelve chapters, every snippet real and its output verified.">
+<meta property="og:description" content="Fourteen chapters, every snippet real and its output verified.">
 <meta property="og:url" content="https://geneacta.github.io/keal/tour.html">
 <meta property="og:image" content="https://geneacta.github.io/keal/assets/keal.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Keal — the tour">
-<meta name="twitter:description" content="Twelve chapters, every snippet real and its output verified.">
+<meta name="twitter:description" content="Fourteen chapters, every snippet real and its output verified.">
 <meta name="twitter:image" content="https://geneacta.github.io/keal/assets/keal.png">
 <link rel="icon" type="image/png" href="assets/keal3.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -41,7 +41,7 @@
 </nav>
 
 <div class="tourgrid">
-  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Hello, world</a><a class="tch" href="#c2"><span class="n">2</span>Values and bindings</a><a class="tch" href="#c3"><span class="n">3</span>func and proc</a><a class="tch" href="#c4"><span class="n">4</span>Control flow</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Null safety</a><a class="tch" href="#c7"><span class="n">7</span>Collections and lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Records and classes</a><a class="tch" href="#c9"><span class="n">9</span>Generics and traits</a><a class="tch" href="#c10"><span class="n">10</span>The eight connectives</a><a class="tch" href="#c11"><span class="n">11</span>deinit and weak</a><a class="tch" href="#c12"><span class="n">12</span>Native code and C</a></aside>
+  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Hello, world</a><a class="tch" href="#c2"><span class="n">2</span>Values and bindings</a><a class="tch" href="#c3"><span class="n">3</span>func and proc</a><a class="tch" href="#c4"><span class="n">4</span>Control flow</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Null safety</a><a class="tch" href="#c7"><span class="n">7</span>Collections and lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Records and classes</a><a class="tch" href="#c9"><span class="n">9</span>Generics and traits</a><a class="tch" href="#c10"><span class="n">10</span>The eight connectives</a><a class="tch" href="#c11"><span class="n">11</span>deinit and weak</a><a class="tch" href="#c12"><span class="n">12</span>Native code and C</a><a class="tch" href="#c13"><span class="n">13</span>constexpr</a><a class="tch" href="#c14"><span class="n">14</span>Macros</a></aside>
   <div class="tourmain prose">
     <h1>Tour of Keal</h1>
     <p class="lede">Half an hour, top to bottom. Every snippet below is a real program and every output is what it actually prints — the suite checks them.</p>
@@ -181,7 +181,33 @@ static double keal_hypot(double a, double b) { return hypot(a, b); }
 
 extern func hypot(a: Float, b: Float): Float = &quot;keal_hypot&quot;
 
-println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></section>
+println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></section><section class="chapter" id="c13"><h2>13. constexpr</h2><p class="lede">A promise about <em>when</em> the work happens: the compiler runs it and writes the answer into the program as a literal. Where it cannot, it refuses by name rather than quietly leaving the work for run time — and it always finishes, because a compiler that never answers is not a tool.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter13.keal</span><span class="run">▶ Run</span></div><pre>constexpr func squares(n: Int): List&lt;Int&gt; {
+    var out: List&lt;Int&gt; = []
+    for (i in 1..n) { out.add(i * i) }
+    return out
+}
+
+constexpr val KB = 1024
+constexpr val TABLE: List&lt;Int&gt; = squares(8)
+println(&quot;${KB * KB} ${TABLE.size} ${TABLE[6]}&quot;)</pre><div class="cwin-out"><pre>1048576 7 49</pre></div></div></section><section class="chapter" id="c14"><h2>14. Macros</h2><p class="lede">A named piece of syntax, spliced where it is written. The <code>!</code> is not decoration: a macro may assign to what it was given, run an argument twice or never, and let a <code>return</code> pass through to the function around it — three things a call cannot do.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter14.keal</span><span class="run">▶ Run</span></div><pre>macro swap(a, b) {
+    val held = a
+    a = b
+    b = held
+}
+
+macro guard(cond, fallback) {
+    unless (cond) { return fallback }
+}
+
+func describe(n: Int): String {
+    guard!(n &gt; 0, &quot;not positive&quot;)
+    return &quot;ok&quot;
+}
+
+var p = 1
+var q = 2
+swap!(p, q)
+println(&quot;${p} ${q} ${describe(-3)} ${describe(7)}&quot;)</pre><div class="cwin-out"><pre>2 1 not positive ok</pre></div></div></section>
   </div>
 </div>
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Keal — le tour</title>
-<meta name="description" content="Douze chapitres, chaque extrait réel et sa sortie vérifiée.">
+<meta name="description" content="Quatorze chapitres, chaque extrait réel et sa sortie vérifiée.">
 <link rel="canonical" href="https://geneacta.github.io/keal/fr/tour.html">
 <link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/tour.html">
 <link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/tour.html">
@@ -13,12 +13,12 @@
 <meta property="og:site_name" content="Keal">
 <meta property="og:locale" content="fr_FR">
 <meta property="og:title" content="Keal — le tour">
-<meta property="og:description" content="Douze chapitres, chaque extrait réel et sa sortie vérifiée.">
+<meta property="og:description" content="Quatorze chapitres, chaque extrait réel et sa sortie vérifiée.">
 <meta property="og:url" content="https://geneacta.github.io/keal/fr/tour.html">
 <meta property="og:image" content="https://geneacta.github.io/keal/assets/keal.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Keal — le tour">
-<meta name="twitter:description" content="Douze chapitres, chaque extrait réel et sa sortie vérifiée.">
+<meta name="twitter:description" content="Quatorze chapitres, chaque extrait réel et sa sortie vérifiée.">
 <meta name="twitter:image" content="https://geneacta.github.io/keal/assets/keal.png">
 <link rel="icon" type="image/png" href="../assets/keal3.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -41,7 +41,7 @@
 </nav>
 
 <div class="tourgrid">
-  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Bonjour, monde</a><a class="tch" href="#c2"><span class="n">2</span>Valeurs et liaisons</a><a class="tch" href="#c3"><span class="n">3</span>func et proc</a><a class="tch" href="#c4"><span class="n">4</span>Flot de contrôle</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Sûreté face à null</a><a class="tch" href="#c7"><span class="n">7</span>Collections et lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Enregistrements et classes</a><a class="tch" href="#c9"><span class="n">9</span>Génériques et traits</a><a class="tch" href="#c10"><span class="n">10</span>Les huit connecteurs</a><a class="tch" href="#c11"><span class="n">11</span>deinit et weak</a><a class="tch" href="#c12"><span class="n">12</span>Code natif et C</a></aside>
+  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Bonjour, monde</a><a class="tch" href="#c2"><span class="n">2</span>Valeurs et liaisons</a><a class="tch" href="#c3"><span class="n">3</span>func et proc</a><a class="tch" href="#c4"><span class="n">4</span>Flot de contrôle</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Sûreté face à null</a><a class="tch" href="#c7"><span class="n">7</span>Collections et lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Enregistrements et classes</a><a class="tch" href="#c9"><span class="n">9</span>Génériques et traits</a><a class="tch" href="#c10"><span class="n">10</span>Les huit connecteurs</a><a class="tch" href="#c11"><span class="n">11</span>deinit et weak</a><a class="tch" href="#c12"><span class="n">12</span>Code natif et C</a><a class="tch" href="#c13"><span class="n">13</span>constexpr</a><a class="tch" href="#c14"><span class="n">14</span>Macros</a></aside>
   <div class="tourmain prose">
     <h1>Le tour de Keal</h1>
     <p class="lede">Une demi-heure, de haut en bas. Chaque extrait ci-dessous est un vrai programme et chaque sortie est ce qu'il imprime réellement — la suite les vérifie.</p>
@@ -181,7 +181,33 @@ static double keal_hypot(double a, double b) { return hypot(a, b); }
 
 extern func hypot(a: Float, b: Float): Float = &quot;keal_hypot&quot;
 
-println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></section>
+println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></section><section class="chapter" id="c13"><h2>13. constexpr</h2><p class="lede">Une promesse sur le <em>moment</em> où le travail a lieu : le compilateur l'exécute et écrit la réponse dans le programme, sous forme de littéral. Là où il ne peut pas, il refuse en le nommant plutôt que de laisser discrètement le travail à l'exécution — et il termine toujours, car un compilateur qui ne répond jamais n'est pas un outil.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter13.keal</span><span class="run">▶ Exécuter</span></div><pre>constexpr func squares(n: Int): List&lt;Int&gt; {
+    var out: List&lt;Int&gt; = []
+    for (i in 1..n) { out.add(i * i) }
+    return out
+}
+
+constexpr val KB = 1024
+constexpr val TABLE: List&lt;Int&gt; = squares(8)
+println(&quot;${KB * KB} ${TABLE.size} ${TABLE[6]}&quot;)</pre><div class="cwin-out"><pre>1048576 7 49</pre></div></div></section><section class="chapter" id="c14"><h2>14. Macros</h2><p class="lede">Un morceau de syntaxe nommé, inséré là où il est écrit. Le <code>!</code> n'est pas décoratif : une macro peut affecter ce qu'on lui donne, exécuter un argument deux fois ou jamais, et laisser un <code>return</code> traverser jusqu'à la fonction autour — trois choses qu'un appel ne peut pas faire.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter14.keal</span><span class="run">▶ Exécuter</span></div><pre>macro swap(a, b) {
+    val held = a
+    a = b
+    b = held
+}
+
+macro guard(cond, fallback) {
+    unless (cond) { return fallback }
+}
+
+func describe(n: Int): String {
+    guard!(n &gt; 0, &quot;not positive&quot;)
+    return &quot;ok&quot;
+}
+
+var p = 1
+var q = 2
+swap!(p, q)
+println(&quot;${p} ${q} ${describe(-3)} ${describe(7)}&quot;)</pre><div class="cwin-out"><pre>2 1 not positive ok</pre></div></div></section>
   </div>
 </div>
 

@@ -400,9 +400,9 @@ def landing(lang):
 
 def tour(lang):
     title = "Keal — the tour" if lang == "en" else "Keal — le tour"
-    desc = ("Twelve chapters, every snippet real and its output verified."
+    desc = ("Fourteen chapters, every snippet real and its output verified."
             if lang == "en" else
-            "Douze chapitres, chaque extrait réel et sa sortie vérifiée.")
+            "Quatorze chapitres, chaque extrait réel et sa sortie vérifiée.")
     intro = ("Half an hour, top to bottom. Every snippet below is a real program and every"
              " output is what it actually prints — the suite checks them."
              if lang == "en" else

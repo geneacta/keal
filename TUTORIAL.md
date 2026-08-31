@@ -918,6 +918,187 @@ schedule, the threads are another.
 
 ---
 
+## What a function may change
+
+A parameter cannot be reassigned — that has always been true here, and it
+needs no word. What a parameter *holds* is a separate promise, and Keal keeps
+that one too: **the contents belong to whoever passed them**. A function that
+intends to change them says so with `var` before the name:
+
+```keal
+proc fill(var out: List<Int>, n: Int) {
+    for (i in 0..n) { out.add(i * i) }
+}
+
+val squares: List<Int> = []
+fill(squares, 5)
+println(squares)                  // [0, 1, 4, 9, 16]
+```
+
+Without the word, every way of changing it is refused — including handing it
+to something else that would:
+
+```
+error: `xs` is a parameter, so `.add(...)` is not allowed
+  = note: the contents of a parameter belong to whoever passed them; write
+    `var` before the parameter's name to say this function may change them
+```
+
+Reading is always free, and so is building something new: `size`, `sorted`,
+`map`, `filter` and the rest answer *about* a value rather than changing it.
+
+---
+
+## `constexpr`: work the compiler does
+
+`constexpr` is a promise about **when** the work happens. The compiler runs
+the expression and writes the answer into the program as the literal you
+could have typed:
+
+```keal
+constexpr val KB = 1024
+constexpr val MB = KB * KB              // 1048576, before the program starts
+
+constexpr func squares(n: Int): List<Int> {
+    var out: List<Int> = []
+    for (i in 1..n) { out.add(i * i) }
+    return out
+}
+
+constexpr val TABLE: List<Int> = squares(64)   // a literal in the binary
+println("${MB} ${TABLE.size} ${TABLE[7]}")
+```
+
+```
+1048576 63 64
+```
+
+A `constexpr func` is one the compile-time evaluator may run. Its body may
+use bindings, assignment, `if`, `when`, `while`, `for` and `return` — enough
+to build something and ship it as a constant.
+
+Where the promise cannot be kept, the compiler says so rather than quietly
+leaving the work for run time: printing, files, `extern`, a lambda, or a call
+to a function not declared `constexpr` are all refused by name. Failures are
+the program's own, arriving early — `9223372036854775807 + 1` is
+`integer overflow` at compile time.
+
+And it always finishes. A `constexpr` gets a step budget and 256 frames, then
+it is refused. A compiler that gives a wrong answer is a bug; one that never
+answers is not a tool at all.
+
+---
+
+## Macros
+
+A macro is a named piece of syntax, spliced where it is written:
+
+```keal
+macro swap(a, b) {
+    val held = a
+    a = b
+    b = held
+}
+
+var p = 1
+var q = 2
+swap!(p, q)
+println("${p} ${q}")
+```
+
+```
+2 1
+```
+
+The `!` is not decoration. A macro does three things a function cannot, and
+those three are the whole reason it exists.
+
+**Its arguments may be assigned to.** `swap` cannot be a function: what a
+parameter holds belongs to its caller, and a function cannot rebind a
+caller's name at all.
+
+**Its arguments are expressions, not values.** The body decides whether each
+one runs, and how many times:
+
+```keal
+macro twice(body) { body  body }
+macro discard(unused) { }
+
+var n = 0
+twice!(n += 5)         // n is 10
+discard!(n += 1)       // n is still 10 — the argument never ran
+```
+
+**Control flow passes through it**, because the code ended up where it was
+written:
+
+```keal
+macro guard(cond, fallback) {
+    unless (cond) { return fallback }
+}
+
+func describe(n: Int): String {
+    guard!(n > 0, "not positive")
+    guard!(n < 100, "too big")
+    return "ok"
+}
+```
+
+In statement position the body becomes a block of its own, so the `val held`
+in `swap` cannot collide with a `held` you already have — hygiene by scoping
+rather than by renaming. In expression position the body must be exactly one
+expression, and it takes the call's place:
+
+```keal
+macro maxOf(x, y) { if (x > y) { x } else { y } }
+println(maxOf!(3, 9))      // 9
+```
+
+One limitation, stated rather than left to be found: a parameter stands for
+the argument written at the call, but every *other* name in the body resolves
+where the macro is expanded, not where it was written.
+
+---
+
+## Depending on someone else's code
+
+A dependency is a git repository at an exact commit, named in `keal.toml`:
+
+```toml
+[package]
+name = "myproject"
+version = "0.1.0"
+
+[dependencies]
+geometry = { git = "https://github.com/someone/geometry", tag = "v1.2.0" }
+```
+
+`keal fetch` clones each one into `.keal/deps/`, reads its manifest and
+fetches what *it* asks for into the same place, and writes `keal.lock`
+recording the commit each name resolved to. Then:
+
+```keal
+import "dep:geometry/shapes.keal"
+```
+
+To find a package whose URL you do not know, there is an index — an ordinary
+git repository holding one small file per package, saying where that package
+lives and nothing else:
+
+```sh
+keal search arithmetic     # find it
+keal add geometry          # write it into keal.toml, pinned exactly
+keal fetch                 # put it where the import expects it
+```
+
+`keal add` with no tag takes the repository's newest version tag and writes
+it down as an exact pin — once, here, not again on every build. Nothing
+depends on the index existing: a manifest names the package's own repository,
+never the index, and a package that is not in the index works just as well by
+naming its git URL directly.
+
+---
+
 ## Where to go next
 
 * [`docs/language.md`](docs/language.md) — the complete reference.
