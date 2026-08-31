@@ -59,6 +59,35 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**THE LANGUAGE SERVER — `keal lsp`, DONE.** Diagnostics as you type, hover
+types, go to definition, find references, rename, document outline,
+completion. One binary for VS Code, Neovim, Helix and Zed.
+IT IS NOT A SECOND IMPLEMENTATION: it loads and checks exactly as
+`keal check` does, so it cannot drift. What made that possible is
+`loader::set_overlay` — a thread-local map of the editor's UNSAVED buffers,
+consulted before the filesystem. Empty in every other command, which is what
+keeps the dump commands pure functions of the files on disk.
+NO DEPENDENCIES: `src/json.rs` is a page of JSON (parse, write, a `Json`
+value with `at("a.b.c")`), and `src/lsp.rs` does the `Content-Length`
+framing itself. Keal has zero dependencies and this was not the place to
+acquire the first one.
+IT MUST NEVER PANIC — the binary is built `panic = "abort"`, so there is
+nothing to catch and a panic takes the editor's Keal support down. Every
+lookup answers `None` rather than assuming.
+TWO THINGS THAT COST A DEBUG ROUND: (1) a declaration's span points at the
+KEYWORD (`val`, `func`, `enum`), not the name — so hover and rename on the
+name found nothing until `Index::at_name` moved the span forward to the name
+on that line. (2) LSP counts characters in UTF-16 code units and Keal
+columns count BYTES, 1-based; both conversions are explicit.
+An enum's own name before the dot is recorded as a use by ARITHMETIC — the
+variant's span is the name after the dot, so the enum starts
+`span.col - 1 - len(enm)`. Nothing else records that span.
+Test: `the_language_server_answers` spawns it, frames real JSON-RPC over a
+pipe, and checks the answers are about the BUFFER rather than the file —
+the diagnostic it asserts is on a line the file on disk does not have.
+Editors: `editors/vscode/src/extension.js` (needs one `npm install`), plus
+four-line configs for Neovim, Helix and Zed in `editors/README.md`.
+
 **ENUMS — DONE, all three engines.** `enum Suit { Hearts, Diamonds, Clubs,
 Spades }`, reached as `Suit.Hearts`. A closed set of names, NO PAYLOADS.
 HOW THE DESIGN WAS CHOSEN: a four-way panel (Kotlin-shaped, Rust ADT,

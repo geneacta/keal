@@ -1,8 +1,8 @@
 {
   "name": "keal",
   "displayName": "Keal",
-  "description": "Syntax highlighting, editing support and inline diagnostics for the Keal language.",
-  "version": "0.2.0",
+  "description": "Syntax highlighting, editing support and a language server for the Keal language.",
+  "version": "0.3.0",
   "publisher": "geneacta",
   "license": "Apache-2.0",
   "repository": {
@@ -13,6 +13,7 @@
     "vscode": "^1.75.0"
   },
   "categories": [
+    "Linters",
     "Programming Languages",
     "Snippets"
   ],
@@ -81,6 +82,23 @@
         "editor.insertSpaces": true,
         "editor.tabSize": 4
       }
+    },
+    "configuration": {
+      "title": "Keal",
+      "properties": {
+        "keal.server": {
+          "type": "string",
+          "default": "keal",
+          "description": "The Keal binary the language server runs from. `keal` finds it on the PATH; give a full path to use a build of your own."
+        }
+      }
     }
+  },
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:keal"
+  ],
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

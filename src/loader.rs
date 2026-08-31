@@ -16,6 +16,29 @@ use crate::span::{shown, Diag, Sources, Span};
 /// nothing a user could not have declared.
 const PRELUDE: &str = include_str!("prelude.keal");
 
+thread_local! {
+    /// What the editor is holding for files it has open but has not saved.
+    ///
+    /// The language server fills this before it loads anything, so a
+    /// diagnostic is about the buffer a person is looking at rather than the
+    /// file on disk. Every other command leaves it empty and reads the disk,
+    /// which is what keeps the dump commands pure functions of the files.
+    static OVERLAY: std::cell::RefCell<HashMap<PathBuf, String>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// Hands the loader the unsaved text of the files the editor has open.
+pub fn set_overlay(files: HashMap<PathBuf, String>) {
+    OVERLAY.with(|o| *o.borrow_mut() = files);
+}
+
+fn read_source(path: &Path) -> std::io::Result<String> {
+    if let Some(text) = OVERLAY.with(|o| o.borrow().get(path).cloned()) {
+        return Ok(text);
+    }
+    std::fs::read_to_string(path)
+}
+
 pub fn load(entry: &str, sources: &mut Sources) -> Result<Program, Diag> {
     load_inner(entry, sources, false)
 }
@@ -73,7 +96,7 @@ fn load_file(
         }
     }
 
-    let text = match std::fs::read_to_string(path) {
+    let text = match read_source(path) {
         Ok(t) => t,
         Err(e) => {
             let msg = format!("cannot read `{}`: {}", shown(path), unreadable(&e));

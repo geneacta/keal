@@ -2866,7 +2866,7 @@ impl Checker {
                 t
             }
 
-            ExprKind::Assign { target, op, value } => {
+            ExprKind::Assign { .. } => {
                 if let Some(t) = self.rewrite_index_write(e, span) {
                     return t;
                 }

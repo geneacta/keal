@@ -44,9 +44,72 @@ in.
 call form, and the eight connectives), bracket and comment behaviour, and the
 snippets in [`vscode/snippets`](vscode/snippets).
 
-**Diagnostics inline.** The extension carries no language server yet, so
-errors appear where you ask for them rather than as you type. A task that
-runs the checker over the open file is the whole of it:
+**A language server.** `keal lsp` speaks the Language Server Protocol over
+stdin and stdout, so one binary serves every editor that speaks it. It gives
+diagnostics as you type, the type of the thing under the cursor, go to
+definition, find references, rename, an outline, and completion of the names
+in scope.
+
+It is not a second implementation of the language: it loads and checks the
+file the way `keal check` does, reading the editor's unsaved buffer instead
+of the disk. A wrong answer here would be a wrong answer in the compiler.
+
+### Neovim
+
+Built-in client, no plugin needed:
+
+```lua
+vim.filetype.add({ extension = { keal = "keal" } })
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "keal",
+  callback = function(args)
+    vim.lsp.start({ name = "keal", cmd = { "keal", "lsp" },
+                    root_dir = vim.fs.dirname(args.file) })
+  end,
+})
+```
+
+### Helix
+
+```toml
+# languages.toml
+[language-server.keal]
+command = "keal"
+args = ["lsp"]
+
+[[language]]
+name = "keal"
+scope = "source.keal"
+file-types = ["keal"]
+roots = ["keal.toml"]
+comment-token = "//"
+indent = { tab-width = 4, unit = "    " }
+language-servers = ["keal"]
+```
+
+### Zed
+
+```json
+// ~/.config/zed/settings.json
+{ "lsp": { "keal": { "binary": { "path": "keal", "arguments": ["lsp"] } } } }
+```
+
+### VS Code
+
+The extension starts the server itself. It needs its one npm dependency
+installed first, which is the only build step in this directory:
+
+```sh
+cd editors/vscode && npm install
+```
+
+`keal.server` in your settings points at a different binary, which is what
+you want while working on the compiler itself. Without the server the
+extension still highlights; it says so once and carries on.
+
+**Diagnostics without the server.** If you would rather not run one, a task
+that runs the checker over the open file gives you errors where you ask for
+them:
 
 ```jsonc
 // .vscode/tasks.json

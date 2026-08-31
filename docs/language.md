@@ -1530,13 +1530,34 @@ The generated core stays C11 either way; only the link changes.
 
 ## 18. Editor support
 
-[`editors/vscode`](../editors/vscode) holds a Visual Studio Code extension:
-highlighting, bracket and indent behaviour, snippets, and a problem matcher
-that reads `keal check` output so diagnostics land on the right line.
+`keal lsp` is a language server. It speaks the Language Server Protocol over
+stdin and stdout, so one binary serves every editor that speaks it —
+[`editors/README.md`](../editors/README.md) has the four lines each of
+Neovim, Helix, Zed and VS Code need.
 
-There is no language server yet, so there is no completion or go-to-definition.
-The grammar is a standard TextMate file that Sublime Text, Zed and others read
-directly.
+| | |
+|---|---|
+| Diagnostics as you type | errors and warnings, note included |
+| Hover | the type of the thing under the cursor |
+| Go to definition | for a name, a field, a method, an enum |
+| Find references, rename | every use, and all of them at once |
+| Outline | the declarations in a file |
+| Completion | the names in scope, and the keywords |
+
+It is not a second implementation of the language. It loads and checks the
+file exactly as `keal check` does, reading the editor's unsaved buffer
+instead of the disk — so it cannot drift from the compiler, and a wrong
+answer here would be a wrong answer there.
+
+**What it does not do yet**, stated rather than left to be found: it
+re-checks the whole file on every keystroke (fine for a file, slow for a
+very large program), member completion after a `.` offers the names in scope
+rather than that value's members, and there are no code actions, no
+formatting, and no inlay hints.
+
+[`editors/vscode`](../editors/vscode) also holds the syntax file:
+highlighting, bracket and indent behaviour, and snippets. The grammar is a
+standard TextMate file that Sublime Text and JetBrains IDEs read directly.
 
 ## 19. How values are represented
 
@@ -1580,7 +1601,7 @@ there is no cycle collector.
 ## 20. What is not here yet
 
 Class inheritance (a non-goal) · associated types on traits · generic
-traits · a language server.
+traits · enum variants that carry data.
 
 Shipped since this list was first written, and no longer on it: `throw` /
 `try` / `catch` on all three engines — typed clauses included, natively —

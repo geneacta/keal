@@ -584,6 +584,93 @@ fn the_site_is_what_its_generator_would_write() {
     );
 }
 
+/// The language server, driven the way an editor drives it: framed
+/// JSON-RPC over a pipe.
+///
+/// What is checked is that it answers — an editor that waits forever on a
+/// request is worse than one that gets `null` — and that the answers are
+/// about the buffer rather than the file, which is the whole reason the
+/// loader grew an overlay.
+#[test]
+fn the_language_server_answers() {
+    use std::io::{Read, Write};
+
+    let dir = std::env::temp_dir().join("keal-lsp-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a directory");
+    let file = dir.join("main.keal");
+    let on_disk = "enum Level { Debug, Info }\nval here = Level.Debug\nprintln(here)\n";
+    std::fs::write(&file, on_disk).unwrap();
+
+    // What the editor is holding differs from what is on disk: a type error
+    // on a line the file does not have. Only an overlay can see it.
+    let buffer = "enum Level { Debug, Info }\nval here = Level.Debug\nprintln(here)\nval bad: Int = \"x\"\n";
+    let uri = format!("file://{}", file.display());
+
+    let frame = |v: &str| format!("Content-Length: {}\r\n\r\n{}", v.len(), v);
+    let mut input = String::new();
+    input.push_str(&frame(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#));
+    input.push_str(&frame(&format!(
+        r#"{{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{{"textDocument":{{"uri":"{}","text":"{}"}}}}}}"#,
+        uri,
+        buffer.replace('"', "\\\"").replace('\n', "\\n")
+    )));
+    // Hover on `here` in `val here = ...`, line 1, character 4.
+    input.push_str(&frame(&format!(
+        r#"{{"jsonrpc":"2.0","id":2,"method":"textDocument/hover","params":{{"textDocument":{{"uri":"{}"}},"position":{{"line":1,"character":4}}}}}}"#,
+        uri
+    )));
+    // Definition of `here` from its use on line 2.
+    input.push_str(&frame(&format!(
+        r#"{{"jsonrpc":"2.0","id":3,"method":"textDocument/definition","params":{{"textDocument":{{"uri":"{}"}},"position":{{"line":2,"character":9}}}}}}"#,
+        uri
+    )));
+    input.push_str(&frame(&format!(
+        r#"{{"jsonrpc":"2.0","id":4,"method":"textDocument/documentSymbol","params":{{"textDocument":{{"uri":"{}"}}}}}}"#,
+        uri
+    )));
+    input.push_str(&frame(r#"{"jsonrpc":"2.0","id":5,"method":"shutdown","params":{}}"#));
+    input.push_str(&frame(r#"{"jsonrpc":"2.0","method":"exit","params":{}}"#));
+
+    let mut child = Command::new(BIN)
+        .arg("lsp")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("cannot start the language server");
+    child.stdin.as_mut().unwrap().write_all(input.as_bytes()).unwrap();
+    drop(child.stdin.take());
+    let mut out = String::new();
+    child.stdout.as_mut().unwrap().read_to_string(&mut out).unwrap();
+    let status = child.wait().unwrap();
+    assert!(status.success(), "the language server did not exit cleanly");
+
+    assert!(out.contains("Content-Length:"), "nothing was framed:\n{}", out);
+    assert!(out.contains("\"hoverProvider\":true"), "it did not offer hover:\n{}", out);
+    // The diagnostic is on line 3, which exists only in the buffer.
+    assert!(
+        out.contains("publishDiagnostics"),
+        "no diagnostics were published:\n{}",
+        out
+    );
+    assert!(
+        out.contains("but `Int` was expected"),
+        "the unsaved buffer was not what it checked:\n{}",
+        out
+    );
+    assert!(
+        out.contains("here: Level"),
+        "hover did not name the type:\n{}",
+        out
+    );
+    assert!(
+        out.contains("documentSymbol") || out.contains("\"Level\""),
+        "the outline is missing:\n{}",
+        out
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The index: a git repository holding one small file per package, saying
 /// where that package lives and nothing else. The whole chain in one test —
 /// find a package by a word in its description, write it into the manifest

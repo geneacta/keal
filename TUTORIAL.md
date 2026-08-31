@@ -1099,6 +1099,32 @@ naming its git URL directly.
 
 ---
 
+## Your editor
+
+`keal lsp` is a language server, so one binary gives every editor that
+speaks the protocol the same thing: errors as you type, the type of what is
+under the cursor, go to definition, find references, rename, an outline, and
+completion.
+
+Neovim needs no plugin at all:
+
+```lua
+vim.filetype.add({ extension = { keal = "keal" } })
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "keal",
+  callback = function(args)
+    vim.lsp.start({ name = "keal", cmd = { "keal", "lsp" },
+                    root_dir = vim.fs.dirname(args.file) })
+  end,
+})
+```
+
+Helix, Zed and VS Code are about as short —
+[`editors/README.md`](editors/README.md) has each of them, plus the syntax
+file that JetBrains IDEs read directly.
+
+---
+
 ## Where to go next
 
 * [`docs/language.md`](docs/language.md) — the complete reference.

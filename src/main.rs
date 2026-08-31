@@ -17,7 +17,9 @@ mod constfold;
 mod interp;
 mod layout;
 mod lexer;
+mod json;
 mod loader;
+mod lsp;
 mod macros;
 mod native;
 mod nativebuild;
@@ -90,6 +92,12 @@ usage:
                               makes the built program say at exit what it
                               left behind, by type, as `KEAL_AUDIT=1` does
                               on the interpreters
+    keal lsp                  start the language server, speaking the
+                              Language Server Protocol over stdin and
+                              stdout: diagnostics as you type, the type
+                              under the cursor, go to definition, find
+                              references, rename, an outline and completion.
+                              One server serves every editor that speaks it
     keal repl                 start an interactive session
     keal version              print the version
 ";
@@ -124,7 +132,7 @@ fn is_subcommand(word: &str) -> bool {
         word,
         "run" | "check" | "layout" | "emit-c" | "build" | "repl" | "version" | "help"
             | "tokens" | "ast" | "types" | "cgen" | "emit-header" | "bindgen" | "doc"
-            | "doctor" | "jbind" | "fetch" | "search" | "add" | "index"
+            | "doctor" | "jbind" | "fetch" | "search" | "add" | "index" | "lsp"
     )
 }
 
@@ -172,6 +180,9 @@ fn real_main() -> ExitCode {
     }
     if args.first().map(|a| a.as_str()) == Some("fetch") {
         return fetch::run(&args[1..]);
+    }
+    if args.first().map(|a| a.as_str()) == Some("lsp") {
+        return lsp::run();
     }
     if args.first().map(|a| a.as_str()) == Some("search") {
         return registry::search(&args[1..]);

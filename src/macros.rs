@@ -84,10 +84,6 @@ impl Macros {
         Macros { by_name: HashMap::new() }
     }
 
-    pub fn has(&self, name: &str) -> bool {
-        self.by_name.contains_key(name)
-    }
-
     /// Expands one call at **statement** position: the body becomes a block
     /// of its own, so what it binds does not reach the caller.
     pub fn expand_stmt(&self, name: &str, args: &[Expr], span: Span) -> Result<Stmt, Diag> {

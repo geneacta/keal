@@ -44,6 +44,10 @@ At a glance:
   and what it *holds* belongs to the caller unless the signature says `var`.
   The checker refuses every way around it, a call to something that would
   included
+* **A language server** — `keal lsp`, one binary for VS Code, Neovim, Helix
+  and Zed: diagnostics as you type, hover types, go to definition, find
+  references, rename, outline, completion. It reuses the compiler rather
+  than modelling the language again
 * **Enums that close a `when`** — `enum Suit { Hearts, Spades }`, and a
   `when` over one needs no `else`. Add a variant and every `when` that
   forgot it is an error, in statement position too
@@ -635,12 +639,12 @@ were the last thing on this list to be half-done, and are not anymore:
   and why. Running the suite there is what turned up the line endings, the
   path separators, an error message written in the operating system's own
   language, and a site generator that deleted a page on its way out.
-* Smaller items: a language server (one
-  would serve VS Code, JetBrains, Neovim and Zed at once — the TextMate
-  grammar in [`editors/`](editors/README.md) cannot go to a definition),
-  native `try` catching C stack exhaustion (the VM's depth panic is
-  catchable, a native segfault is not), a register-based VM if the
-  bytecode engine ever needs to be faster than it is.
+* Smaller items: native `try` catching C stack exhaustion (the VM's depth
+  panic is catchable, a native segfault is not), a register-based VM if the
+  bytecode engine ever needs to be faster than it is, and enum variants
+  that carry data — refused for now because they would be this language's
+  first subtyping relation, and staged so they can arrive as an addition
+  rather than a rewrite.
 
 Class inheritance is a **non-goal**: composition, traits with default
 methods and records cover the territory without the diamond.
