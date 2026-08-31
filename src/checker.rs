@@ -13,7 +13,7 @@ use std::rc::Rc;
 
 use crate::ast::*;
 use crate::builtins;
-use crate::span::{Diag, Sources, Span};
+use crate::span::{shown, Diag, Sources, Span};
 use crate::types::{self_subst, FunType, ParamType, Subst, Type};
 
 pub fn check(program: &mut Program, sources: &Sources) -> (Vec<Diag>, Vec<Diag>) {
@@ -305,13 +305,14 @@ impl Checker {
         self.packages.clear();
         self.file_names.clear();
         for id in 0..sources.len() as u32 {
+            // Both go into diagnostics — the file name is quoted in every
+            // "private to" message, and the package is compared against
+            // another one — so both are spelled the way a diagnostic spells
+            // a path, with `/`.
             let (pkg, name) = match sources.get(id) {
                 Some(f) => (
-                    f.path
-                        .parent()
-                        .map(|d| d.to_string_lossy().to_string())
-                        .unwrap_or_default(),
-                    f.path.to_string_lossy().to_string(),
+                    f.path.parent().map(shown).unwrap_or_default(),
+                    shown(&f.path),
                 ),
                 None => (String::new(), String::new()),
             };

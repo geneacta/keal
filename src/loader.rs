@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use crate::ast::{ImportEdge, Item, Program};
 use crate::lexer;
 use crate::parser;
-use crate::span::{Diag, Sources, Span};
+use crate::span::{shown, Diag, Sources, Span};
 
 /// Traits the operators are wired to. Compiled into the binary so that a
 /// program never has to import them, and written in Keal so that they are
@@ -65,7 +65,7 @@ fn load_file(
     if generate && !path.exists() && path.parent().map(|d| d.ends_with(".jbind")).unwrap_or(false)
     {
         if let Err(reason) = crate::jbind::ensure_cache(path) {
-            let msg = format!("cannot generate `{}`: {}", path.display(), reason);
+            let msg = format!("cannot generate `{}`: {}", shown(path), reason);
             return Err(match imported_from {
                 Some(span) => Diag::new(span, msg),
                 None => Diag::new(Span::default(), msg),
@@ -121,13 +121,6 @@ fn load_file(
     Ok(file)
 }
 
-/// A path as a diagnostic spells it: always with `/`, whatever the platform
-/// renders. The same reason `Sources::path` does it — two compilers that
-/// must agree byte for byte cannot disagree about a separator.
-fn shown(path: &Path) -> String {
-    path.display().to_string().replace('\\', "/")
-}
-
 /// Why a file could not be read, in the compiler's own words.
 ///
 /// `std::io::Error`'s own text is the operating system's, in the operating
@@ -164,7 +157,7 @@ fn resolve_import(rel: &str, dir: &Path, importer: &Path) -> Result<PathBuf, Str
         return Err(format!(
             "cannot read `{}`: no `keal.toml` above `{}`, so there is no project to depend for",
             rel,
-            importer.display()
+            shown(importer)
         ));
     };
     let root = manifest.parent().unwrap_or(Path::new("."));

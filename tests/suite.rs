@@ -141,6 +141,40 @@ fn jni_platform() -> &'static str {
     }
 }
 
+/// How a JNI program links, per platform.
+///
+/// macOS and Linux keep `libjvm` under `lib/server` and are told where to
+/// find it again at run time with an rpath. Windows keeps the import
+/// library at `lib/jvm.lib` — which `-ljvm` resolves — and has no rpath at
+/// all: PE finds `jvm.dll` through `PATH`, which is what `jvm_run` hands it.
+fn jni_link_args(jh: &str) -> Vec<String> {
+    if cfg!(windows) {
+        return vec![format!("-L{}/lib", jh), "-ljvm".to_string()];
+    }
+    vec![
+        format!("-L{}/lib/server", jh),
+        "-ljvm".to_string(),
+        format!("-Wl,-rpath,{}/lib/server", jh),
+    ]
+}
+
+/// A command that will find the JVM's own libraries when it runs.
+///
+/// On Windows both directories are needed: `bin\\server` has `jvm.dll`, and
+/// `bin` has the runtime libraries `jvm.dll` itself loads. Elsewhere the
+/// rpath in the binary has already said this, and nothing is added.
+fn jvm_run(program: PathBuf, jh: &str) -> Command {
+    let mut cmd = Command::new(program);
+    if cfg!(windows) {
+        let existing = std::env::var("PATH").unwrap_or_default();
+        cmd.env(
+            "PATH",
+            format!("{jh}\\bin\\server;{jh}\\bin;{existing}", jh = jh, existing = existing),
+        );
+    }
+    cmd
+}
+
 /// The two engines, named as the command line spells them.
 const ENGINES: [&str; 2] = ["--vm", "--ast"];
 
@@ -987,9 +1021,7 @@ d.free()
         .arg("main.keal")
         .arg(format!("-I{}/include", jh))
         .arg(format!("-I{}/include/{}", jh, jni_platform()))
-        .arg(format!("-L{}/lib/server", jh))
-        .arg("-ljvm")
-        .arg(format!("-Wl,-rpath,{}/lib/server", jh))
+        .args(jni_link_args(&jh))
         .output()
         .expect("cannot run keal build");
     assert!(
@@ -997,7 +1029,7 @@ d.free()
         "the jbind wrappers did not build:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
-    let ran = Command::new(dir.join("main")).output().expect("cannot run the binary");
+    let ran = jvm_run(dir.join("main"), &jh).output().expect("cannot run the binary");
     assert_eq!(
         String::from_utf8_lossy(&ran.stdout),
         "2026-02-28\nSATURDAY\nfalse\n2026\n28\n",
@@ -1047,9 +1079,7 @@ d.free()
         .arg("main.keal")
         .arg(format!("-I{}/include", jh))
         .arg(format!("-I{}/include/{}", jh, jni_platform()))
-        .arg(format!("-L{}/lib/server", jh))
-        .arg("-ljvm")
-        .arg(format!("-Wl,-rpath,{}/lib/server", jh))
+        .args(jni_link_args(&jh))
         .output()
         .expect("cannot run keal build");
     assert!(
@@ -1061,7 +1091,7 @@ d.free()
         dir.join(".jbind/java.time.LocalDate+java.time.DayOfWeek.keal").exists(),
         "the build did not fill the .jbind cache"
     );
-    let ran = Command::new(dir.join("main")).output().expect("cannot run the binary");
+    let ran = jvm_run(dir.join("main"), &jh).output().expect("cannot run the binary");
     assert_eq!(
         String::from_utf8_lossy(&ran.stdout),
         "2026-02-28\nSATURDAY\n",
@@ -1111,9 +1141,7 @@ good.free()
         .arg("main.keal")
         .arg(format!("-I{}/include", jh))
         .arg(format!("-I{}/include/{}", jh, jni_platform()))
-        .arg(format!("-L{}/lib/server", jh))
-        .arg("-ljvm")
-        .arg(format!("-Wl,-rpath,{}/lib/server", jh))
+        .args(jni_link_args(&jh))
         .output()
         .expect("cannot run keal build");
     assert!(
@@ -1121,7 +1149,7 @@ good.free()
         "the program did not build:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
-    let ran = Command::new(dir.join("main")).output().expect("cannot run the binary");
+    let ran = jvm_run(dir.join("main"), &jh).output().expect("cannot run the binary");
     assert_eq!(
         String::from_utf8_lossy(&ran.stdout),
         "2026-02-28\ncaught: of threw: java.time.DateTi\nstill running\n",
@@ -1152,9 +1180,7 @@ fn jvm_gateway_works_end_to_end() {
         .arg(root().join("examples/interop/java/localdate.keal"))
         .arg(format!("-I{}/include", jh))
         .arg(format!("-I{}/include/{}", jh, jni_platform()))
-        .arg(format!("-L{}/lib/server", jh))
-        .arg("-ljvm")
-        .arg(format!("-Wl,-rpath,{}/lib/server", jh))
+        .args(jni_link_args(&jh))
         .output()
         .expect("cannot run keal build");
     assert!(
@@ -1162,7 +1188,7 @@ fn jvm_gateway_works_end_to_end() {
         "the JVM gateway did not build:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
-    let ran = Command::new(dir.join("localdate")).output().expect("cannot run the binary");
+    let ran = jvm_run(dir.join("localdate"), &jh).output().expect("cannot run the binary");
     assert_eq!(
         String::from_utf8_lossy(&ran.stdout),
         "2026-02-28\nSATURDAY\nfalse\n20512\n6765\n",
@@ -1197,9 +1223,7 @@ fn jvm_calls_work_from_actor_threads() {
         .arg(root().join("examples/interop/java/actordate.keal"))
         .arg(format!("-I{}/include", jh))
         .arg(format!("-I{}/include/{}", jh, jni_platform()))
-        .arg(format!("-L{}/lib/server", jh))
-        .arg("-ljvm")
-        .arg(format!("-Wl,-rpath,{}/lib/server", jh))
+        .args(jni_link_args(&jh))
         .output()
         .expect("cannot run keal build");
     assert!(
@@ -1207,7 +1231,7 @@ fn jvm_calls_work_from_actor_threads() {
         "the actor JVM program did not build:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
-    let ran = Command::new(dir.join("actordate")).output().expect("cannot run the binary");
+    let ran = jvm_run(dir.join("actordate"), &jh).output().expect("cannot run the binary");
     assert_eq!(
         String::from_utf8_lossy(&ran.stdout),
         "2026-01-01 is a THURSDAY\n2026-01-02 is a FRIDAY\n2026-01-03 is a SATURDAY\n",

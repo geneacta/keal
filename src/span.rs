@@ -37,6 +37,14 @@ impl Diag {
     }
 }
 
+/// A path as a diagnostic spells it: always with `/`, whatever the platform
+/// renders. Two compilers that must agree byte for byte cannot disagree
+/// about a separator, and a message is compared whole — the path inside its
+/// sentence as much as the location above it.
+pub fn shown(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
+}
+
 /// Every file the compiler has loaded, so diagnostics can quote source lines.
 #[derive(Default)]
 pub struct Sources {
@@ -74,9 +82,7 @@ impl Sources {
     /// Two compilers that must agree byte for byte cannot disagree about a
     /// separator, and a snapshot cannot be right on one platform only.
     pub fn path(&self, id: u32) -> String {
-        self.get(id)
-            .map(|f| f.path.display().to_string().replace('\\', "/"))
-            .unwrap_or_else(|| "<unknown>".into())
+        self.get(id).map(|f| shown(&f.path)).unwrap_or_else(|| "<unknown>".into())
     }
 
     fn line_text(&self, id: u32, line: u32) -> Option<&str> {
