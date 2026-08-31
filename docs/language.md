@@ -653,7 +653,9 @@ println(p)                  // P(3.0, 4.0)
 * Instances compare by **identity**. Structural comparison would loop forever
   on a cyclic object graph, so `==` on two separately built instances is
   `false`.
-* There is no inheritance, no interfaces and no static members yet.
+* There is no inheritance and no static members. Traits are how a type
+  promises behaviour; a value that belongs to no instance is a top-level
+  `val`.
 
 Classes may only be declared at the top level.
 
@@ -1112,9 +1114,12 @@ geometry = { git = "https://github.com/someone/geometry", tag = "v1.2.0" }
 in the compiler touches the network: a `dep:` import reads what is on disk,
 so a project that commits `.keal/deps/` builds without git.
 
-There is no `package` declaration, no version resolution and no registry —
-[packages and namespaces](packages.md) argues why, and in what order the
-rest would come.
+There is no `package` declaration and no version resolution — a manifest
+names a commit, not a range. There *is* an index: `keal search` finds a
+package whose URL you do not know, `keal add` writes it into `keal.toml`
+pinned to one exact tag, and the index is an ordinary git repository rather
+than a service anybody has to keep running.
+[Packages and namespaces](packages.md) argues the order and the difference.
 
 The modifier goes on a top-level `func`, `proc`, `class`, `record`, `trait`,
 `extern func`, `val` or `var` — and on a class's own members:

@@ -34,7 +34,7 @@
     <div class="nav-links"><a href="index.html" class="tab-active">Accueil</a><a href="tour.html">Le tour</a><a href="docs.html">Docs</a><a href="coming-from.html">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
   </div>
   <div class="nav-right">
-    <span class="badge">v0.8.0</span>
+    <span class="badge">v1.0.0</span>
     <a class="btn-lang" href="../index.html">English</a>
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>
@@ -43,7 +43,7 @@
 <section class="hero">
   <div class="pill">Auto-hébergé — le point fixe du bootstrap est vérifié à chaque exécution</div>
   <h1>Le langage qui se compile lui-même.</h1>
-  <p class="lede">Typé statiquement, sûr face à null, la silhouette de Kotlin sur une syntaxe famille C. Trois moteurs d'accord sur chaque octet — et un compilateur écrit en Keal, compilé par lui-même.</p>
+  <p class="lede">La silhouette de Kotlin sur une syntaxe famille C, compilé en natif, avec une destruction déterministe et sans ramasse-miettes — et sans vérificateur d'emprunts à convaincre. Trois moteurs qui doivent s'accorder sur chaque octet imprimé.</p>
   <div class="cta">
     <a class="btn-primary" href="tour.html">Commencer le tour →</a>
     <a class="btn-ghost" href="docs.html">Lire la documentation</a>
@@ -66,7 +66,7 @@ println(when {
     else -&gt; &quot;${found} has length ${found.length()}&quot;
 })</pre></div>
 </section>
-<section class="cards"><div class="card"><h3>Le compilateur est écrit en Keal</h3><p>Lexeur, parseur, vérificateur et backend C — tenus octet pour octet face à leurs oracles Rust, et reproduisant leur propre source.</p></div><div class="card"><h3>Tout entre dans Any, Any ne sort nulle part</h3><p>Inférence partout, rétrécissement qui tient à travers <code>and</code>, les retours anticipés, et même <code>implies</code>.</p></div><div class="card"><h3>Six langages, un seul fichier</h3><p>C, C++, Rust, Go, Java et Kotlin répondent tous depuis un unique programme Keal.</p></div><div class="card"><h3>Mémoire déterministe</h3><p>Comptage de références au modèle documenté, <code>deinit</code> aux frontières d'instruction, et <code>weak</code> pour l'arête arrière d'un cycle.</p></div></section>
+<section class="cards"><div class="card"><h3>Le compilateur est écrit en Keal</h3><p>Lexeur, parseur, vérificateur et backend C — tenus octet pour octet face à leurs oracles Rust, et reproduisant leur propre source.</p></div><div class="card"><h3>Tout entre dans Any, Any ne sort nulle part</h3><p>Inférence partout, rétrécissement qui tient à travers <code>and</code>, les retours anticipés, et même <code>implies</code>.</p></div><div class="card"><h3>Six langages, un seul fichier</h3><p>C, C++, Rust, Go, Java et Kotlin répondent tous depuis un unique programme Keal.</p></div><div class="card"><h3>Mémoire déterministe, sans collecteur</h3><p>Un objet meurt quand meurt sa dernière référence, à une frontière d'instruction qu'on peut désigner, et <code>deinit</code> s'y exécute. Pas de pause, pas de génération, pas d'annotation de durée de vie.</p></div><div class="card"><h3>Un serveur, tous les éditeurs</h3><p><code>keal lsp</code> donne à VS Code, Neovim, Helix et Zed la même chose : les erreurs pendant qu'on tape, les types au survol, aller à la définition, renommer. Il réutilise le compilateur plutôt que de modéliser le langage deux fois.</p></div></section>
 <section class="band">
   <h2>Un fichier, six langages.</h2>
   <p class="lede">Les quatre natifs rencontrent Keal sur l'ABI C que ses binaires parlent déjà — pas de runtime, pas de couche de conversion. Java et Kotlin passent par un module passerelle, écrit en Keal.</p>

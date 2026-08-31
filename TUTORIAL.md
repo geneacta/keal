@@ -918,6 +918,91 @@ schedule, the threads are another.
 
 ---
 
+## enum: a closed set of names
+
+```keal
+enum Suit { Hearts, Diamonds, Clubs, Spades }
+
+func isRed(s: Suit): Bool {
+    return when (s) {
+        Suit.Hearts, Suit.Diamonds -> true
+        Suit.Clubs, Suit.Spades -> false
+    }
+}
+```
+
+No `else`. Closed means the checker knows every value the type has, so it
+can see that those two arms cover it — and the day somebody adds a variant,
+every `when` that forgot it says so:
+
+```
+error: this `when` over `Suit` does not cover `Jokers`
+  = note: add an arm for each, or `else -> ...`
+```
+
+That is the whole point of the feature, and it fires in statement position
+too. An `else` that can no longer be reached becomes a warning: deleting it
+is what puts a later variant back under the guarantee.
+
+`Bool` is closed as well, and so is a nullable enum — the variants, plus
+`null`. A variant is an ordinary value: compared, passed, stored in a field,
+put in a list, used as a map key, and printed as its bare name.
+
+A variant carries nothing. One that wants fields is a `record`; one that
+wants a number is a function with a `when` over the enum, which is an error
+the day a variant is added rather than a wrong number.
+
+---
+
+## Collections beyond the three
+
+`List`, `Map` and `String` are built in. Two more are ordinary Keal, in the
+prelude — which is the point: a standard library that can only grow by
+teaching the compiler a new type has a ceiling.
+
+```keal
+val seen: Set<String> = setOf(["a", "b", "a"])
+println("${seen.size()} ${seen["a"]} ${seen["z"]}")   // 2 true false
+seen["b"] = false                                      // and that removes it
+
+val work: Deque<Int> = dequeOf([1, 2, 3])
+work.addFirst(0)
+println(work.removeFirst()!!)                          // 0
+```
+
+`Set` implements `Index`, which is why `seen[x]` asks and `seen[x] = true`
+adds. `Deque` takes from either end without the cost — a queue built on a
+list and `removeAt(0)` moves every remaining element and so costs the square
+of its length.
+
+Beside them: `distinct`, `zip`, `partition`, `chunked`, `padStart`,
+`padEnd`, `lines`.
+
+---
+
+## Your own operators
+
+A class gains an operator by implementing the trait it is wired to — never
+by convention, so a class with a `plus` that never said `Add` does not get
+`+`.
+
+```keal
+class Env(val fallback: Int) : Index {
+    func get(name: String): Int { ... }
+    proc set(name: String, value: Int) { ... }
+}
+
+env["width"] = 80
+println(env["width"])
+```
+
+`Index` and `Invoke` are the two that carry no signature of their own: what
+a class is indexed *by*, and what it gives back, is the class's own
+business. `Invoke` makes an object callable — `plus5(10)` — which a lambda
+cannot be when it has to carry a `var` field.
+
+---
+
 ## What a function may change
 
 A parameter cannot be reassigned — that has always been true here, and it

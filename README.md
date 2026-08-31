@@ -1,24 +1,33 @@
 <p align="center"><img src="assets/keal.png" alt="Keal" width="360"></p>
 
-# Keal — a statically typed, self-hosting language with a small surface
+# Keal — a statically typed language for programs that have to be predictable
 
-**Version 0.8.0** · `keal version` prints the toolchain's own.
+**Version 1.0.0** · `keal version` prints the toolchain's own.
 
-*Small* means the surface, not the reach: a handful of concepts —
-values, functions, classes and traits, `when`, null safety — carried
-far, with no inheritance, no macros, no second way to say anything.
-The whole language fits in one sitting of [TUTORIAL.md](TUTORIAL.md);
-what it can do fills the rest of this page. Want to help build it?
-[CONTRIBUTING.md](CONTRIBUTING.md) is the whole procedure — the rules
-every change must respect, and the three commands that verify them.
+Kotlin's shape over a C-family syntax, compiled to native code, with
+**deterministic destruction and no garbage collector** — and no borrow
+checker to argue with. An object dies when its last reference does, at a
+statement boundary you can point at, and `deinit` runs there. No pause, no
+generation, no lifetime annotation.
 
-**Keal** is a statically typed programming language that **compiles itself**:
-the compiler is written in Keal, compiles to native code through C, and
-reproduces its own source byte for byte — a bootstrap fixed point the test
-suite verifies on every run. The toolchain is written in Rust with **zero
-dependencies** and ships three engines that must agree on every byte they
-print: a tree-walking interpreter (the specification), a bytecode VM (the
-default), and a native compiler via C11.
+Three things hold it to that, and they are the reason to look twice:
+
+* **Three engines, one answer.** A tree-walking interpreter (the
+  specification), a bytecode VM (the default), and a native compiler
+  through C11. The suite runs every program through all three and compares
+  what they print, byte for byte.
+* **Match or refuse.** The native backend never mis-compiles. What it
+  cannot compile, it names — and the tests check that the list of names is
+  the truth.
+* **Written twice, and held to itself.** The compiler exists as a Rust
+  reference and as a compiler written in Keal, and the two must agree
+  byte-for-byte on the tokens, the tree, the types and the C of every file
+  in the repository. Then it compiles itself to a fixed point.
+
+Zero dependencies, and it compiles through C — so it builds wherever a C
+compiler does. The whole language fits in one sitting of
+[TUTORIAL.md](TUTORIAL.md); [CONTRIBUTING.md](CONTRIBUTING.md) is the
+procedure, and the three commands that verify it.
 
 At a glance:
 

@@ -281,7 +281,7 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
     <div class="nav-links">%(links)s</div>
   </div>
   <div class="nav-right">
-    <span class="badge">v0.8.0</span>
+    <span class="badge">v1.0.0</span>
     <a class="btn-lang" href="%(other)s">%(other_label)s</a>
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>
@@ -400,9 +400,9 @@ def landing(lang):
 
 def tour(lang):
     title = "Keal — the tour" if lang == "en" else "Keal — le tour"
-    desc = ("Fourteen chapters, every snippet real and its output verified."
+    desc = ("Fifteen chapters, every snippet real and its output verified."
             if lang == "en" else
-            "Quatorze chapitres, chaque extrait réel et sa sortie vérifiée.")
+            "Quinze chapitres, chaque extrait réel et sa sortie vérifiée.")
     intro = ("Half an hour, top to bottom. Every snippet below is a real program and every"
              " output is what it actually prints — the suite checks them."
              if lang == "en" else

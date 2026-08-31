@@ -1,6 +1,6 @@
 # STATUS — where the work stands, and how to resume it
 
-*Updated: 2026-08-31 (version 0.8.0). This file is the hand-off: if a session dies, the next
+*Updated: 2026-08-31 (version 1.0.0). This file is the hand-off: if a session dies, the next
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
@@ -58,6 +58,21 @@ commit that leaves work in flight.*
   (`examples/interop/java/`). Plan in `docs/interop.md`.
 
 ## IN FLIGHT
+
+**THE REPOSITORY SAYS 1.0.0. THE TAG IS TONY'S TO PUSH.**
+RELEASING.md's 1.0 criterion used to read "the semantics are frozen, which
+they are not: macros are still open". Macros landed, and so did everything
+else the list carried. The criterion was then TESTED rather than asserted:
+every plausible future addition is REFUSED TODAY —
+`enum S { A(x: Int) }`, `trait T<X>`, `func List.foo()`, `Int32`, and each
+of the seven held words. A refusal today means adding the feature later can
+only make an INVALID program VALID, which is the definition of additive.
+WHAT 1.0 FREEZES: the language. What it does NOT: the standard library
+(grows by addition), the emitted C (an implementation detail the suite
+holds to the interpreters), and it claims no ecosystem.
+`git tag -a v1.0.0` then `git push origin v1.0.0` fires the release
+workflow, which builds macOS arm64/x86_64, Linux and Windows-msvc, runs the
+whole suite on each, and opens a DRAFT release.
 
 **THE LANGUAGE SERVER — `keal lsp`, DONE.** Diagnostics as you type, hover
 types, go to definition, find references, rename, document outline,

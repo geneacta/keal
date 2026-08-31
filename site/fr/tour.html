@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Keal — le tour</title>
-<meta name="description" content="Quatorze chapitres, chaque extrait réel et sa sortie vérifiée.">
+<meta name="description" content="Quinze chapitres, chaque extrait réel et sa sortie vérifiée.">
 <link rel="canonical" href="https://geneacta.github.io/keal/fr/tour.html">
 <link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/tour.html">
 <link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/tour.html">
@@ -13,12 +13,12 @@
 <meta property="og:site_name" content="Keal">
 <meta property="og:locale" content="fr_FR">
 <meta property="og:title" content="Keal — le tour">
-<meta property="og:description" content="Quatorze chapitres, chaque extrait réel et sa sortie vérifiée.">
+<meta property="og:description" content="Quinze chapitres, chaque extrait réel et sa sortie vérifiée.">
 <meta property="og:url" content="https://geneacta.github.io/keal/fr/tour.html">
 <meta property="og:image" content="https://geneacta.github.io/keal/assets/keal.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Keal — le tour">
-<meta name="twitter:description" content="Quatorze chapitres, chaque extrait réel et sa sortie vérifiée.">
+<meta name="twitter:description" content="Quinze chapitres, chaque extrait réel et sa sortie vérifiée.">
 <meta name="twitter:image" content="https://geneacta.github.io/keal/assets/keal.png">
 <link rel="icon" type="image/png" href="../assets/keal3.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -34,14 +34,14 @@
     <div class="nav-links"><a href="index.html">Accueil</a><a href="tour.html" class="tab-active">Le tour</a><a href="docs.html">Docs</a><a href="coming-from.html">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
   </div>
   <div class="nav-right">
-    <span class="badge">v0.8.0</span>
+    <span class="badge">v1.0.0</span>
     <a class="btn-lang" href="../tour.html">English</a>
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>
 </nav>
 
 <div class="tourgrid">
-  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Bonjour, monde</a><a class="tch" href="#c2"><span class="n">2</span>Valeurs et liaisons</a><a class="tch" href="#c3"><span class="n">3</span>func et proc</a><a class="tch" href="#c4"><span class="n">4</span>Flot de contrôle</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Sûreté face à null</a><a class="tch" href="#c7"><span class="n">7</span>Collections et lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Enregistrements et classes</a><a class="tch" href="#c9"><span class="n">9</span>Génériques et traits</a><a class="tch" href="#c10"><span class="n">10</span>Les huit connecteurs</a><a class="tch" href="#c11"><span class="n">11</span>deinit et weak</a><a class="tch" href="#c12"><span class="n">12</span>Code natif et C</a><a class="tch" href="#c13"><span class="n">13</span>constexpr</a><a class="tch" href="#c14"><span class="n">14</span>Macros</a></aside>
+  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Bonjour, monde</a><a class="tch" href="#c2"><span class="n">2</span>Valeurs et liaisons</a><a class="tch" href="#c3"><span class="n">3</span>func et proc</a><a class="tch" href="#c4"><span class="n">4</span>Flot de contrôle</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Sûreté face à null</a><a class="tch" href="#c7"><span class="n">7</span>Collections et lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Enregistrements et classes</a><a class="tch" href="#c9"><span class="n">9</span>Génériques et traits</a><a class="tch" href="#c10"><span class="n">10</span>Les huit connecteurs</a><a class="tch" href="#c11"><span class="n">11</span>deinit et weak</a><a class="tch" href="#c12"><span class="n">12</span>Code natif et C</a><a class="tch" href="#c13"><span class="n">13</span>constexpr</a><a class="tch" href="#c14"><span class="n">14</span>enum</a><a class="tch" href="#c15"><span class="n">15</span>Macros</a></aside>
   <div class="tourmain prose">
     <h1>Le tour de Keal</h1>
     <p class="lede">Une demi-heure, de haut en bas. Chaque extrait ci-dessous est un vrai programme et chaque sortie est ce qu'il imprime réellement — la suite les vérifie.</p>
@@ -189,7 +189,15 @@ println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></
 
 constexpr val KB = 1024
 constexpr val TABLE: List&lt;Int&gt; = squares(8)
-println(&quot;${KB * KB} ${TABLE.size} ${TABLE[6]}&quot;)</pre><div class="cwin-out"><pre>1048576 7 49</pre></div></div></section><section class="chapter" id="c14"><h2>14. Macros</h2><p class="lede">Un morceau de syntaxe nommé, inséré là où il est écrit. Le <code>!</code> n'est pas décoratif : une macro peut affecter ce qu'on lui donne, exécuter un argument deux fois ou jamais, et laisser un <code>return</code> traverser jusqu'à la fonction autour — trois choses qu'un appel ne peut pas faire.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter14.keal</span><span class="run">▶ Exécuter</span></div><pre>macro swap(a, b) {
+println(&quot;${KB * KB} ${TABLE.size} ${TABLE[6]}&quot;)</pre><div class="cwin-out"><pre>1048576 7 49</pre></div></div></section><section class="chapter" id="c14"><h2>14. enum</h2><p class="lede">Un ensemble fermé de noms. Le vérificateur connaît toutes les valeurs du type, donc un <code>when</code> sur l'un d'eux n'a pas besoin de <code>else</code> — et le jour où quelqu'un ajoute une variante, chaque <code>when</code> qui l'a oubliée est une erreur plutôt qu'une surprise à l'exécution.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter14.keal</span><span class="run">▶ Exécuter</span></div><pre>enum Suit { Hearts, Diamonds, Clubs, Spades }
+
+func isRed(s: Suit): Bool {
+    return when (s) {
+        Suit.Hearts, Suit.Diamonds -&gt; true
+        Suit.Clubs, Suit.Spades -&gt; false
+    }
+}
+println(&quot;${Suit.Hearts} ${isRed(Suit.Hearts)} ${isRed(Suit.Spades)}&quot;)</pre><div class="cwin-out"><pre>Hearts true false</pre></div></div></section><section class="chapter" id="c15"><h2>15. Macros</h2><p class="lede">Un morceau de syntaxe nommé, inséré là où il est écrit. Le <code>!</code> n'est pas décoratif : une macro peut affecter ce qu'on lui donne, exécuter un argument deux fois ou jamais, et laisser un <code>return</code> traverser jusqu'à la fonction autour — trois choses qu'un appel ne peut pas faire.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter15.keal</span><span class="run">▶ Exécuter</span></div><pre>macro swap(a, b) {
     val held = a
     a = b
     b = held

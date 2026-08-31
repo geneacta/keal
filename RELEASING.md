@@ -8,18 +8,38 @@ compiler without installing Rust first, and what lets a bug report say
 
 ## What a version means here
 
-The project is pre-1.0, so the middle number carries the meaning:
+From 1.0, the first number carries the promise and the second carries the
+work:
 
-* **0.x.0** — new language surface, or a change to what a program means.
-  `weak`, actors on threads, `Any` natively, visibility and namespaces,
-  dependencies and the cycle audit: each of those was a minor. So was a
-  `deinit` the tree-walker had been skipping, which is a change to what a
-  program means even though it is a bug fix.
-* **0.x.y** — fixes and internals with no visible change to a correct
+* **1.x.0** — new surface that takes nothing away. A program that compiles
+  today compiles tomorrow and means the same thing.
+* **1.x.y** — fixes and internals with no visible change to a correct
   program.
-* **1.0** will mean the semantics are frozen, which they are not: macros
-  are still open, and a macro system changes what a program can be before
-  it changes what one says.
+* **2.0** would mean something a working program has to be rewritten for.
+  There is nothing on the list that needs one.
+
+### What 1.0 freezes, and what it does not
+
+**Frozen: the language.** Everything `keal check` accepts today it will keep
+accepting, with the same meaning. That is a real promise and it was tested
+before it was made: every addition still on the list — enum variants that
+carry data, generic traits, extension methods, sized integers, and each of
+the seven held words — is **refused today**, so adding it can only make an
+invalid program valid. `async`, `await`, `yield`, `sealed`, `super`,
+`static` and `typealias` are reserved for exactly that reason.
+
+**Not frozen: the standard library.** It grows, and it grows by addition.
+Seventy-seven built-in methods and a prelude is a small library and the
+project says so; the next things in it should come from programs somebody
+actually writes.
+
+**Not frozen, and never was: the C the backend emits.** It is an
+implementation detail with one obligation — that the program behaves as the
+interpreters do — and the suite is what holds it there.
+
+**What 1.0 does not claim.** Not a large ecosystem, not a battle-tested
+standard library, not a crowd. It claims that the language is finished
+enough to build on without the ground moving.
 
 ## The release criteria
 

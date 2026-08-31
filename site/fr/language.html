@@ -34,7 +34,7 @@
     <div class="nav-links"><a href="index.html">Accueil</a><a href="tour.html">Le tour</a><a href="docs.html" class="tab-active">Docs</a><a href="coming-from.html">Je viens de…</a><a href="stdlib.html">Bibliothèque</a></div>
   </div>
   <div class="nav-right">
-    <span class="badge">v0.8.0</span>
+    <span class="badge">v1.0.0</span>
     <a class="btn-lang" href="../language.html">English</a>
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>
@@ -322,7 +322,7 @@ fill(squares, 5)             // and now it holds five</code></pre>
 val p = Point(3.0, 4.0)
 p.label = &quot;P&quot;
 println(p)                  // P(3.0, 4.0)</code></pre>
-<ul><li>Constructor parameters marked <code>val</code>/<code>var</code> become fields; unmarked ones are visible only to field initializers.</li><li>Field initializers run top to bottom and may use <code>this</code> and the fields above them.</li><li>Members are always accessed through <code>this</code> inside a method.</li><li>A class with no body needs no braces: <code>class Pair(val a: Int, val b: String)</code>.</li><li>Defining <code>func toString(): String</code> changes how <code>println</code> and interpolation render the instance; otherwise they print <code>Point(x=3.0, y=4.0)</code>.</li><li>Instances compare by <strong>identity</strong>. Structural comparison would loop forever on a cyclic object graph, so <code>==</code> on two separately built instances is <code>false</code>.</li><li>There is no inheritance, no interfaces and no static members yet.</li></ul>
+<ul><li>Constructor parameters marked <code>val</code>/<code>var</code> become fields; unmarked ones are visible only to field initializers.</li><li>Field initializers run top to bottom and may use <code>this</code> and the fields above them.</li><li>Members are always accessed through <code>this</code> inside a method.</li><li>A class with no body needs no braces: <code>class Pair(val a: Int, val b: String)</code>.</li><li>Defining <code>func toString(): String</code> changes how <code>println</code> and interpolation render the instance; otherwise they print <code>Point(x=3.0, y=4.0)</code>.</li><li>Instances compare by <strong>identity</strong>. Structural comparison would loop forever on a cyclic object graph, so <code>==</code> on two separately built instances is <code>false</code>.</li><li>There is no inheritance and no static members. Traits are how a type promises behaviour; a value that belongs to no instance is a top-level <code>val</code>.</li></ul>
 <p>Classes may only be declared at the top level.</p>
 <hr>
 <h2 id="9-records">9. Records</h2>
@@ -527,7 +527,7 @@ version = &quot;0.1.0&quot;
 [dependencies]
 geometry = { git = &quot;https://github.com/someone/geometry&quot;, tag = &quot;v1.2.0&quot; }</code></pre>
 <p><code>keal fetch</code> clones each one and checks out what was named. Nothing else in the compiler touches the network: a <code>dep:</code> import reads what is on disk, so a project that commits <code>.keal/deps/</code> builds without git.</p>
-<p>There is no <code>package</code> declaration, no version resolution and no registry — <a href="docs.html">packages and namespaces</a> argues why, and in what order the rest would come.</p>
+<p>There is no <code>package</code> declaration and no version resolution — a manifest names a commit, not a range. There <em>is</em> an index: <code>keal search</code> finds a package whose URL you do not know, <code>keal add</code> writes it into <code>keal.toml</code> pinned to one exact tag, and the index is an ordinary git repository rather than a service anybody has to keep running. <a href="docs.html">Packages and namespaces</a> argues the order and the difference.</p>
 <p>The modifier goes on a top-level <code>func</code>, <code>proc</code>, <code>class</code>, <code>record</code>, <code>trait</code>, <code>extern func</code>, <code>val</code> or <code>var</code> — and on a class's own members:</p>
 <pre class="lang-keal"><code>public class Counter(public var n: Int) {
     var steps: Int = 0                    // the class&#x27;s own business
