@@ -34,7 +34,14 @@ impl Interp {
     /// Declares every top-level class and function, then runs the top-level
     /// statements in order.
     pub fn run(&mut self, program: &Program) -> Result<(), RtError> {
-        self.run_repl(program).map(|_| ())
+        let out = self.run_repl(program).map(|_| ());
+        // The top level is a scope like any other, and a closure bound there
+        // holds it exactly the same way. Nothing runs after a program but
+        // this, so this is where the globals are let go — which is what makes
+        // a top-level object's `deinit` run at all.
+        Scope::close(&self.globals);
+        Scope::empty(&self.globals);
+        out
     }
 
     /// Like `run`, but yields the value of the last top-level statement so the
@@ -93,7 +100,11 @@ impl Interp {
     /// Runs a block in a fresh scope; its value is that of the last statement.
     pub fn exec_block(&mut self, b: &Block, env: &Env) -> R<Value> {
         let scope = Scope::child(env);
-        self.exec_stmts(&b.stmts, &scope)
+        let out = self.exec_stmts(&b.stmts, &scope);
+        // A closure bound in this block held the block that held it; nothing
+        // else can free that pair.
+        Scope::close(&scope);
+        out
     }
 
     fn exec_stmts(&mut self, stmts: &[Stmt], env: &Env) -> R<Value> {
@@ -174,7 +185,9 @@ impl Interp {
                 for item in items {
                     let scope = Scope::child(env);
                     scope.define(var, item);
-                    match self.exec_stmts(&body.stmts, &scope) {
+                    let turn = self.exec_stmts(&body.stmts, &scope);
+                    Scope::close(&scope);
+                    match turn {
                         Ok(_) | Err(Flow::Continue) => {}
                         Err(Flow::Break) => break,
                         Err(other) => return Err(other),
@@ -725,6 +738,7 @@ impl Interp {
         self.depth += 1;
         let result = self.exec_stmts(&body.stmts, &scope);
         self.depth -= 1;
+        Scope::close(&scope);
 
         match result {
             Ok(v) => Ok(v),

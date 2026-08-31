@@ -59,6 +59,37 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**A `deinit` the tree-walker never ran — found by the audit, half fixed.**
+The audit's first real use found the engines disagreeing about what a
+program left behind, and behind that a genuine divergence: the
+TREE-WALKER RETAINS WHERE THE OTHER TWO DO NOT, because its closures
+capture the whole enclosing `Scope` while the VM and the C backend capture
+the values they need. Two shapes, one fixed and one not:
+FIXED — a closure bound in the very scope it captured (`val f = { ... }`
+in a body, the common case). Scope holds closure, closure holds scope,
+count never reaches zero, nothing in that scope is ever released and its
+`deinit` never runs. `Scope::close` breaks that self-edge when a scope is
+finished with (from the three sites that finish one: `exec_block`, a loop
+turn, a call frame) — and it is STRICT about when it may: every closure
+over the scope must be held by that scope alone AND nothing else may hold
+the scope. The first attempt was not, and it broke the prelude's
+sequences: an escaped iterator closure still reads `advance` through the
+scope chain, so a scope anything escaped from must be left exactly as it
+was. `Scope::empty` also lets the globals go when a program ends, which
+is what makes a top-level object's `deinit` run at all.
+NOT FIXED — an escaped closure stored in an object the same scope holds
+(`val h = Holder({ -> t.n })`). Object holds closure, closure holds scope,
+scope holds object. The VM has no such cycle because its closure holds
+values, not the frame. Repro in this session:
+`class Thing { deinit }` + `class Holder(val make: () -> Int)`; the VM and
+native print `thing 1 died`, the tree-walker does not. THE FIX is to make
+the interpreter capture free variables by value, with cells for the
+mutable ones, exactly as the VM does — `cbackend::collect_free` already
+computes the set, and `copyClosure` already does the rebuild for actors.
+Substantial, and the reference engine is the one that is wrong.
+Regression test for the fixed half: the closure-capture block at the end
+of `tests/programs/deinit.keal`, green on all three engines.
+
 **The cycle audit, on the interpreters. DONE; the native half is next.**
 `KEAL_AUDIT=1 keal run prog.keal` prints, at exit, what outlived the
 program by type — the evidence `docs/memory.md` §5 promised instead of a

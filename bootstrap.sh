@@ -35,4 +35,8 @@ mkdir -p dist
 mv cbackend dist/kealc
 rm -f cbackend.c cbackend.o
 
-echo "dist/kealc — the Keal compiler, written in Keal, compiled by itself."
+# MSYS treats `kealc` and `kealc.exe` as the same file, so the `mv` above
+# lands the suffix on Windows without saying so. Announce what is there.
+built=dist/kealc
+[ -f "$built.exe" ] && built="$built.exe"
+echo "$built — the Keal compiler, written in Keal, compiled by itself."

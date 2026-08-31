@@ -407,6 +407,64 @@ impl Scope {
         })
     }
 
+    /// Lets go of everything a scope holds, in reverse declaration order —
+    /// the death order all three engines share. For the top level, where
+    /// there is no enclosing scope to do it and nothing runs afterwards.
+    pub fn empty(this: &Env) {
+        let order: Vec<Rc<str>> = this.order.borrow().iter().rev().cloned().collect();
+        for name in order {
+            let value = this.vars.borrow_mut().remove(&name);
+            drop(value);
+        }
+    }
+
+    /// Breaks the one cycle a scope can make on its own: a closure stored in
+    /// the very scope it captured.
+    ///
+    /// `val f = { ... }` inside a body makes exactly that shape — the scope
+    /// holds the closure, the closure holds the scope — and reference
+    /// counting cannot see through it. Nothing the scope holds is ever
+    /// released, so an object bound beside the closure never dies and its
+    /// `deinit` never runs, which is a difference from the other two engines.
+    ///
+    /// It only unpicks a scope nothing escaped from, and it is strict about
+    /// what that means: every closure over this scope must be held by this
+    /// scope alone, and nothing else may hold the scope. A closure that got
+    /// out can still be called, and calling it reads names through the scope
+    /// chain — a sequence's iterator asking for the `advance` bound beside
+    /// it — so a scope anything escaped from is left exactly as it was.
+    ///
+    /// Called when a scope is finished with rather than from `Drop`, which a
+    /// cyclic scope never reaches.
+    pub fn close(this: &Env) {
+        let doomed: Vec<Rc<str>> = {
+            let vars = this.vars.borrow();
+            this.order
+                .borrow()
+                .iter()
+                .rev()
+                .filter(|n| match vars.get(&***n) {
+                    // Held by this binding and nothing else, or it escaped.
+                    Some(Value::Fun(c)) => Rc::ptr_eq(&c.env, this) && Rc::strong_count(c) == 1,
+                    _ => false,
+                })
+                .cloned()
+                .collect()
+        };
+        if doomed.is_empty() {
+            return;
+        }
+        // Our own handle, plus one for each closure that captured us. More
+        // than that and somebody outside is holding this scope.
+        if Rc::strong_count(this) != 1 + doomed.len() {
+            return;
+        }
+        for name in doomed {
+            let value = this.vars.borrow_mut().remove(&name);
+            drop(value);
+        }
+    }
+
     pub fn child(parent: &Env) -> Env {
         Rc::new(Scope {
             vars: RefCell::new(HashMap::new()),

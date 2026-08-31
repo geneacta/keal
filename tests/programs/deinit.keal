@@ -56,3 +56,19 @@ try {
 }
 log += "|"
 assert(log == "caught [try]|", log)
+
+// A closure keeps what it captured alive, and it is bound in the very scope
+// it captured — the one shape reference counting cannot see through on its
+// own. The tree-walker used to hold that pair for ever, so this object's
+// `deinit` never ran there while the other two engines ran it.
+var captured = 0
+class Captured(val id: Int) {
+    proc deinit() { captured += 1 }
+}
+proc holdInAClosure() {
+    val c = Captured(1)
+    val read: () -> Int = { -> c.id }
+    assert(read() == 1, "the closure reads what it captured")
+}
+holdInAClosure()
+assert(captured == 1, "a captured object dies with the scope that held both")
