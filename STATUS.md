@@ -1,6 +1,6 @@
 # STATUS — where the work stands, and how to resume it
 
-*Updated: 2026-08-30 (version 0.6.0). This file is the hand-off: if a session dies, the next
+*Updated: 2026-08-31 (version 0.7.0). This file is the hand-off: if a session dies, the next
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 

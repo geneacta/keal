@@ -2,7 +2,7 @@
 
 # Keal — a statically typed, self-hosting language with a small surface
 
-**Version 0.6.0** · `keal version` prints the toolchain's own.
+**Version 0.7.0** · `keal version` prints the toolchain's own.
 
 *Small* means the surface, not the reach: a handful of concepts —
 values, functions, classes and traits, `when`, null safety — carried
@@ -31,6 +31,9 @@ At a glance:
 * **Lazy sequences** (Stream/Sequence-style, written in Keal itself) and an
   **actor model** for concurrency — deterministic on the interpreters, real
   OS threads under `keal build`, same output either way
+* **Modules that keep their own counsel** — a declaration is private to its
+  file unless it says `package` (the files beside it) or `public`, and two
+  modules may declare the same name: `import "./config.keal" as config`
 * **Reference counting** with a fully documented memory model — inspect any
   program's layout with `keal layout`
 * **Native compilation** (`keal build`) ~84× faster than the VM, with **C and
