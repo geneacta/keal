@@ -220,6 +220,11 @@ typedef struct KealStr {
 static _Thread_local int64_t keal_try_depth = 0;
 static _Thread_local bool keal_unwinding = false;
 static _Thread_local char keal_unwind_msg[1024];
+/* Whether a `throw` gave the unwind a value of its own. A built-in
+ * failure gives none: its message is its value, exactly as `runtime::err`
+ * builds a `String` for the interpreters, so `catch (e: String)` catches
+ * an overflow on all three engines. */
+static _Thread_local bool keal_unwind_has_value = false;
 /* The line too, so a panic carried across threads — an actor's, rethrown
  * on the thread that called `run` — still names its source line. */
 static _Thread_local int64_t keal_unwind_line = 0;
@@ -229,6 +234,7 @@ KEAL_FN void keal_panic(const char* what, int64_t line) {
         /* A panic while already unwinding keeps the first message. */
         if (!keal_unwinding) {
             keal_unwinding = true;
+            keal_unwind_has_value = false;
             snprintf(keal_unwind_msg, sizeof keal_unwind_msg, "%s", what);
             keal_unwind_line = line;
         }
@@ -1910,9 +1916,58 @@ KEAL_FN void keal_drain_drops(void) {
     keal_draining = false;
 }
 
+/* The thrown value itself, live only while `keal_unwind_has_value`. */
+static _Thread_local KealAny keal_unwind_value;
+
+/* A `throw` of a value. The value crosses whole — tag and payload, the
+ * `Any` machinery — and its rendering is the message a `catch (e)` reads,
+ * the same text the interpreters give since both take it from `display`.
+ * Uncaught, this ends the program printing that message, like any panic. */
+KEAL_FN void keal_throw_value(KealAny v, int64_t line) {
+    KealStr* m = keal_any_display(v);
+    /* Only a fresh unwind adopts the value: one already unwinding keeps
+     * the first, which is the rule the message already follows. */
+    bool fresh = keal_try_depth > 0 && !keal_unwinding;
+    keal_panic(m->bytes, line);
+    if (fresh) {
+        keal_unwind_value = keal_any_retain(v);
+        keal_unwind_has_value = true;
+    }
+    keal_str_release(m);
+}
+
+/* Does the value being unwound answer to this tag? A message-only unwind
+ * answers to `String`, which is what it is. */
+KEAL_FN bool keal_unwind_is(const KealTypeInfo* ti) {
+    return keal_unwind_has_value ? keal_unwind_value.ti == ti : ti == &keal_ti_str;
+}
+
+/* `catch (e: Any)`: anything but null, as `is Any` reads it everywhere. */
+KEAL_FN bool keal_unwind_is_any(void) {
+    return !keal_unwind_has_value || keal_unwind_value.ti != NULL;
+}
+
+/* Ends the unwind at a typed `catch`: hands the value over, owned. */
+KEAL_FN KealAny keal_unwind_value_take(void) {
+    keal_unwinding = false;
+    if (!keal_unwind_has_value) {
+        KealAny a;
+        a.ti = &keal_ti_str;
+        a.w.p = keal_str_from_bytes(keal_unwind_msg, (int64_t)strlen(keal_unwind_msg));
+        return a;
+    }
+    keal_unwind_has_value = false;
+    return keal_unwind_value;
+}
+
 /* Ends the unwind at a `catch`: hands the message over and clears the
- * flag, so the handler runs like any other code. */
+ * flag, so the handler runs like any other code. A value the clause did
+ * not ask for dies here — the message is all it wanted. */
 KEAL_FN KealStr* keal_unwind_take(void) {
     keal_unwinding = false;
+    if (keal_unwind_has_value) {
+        keal_unwind_has_value = false;
+        keal_any_release(keal_unwind_value);
+    }
     return keal_str_from_bytes(keal_unwind_msg, (int64_t)strlen(keal_unwind_msg));
 }

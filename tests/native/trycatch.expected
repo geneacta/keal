@@ -4,3 +4,9 @@ map: division by zero
 -1
 wrapped: index 9 is out of bounds for a list of 3 element(s)
 ok 0, ok 1, skip 2, ok 3
+fine
+refused too big at 20
+an Int: -1
+a message: seven is unlucky
+the outer clause took it: inner
+caught: integer overflow

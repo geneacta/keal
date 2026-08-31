@@ -54,3 +54,51 @@ while (i < 4) {
     i++
 }
 println(log.join(", "))
+
+// A `throw` carries a value, and a `catch` may name the type it takes.
+// Natively the value crosses as an `Any` — tag and payload — and the tag
+// is what a typed clause tests.
+record Refused(val why: String, val at: Int)
+
+fun classify(n: Int): String {
+    try {
+        if (n > 10) { throw Refused("too big", n) }
+        if (n < 0) { throw n }
+        if (n == 7) { throw "seven is unlucky" }
+        return "fine"
+    } catch (e: Refused) {
+        return "refused ${e.why} at ${e.at}"
+    } catch (e: Int) {
+        return "an Int: ${e}"
+    } catch (e) {
+        return "a message: ${e}"
+    }
+}
+println(classify(3))
+println(classify(20))
+println(classify(-1))
+println(classify(7))
+
+// A clause matching nothing lets the panic go on unwinding, to the clause
+// outside that does match it.
+fun outer(): String {
+    try {
+        try {
+            throw Refused("inner", 1)
+        } catch (e: Int) {
+            return "wrong"
+        }
+    } catch (e: Refused) {
+        return "the outer clause took it: ${e.why}"
+    }
+    return "unreached"
+}
+println(outer())
+
+// A built-in failure is a thrown String, so a typed clause can name it.
+try {
+    val big = 9223372036854775807
+    println(big + 1)
+} catch (e: String) {
+    println("caught: ${e}")
+}

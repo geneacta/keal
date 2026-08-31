@@ -1097,6 +1097,20 @@ class CBackend() {
         return "false"
     }
 
+    // The same test, asked of the value being unwound: a `catch` that
+    // names a type takes only what that type can hold. A type no value
+    // can carry natively tests false, which is what it would answer.
+    fun unwindTest(target: Ty, file: Int, atLine: Int, col: Int): String {
+        if (target.kind == "Any") { return "keal_unwind_is_any()" }
+        if (target.kind == "Unit" or target.kind == "Never" or target.kind == "Range" or target.kind == "Map" or target.kind == "Fun") {
+            return "false"
+        }
+        val ti = this.anyTiOf(target, file, atLine, col)
+        if (ti != null) { return "keal_unwind_is(${ti})" }
+        this.unsupported(file, atLine, col, "catching a `${tyShow(target)}`")
+        return "false"
+    }
+
     fun copyExprOf(t: Ty, v: String, depth: String, file: Int, atLine: Int, col: Int): String? {
         val k = t.kind
         if (k == "Int" or k == "Float" or k == "Bool" or k == "Unit" or k == "Range") {
@@ -2708,24 +2722,23 @@ class CBackend() {
         if (s.kind == "throw") {
             // A thrown message is the same panic every built-in failure
             // raises; uncaught, it ends the program identically on all
-            // three engines.
-            val m = this.expr(s.ex!!)
-            this.line("keal_panic(${m}->bytes, ${s.line});")
+            // three engines. A value of any other type crosses whole as an
+            // `Any`, and renders to that same message, so a `catch (e)`
+            // reads the same text either way.
+            val ety = this.ety(s.ex!!)
+            if (ety != null and ety.kind == "Str") {
+                val m = this.expr(s.ex!!)
+                this.line("keal_panic(${m}->bytes, ${s.line});")
+            } else {
+                val v = this.expr(s.ex!!)
+                val any = this.anyOf(ety, v, s.file, s.ex!!.line, s.ex!!.col)
+                this.line("keal_throw_value(${any}, ${s.line});")
+            }
             this.checkUnwind()
             return
         }
         if (s.kind == "try") {
-            // Catching by type is not emitted yet: it wants the thrown value
-            // carried through the unwind rather than its message, and the
-            // backend refuses by name until it does.
-            for (c in s.catches) {
-                if (c.tyEx != null) {
-                    this.unsupported(s.file, c.line, c.col, "catching by type")
-                    return
-                }
-            }
             if (s.catches.size == 0) { return }
-            val first = s.catches[0]
             // The body runs under a counted `try`; any panic in its
             // dynamic extent unwinds — every frame releasing its own
             // holdings on the way — to the catch label, which adopts
@@ -2751,23 +2764,64 @@ class CBackend() {
                 this.line("KC${id}:;")
                 this.line("keal_try_depth--;")
             }
-            // With nothing in the body able to panic, the handler is
-            // dead code behind the unconditional jump — but it still
-            // compiles, so its diagnostics and its names stay real.
-            this.line("{")
-            this.indent += 1
-            this.openScope()
-            val eVar = mangle(first.name)
-            val source = if (caught) { "keal_unwind_take()" } else { "keal_str_empty()" }
-            this.line("KealStr* ${eVar} = ${source};")
-            this.own(eVar, Ty("Str"))
-            this.declareLocal(first.name, Ty("Str"), false)
-            for (st in first.handler.stmts) {
-                this.seqStmt(st)
+            // The clauses are tried in order, as the interpreters try
+            // them: the first whose type the thrown value answers to takes
+            // it whole, and a clause naming no type takes the message.
+            // With nothing in the body able to panic, all of this is dead
+            // code behind the unconditional jump — but it still compiles,
+            // so its diagnostics and its names stay real.
+            val last = s.catches.size - 1
+            var ci = 0
+            while (ci < s.catches.size) {
+                val c = s.catches[ci]
+                var target: Ty? = null
+                if (c.tyEx != null) {
+                    target = this.isTarget(c.tyEx!!, s.file, c.line, c.col)
+                    if (target == null) { return }
+                    val test = this.unwindTest(target!!, s.file, c.line, c.col)
+                    this.line("if (${test}) {")
+                } else {
+                    this.line("{")
+                }
+                this.indent += 1
+                this.openScope()
+                val eVar = mangle(c.name)
+                if (target != null) {
+                    val a = this.temp()
+                    val src = if (caught) { "keal_unwind_value_take()" } else { "keal_any_null()" }
+                    this.line("KealAny ${a} = ${src};")
+                    val payload = this.anyPayload(target!!, a, s.file, c.line, c.col)
+                    if (payload == null) { return }
+                    val ct = this.ctype(target!!, s.file, c.line, c.col)
+                    if (ct == null) { return }
+                    this.line("${ct} ${eVar} = ${payload};")
+                    this.own(eVar, target!!)
+                    this.declareLocal(c.name, target!!, false)
+                } else {
+                    val src = if (caught) { "keal_unwind_take()" } else { "keal_str_empty()" }
+                    this.line("KealStr* ${eVar} = ${src};")
+                    this.own(eVar, Ty("Str"))
+                    this.declareLocal(c.name, Ty("Str"), false)
+                }
+                for (st in c.handler.stmts) {
+                    this.seqStmt(st)
+                }
+                this.closeScope()
+                // The last clause falls through to the end on its own; an
+                // earlier one has to jump past the clauses under it.
+                if (ci != last) {
+                    this.line("goto KE${id};")
+                }
+                this.indent -= 1
+                this.line("}")
+                ci += 1
             }
-            this.closeScope()
-            this.indent -= 1
-            this.line("}")
+            // Nothing matched: it goes on unwinding, unchanged. A clause
+            // naming no type always matches, so this is only emitted when
+            // every clause names one.
+            if (s.catches[last].tyEx != null) {
+                this.checkUnwind()
+            }
             this.line("KE${id}:;")
             return
         }

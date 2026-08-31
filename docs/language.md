@@ -1095,9 +1095,12 @@ because it may not run.
 One thing cannot be thrown: a function. A signature has no run-time identity,
 so no `catch` could name one.
 
-**Not yet native.** `keal build` refuses `catch (e: T)` by name; the
-interpreters have it. Carrying the thrown value through the C unwind rather
-than its message is the work outstanding.
+All three engines catch by type. Natively the thrown value rides the unwind
+as an `Any` — tag and payload, the same pair `is` tests — so a clause is a
+tag compare, and the rules above hold on the compiled program exactly as
+they hold on the interpreters. The one consequence: a value the native
+backend cannot put in an `Any` cannot be thrown in a compiled program, and
+`keal build` says so by name rather than compiling something else.
 
 ---
 
@@ -1206,13 +1209,15 @@ there is no cycle collector.
 ## 20. What is not here yet
 
 Class inheritance (a non-goal) · indexing and call operators (`Index`,
-`Invoke`) · associated types on traits · a module namespace (imports are
-flat) · typed exceptions (`catch` binds the message as a `String`) ·
-`constexpr` and macros · a package manager.
+`Invoke`) · associated types on traits · a package registry · `constexpr`
+and macros · a language server.
 
 Shipped since this list was first written, and no longer on it: `throw` /
-`try` / `catch` on all three engines, destructuring a record in a `when`
-or a binding, the native backend through C11 (with C, C++, Rust, Go, Java
-and Kotlin interop), actors on real OS threads, `deinit`, and `Any`
-natively. What the C backend still refuses, it refuses **by name** —
-`keal build` never mis-compiles.
+`try` / `catch` on all three engines — typed clauses included, natively —
+destructuring a record in a `when` or a binding, the native backend
+through C11 (with C, C++, Rust, Go, Java and Kotlin interop), actors on
+real OS threads, `deinit`, `weak`, `Any` natively, visibility with
+`package` and `public`, a namespace that lets two modules declare the same
+name, and dependencies with transitivity and a lockfile. What the C
+backend still refuses, it refuses **by name** — `keal build` never
+mis-compiles.

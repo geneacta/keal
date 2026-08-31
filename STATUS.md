@@ -59,7 +59,7 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
-**TYPED EXCEPTIONS — on the interpreters; the native half is next.**
+**TYPED EXCEPTIONS — DONE, all three engines.**
 `throw` carries ANY value now (a function is the one refusal: a signature
 has no run-time identity to catch it by). `try` takes a LIST of clauses,
 tried in order: `catch (e: T)` binds the value whole when its type
@@ -73,10 +73,21 @@ handler with the VALUE pushed (not the message) and the clauses compile to
 `Dup; IsType; JumpIfFalse` chains, the catch-all to `Interpolate(1)`, and
 a fall-through to `Throw` — no new opcodes. `Op::Throw` takes any value.
 The tree-walker uses `type_matches`, the same test `is` uses.
-NATIVE REFUSES BY NAME ("catching by type"), oracle and twin: the C unwind
-carries a message buffer, and carrying the value wants the `KealAny`
-machinery instead — tag and payload, which already exists. That is the
-next piece.
+NATIVE: the C unwind grew a value beside its message buffer — a `KealAny`,
+tag and payload, the machinery that already existed. `keal_throw_value`
+adopts the value on a fresh unwind (one already unwinding keeps the first,
+the rule the message already followed) and takes its message from
+`keal_any_display`, which is where the interpreters take theirs, so the
+text is the same by construction. `keal_unwind_is(ti)` is the clause test;
+a message-only unwind — every built-in failure — answers to `String`,
+which is what it is, so no built-in needed a second path. Two takers:
+`keal_unwind_value_take` hands the value over owned, `keal_unwind_take`
+hands the message over and RELEASES a value the clause did not ask for.
+A `throw` of a String still emits `keal_panic` unchanged, so the whole
+existing corpus's C output is byte-identical — only new programs move.
+The clauses emit as a chain of `if`s, each jumping past those under it,
+and when the last one names a type a `check_unwind` under the chain lets
+an unmatched value go on unwinding. 0 leaks on `tests/native/trycatch`.
 TWIN: `CatchN`, clause parsing, `pTry`, the checker's clause loop, and —
 the bug this found — the LOADER NEVER STAMPED a try's handler with its
 file. Harmless while a handler had no type to resolve; the moment a clause
@@ -782,10 +793,12 @@ works through it). **Version 0.5.0 — DONE** (Cargo.toml + README header).
 2. Closure callbacks at the C boundary (interop 1d) once a consumer fixes
    the `userdata` convention.
 3. Threaded actors — DONE through stage 6 (scheduler, JNI attach,
-   measurements recorded in threads.md). `Any` natively — DONE too.
-   Cycles — DECIDED (weak references; see IN FLIGHT top), implementation
-   pending. Then: typed exceptions; `constexpr`; macros last. See README
-   "What remains".
+   measurements recorded in threads.md). `Any` natively — DONE. `weak` —
+   DONE. Visibility, namespaces and dependencies — DONE. Typed exceptions
+   — DONE, all three engines. What is left, in order: a rule telling an
+   accidental cycle from a global that lived to the end (the audit reports
+   both alike today); a registry, if it is ever worth one; `constexpr`
+   evaluation; macros last. See README "What remains".
 
 ## Key file map
 

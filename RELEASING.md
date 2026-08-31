@@ -18,8 +18,9 @@ The project is pre-1.0, so the middle number carries the meaning:
 * **0.x.y** — fixes and internals with no visible change to a correct
   program.
 * **1.0** will mean the semantics are frozen, which they are not: the
-  cycle audit, typed exceptions and a module namespace are all still
-  open, and each could change how a program is written.
+  cycle audit still cannot tell an accidental cycle from a global that
+  lived to the end, and `constexpr` would change when a program's work
+  happens. Either could change how a program is written.
 
 ## The release criteria
 

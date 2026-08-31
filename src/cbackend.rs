@@ -2078,21 +2078,24 @@ impl CBackend {
             StmtKind::Throw(e) => {
                 // A thrown message is the same panic every built-in failure
                 // raises; uncaught, it ends the program identically on all
-                // three engines.
-                let m = self.expr(e);
-                self.line(format!("keal_panic({}->bytes, {});", m, s.span.line));
+                // three engines. A value of any other type crosses whole as
+                // an `Any`, and renders to that same message, so a
+                // `catch (e)` reads the same text either way.
+                if matches!(self.ety(e), Some(Type::Str)) {
+                    let m = self.expr(e);
+                    self.line(format!("keal_panic({}->bytes, {});", m, s.span.line));
+                } else {
+                    let ty = self.ety(e);
+                    let v = self.expr(e);
+                    let any = self.any_of(ty.as_ref(), v, e.span);
+                    self.line(format!("keal_throw_value({}, {});", any, s.span.line));
+                }
                 self.check_unwind();
             }
             StmtKind::Try { body, clauses } => {
-                // Catching by type is not emitted yet: it wants the thrown
-                // value carried through the unwind rather than its message,
-                // and the backend refuses by name until it does.
-                if let Some(c) = clauses.iter().find(|c| c.ty.is_some()) {
-                    self.unsupported(c.span, "catching by type");
+                if clauses.is_empty() {
                     return;
                 }
-                let Some(first) = clauses.first() else { return };
-                let (name, handler) = (&first.name, &first.handler);
                 // The body runs under a counted `try`; any panic in its
                 // dynamic extent unwinds — every frame releasing its own
                 // holdings on the way — to the catch label, which adopts
@@ -2117,23 +2120,70 @@ impl CBackend {
                     self.line(format!("KC{}:;", id));
                     self.line("keal_try_depth--;");
                 }
-                // With nothing in the body able to panic, the handler is
-                // dead code behind the unconditional jump — but it still
-                // compiles, so its diagnostics and its names stay real.
-                self.line("{");
-                self.indent += 1;
-                self.open_scope();
-                let e_var = mangle(name);
-                let source = if caught { "keal_unwind_take()" } else { "keal_str_empty()" };
-                self.line(format!("KealStr* {} = {};", e_var, source));
-                self.own(&e_var, &Type::Str);
-                self.declare_local(name, &Type::Str, false);
-                for st in &handler.stmts {
-                    self.seq_stmt(st);
+                // The clauses are tried in order, as the interpreters try
+                // them: the first whose type the thrown value answers to
+                // takes it whole, and a clause naming no type takes the
+                // message. With nothing in the body able to panic, all of
+                // this is dead code behind the unconditional jump — but it
+                // still compiles, so its diagnostics and its names stay real.
+                let last = clauses.len() - 1;
+                for (i, c) in clauses.iter().enumerate() {
+                    let target = match &c.ty {
+                        Some(te) => {
+                            let Some(t) = self.is_target(te, c.span) else { return };
+                            let test = self.unwind_test(&t, c.span);
+                            self.line(format!("if ({}) {{", test));
+                            Some(t)
+                        }
+                        None => {
+                            self.line("{");
+                            None
+                        }
+                    };
+                    self.indent += 1;
+                    self.open_scope();
+                    let e_var = mangle(&c.name);
+                    match &target {
+                        Some(t) => {
+                            let a = self.temp();
+                            let src = if caught {
+                                "keal_unwind_value_take()"
+                            } else {
+                                "keal_any_null()"
+                            };
+                            self.line(format!("KealAny {} = {};", a, src));
+                            let Some(payload) = self.any_payload(t, &a, c.span) else { return };
+                            let Some(ct) = self.ctype(t, c.span) else { return };
+                            self.line(format!("{} {} = {};", ct, e_var, payload));
+                            self.own(&e_var, t);
+                            self.declare_local(&c.name, t, false);
+                        }
+                        None => {
+                            let src =
+                                if caught { "keal_unwind_take()" } else { "keal_str_empty()" };
+                            self.line(format!("KealStr* {} = {};", e_var, src));
+                            self.own(&e_var, &Type::Str);
+                            self.declare_local(&c.name, &Type::Str, false);
+                        }
+                    }
+                    for st in &c.handler.stmts {
+                        self.seq_stmt(st);
+                    }
+                    self.close_scope();
+                    // The last clause falls through to the end on its own;
+                    // an earlier one has to jump past the clauses under it.
+                    if i != last {
+                        self.line(format!("goto KE{};", id));
+                    }
+                    self.indent -= 1;
+                    self.line("}");
                 }
-                self.close_scope();
-                self.indent -= 1;
-                self.line("}");
+                // Nothing matched: it goes on unwinding, unchanged. A
+                // clause naming no type always matches, so this is only
+                // emitted when every clause names one.
+                if clauses[last].ty.is_some() {
+                    self.check_unwind();
+                }
                 self.line(format!("KE{}:;", id));
             }
             StmtKind::Break | StmtKind::Continue => {
@@ -5060,6 +5110,25 @@ impl CBackend {
                 Some(ti) => format!("({}.ti == {})", v, ti),
                 None => {
                     self.unsupported(span, &format!("`is {}`", other));
+                    "false".to_string()
+                }
+            },
+        }
+    }
+
+    /// The same test, asked of the value being unwound: a `catch` that
+    /// names a type takes only what that type can hold. A type no value
+    /// can carry natively tests false, which is what it would answer.
+    fn unwind_test(&mut self, target: &Type, span: Span) -> String {
+        match target {
+            Type::Any => "keal_unwind_is_any()".to_string(),
+            Type::Unit | Type::Never | Type::Range | Type::Map(_, _) | Type::Fun(_) => {
+                "false".to_string()
+            }
+            other => match self.any_ti_of(other, span) {
+                Some(ti) => format!("keal_unwind_is({})", ti),
+                None => {
+                    self.unsupported(span, &format!("catching a `{}`", other));
                     "false".to_string()
                 }
             },
