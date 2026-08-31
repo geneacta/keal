@@ -29,11 +29,31 @@ thread_local! {
 
 /// Hands the loader the unsaved text of the files the editor has open.
 pub fn set_overlay(files: HashMap<PathBuf, String>) {
-    OVERLAY.with(|o| *o.borrow_mut() = files);
+    let keyed = files.into_iter().map(|(p, t)| (overlay_key(&p), t)).collect();
+    OVERLAY.with(|o| *o.borrow_mut() = keyed);
+}
+
+/// What the filesystem calls a file, rather than what somebody spelled.
+///
+/// Two spellings can name one file. macOS and Windows both open `lib.keal`
+/// when the file on disk is `Lib.keal`, while `PathBuf` compares those as
+/// different — so an editor holding `Lib.keal` and an `import "./lib.keal"`
+/// would miss each other in the map, and the checker would answer from the
+/// copy on disk without ever saying it had. Diagnostics one save behind,
+/// with nothing to show for it.
+///
+/// Asking the filesystem is the only test that agrees with the filesystem,
+/// on every platform and without guessing which of them fold case. A file
+/// nobody has written yet has no answer to give, and there the path as
+/// written is the best key there is — and the only one, so both sides still
+/// agree.
+fn overlay_key(p: &Path) -> PathBuf {
+    std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 fn read_source(path: &Path) -> std::io::Result<String> {
-    if let Some(text) = OVERLAY.with(|o| o.borrow().get(path).cloned()) {
+    let key = overlay_key(path);
+    if let Some(text) = OVERLAY.with(|o| o.borrow().get(&key).cloned()) {
         return Ok(text);
     }
     std::fs::read_to_string(path)

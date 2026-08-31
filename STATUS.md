@@ -1,6 +1,6 @@
 # STATUS — where the work stands, and how to resume it
 
-*Updated: 2026-08-31 (version 1.0.0). This file is the hand-off: if a session dies, the next
+*Updated: 2026-08-31 (version 1.0.1). This file is the hand-off: if a session dies, the next
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
@@ -58,6 +58,34 @@ commit that leaves work in flight.*
   (`examples/interop/java/`). Plan in `docs/interop.md`.
 
 ## IN FLIGHT
+
+**1.0.1 — THE OVERLAY IS KEYED BY WHAT THE FILESYSTEM CALLS A FILE.**
+Found by the Windows session after I asked it to push back rather than
+agree; its first two attempts said my previous fix was unnecessary (it was
+— `PathBuf` folds the Windows drive prefix and treats both separators
+alike, so `50ccf75` really was behaviour-neutral) and the third found this.
+THE BUG: `PathBuf` is case-INSENSITIVE for a Windows drive prefix and
+case-SENSITIVE for every component after it. Case-insensitive filesystems
+are the other way round. So a file on disk named `Lib.keal`, opened in the
+editor as `Lib.keal`, imported as `./lib.keal` — the filesystem opens it,
+the import resolves, the check runs, and the diagnostics are computed from
+the DISK copy while the editor holds an edited one. No error, no warning,
+just answers one save behind.
+NOT WINDOWS-ONLY, which is where the peer's account was wrong and I checked
+before fixing: macOS APFS folds case too, and I reproduced it end to end
+here. Two platforms of three. Linux is safe because there the two spellings
+are two files and the import fails loudly.
+THE FIX is `overlay_key` = `fs::canonicalize`, falling back to the path as
+written when the file does not exist yet. Asking the filesystem is the only
+test that AGREES with the filesystem — no guessing which platforms fold
+case, and it absorbs symlinks for free.
+Test: `an_unsaved_buffer_wins_however_its_path_is_spelled`. It ASKS the
+filesystem whether the two spellings are one file before asserting, and
+pins both answers — buffer wins where they are one file, import fails
+loudly where they are two. Reverting the one line makes it fail.
+THE TAG DID NOT MOVE, and this is the rule: v1.0.0 is PUBLISHED, marked
+Latest, four archives, `/releases/latest` resolves to it. A tag moves only
+while nothing points at it. Something does now, so this is 1.0.1.
 
 **v1.0.0 IS PUBLISHED (2026-08-31).**
 https://github.com/geneacta/keal/releases/tag/v1.0.0 — four archives, all

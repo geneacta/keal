@@ -740,6 +740,86 @@ fn the_language_server_answers() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Two spellings, one file — and the buffer has to win anyway.
+///
+/// macOS and Windows open `lib.keal` when the file on disk is `Lib.keal`;
+/// `PathBuf` compares those two as different. So an editor holding
+/// `Lib.keal` and an `import "./lib.keal"` used to miss each other in the
+/// overlay, and the checker answered from the copy on disk without saying
+/// it had: diagnostics one save behind, silently. The overlay is keyed by
+/// what the filesystem calls the file now, which is the only test that can
+/// agree with the filesystem.
+///
+/// Whether the two spellings *are* one file is the filesystem's answer, not
+/// this test's, so it asks before it asserts — and both answers are worth
+/// pinning. Where they are one file the buffer must win; where they are
+/// two, the import must fail to read rather than find something.
+#[test]
+fn an_unsaved_buffer_wins_however_its_path_is_spelled() {
+    use std::io::{Read, Write};
+
+    let dir = std::env::temp_dir().join("keal-lsp-case");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a directory");
+    let lib = dir.join("Lib.keal");
+    std::fs::write(&lib, "public func hello(): Int { return 1 }\n").unwrap();
+    let main = dir.join("main.keal");
+    std::fs::write(&main, "import \"./lib.keal\"\nval x: Int = hello()\nprintln(x)\n").unwrap();
+
+    // Does this filesystem fold case? Ask it rather than guess from the
+    // target triple: macOS can be case-sensitive and Linux can be mounted
+    // case-insensitive.
+    let folds_case = std::fs::read_to_string(dir.join("lib.keal")).is_ok();
+
+    let uri = |p: &std::path::Path| {
+        let text = p.to_string_lossy().replace('\\', "/");
+        if text.starts_with('/') { format!("file://{}", text) } else { format!("file:///{}", text) }
+    };
+    let frame = |v: &str| format!("Content-Length: {}\r\n\r\n{}", v.len(), v);
+    let open = |p: &std::path::Path, text: &str| {
+        frame(&format!(
+            r#"{{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{{"textDocument":{{"uri":"{}","text":"{}"}}}}}}"#,
+            uri(p),
+            text.replace('"', "\\\"").replace('\n', "\\n")
+        ))
+    };
+
+    let mut input = String::new();
+    input.push_str(&frame(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#));
+    // The editor holds the library under the name the disk uses, with a
+    // change that has not been saved: `hello` gives a `String` now.
+    input.push_str(&open(&lib, "public func hello(): String { return \"one\" }\n"));
+    input.push_str(&open(&main, "import \"./lib.keal\"\nval x: Int = hello()\nprintln(x)\n"));
+    input.push_str(&frame(r#"{"jsonrpc":"2.0","method":"exit","params":{}}"#));
+
+    let mut child = Command::new(BIN)
+        .arg("lsp")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("cannot start the language server");
+    child.stdin.as_mut().unwrap().write_all(input.as_bytes()).unwrap();
+    drop(child.stdin.take());
+    let mut out = String::new();
+    child.stdout.as_mut().unwrap().read_to_string(&mut out).unwrap();
+    child.wait().unwrap();
+
+    if folds_case {
+        assert!(
+            out.contains("but `Int` was expected") || out.contains("has type `String`"),
+            "the import read the file on disk instead of the buffer the editor is holding:\n{}",
+            out
+        );
+    } else {
+        assert!(
+            out.contains("cannot read"),
+            "`lib.keal` is a different file here, so the import should have failed:\n{}",
+            out
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The index: a git repository holding one small file per package, saying
 /// where that package lives and nothing else. The whole chain in one test —
 /// find a package by a word in its description, write it into the manifest
