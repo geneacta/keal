@@ -19,6 +19,11 @@ import re
 import subprocess
 import sys
 
+# Every file this reads and writes is UTF-8, and it has to be said: Python
+# opens text files in the machine's locale codepage, so on a French Windows
+# `open(...)` is cp1252 and the first `→` in a page raises — after the file
+# has been truncated for writing, which turns a failed build into a deleted
+# page.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SITE = os.path.join(ROOT, "site")
 # `keal.exe` on Windows, and nothing there is called `keal`. The same line
@@ -319,7 +324,7 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
 def write(lang, filename, text):
     out_dir = SITE if lang == "en" else os.path.join(SITE, "fr")
     os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, filename), "w") as f:
+    with open(os.path.join(out_dir, filename), "w", encoding="utf-8") as f:
         f.write(text)
     return os.path.join(out_dir, filename)
 
@@ -449,7 +454,7 @@ def sidebar_html(lang, current):
 
 
 def doc_page(lang, source, filename, title):
-    with open(os.path.join(ROOT, source)) as f:
+    with open(os.path.join(ROOT, source), encoding="utf-8") as f:
         text = f.read()
     body, toc = markdown(text)
     note = ""
@@ -566,7 +571,7 @@ def main():
         (os.path.relpath(w, SITE).replace(os.sep, "/") for w in written),
         key=lambda p: (p.startswith("fr/"), p),
     )
-    with open(os.path.join(SITE, "robots.txt"), "w") as f:
+    with open(os.path.join(SITE, "robots.txt"), "w", encoding="utf-8") as f:
         f.write("User-agent: *\nAllow: /\n\nSitemap: %ssitemap.xml\n" % BASE_URL)
     # One entry per page, each naming its counterpart in the other language,
     # so neither is read as a duplicate of the other.
@@ -581,7 +586,7 @@ def main():
         lines.append('    <xhtml:link rel="alternate" hreflang="fr" href="%sfr/%s"/>' % (BASE_URL, name))
         lines.append("  </url>")
     lines.append("</urlset>")
-    with open(os.path.join(SITE, "sitemap.xml"), "w") as f:
+    with open(os.path.join(SITE, "sitemap.xml"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     print("%d pages written, plus robots.txt and sitemap.xml" % len(written))
 

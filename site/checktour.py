@@ -62,7 +62,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         for i, (title, _, _, _, code, expected) in enumerate(C.TOUR, start=1):
             path = os.path.join(tmp, "chapter%d.keal" % i)
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 f.write(code + "\n")
 
             runs = []

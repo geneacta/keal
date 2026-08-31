@@ -175,6 +175,20 @@ fn jvm_run(program: PathBuf, jh: &str) -> Command {
     cmd
 }
 
+/// Copies a file, or a directory and everything under it.
+fn copy_into(from: &Path, to: &Path) {
+    if from.is_dir() {
+        std::fs::create_dir_all(to).expect("cannot make a directory");
+        for entry in std::fs::read_dir(from).expect("cannot read a directory") {
+            let path = entry.expect("cannot read an entry").path();
+            let name = path.file_name().expect("a path has a name");
+            copy_into(&path, &to.join(name));
+        }
+        return;
+    }
+    std::fs::copy(from, to).expect("cannot copy a file");
+}
+
 /// The two engines, named as the command line spells them.
 const ENGINES: [&str; 2] = ["--vm", "--ast"];
 
@@ -474,18 +488,12 @@ fn the_site_is_what_its_generator_would_write() {
         }
     }
     // `ROOT` is the generator's parent, so the documents it converts have to
-    // be reachable from there: link the tree it reads.
+    // be reachable from there. Copied rather than linked: a symlink on
+    // Windows wants Developer Mode or elevation, and this is a few hundred
+    // kilobytes — a test that skips on a platform is a test that platform
+    // does not have.
     for name in ["docs", "README.md", "TUTORIAL.md", "CONTRIBUTING.md"] {
-        let from = root().join(name);
-        let to = dir.join(name);
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(&from, &to).expect("cannot link what the site reads");
-        #[cfg(not(unix))]
-        {
-            let _ = (&from, &to);
-            eprintln!("skipping: the drift check wants symlinks");
-            return;
-        }
+        copy_into(&root().join(name), &dir.join(name));
     }
     let built = Command::new("python3")
         .arg(site.join("build.py"))
