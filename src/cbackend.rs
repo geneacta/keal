@@ -6285,12 +6285,18 @@ fn collect_free_expr(e: &Expr, bound: &mut Vec<String>, free: &mut Vec<String>) 
             collect_free_expr(target, bound, free);
             collect_free_expr(value, bound, free);
         }
+        // `this` is a capture like any other: a lambda that names it holds
+        // the receiver, and one that does not must not.
+        ExprKind::This => {
+            if !bound.iter().any(|b| b == "this") && !free.iter().any(|f| f == "this") {
+                free.push("this".to_string());
+            }
+        }
         ExprKind::Int(_)
         | ExprKind::Float(_)
         | ExprKind::Bool(_)
         | ExprKind::Str(_)
-        | ExprKind::Null
-        | ExprKind::This => {}
+        | ExprKind::Null => {}
     }
 }
 

@@ -412,17 +412,6 @@ impl Scope {
         })
     }
 
-    /// Lets go of everything a scope holds, in reverse declaration order —
-    /// the death order all three engines share. For the top level, where
-    /// there is no enclosing scope to do it and nothing runs afterwards.
-    pub fn empty(this: &Env) {
-        let order: Vec<Rc<str>> = this.order.borrow().iter().rev().cloned().collect();
-        for name in order {
-            let value = this.vars.borrow_mut().remove(&name);
-            drop(value);
-        }
-    }
-
     /// Breaks the one cycle a scope can make on its own: a closure stored in
     /// the very scope it captured.
     ///

@@ -117,14 +117,20 @@ impl Interp {
     ///
     /// Where a name IS assigned somewhere, the old whole-scope capture is
     /// kept: that is the one case where the closure must see later writes.
-    fn captured_env(&self, params: &Rc<Vec<Param>>, body: &Rc<Block>, env: &Env) -> Env {
+    fn captured_env(
+        &self,
+        params: &Rc<Vec<Param>>,
+        body: &Rc<Block>,
+        env: &Env,
+    ) -> (Env, bool) {
         let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
         let mut free: Vec<String> = Vec::new();
         crate::cbackend::collect_free(&body.stmts, &mut bound, &mut free);
+        let wants_this = free.iter().any(|n| n == "this");
         // A `var` is the only binding a program can reassign, and a closure
         // over one must see the writes — so that scope is captured whole.
         if free.iter().any(|n| env.is_mutable(n)) {
-            return env.clone();
+            return (env.clone(), wants_this);
         }
         let narrowed = Scope::child(&Scope::root_of(env));
         for name in &free {
@@ -134,7 +140,7 @@ impl Interp {
                 narrowed.define(name, v);
             }
         }
-        narrowed
+        (narrowed, wants_this)
     }
 
     /// Runs a block in a fresh scope; its value is that of the last statement.
@@ -396,13 +402,18 @@ impl Interp {
             }
 
             ExprKind::Lambda { params, body } => {
-                let this = env.get("this");
+                let (captured, wants_this) = self.captured_env(params, body, env);
                 Ok(Value::Fun(Rc::new(Closure {
                     name: Rc::from("<lambda>"),
                     params: params.clone(),
                     body: body.clone(),
-                    env: self.captured_env(params, body, env),
-                    this,
+                    env: captured,
+                    // A lambda that never says `this` must not hold the
+                    // receiver: a method returning one that did made the
+                    // object hold the closure and the closure hold the
+                    // object, which is the shape the prelude's sequences
+                    // were leaking through.
+                    this: if wants_this { env.get("this") } else { None },
                 })))
             }
 
