@@ -965,11 +965,19 @@ fn utf16_to_byte_col(text: &str, line: u32, character: u32) -> Option<u32> {
 fn uri_to_path(uri: &Json) -> Option<PathBuf> {
     let uri = uri.as_str()?;
     let rest = uri.strip_prefix("file://")?;
-    // `file://host/path` is not something an editor sends for a local file,
-    // so anything before the first `/` is an empty authority.
+    // `file://host/path` puts an authority before the first slash, and it
+    // is dropped: a local file has none, and `file:///x` leaves it empty.
+    //
+    // A Windows drive letter looks exactly like an authority and is not
+    // one. `file://C:/x` is not the canonical spelling — a conforming
+    // editor writes `file:///C:/x` — but hand-rolled clients emit it, and
+    // dropping the `C:` would answer with `/x`: a plausible path pointing
+    // somewhere else, so the overlay would be keyed on a file nothing ever
+    // asks about and the client would get silence. A wrong path is worse
+    // than a refusal, so the one case that is not an authority is named.
     let rest = match rest.find('/') {
-        Some(i) => &rest[i..],
-        None => rest,
+        Some(i) if !is_drive_letter(&rest[..i]) => &rest[i..],
+        _ => rest,
     };
     let mut out = String::new();
     let bytes: Vec<char> = rest.chars().collect();
@@ -1005,6 +1013,14 @@ fn uri_to_path(uri: &Json) -> Option<PathBuf> {
         out
     };
     Some(PathBuf::from(out))
+}
+
+/// `C:` — a letter and a colon, and nothing else. Two characters, because
+/// a hostname of two characters ending in a colon is not a thing and a
+/// drive letter is never longer.
+fn is_drive_letter(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 2 && b[1] == b':' && b[0].is_ascii_alphabetic()
 }
 
 fn path_to_uri(path: &Path) -> String {

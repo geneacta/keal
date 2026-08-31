@@ -681,6 +681,62 @@ fn the_language_server_answers() {
         "the outline is missing:\n{}",
         out
     );
+
+    // A URI has an authority before its first slash and it is dropped —
+    // except that a Windows drive letter looks exactly like one. Dropping
+    // `C:` from `file://C:/x` answers `/x`: a plausible path pointing
+    // somewhere else, so the buffer would be keyed on a file nothing ever
+    // asks about and the client would get silence, which is the same
+    // symptom as a crash and harder to find.
+    //
+    // No file is written for this. The overlay is what the server reads,
+    // so a path that exists nowhere still opens, checks and reports — which
+    // is what lets a Windows-shaped URI be tested on any machine.
+    for (spelling, must_contain) in [
+        ("file://C:/nowhere/main.keal", "C:"),
+        // And the half that must keep working: a real authority is still
+        // dropped, so the fix above cannot have become "never strip".
+        ("file://localhost/nowhere/main.keal", "/nowhere/main.keal"),
+    ] {
+        let mut probe = String::new();
+        probe.push_str(&frame(r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#));
+        probe.push_str(&frame(&format!(
+            r#"{{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{{"textDocument":{{"uri":"{}","text":"{}"}}}}}}"#,
+            spelling,
+            buffer.replace('"', "\\\"").replace('\n', "\\n")
+        )));
+        probe.push_str(&frame(&format!(
+            r#"{{"jsonrpc":"2.0","id":9,"method":"textDocument/hover","params":{{"textDocument":{{"uri":"{}"}},"position":{{"line":1,"character":4}}}}}}"#,
+            spelling
+        )));
+        probe.push_str(&frame(r#"{"jsonrpc":"2.0","method":"exit","params":{}}"#));
+
+        let mut child = Command::new(BIN)
+            .arg("lsp")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("cannot start the language server");
+        child.stdin.as_mut().unwrap().write_all(probe.as_bytes()).unwrap();
+        drop(child.stdin.take());
+        let mut out = String::new();
+        child.stdout.as_mut().unwrap().read_to_string(&mut out).unwrap();
+        child.wait().unwrap();
+        assert!(
+            out.contains(must_contain),
+            "`{}` did not resolve to a path containing `{}`:\n{}",
+            spelling,
+            must_contain,
+            out
+        );
+        assert!(
+            out.contains("here: Level"),
+            "`{}` opened a document the server then could not answer about:\n{}",
+            spelling,
+            out
+        );
+    }
+
     let _ = std::fs::remove_dir_all(&dir);
 }
 
