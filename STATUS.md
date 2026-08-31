@@ -68,12 +68,15 @@ program by design on every engine; the audit reports it because it is
 true. `val scored = seq([...])` alone reports `2 Score, 1 Sequence`, which
 is the whole story. README and memory.md are corrected.
 What is real, and small: on that program the VM keeps two `Sequence`s and
-the tree-walker five `SeqIter`s that a native build does not. The Windows
-session's arithmetic is the thing to keep here — the residues are
-ASYMMETRIC (different types, different counts, one of them a type neither
-other engine reports at all), so they are probably two retentions and not
-one at two sizes. No behaviour depends on either and no `deinit` is
-missed.
+the tree-walker five `SeqIter`s that a native build does not. No behaviour
+depends on either and no `deinit` is missed.
+A GUESS, NOT A FINDING, and it is written here only so nobody re-derives
+it: the residues are asymmetric — different types, different counts, one
+of them a type neither other engine reports at all — which SUGGESTS two
+retentions rather than one at two sizes. Two data points and one program.
+Whoever picks this up should measure before believing it, including the
+part where it came from a peer session and I agreed with it; being
+written down is not evidence.
 Fixed on the way: a lambda captured the receiver whether it named `this`
 or not, which is why the prelude's care in lifting `val makeIter =
 this.iterFn` out of its closure bought nothing. `this` is a capture like

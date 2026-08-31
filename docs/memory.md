@@ -349,7 +349,11 @@ audit: 2 object(s) outlived the program
 ```
 
 Same words, same order, same stream — the three engines cannot disagree
-about what a program left behind. The switch is a build flag rather than an
+about what a program left behind. That is checked on Windows too, and it
+checks more than it looks: the note under the report carries an em dash, so
+a compiled program writing it is writing multi-byte UTF-8 to a Windows
+stdout, and the three reports still match byte for byte. The `_setmode` that
+stopped text mode mangling line endings holds for non-ASCII as well. The switch is a build flag rather than an
 environment variable there because a binary cannot grow counters after it is
 compiled; without it none of the counting is emitted and no object pays for
 it. Under actors the rows go behind the lock the scheduler already owns, so
