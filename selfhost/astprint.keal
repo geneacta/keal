@@ -78,6 +78,7 @@ func pItem(i: ItemN): String {
         "class" -> pClass(i.classDecl!!)
         "trait" -> pTrait(i.traitDecl!!)
         "macro" -> pMacro(i.macroDecl!!)
+        "enum" -> pEnum(i.enumDecl!!)
         "import" -> if (i.alias == "") {
             "import ${esc(i.text)} ${i.line}:${i.col}"
         } else {
@@ -126,6 +127,14 @@ func pTParam(tp: TParamN): String {
         first = false
     }
     return "tparam ${tp.name}: ${bs}"
+}
+
+func pEnum(en: EnumN): String {
+    var out = "${visPrefix(en.vis)}enum ${en.name} ${en.line}:${en.col}"
+    for (v in en.variants) {
+        out += "\n" + indentBlock("variant ${v.name} ${v.line}:${v.col}")
+    }
+    return out
 }
 
 func pMacro(m: MacroN): String {
@@ -306,6 +315,7 @@ func pExInner(e: Ex): String {
         "binary" -> "binary ${e.text} ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
         "logical" -> "logical ${e.text} ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
         "elvis" -> "elvis ${sp}\n" + indentBlock(pEx(e.kids[0])) + "\n" + indentBlock(pEx(e.kids[1]))
+        "variant" -> "variant ${e.enumName}.${e.text} ${sp}"
         "macrocall" -> {
             var out = "macrocall ${e.text} ${sp}"
             for (a in e.kids) { out += "\n" + indentBlock(pEx(a)) }

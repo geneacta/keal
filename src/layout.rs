@@ -91,6 +91,8 @@ impl Repr {
         match ty {
             Type::Unit | Type::Never => Repr::Zero,
             Type::Int => Repr::Int,
+            // One word holding an ordinal: the whole value of a variant.
+            Type::Enum(_) => Repr::Int,
             Type::Float => Repr::Float,
             Type::Bool => Repr::Bool,
             Type::Range => Repr::Range,

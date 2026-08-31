@@ -235,7 +235,35 @@ impl Parser {
         )
     }
 
+    /// A word held for a feature the language does not have. Refused where
+    /// it is written rather than read as a name, so that the day the feature
+    /// arrives no program has to be renamed — and so nobody builds on one in
+    /// the meantime.
+    fn refuse_held(&mut self) -> Option<Diag> {
+        let Tok::Held(word) = self.peek() else { return None };
+        let word = *word;
+        let span = self.span();
+        let note = match word {
+            "async" | "await" => {
+                "Keal's concurrency is actors: `spawn` a handler, `send` it a message"
+            }
+            "yield" => "a lazy series is a `Sequence`; `seq(xs)` and `iterate(seed, step)` build one",
+            "sealed" => "a closed set of names is an `enum`, and a `when` over one needs no `else`",
+            "super" => "there is no inheritance here: compose, or give a trait a default method",
+            "static" => "a value that belongs to no instance is a top-level `val`",
+            "typealias" => "name the type where it is used, or wrap it in a `record` of one field",
+            _ => "it is held for a feature the language does not have yet",
+        };
+        Some(
+            Diag::new(span, format!("`{}` is reserved, and means nothing yet", word))
+                .with_note(note),
+        )
+    }
+
     fn item_after_vis(&mut self, vis: Vis, vis_span: Span) -> Result<Item, Diag> {
+        if let Some(d) = self.refuse_held() {
+            return Err(d);
+        }
         if let Some(d) = self.refuse_old_fun() {
             return Err(d);
         }
@@ -260,6 +288,9 @@ impl Parser {
             // call to a function named `record`.
             Tok::Ident(name) if name == "trait" && self.names_a_declaration() => {
                 Ok(Item::Trait(self.trait_decl(vis)?))
+            }
+            Tok::Ident(name) if name == "enum" && self.names_a_declaration() => {
+                Ok(Item::Enum(self.enum_decl(vis)?))
             }
             Tok::Ident(name) if name == "macro" && self.names_a_declaration() => {
                 Ok(Item::Macro(self.macro_decl(vis)?))
@@ -406,6 +437,49 @@ impl Parser {
     /// The two differ only in what they return: a `func` must say, and a `proc`
     /// returns nothing. Keeping them apart at the declaration removes the
     /// need for a `Unit` or `void` annotation anywhere.
+    /// `enum Suit { Hearts, Diamonds }` — names, separated by commas or by
+    /// newlines or by both. Nothing else: a variant that wants fields is a
+    /// `record`, and one that wants a number is a function with a `when`.
+    fn enum_decl(&mut self, vis: Vis) -> Result<EnumDecl, Diag> {
+        let span = self.span();
+        self.advance();
+        let (name, _) = self.expect_ident("an enum name")?;
+        self.expect(Tok::LBrace, "to open the enum body")?;
+        let mut variants: Vec<Variant> = Vec::new();
+        loop {
+            self.skip_semis();
+            if self.at(&Tok::RBrace) || self.at(&Tok::Eof) {
+                break;
+            }
+            let vspan = self.span();
+            let (vname, _) = self.expect_ident("a variant name")?;
+            if self.at(&Tok::LParen) {
+                return Err(Diag::new(vspan, "an enum variant cannot have fields")
+                    .with_note("a variant that carries something is a `record`"));
+            }
+            if self.at(&Tok::Assign) {
+                return Err(Diag::new(vspan, "an enum variant cannot have a value")
+                    .with_note("write a function with a `when` over the enum: the day a variant is added, that function is an error rather than a wrong number"));
+            }
+            if variants.iter().any(|v: &Variant| v.name == vname) {
+                return Err(Diag::new(vspan, format!("`{}` is declared twice in this enum", vname)));
+            }
+            if vname == "values" {
+                return Err(Diag::new(vspan, "`values` cannot name a variant")
+                    .with_note("`values()` is the list of an enum's variants"));
+            }
+            variants.push(Variant { name: vname, span: vspan });
+            self.skip_semis();
+            let _ = self.eat(&Tok::Comma);
+        }
+        self.expect(Tok::RBrace, "to close the enum body")?;
+        if variants.is_empty() {
+            return Err(Diag::new(span, format!("`{}` needs at least one variant", name))
+                .with_note("a type with no values cannot be built; `Nothing` already means that"));
+        }
+        Ok(EnumDecl { name, vis, variants, span })
+    }
+
     /// `macro name(a, b) { ... }`. The parameters are bare names: a macro
     /// takes syntax, not values, so there is nothing to declare a type for.
     fn macro_decl(&mut self, vis: Vis) -> Result<MacroDecl, Diag> {
@@ -768,6 +842,9 @@ impl Parser {
 
     fn stmt(&mut self) -> Result<Stmt, Diag> {
         if let Some(d) = self.refuse_old_fun() {
+            return Err(d);
+        }
+        if let Some(d) = self.refuse_held() {
             return Err(d);
         }
         let span = self.span();

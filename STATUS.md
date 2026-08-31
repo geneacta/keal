@@ -59,6 +59,58 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**ENUMS — DONE, all three engines.** `enum Suit { Hearts, Diamonds, Clubs,
+Spades }`, reached as `Suit.Hearts`. A closed set of names, NO PAYLOADS.
+HOW THE DESIGN WAS CHOSEN: a four-way panel (Kotlin-shaped, Rust ADT,
+sealed-trait, smallest-surface), each judged by three adversarial lenses.
+Smallest-surface won 19/30 on evidence, not taste: it is the ONLY one that
+does not introduce Keal's FIRST SUBTYPING RELATION. `Type` derives
+`PartialEq` and `assignable_to` opens `self == target` and ends `_ => false`,
+so `Type::Enum(Rc<str>)` needs ZERO new assignability or join arms — every
+payload design needs a case→enum edge in `assignable_to`, `join` AND `unify`.
+The panel also found two independent fatal defects in the payload designs
+(`synth_record_equals` writes the record's own name in type position while
+`expand_records` runs unconditionally, so "cases are records" is
+self-contradictory in the current source; and `flatten` escapes only `#`, so
+`Shape.Circle` inside `Type::Class` emits the invalid C identifier
+`K_Shape.Circle`). PAYLOADS ARE A REAL LOSS AND ARE STAGED TO ARRIVE
+ADDITIVELY, not as a rewrite. Tony's call, not the workflow's.
+THE KEY IMPLEMENTATION DECISION: `ExprKind::Variant`, a node THE PARSER
+NEVER BUILDS — the checker rewrites a resolved `Suit.Hearts` into it. That
+collapses six copies of one five-line resolution rule (checker, interp,
+compiler, cbackend, constfold, macros, twice over with the twin) into six
+trivial constant emitters, AND it fixes a bug the design would have shipped:
+`constfold` evaluates a `Field`'s object first, so `constexpr val x =
+Suit.Hearts` would have failed with "cannot find `Suit`".
+RESOLUTION ORDER, and it is the whole rule: a binding in scope wins, then an
+import alias, then an enum. So `val Suit = 3` shadows it, and this can never
+take a name out from under a program.
+EXHAUSTIVENESS: `closed_set` over Enum / Bool / Nullable-of-either, `covers`
+filled ONLY from unguarded arms, and the enum error fires BEFORE and
+INDEPENDENTLY of the existing `produces_value || expected.is_some()` gate —
+so STATEMENT POSITION is covered, which is the exact case worth catching. An
+unreachable `else` is a WARNING (`warn_note`), not an error: deleting it is
+what puts a later variant back under the guarantee.
+NATIVE: an ordinal, `int64_t`, not a `KealAny` — with no payload there is
+nothing for the payload word to hold. `counted` is false, so retain and
+release emit NOTHING. The names table is emitted only for an enum a program
+actually shows. Every fail-open tail was audited and given an explicit arm:
+`opt_has`/`opt_get`/`opt_null`/`opt_wrap`/`is_value_opt`, `elem_kind`,
+`key_kind`, `mangle_type`, `MapKey::of`, `deeply_immutable`, `copyable`.
+A BONUS FIX ALONG THE WAY: a NULLABLE `when` SUBJECT was a pre-existing
+native gap (`when (n: Int?)` was refused). `equality` now handles
+`Nullable`, so `Int?` and `Suit?` both work.
+Corpus: `tests/programs/enums.keal`, `tests/native/enums.keal`
+(+`.expected`), `tests/selfhost/type-errors/enum-rules.keal` (six),
+`tests/selfhost/parse-errors/enum-*.keal` (four).
+
+**SEVEN WORDS HELD.** `async` `await` `yield` `sealed` `super` `static`
+`typealias` — reserved so the day one of those features arrives, no program
+has to be renamed. Refused where written, and EACH REFUSAL SAYS WHAT TO
+WRITE TODAY. Deliberately NOT reserved: `where`, `out`, `init`, `operator` —
+all four are used as ordinary names in this repository, and a keyword that
+costs a working program a rename has to earn it.
+
 **THE STANDARD LIBRARY GREW, IN KEAL.** `Set<T>` and `Deque<T>` plus
 `distinct`, `zip`, `partition`, `chunked`, `padStart`, `padEnd`, `lines`,
 `setOf`, `dequeOf` — all in `src/prelude.keal`, NONE in the compiler. A

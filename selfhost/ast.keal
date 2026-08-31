@@ -56,7 +56,12 @@ package class DestrN(package val typeName: String, package val binds: List<Strin
 /// method call it stands for.
 package class Ex(package var kind: String, package var line: Int, package var col: Int) {
     package var file: Int = 0
-    package var iVal: Int = 0              // int
+    package var iVal: Int = 0              // int; variant: the ordinal
+    /// Kind "variant": one value of an enum, already resolved. THE PARSER
+    /// NEVER BUILDS ONE — `Suit.Hearts` parses as a field access, and the
+    /// checker rewrites it once it knows `Suit` names an enum. That is why
+    /// no engine below the checker has to learn the resolution rule.
+    package var enumName: String = ""      // variant: which enum
     package var fVal: Float = 0.0          // float
     package var text: String = ""          // str value; ident/field/method name;
                                    // bool "true"/"false"; unary "neg"/"not";
@@ -194,6 +199,23 @@ package class ItemN(package val kind: String, package val line: Int, package val
     package var alias: String = ""         // import: the name given with `as`
     package var stmt: StmtN? = null
     package var macroDecl: MacroN? = null
+    package var enumDecl: EnumN? = null
+}
+
+/// `enum Suit { Hearts, Diamonds, Clubs, Spades }` — a closed set of names.
+///
+/// Closed is the whole of it: the checker knows every value the type has, so
+/// a `when` over one needs no `else`, and the day a variant is added, every
+/// `when` that forgot it is an error rather than a surprise at run time. A
+/// variant carries nothing; one that wants fields is a `record`.
+package class EnumN(package var name: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var vis: String = ""
+    package var variants: List<VariantN> = []
+}
+
+package class VariantN(package val name: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
 }
 
 /// `macro name(a, b) { ... }` — a named piece of syntax, expanded where it

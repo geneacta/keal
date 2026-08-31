@@ -85,6 +85,7 @@ func mirrorStructC(name: String, fields: List<SField>): String {
 func mangleType(t: Ty): String {
     return when (t.kind) {
         "Int" -> "Int"
+        "Enum" -> flatten(t.name)
         "Float" -> "Float"
         "Bool" -> "Bool"
         "Str" -> "String"
@@ -314,7 +315,7 @@ func retained(t: Ty, expr: String): String {
 func isValueOpt(t: Ty): Bool {
     unless (t.kind == "Nullable") { return false }
     val inner = t.args[0].kind
-    return inner == "Int" or inner == "Float" or inner == "Bool"
+    return inner == "Int" or inner == "Float" or inner == "Bool" or inner == "Enum"
 }
 
 /// True for a type held behind a pointer, which has null to spare.
@@ -330,7 +331,7 @@ func isReference(t: Ty): Bool {
 
 func optWrap(inner: Ty, v: String): String {
     return when (inner.kind) {
-        "Int" -> "(KealOptI64){ true, ${v} }"
+        "Int", "Enum" -> "(KealOptI64){ true, ${v} }"
         "Float" -> "(KealOptF64){ true, ${v} }"
         "Bool" -> "(int8_t)((${v}) ? 1 : 0)"
         else -> v
@@ -339,16 +340,19 @@ func optWrap(inner: Ty, v: String): String {
 
 func optNull(inner: Ty): String {
     return when (inner.kind) {
-        "Int" -> "(KealOptI64){ false, 0 }"
+        "Int", "Enum" -> "(KealOptI64){ false, 0 }"
         "Float" -> "(KealOptF64){ false, 0.0 }"
         "Bool" -> "(int8_t)2"
         else -> "NULL"
     }
 }
 
+// A tail here assumes a pointer, so every scalar has to be named — an enum
+// that fell through would compile to a NULL test on an ordinal, and compile
+// silently.
 func optHas(inner: Ty, x: String): String {
     return when (inner.kind) {
-        "Int", "Float" -> "${x}.has"
+        "Int", "Float", "Enum" -> "${x}.has"
         "Bool" -> "(${x} != 2)"
         else -> "(${x} != NULL)"
     }
@@ -356,7 +360,7 @@ func optHas(inner: Ty, x: String): String {
 
 func optGet(inner: Ty, x: String): String {
     return when (inner.kind) {
-        "Int", "Float" -> "${x}.v"
+        "Int", "Float", "Enum" -> "${x}.v"
         "Bool" -> "(bool)(${x} == 1)"
         else -> x
     }
@@ -778,6 +782,9 @@ class CBackend() {
     /// `keal build --audit`: every class counts its live objects by name,
     /// and the program says at exit what it left behind. Off, none of the
     /// counting is emitted and no object pays for it.
+    /// Every enum the program declares, and its variants in order — the
+    /// names table a `${suit}` needs, and the list `values()` builds.
+    var enumNamesOf: Map<String, List<String>> = {}
     package var auditMode: Bool = false
     /// Release-to-walk pairs the audit registers before its mark phase,
     /// and the top-level bindings that phase starts from.
@@ -855,6 +862,10 @@ class CBackend() {
     /// cannot represent it.
     func ctype(t: Ty, file: Int, atLine: Int, col: Int): String? {
         if (t.kind == "Int") { return "int64_t" }
+        // One word holding an ordinal. With nothing to carry beside the
+        // tag, a `KealAny` would spend two words and a heap box to hold a
+        // permanent zero — the ordinal is the whole value.
+        if (t.kind == "Enum") { return "int64_t" }
         if (t.kind == "Float") { return "double" }
         if (t.kind == "Bool") { return "bool" }
         if (t.kind == "Str") { return "KealStr*" }
@@ -898,7 +909,7 @@ class CBackend() {
             val inner = t.args[0]
             // `T?` over a reference is the same pointer, allowed to be null.
             if (isReference(inner)) { return this.ctype(inner, file, atLine, col) }
-            if (inner.kind == "Int") { return "KealOptI64" }
+            if (inner.kind == "Int" or inner.kind == "Enum") { return "KealOptI64" }
             if (inner.kind == "Float") { return "KealOptF64" }
             if (inner.kind == "Bool") { return "int8_t" }
             this.unsupported(file, atLine, col, "the type `${tyShow(inner)}?`")
@@ -914,7 +925,7 @@ class CBackend() {
     func elemKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
         // An empty literal types as `List<Nothing>`, and `Nothing` has no
         // values, so any representative will do.
-        if (t.kind == "Never" or t.kind == "Int") { return CElem("int", "", "") }
+        if (t.kind == "Never" or t.kind == "Int" or t.kind == "Enum") { return CElem("int", "", "") }
         if (t.kind == "Bool") { return CElem("bool", "", "") }
         if (t.kind == "Float") { return CElem("float", "", "") }
         if (t.kind == "Str") { return CElem("ptr", "KealStr", "keal_str") }
@@ -1278,7 +1289,7 @@ class CBackend() {
     }
 
     func keyKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
-        if (t.kind == "Never" or t.kind == "Int" or t.kind == "Bool" or t.kind == "Float" or t.kind == "Str") {
+        if (t.kind == "Never" or t.kind == "Int" or t.kind == "Bool" or t.kind == "Float" or t.kind == "Str" or t.kind == "Enum") {
             return this.elemKind(t, file, atLine, col)
         }
         this.unsupported(file, atLine, col, "map keys of `${tyShow(t)}`")
@@ -1351,6 +1362,15 @@ class CBackend() {
                 }
                 val rte = x.ret
                 if (rte != null) { this.mirrorFor(rte) }
+            }
+        }
+        // The variants, in order, before anything can name one.
+        for (item in program.items) {
+            if (item.kind == "enum") {
+                val en = item.enumDecl!!
+                val names: List<String> = []
+                for (v in en.variants) { names.add(v.name) }
+                this.enumNamesOf[en.name] = names
             }
         }
         // Structs next: a function signature may mention one.
@@ -2351,6 +2371,9 @@ class CBackend() {
             if (this.shapes.contains(name)) {
                 return tyClass(name, [])
             }
+            if (this.enumNamesOf.contains(name)) {
+                return tyEnum(name)
+            }
             this.unsupported(file, atLine, col, "the type `${name}`")
             return null
         }
@@ -3137,6 +3160,10 @@ class CBackend() {
     /// releases it.
     func expr(e: Ex): String {
         if (e.kind == "int") { return "INT64_C(${e.iVal})" }
+        // The ordinal, and a comment so the C reads as the program did.
+        if (e.kind == "variant") {
+            return "INT64_C(${e.iVal}) /* ${e.enumName}.${e.text} */"
+        }
         if (e.kind == "float") { return formatDouble(e.fVal) }
         if (e.kind == "bool") { return e.text }
         if (e.kind == "str") {
@@ -5072,13 +5099,24 @@ class CBackend() {
     /// `subject == candidate`, spelled correctly for the subject's type.
     func equality(t: Ty, slot: String, rhs: String, at: Ex): String {
         if (t.kind == "Str") { return "(keal_str_cmp(${slot}, ${rhs}) == 0)" }
-        if (t.kind == "Int" or t.kind == "Float" or t.kind == "Bool") {
+        if (t.kind == "Int" or t.kind == "Float" or t.kind == "Bool" or t.kind == "Enum") {
             return "(${slot} == ${rhs})"
         }
         if (t.kind == "Any") {
             val rt = this.ety(at)
             val r = this.anyOf(rt, rhs, at.file, at.line, at.col)
             return "keal_any_eq(${slot}, ${r})"
+        }
+        // A nullable subject is two questions, and `null` is one of the
+        // values it can be matched against — so `when (s) { null -> ... }`
+        // reads the tag, and every other arm reads the tag and then the
+        // value under it.
+        if (t.kind == "Nullable") {
+            val inner = t.args[0]
+            if (at.kind == "null") { return "(!" + optHas(inner, slot) + ")" }
+            val got = optGet(inner, slot)
+            val innerEq = this.equality(inner, got, rhs, at)
+            return "(${optHas(inner, slot)} && ${innerEq})"
         }
         this.unsupported(at.file, at.line, at.col, "matching on a value of type `${tyShow(t)}`")
         return "false"
@@ -5319,6 +5357,33 @@ class CBackend() {
 
     /// Emits a value rendered as an owned string, for concatenation and
     /// interpolation.
+    /// The function turning one of an enum's ordinals back into its name,
+    /// emitted once per enum and only for an enum a program actually shows.
+    /// An enum nobody prints costs not one byte of table.
+    func enumNames(name: String): String {
+        val f = "K_" + flatten(name) + "_name"
+        if (this.thunks.contains(f)) { return f }
+        this.thunks[f] = true
+        var names: List<String> = []
+        if (this.enumNamesOf.contains(name)) { names = this.enumNamesOf[name]!! }
+        this.decls += "KealStr* ${f}(int64_t v);\n"
+        var out = "\nKealStr* ${f}(int64_t v) {\n"
+        out += "    switch (v) {\n"
+        var i = 0
+        while (i < names.size) {
+            out += "    case ${i}: return keal_str_static(${cString(names[i])}, ${names[i].length});\n"
+            i += 1
+        }
+        // Unreachable: an ordinal only ever comes from a variant of this
+        // enum. Spelled out anyway, because a C compiler wants a value on
+        // every path and a silent one would be a lie.
+        out += "    }\n"
+        out += "    return keal_str_static(\"?\", 1);\n"
+        out += "}\n"
+        this.defs += out
+        return f
+    }
+
     func toStringValue(e: Ex): String {
         val ty = this.ety(e)
         val v = this.expr(e)
@@ -5336,6 +5401,9 @@ class CBackend() {
             call = "keal_str_from_float(${v})"
         } else if (ty.kind == "Bool") {
             call = "keal_str_from_bool(${v})"
+        } else if (ty.kind == "Enum") {
+            // The names table, emitted once per enum that is ever shown.
+            call = this.enumNames(ty.name) + "(${v})"
         } else if (ty.kind == "Class") {
             call = "${structNameOf(ty.name, ty.args)}_show(${v})"
         } else if (ty.kind == "List") {
@@ -5680,6 +5748,8 @@ class CBackend() {
                 if (t.kind == "Fun") { named = "Function" }
                 if (t.kind == "Null") { named = "Null" }
                 if (t.kind == "Class") { named = t.name }
+                // An enum names itself, as a class does.
+                if (t.kind == "Enum") { named = t.name }
                 hasName = named != ""
             }
             unless (hasName) {

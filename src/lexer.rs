@@ -53,6 +53,11 @@ pub enum Tok {
     Package,
     Internal,
     Protected,
+    /// Words held for features the language does not have. Reserved now so
+    /// that the day one arrives, no program has to be renamed to make room
+    /// for it — and refused where written rather than quietly read as a
+    /// name, so nobody builds on one by accident.
+    Held(&'static str),
 
     // The logical connectives. These are the spelling the language
     // recommends; `&&`, `||`, `!` and `^` are accepted as aliases.
@@ -201,6 +206,7 @@ impl Tok {
             Tok::Package => "package",
             Tok::Internal => "internal",
             Tok::Protected => "protected",
+            Tok::Held(w) => w,
             Tok::KwNot => "not",
             Tok::KwAnd => "and",
             Tok::KwOr => "or",
@@ -656,6 +662,13 @@ impl<'a> Lexer<'a> {
             "package" => Tok::Package,
             "internal" => Tok::Internal,
             "protected" => Tok::Protected,
+            "async" => Tok::Held("async"),
+            "await" => Tok::Held("await"),
+            "yield" => Tok::Held("yield"),
+            "sealed" => Tok::Held("sealed"),
+            "super" => Tok::Held("super"),
+            "static" => Tok::Held("static"),
+            "typealias" => Tok::Held("typealias"),
             "not" => Tok::KwNot,
             "and" => Tok::KwAnd,
             "or" => Tok::KwOr,

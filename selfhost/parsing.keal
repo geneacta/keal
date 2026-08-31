@@ -242,7 +242,39 @@ package class Parser(val toks: List<Token>) {
         }
     }
 
+    /// A word held for a feature the language does not have. Refused where
+    /// it is written rather than read as a name, so that the day the feature
+    /// arrives no program has to be renamed — and so nobody builds on one in
+    /// the meantime.
+    proc refuseHeld() {
+        val t = this.peek()
+        val word = t.kind
+        var note = ""
+        if (word == "async" or word == "await") {
+            note = "Keal's concurrency is actors: `spawn` a handler, `send` it a message"
+        }
+        if (word == "yield") {
+            note = "a lazy series is a `Sequence`; `seq(xs)` and `iterate(seed, step)` build one"
+        }
+        if (word == "sealed") {
+            note = "a closed set of names is an `enum`, and a `when` over one needs no `else`"
+        }
+        if (word == "super") {
+            note = "there is no inheritance here: compose, or give a trait a default method"
+        }
+        if (word == "static") {
+            note = "a value that belongs to no instance is a top-level `val`"
+        }
+        if (word == "typealias") {
+            note = "name the type where it is used, or wrap it in a `record` of one field"
+        }
+        unless (note == "") {
+            this.failNote(t.line, t.col, "`${word}` is reserved, and means nothing yet", note)
+        }
+    }
+
     func itemAfterVis(vis: String): ItemN {
+        this.refuseHeld()
         this.refuseOldFun()
         val t = this.peek()
         if (this.atConstexpr()) {
@@ -270,6 +302,11 @@ package class Parser(val toks: List<Token>) {
         if (t.kind == "class") {
             val i = ItemN("class", t.line, t.col)
             i.classDecl = this.classDecl(false, vis)
+            return i
+        }
+        if (t.kind == "ident" and t.text == "enum" and this.namesDeclaration()) {
+            val i = ItemN("enum", t.line, t.col)
+            i.enumDecl = this.enumDecl(vis)
             return i
         }
         if (t.kind == "ident" and t.text == "macro" and this.namesDeclaration()) {
@@ -387,6 +424,64 @@ package class Parser(val toks: List<Token>) {
     }
 
     // ---- declarations ---------------------------------------------------
+
+    /// `enum Suit { Hearts, Diamonds }` — names, separated by commas or by
+    /// newlines or by both. Nothing else: a variant that wants fields is a
+    /// `record`, and one that wants a number is a function with a `when`.
+    func enumDecl(vis: String): EnumN {
+        val start = this.peek()
+        this.advance()
+        val name = this.expectIdent("an enum name")
+        val en = EnumN(name, start.line, start.col)
+        en.vis = vis
+        this.expect("{", "to open the enum body")
+        while (true) {
+            this.skipSemis()
+            if (this.at("}") or this.at("eof")) { break }
+            val vt = this.peek()
+            val vname = this.expectIdent("a variant name")
+            if (this.at("(")) {
+                this.failNote(
+                    vt.line, vt.col,
+                    "an enum variant cannot have fields",
+                    "a variant that carries something is a `record`"
+                )
+            }
+            if (this.at("=")) {
+                this.failNote(
+                    vt.line, vt.col,
+                    "an enum variant cannot have a value",
+                    "write a function with a `when` over the enum: the day a variant is added, that function is an error rather than a wrong number"
+                )
+            }
+            var seen = false
+            for (v in en.variants) {
+                if (v.name == vname) { seen = true }
+            }
+            if (seen) {
+                this.fail(vt.line, vt.col, "`${vname}` is declared twice in this enum")
+            }
+            if (vname == "values") {
+                this.failNote(
+                    vt.line, vt.col,
+                    "`values` cannot name a variant",
+                    "`values()` is the list of an enum's variants"
+                )
+            }
+            en.variants.add(VariantN(vname, vt.line, vt.col))
+            this.skipSemis()
+            val _comma = this.eat(",")
+        }
+        this.expect("}", "to close the enum body")
+        if (en.variants.size == 0) {
+            this.failNote(
+                start.line, start.col,
+                "`${name}` needs at least one variant",
+                "a type with no values cannot be built; `Nothing` already means that"
+            )
+        }
+        return en
+    }
 
     /// `macro name(a, b) { ... }`. The parameters are bare names: a macro
     /// takes syntax, not values, so there is nothing to declare a type for.
@@ -708,6 +803,7 @@ package class Parser(val toks: List<Token>) {
     }
 
     func stmt(): StmtN {
+        this.refuseHeld()
         this.refuseOldFun()
         val t = this.peek()
         var isConstexpr = false

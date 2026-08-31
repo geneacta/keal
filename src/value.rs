@@ -24,6 +24,19 @@ pub enum Value {
     /// A built-in referred to by name, as in `val f = println`.
     Native(Rc<NativeFn>),
     Instance(Rc<Instance>),
+    /// One value of an enum. Interned once per variant when the program is
+    /// loaded, so naming one is a refcount bump and never an allocation.
+    Variant(Rc<VariantVal>),
+}
+
+/// A variant, and where it sits in its declaration. The ordinal is what the
+/// native engine stores; the interpreters carry the names because printing
+/// one has to say `Hearts` rather than `0`.
+#[derive(Debug, PartialEq)]
+pub struct VariantVal {
+    pub enm: Rc<str>,
+    pub name: Rc<str>,
+    pub ordinal: u32,
 }
 
 /// A closure the bytecode VM created: a compiled body, the cells it captured,
@@ -55,6 +68,8 @@ impl Value {
             Value::Unit => "Unit".into(),
             Value::Null => "Null".into(),
             Value::Int(_) => "Int".into(),
+            // An enum names itself, as a class does.
+            Value::Variant(v) => v.enm.to_string(),
             Value::Float(_) => "Float".into(),
             Value::Bool(_) => "Bool".into(),
             Value::Str(_) => "String".into(),
@@ -404,6 +419,8 @@ pub enum MapKey {
     Bool(bool),
     /// Floats are keyed by their bit pattern, so `NaN` is its own key.
     Float(u64),
+    /// The enum and the variant, because two enums may share a name.
+    Variant(Rc<str>, Rc<str>),
     Null,
 }
 
@@ -414,6 +431,9 @@ impl MapKey {
             Value::Str(s) => MapKey::Str(s.clone()),
             Value::Bool(b) => MapKey::Bool(*b),
             Value::Float(f) => MapKey::Float(f.to_bits()),
+            // A variant keys a map, which is what makes `Map<Level, Int>`
+            // the natural way to count by kind.
+            Value::Variant(v) => MapKey::Variant(v.enm.clone(), v.name.clone()),
             Value::Null => MapKey::Null,
             _ => return None,
         })
@@ -474,6 +494,11 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Unit, Value::Unit) | (Value::Null, Value::Null) => true,
         (Value::Int(x), Value::Int(y)) => x == y,
+        // Interned, so the pointer answers almost always; the names settle
+        // the rare case where two loads of one program made two copies.
+        (Value::Variant(x), Value::Variant(y)) => {
+            Rc::ptr_eq(x, y) || (x.enm == y.enm && x.name == y.name)
+        }
         (Value::Float(x), Value::Float(y)) => x == y,
         (Value::Bool(x), Value::Bool(y)) => x == y,
         (Value::Str(x), Value::Str(y)) => x == y,

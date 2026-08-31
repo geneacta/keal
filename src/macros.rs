@@ -256,6 +256,9 @@ impl Macros {
         }
         e.span = at;
         match &mut e.kind {
+            // A macro body cannot name one: expansion happens before the
+            // checker resolves anything.
+            ExprKind::Variant { .. } => Ok(()),
             ExprKind::MacroCall { name, args } => {
                 let name = name.clone();
                 for a in args.iter_mut() {

@@ -65,7 +65,7 @@
       "patterns": [
         {
           "comment": "A function, procedure or macro, with its name and type parameters.",
-          "match": "\\b(func|proc|macro)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(func|proc|macro|enum)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": {
               "name": "keyword.declaration.function.keal"
@@ -219,7 +219,7 @@
         },
         {
           "name": "keyword.declaration.keal",
-          "match": "\\b(val|var|func|proc|class|record|trait|weak|extern|native|macro|constexpr)\\b"
+          "match": "\\b(val|var|func|proc|class|record|trait|weak|extern|native|macro|constexpr|enum)\\b"
         },
         {
           "comment": "A macro call. The `!` says the code is spliced here rather than called, which a reader has to be able to see.",

@@ -54,7 +54,7 @@ be made executable and run directly.
 
 ### Reserved words
 
-Thirty-eight words are reserved: none of them can be the name of anything.
+Forty-five words are reserved: none of them can be the name of anything.
 
 | | |
 |---|---|
@@ -64,6 +64,27 @@ Thirty-eight words are reserved: none of them can be the name of anything.
 | **Errors** | `try` `catch` `throw` |
 | **Values** | `true` `false` `null` `this` `is` |
 | **Connectives** | `not` `and` `or` `xor` `xnor` `nand` `nor` `implies` |
+| **Held** | `async` `await` `yield` `sealed` `super` `static` `typealias` |
+
+The **held** words name nothing today. They are reserved so that the day one
+of those features arrives, no existing program has to be renamed to make room
+for it — the same reason `internal` and `protected` are. Writing one is
+refused where it appears, and the refusal says what to write instead:
+
+| Held | What to write today |
+|---|---|
+| `async` `await` | actors: `spawn` a handler, `send` it a message |
+| `yield` | a `Sequence`; `seq(xs)` and `iterate(seed, step)` build one |
+| `sealed` | an `enum` — a `when` over one needs no `else` |
+| `super` | there is no inheritance: compose, or give a trait a default method |
+| `static` | a top-level `val` |
+| `typealias` | name the type where it is used |
+
+Reserving is not free — it takes a name a program might have wanted — so the
+list is short and every word on it has a feature named beside it. Words that
+would be plausible names were left out on purpose: `where`, `out`, `init`
+and `operator` are all used as ordinary names in this repository, and a
+keyword that costs a working program a rename has to earn it.
 
 `fun` is reserved for one reason only: it is what `func` used to be called,
 and a file that still says it gets one clear sentence — ``​`fun` is spelled
@@ -76,7 +97,7 @@ or one that reaches a class's own kind, no existing program has to be renamed
 to make room for it. Writing one is refused where it appears rather than
 quietly ignored.
 
-Seven more words are **contextual**: they introduce a declaration where one
+Eight more words are **contextual**: they introduce a declaration where one
 follows, and stay ordinary names everywhere else.
 
 | Word | Where it means something |
@@ -86,6 +107,7 @@ follows, and stay ordinary names everywhere else.
 | `weak` | before a field: `weak var parent: Node?` |
 | `constexpr` | before `val` or `func`: `constexpr val KB = 1024` |
 | `macro` | before a name: `macro swap(a, b) { ... }` |
+| `enum` | before a name: `enum Suit { Hearts, Spades }` |
 | `native` | before a string block |
 | `extern` | before `func`: `extern func sqrt(...)` |
 
@@ -760,6 +782,88 @@ is present, `?:` already does exactly that, anywhere rather than only in a
 ```keal
 return a ?: b ?: c ?: "none"
 ```
+
+## 9½. enum
+
+An enum is a closed set of names:
+
+```keal
+enum Suit { Hearts, Diamonds, Clubs, Spades }
+
+val trump: Suit = Suit.Spades
+println(trump)              // Spades
+println(typeOf(trump))      // Suit
+```
+
+**Closed is the whole of it.** The checker knows every value the type has, so
+a `when` over one needs no `else`:
+
+```keal
+func isRed(s: Suit): Bool {
+    return when (s) {
+        Suit.Hearts, Suit.Diamonds -> true
+        Suit.Clubs, Suit.Spades -> false
+    }
+}
+```
+
+and the day somebody adds a variant, every `when` that forgot it says so:
+
+```
+error: this `when` over `Suit` does not cover `Jokers`
+  = note: add an arm for each, or `else -> ...`
+```
+
+That is the feature. It fires in statement position too — a `when` that
+dispatches on a variant and forgets one is exactly the case worth catching,
+and it usually produces no value. An `else` that can no longer be reached is
+a **warning**, not an error: deleting it is what puts a later variant back
+under the guarantee.
+
+`Bool` is closed as well, and always was. So is a nullable enum — the
+variants, plus `null`:
+
+```keal
+func label(s: Suit?): String {
+    return when (s) {
+        null -> "none"
+        Suit.Hearts, Suit.Diamonds -> "red"
+        Suit.Clubs, Suit.Spades -> "black"
+    }
+}
+```
+
+A guarded arm covers nothing, exactly as it has never counted as an `else`.
+
+**A variant is an ordinary value.** It is bound, compared with `==`, passed,
+returned, stored in a record field, put in a list, and used as a map key.
+It renders as its bare name. Two enums may share a variant name, because a
+variant lives inside its enum and is always written `Suit.Hearts`.
+
+Natively an enum is one word — an ordinal. Nothing to retain, nothing to
+free: it is the cheapest thing in the language to send to an actor.
+
+### What an enum refuses
+
+| | |
+|---|---|
+| `enum Shape { Circle(r: Float) }` | a variant that carries something is a `record` |
+| `enum Http { Ok = 200 }` | write a function with a `when`, so adding a variant is an error rather than a wrong number |
+| `enum Empty { }` | a type with no values cannot be built; `Nothing` already means that |
+| `Hearts` bare, or `.hearts` | one spelling, `Suit.Hearts`, so two enums may share a name |
+| `Suit.Hearts < Suit.Spades` | declaration order is a spelling decision, not a semantic one |
+| a variant named `values` | `values()` is the list of an enum's variants |
+
+**No payloads, deliberately, for now.** A variant carrying data would need a
+case-to-enum assignability edge — this language's first subtyping relation,
+in a language whose §20 lists inheritance as a non-goal — threaded through
+assignability, joining *and* unification. What a program has meanwhile is
+`throw`/`catch` for failure and `T?` for absence, which are the two things
+payload enums are mostly used for, plus the record-with-a-tag idiom this
+compiler itself uses — whose tag `enum` upgrades from a `String` to a checked
+type, and whose `when` it makes exhaustive.
+
+---
 
 ## 10. Generics
 

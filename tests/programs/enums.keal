@@ -1,0 +1,77 @@
+// `enum` — a closed set of names. Closed is the whole of it: the checker
+// knows every value the type has, so a `when` over one needs no `else`, and
+// the day a variant is added, every `when` that forgot it is an error
+// rather than a surprise at run time.
+
+enum Suit { Hearts, Diamonds, Clubs, Spades }
+
+func isRed(s: Suit): Bool {
+    return when (s) {
+        Suit.Hearts, Suit.Diamonds -> true
+        Suit.Clubs, Suit.Spades -> false
+    }
+}
+assert(isRed(Suit.Hearts), "a when over an enum needs no else")
+assert(not isRed(Suit.Spades), "and covers every variant")
+
+// A variant is a value like any other: bound, compared, passed, returned.
+val trump: Suit = Suit.Spades
+assert(trump == Suit.Spades, "a variant equals itself")
+assert(trump != Suit.Hearts, "and differs from its siblings")
+assert(typeOf(trump) == "Suit", "an enum names itself")
+assert("${trump}" == "Spades", "and a variant renders as its bare name")
+
+// Two enums may share a variant name: the name lives inside its enum.
+enum Direction { Up, Down, Left, Right }
+enum Volume { Up, Down }
+assert("${Direction.Up}" == "Up", "one Up")
+assert("${Volume.Up}" == "Up", "and another")
+
+// `Bool` is closed too, and always was — the rule just never said so.
+func flip(b: Bool): Int {
+    return when (b) {
+        true -> 1
+        false -> 0
+    }
+}
+assert(flip(true) == 1 and flip(false) == 0, "a when over a Bool needs no else")
+
+// A nullable enum is closed as well: the variants, plus null.
+func label(s: Suit?): String {
+    return when (s) {
+        null -> "none"
+        Suit.Hearts, Suit.Diamonds -> "red"
+        Suit.Clubs, Suit.Spades -> "black"
+    }
+}
+assert(label(null) == "none", "null is one of the values")
+assert(label(Suit.Clubs) == "black", "and the variants are the rest")
+
+// An enum is a field, a list element, and a map key.
+record Card(val suit: Suit, val rank: Int)
+val hand: List<Card> = [Card(Suit.Hearts, 1), Card(Suit.Spades, 13)]
+assert(hand[1].suit == Suit.Spades, "an enum in a record field")
+
+val suits: List<Suit> = [Suit.Clubs, Suit.Clubs, Suit.Hearts]
+assert(suits[0] == Suit.Clubs, "an enum in a list")
+
+val counts: Map<Suit, Int> = {}
+for (s in suits) {
+    counts[s] = (counts[s] ?: 0) + 1
+}
+assert(counts[Suit.Clubs] == 2, "an enum as a map key")
+assert(counts.size == 2, "and two distinct keys")
+
+// A guarded arm covers nothing, exactly as it never counted as an `else`.
+func describe(s: Suit, high: Bool): String {
+    return when (s) {
+        Suit.Spades if (high) -> "high spade"
+        else -> "ordinary"
+    }
+}
+assert(describe(Suit.Spades, true) == "high spade", "a guard still runs")
+assert(describe(Suit.Spades, false) == "ordinary", "and falls through when it fails")
+
+// The word is contextual, so it stays an ordinary name everywhere else.
+val enum = 3
+assert(enum == 3, "`enum` is still a name")

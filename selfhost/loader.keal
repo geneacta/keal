@@ -194,6 +194,11 @@ proc stampItem(var i: ItemN, f: Int) {
         md.file = f
         stampBlock(md.body, f)
     }
+    val ed = i.enumDecl
+    if (ed != null) {
+        ed.file = f
+        for (v in ed.variants) { v.file = f }
+    }
 }
 
 proc stampFun(var fn: FunN, f: Int) {

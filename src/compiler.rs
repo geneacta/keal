@@ -848,6 +848,16 @@ impl Compiler {
     fn expr(&mut self, e: &Expr) -> Result<(), Diag> {
         let span = e.span;
         match &e.kind {
+            // One pooled constant, and no new opcode.
+            ExprKind::Variant { enm, name, ordinal } => {
+                let v = Value::Variant(std::rc::Rc::new(crate::value::VariantVal {
+                    enm: enm.clone(),
+                    name: name.clone(),
+                    ordinal: *ordinal,
+                }));
+                let k = self.fs().chunk.constant(v);
+                self.emit(Op::Const(k), span);
+            }
             // Expansion happens while the tree is checked, so a call that
             // reaches here is one nothing expanded.
             ExprKind::MacroCall { name, .. } => {
@@ -1363,6 +1373,7 @@ fn item_span(item: &Item) -> Span {
     match item {
         Item::Fun(f) => f.span,
         Item::Macro(m) => m.span,
+        Item::Enum(en) => en.span,
         Item::Native { span, .. } => *span,
         Item::Extern(x) => x.span,
         Item::Class(c) => c.span,
@@ -1545,6 +1556,7 @@ pub(crate) fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr) -> bool) {
         return;
     }
     match &e.kind {
+        ExprKind::Variant { .. } => {}
         ExprKind::MacroCall { args, .. } => {
             for a in args {
                 walk_expr(a, f);

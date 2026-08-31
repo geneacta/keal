@@ -34,6 +34,12 @@ package class Ty(package val kind: String) {
 
 func ty(kind: String): Ty { Ty(kind) }
 
+package func tyEnum(name: String): Ty {
+    val t = Ty("Enum")
+    t.name = name
+    return t
+}
+
 package func tyList(inner: Ty): Ty {
     val t = Ty("List")
     t.args = [inner]
@@ -123,6 +129,11 @@ package func tyEq(a: Ty, b: Ty): Bool {
     if (a.kind != b.kind) { return false }
     return when (a.kind) {
         "Class" -> (a.name == b.name) and tyArgsEq(a.args, b.args)
+        // A scalar carrying only which enum it is. Because equality here is
+        // the first thing `assignableTo` asks, an enum is assignable to
+        // itself, to itself under `?`, and to `Any` — and to nothing else —
+        // without one further arm anywhere.
+        "Enum" -> a.name == b.name
         "Param" -> a.name == b.name
         "List", "Nullable" -> tyEq(a.args[0], b.args[0])
         "Map" -> tyEq(a.args[0], b.args[0]) and tyEq(a.args[1], b.args[1])
@@ -342,6 +353,7 @@ package func tyShow(t: Ty): String {
         "Never" -> "Nothing"
         "Error" -> "<error>"
         "Range" -> "Range"
+        "Enum" -> t.name
         "Self" -> "Self"
         "Param" -> t.name
         "List" -> "List<" + tyShow(t.args[0]) + ">"

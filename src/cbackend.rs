@@ -192,6 +192,9 @@ struct CBackend {
     /// `keal build --audit`: every class counts its live objects by name,
     /// and the program says at exit what it left behind. Off, none of the
     /// counting is emitted and no object pays for it.
+    /// Every enum the program declares, and its variants in order — the
+    /// names table a `${suit}` needs, and the list `values()` builds.
+    enums: HashMap<String, Vec<String>>,
     audit_mode: bool,
     /// Release-to-walk pairs the audit registers before its mark phase,
     /// and the top-level bindings that phase starts from.
@@ -274,6 +277,7 @@ impl CBackend {
             global_decls: String::new(),
             at_top_level: false,
             weak_mode: false,
+            enums: HashMap::new(),
             audit_mode: false,
             audit_pairs: Vec::new(),
             audit_roots: Vec::new(),
@@ -345,6 +349,10 @@ impl CBackend {
     fn ctype(&mut self, ty: &Type, span: Span) -> Option<String> {
         match ty {
             Type::Int => Some("int64_t".to_string()),
+            // One word holding an ordinal. With nothing to carry beside the
+            // tag, a `KealAny` would spend two words and a heap box to
+            // hold a permanent zero — the ordinal is the whole value.
+            Type::Enum(_) => Some("int64_t".to_string()),
             Type::Float => Some("double".to_string()),
             Type::Bool => Some("bool".to_string()),
             Type::Str => Some("KealStr*".to_string()),
@@ -388,7 +396,7 @@ impl CBackend {
             Type::Nullable(inner) if is_reference(inner) => self.ctype(inner, span),
             // Over a value: a tag beside it, or Bool's spare pattern.
             Type::Nullable(inner) => match &**inner {
-                Type::Int => Some("KealOptI64".to_string()),
+                Type::Int | Type::Enum(_) => Some("KealOptI64".to_string()),
                 Type::Float => Some("KealOptF64".to_string()),
                 Type::Bool => Some("int8_t".to_string()),
                 other => {
@@ -489,6 +497,7 @@ impl CBackend {
             // representative will do.
             Type::Never => Elem::Int,
             Type::Int => Elem::Int,
+            Type::Enum(_) => Elem::Int,
             Type::Bool => Elem::Bool,
             Type::Float => Elem::Float,
             Type::Str => Elem::Ptr("KealStr".into(), "keal_str".into()),
@@ -534,7 +543,7 @@ impl CBackend {
     /// strings by content.
     fn key_kind(&mut self, ty: &Type, span: Span) -> Option<Elem> {
         match ty {
-            Type::Never | Type::Int | Type::Bool | Type::Float | Type::Str => {
+            Type::Never | Type::Int | Type::Bool | Type::Float | Type::Str | Type::Enum(_) => {
                 self.elem_kind(ty, span)
             }
             other => {
@@ -630,6 +639,13 @@ impl CBackend {
             }
         }
         // Structs next: a function signature may mention one.
+        // The variants, in order, before anything can name one.
+        for item in &program.items {
+            if let Item::Enum(en) = item {
+                let names: Vec<String> = en.variants.iter().map(|v| v.name.clone()).collect();
+                self.enums.insert(en.name.clone(), names);
+            }
+        }
         for item in &program.items {
             if let Item::Class(c) = item {
                 self.class_struct(c);
@@ -646,6 +662,9 @@ impl CBackend {
                 // A macro is spent by the time the tree gets here: it left
                 // the code it stood for behind, and itself nowhere.
                 Item::Macro(_) => {}
+                // An enum needs nothing declared: a variant is an ordinal,
+                // and the names table is emitted only where one is shown.
+                Item::Enum(_) => {}
                 // The prelude is only trait declarations; a program that uses
                 // one is caught where it uses it.
                 Item::Trait(_)
@@ -1728,6 +1747,9 @@ impl CBackend {
                 other if self.shapes.contains_key(other) => {
                     Some(Type::class(other, Vec::new()))
                 }
+                other if self.enums.contains_key(other) => {
+                    Some(Type::Enum(std::rc::Rc::from(other)))
+                }
                 other => {
                     self.unsupported(span, &format!("the type `{}`", other));
                     None
@@ -2505,6 +2527,10 @@ impl CBackend {
     fn expr(&mut self, e: &Expr) -> String {
         match &e.kind {
             ExprKind::Int(n) => format!("INT64_C({})", n),
+            // The ordinal, and a comment so the C reads as the program did.
+            ExprKind::Variant { enm, name, ordinal } => {
+                format!("INT64_C({}) /* {}.{} */", ordinal, enm, name)
+            }
             ExprKind::Float(f) => format_double(*f),
             ExprKind::Bool(b) => b.to_string(),
             ExprKind::Str(s) => {
@@ -2990,6 +3016,37 @@ impl CBackend {
         }
         call.push(')');
         Some(call)
+    }
+
+    /// The function turning one of an enum's ordinals back into its name,
+    /// emitted once per enum and only for an enum a program actually shows.
+    /// An enum nobody prints costs not one byte of table.
+    fn enum_names(&mut self, name: &str) -> String {
+        let f = format!("K_{}_name", flatten(name));
+        if self.thunks.contains(&f) {
+            return f;
+        }
+        self.thunks.insert(f.clone());
+        let names = self.enums.get(name).cloned().unwrap_or_default();
+        let _ = writeln!(self.decls, "KealStr* {}(int64_t v);", f);
+        let _ = writeln!(self.defs, "\nKealStr* {}(int64_t v) {{", f);
+        let _ = writeln!(self.defs, "    switch (v) {{");
+        for (i, n) in names.iter().enumerate() {
+            let _ = writeln!(
+                self.defs,
+                "    case {}: return keal_str_static({}, {});",
+                i,
+                c_string(n),
+                n.len()
+            );
+            }
+        // Unreachable: an ordinal only ever comes from a variant of this
+        // enum. Spelled out anyway, because a C compiler wants a value on
+        // every path and a silent one would be a lie.
+        let _ = writeln!(self.defs, "    }}");
+        let _ = writeln!(self.defs, "    return keal_str_static(\"?\", 1);");
+        let _ = writeln!(self.defs, "}}");
+        f
     }
 
     /// How one element of a list renders as a string, with `$V` standing
@@ -4676,11 +4733,25 @@ impl CBackend {
     fn equality(&mut self, ty: &Type, slot: &str, rhs: &str, at: &Expr) -> String {
         match ty {
             Type::Str => format!("(keal_str_cmp({}, {}) == 0)", slot, rhs),
-            Type::Int | Type::Float | Type::Bool => format!("({} == {})", slot, rhs),
+            Type::Int | Type::Float | Type::Bool | Type::Enum(_) => {
+                format!("({} == {})", slot, rhs)
+            }
             Type::Any => {
                 let rt = self.ety(at);
                 let r = self.any_of(rt.as_ref(), rhs.to_string(), at.span);
                 format!("keal_any_eq({}, {})", slot, r)
+            }
+            // A nullable subject is two questions, and `null` is one of the
+            // values it can be matched against — so `when (s) { null -> ... }`
+            // reads the tag, and every other arm reads the tag and then the
+            // value under it.
+            Type::Nullable(inner) => {
+                if matches!(at.kind, ExprKind::Null) {
+                    return format!("(!{})", opt_has(inner, slot));
+                }
+                let got = opt_get(inner, slot);
+                let inner_eq = self.equality(inner, &got, rhs, at);
+                format!("({} && {})", opt_has(inner, slot), inner_eq)
             }
             other => {
                 self.unsupported(at.span, &format!("matching on a value of type `{}`", other));
@@ -4888,6 +4959,11 @@ impl CBackend {
             Some(Type::Int) => format!("keal_str_from_int({})", v),
             Some(Type::Float) => format!("keal_str_from_float({})", v),
             Some(Type::Bool) => format!("keal_str_from_bool({})", v),
+            // The names table, emitted once per enum that is ever shown.
+            Some(Type::Enum(name)) => {
+                let f = self.enum_names(&name);
+                format!("{}({})", f, v)
+            }
             Some(Type::Class(name, args)) => {
                 format!("{}_show({})", struct_name_of(&name, &args), v)
             }
@@ -5611,7 +5687,9 @@ impl CBackend {
                 Some(Type::Range) => Some("Range"),
                 Some(Type::Fun(_)) => Some("Function"),
                 Some(Type::Null) => Some("Null"),
-                Some(Type::Class(n, _)) => {
+                // An enum names itself, as a class does — and, as with a
+                // class, the value is still evaluated for its effects.
+                Some(Type::Enum(n)) | Some(Type::Class(n, _)) => {
                     let bare: &str = n;
                     let owned = bare.to_string();
                     let v = self.expr(&args[0].value);
@@ -6367,6 +6445,8 @@ fn lambda_frees_in_stmt(s: &Stmt, out: &mut std::collections::HashSet<String>) {
 
 fn lambda_frees_in_expr(e: &Expr, out: &mut std::collections::HashSet<String>) {
     match &e.kind {
+        // A variant is a constant; it captures nothing.
+        ExprKind::Variant { .. } => {}
         // Expansion happens while the tree is checked, so nothing below
         // ever sees one of these.
         ExprKind::MacroCall { args, .. } => {
@@ -6539,6 +6619,7 @@ pub(crate) fn collect_free(stmts: &[Stmt], bound: &mut Vec<String>, free: &mut V
 
 fn collect_free_expr(e: &Expr, bound: &mut Vec<String>, free: &mut Vec<String>) {
     match &e.kind {
+        ExprKind::Variant { .. } => {}
         // Expansion happens while the tree is checked, so nothing below
         // ever sees one of these.
         ExprKind::MacroCall { args, .. } => {
@@ -6687,7 +6768,7 @@ fn describe_expr(kind: &ExprKind) -> &'static str {
 /// spare pattern, the other two as a tag beside the value.
 fn opt_wrap(inner: &Type, v: &str) -> String {
     match inner {
-        Type::Int => format!("(KealOptI64){{ true, {} }}", v),
+        Type::Int | Type::Enum(_) => format!("(KealOptI64){{ true, {} }}", v),
         Type::Float => format!("(KealOptF64){{ true, {} }}", v),
         Type::Bool => format!("(int8_t)(({}) ? 1 : 0)", v),
         _ => v.to_string(),
@@ -6696,16 +6777,19 @@ fn opt_wrap(inner: &Type, v: &str) -> String {
 
 fn opt_null(inner: &Type) -> String {
     match inner {
-        Type::Int => "(KealOptI64){ false, 0 }".to_string(),
+        Type::Int | Type::Enum(_) => "(KealOptI64){ false, 0 }".to_string(),
         Type::Float => "(KealOptF64){ false, 0.0 }".to_string(),
         Type::Bool => "(int8_t)2".to_string(),
         _ => "NULL".to_string(),
     }
 }
 
+// A tail here assumes a pointer, so every scalar has to be named — an
+// enum that fell through would compile to a NULL test on an ordinal, and
+// compile silently.
 fn opt_has(inner: &Type, x: &str) -> String {
     match inner {
-        Type::Int | Type::Float => format!("{}.has", x),
+        Type::Int | Type::Float | Type::Enum(_) => format!("{}.has", x),
         Type::Bool => format!("({} != 2)", x),
         _ => format!("({} != NULL)", x),
     }
@@ -6713,7 +6797,7 @@ fn opt_has(inner: &Type, x: &str) -> String {
 
 fn opt_get(inner: &Type, x: &str) -> String {
     match inner {
-        Type::Int | Type::Float => format!("{}.v", x),
+        Type::Int | Type::Float | Type::Enum(_) => format!("{}.v", x),
         Type::Bool => format!("(bool)({} == 1)", x),
         _ => x.to_string(),
     }
@@ -6722,7 +6806,7 @@ fn opt_get(inner: &Type, x: &str) -> String {
 /// True when `T?` needs the tagged form rather than a pointer.
 fn is_value_opt(ty: &Type) -> bool {
     matches!(ty, Type::Nullable(inner)
-        if matches!(**inner, Type::Int | Type::Float | Type::Bool))
+        if matches!(**inner, Type::Int | Type::Float | Type::Bool | Type::Enum(_)))
 }
 
 /// True for a type held behind a pointer, which therefore has null to spare.
@@ -6752,6 +6836,7 @@ fn struct_name_of(class: &str, args: &[Type]) -> String {
 fn mangle_type(ty: &Type) -> String {
     match ty {
         Type::Int => "Int".into(),
+        Type::Enum(name) => flatten(name),
         Type::Float => "Float".into(),
         Type::Bool => "Bool".into(),
         Type::Str => "String".into(),

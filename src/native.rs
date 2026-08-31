@@ -142,7 +142,9 @@ pub fn deep_copy(v: &Value, span: Span, depth: usize) -> R<Value> {
         return err(span, "`copy` went 10000 levels deep; is the value cyclic?");
     }
     Ok(match v {
-        Value::Unit
+        // A variant holds nothing, so a copy of one is itself.
+        Value::Variant(_)
+        | Value::Unit
         | Value::Null
         | Value::Int(_)
         | Value::Float(_)

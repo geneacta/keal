@@ -1,0 +1,3 @@
+// Words held for features the language does not have. Each says what to
+// write instead, because a reserved word with no advice is just a wall.
+async fetch(): Int { return 1 }

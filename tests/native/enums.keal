@@ -1,0 +1,49 @@
+// An enum compiles to an ordinal — one word, nothing to free, and the
+// cheapest thing in the language to send to an actor. The names table is
+// emitted only for an enum a program actually shows.
+
+enum Level { Debug, Info, Warn, Error }
+
+func severity(l: Level): Int {
+    return when (l) {
+        Level.Debug -> 10
+        Level.Info -> 20
+        Level.Warn -> 30
+        Level.Error -> 40
+    }
+}
+
+func louder(l: Level): Level {
+    return when (l) {
+        Level.Debug -> Level.Info
+        Level.Info -> Level.Warn
+        Level.Warn, Level.Error -> Level.Error
+    }
+}
+
+val at = Level.Warn
+println("${at} ${severity(at)} ${louder(at)} ${typeOf(at)}")
+println(at == Level.Warn)
+println(at == Level.Debug)
+
+// A nullable enum: the variants, plus null.
+func label(l: Level?): String {
+    return when (l) {
+        null -> "off"
+        Level.Debug, Level.Info -> "chatty"
+        Level.Warn, Level.Error -> "quiet"
+    }
+}
+println("${label(null)} ${label(Level.Debug)} ${label(Level.Error)}")
+
+// In a record field, in a list, and as a map key.
+record Rule(val at: Level, val loud: Bool)
+val rules: List<Rule> = [Rule(Level.Debug, false), Rule(Level.Error, true)]
+println("${rules[1].at} ${rules[1].loud}")
+
+val seen: List<Level> = [Level.Warn, Level.Warn, Level.Info]
+val counts: Map<Level, Int> = {}
+for (l in seen) {
+    counts[l] = (counts[l] ?: 0) + 1
+}
+println("${counts.size} ${counts[Level.Warn] ?: 0} ${counts[Level.Error] ?: 0}")

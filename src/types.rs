@@ -24,6 +24,15 @@ pub enum Type {
     Fun(Rc<FunType>),
     /// A user-declared class and its type arguments: `Box<Int>`, `Point`.
     Class(Rc<str>, Rc<Vec<Type>>),
+    /// A user-declared enum: a closed set of names.
+    ///
+    /// A scalar, beside `Int` and `Bool`. Deliberately so: because `Type`
+    /// derives `PartialEq` and `assignable_to` opens by comparing the two,
+    /// an enum is assignable to itself, to itself under `?`, and to `Any` —
+    /// and to nothing else — without a single new arm anywhere. That is
+    /// what carrying no payload buys, and it is most of why it carries
+    /// none.
+    Enum(Rc<str>),
     /// `Self` inside a trait declaration: the type that implements it.
     /// Replaced by the implementing class, or by the bounded type parameter,
     /// wherever a trait method is actually used.
@@ -342,6 +351,7 @@ impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Type::Int => write!(f, "Int"),
+            Type::Enum(name) => write!(f, "{}", name),
             Type::Float => write!(f, "Float"),
             Type::Bool => write!(f, "Bool"),
             Type::Str => write!(f, "String"),

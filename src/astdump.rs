@@ -43,6 +43,7 @@ pub fn dump_typed(program: &Program, shown: impl Fn(u32) -> bool) -> String {
             Item::Class(c) => c.span.file,
             Item::Trait(t) => t.span.file,
             Item::Macro(m) => m.span.file,
+            Item::Enum(en) => en.span.file,
             Item::Native { span, .. } => span.file,
             Item::Extern(x) => x.span.file,
             Item::Import { span, .. } => span.file,
@@ -156,6 +157,7 @@ fn item_node(item: &Item) -> String {
         Item::Class(c) => class_node(c),
         Item::Trait(t) => trait_node(t),
         Item::Macro(m) => macro_node(m),
+        Item::Enum(en) => enum_node(en),
         Item::Import { path, alias, span } => match alias {
             Some(a) => format!("import {} as {} {}", esc(path), a, at(*span)),
             None => format!("import {} {}", esc(path), at(*span)),
@@ -295,6 +297,14 @@ fn block_node(tag: &str, b: &Block) -> String {
     out.trim_end().to_string()
 }
 
+fn enum_node(en: &EnumDecl) -> String {
+    let mut out = format!("{}enum {} {}", vis_prefix(en.vis), en.name, at(en.span));
+    for v in &en.variants {
+        out.push_str(&format!("\n{}", indent(&format!("variant {} {}", v.name, at(v.span)))));
+    }
+    out
+}
+
 fn macro_node(m: &MacroDecl) -> String {
     let mut out = format!("{}macro {} {}", vis_prefix(m.vis), m.name, at(m.span));
     for p in &m.params {
@@ -390,6 +400,7 @@ fn expr_node(e: &Expr) -> String {
 fn expr_node_inner(e: &Expr) -> String {
     let sp = at(e.span);
     match &e.kind {
+        ExprKind::Variant { enm, name, .. } => format!("variant {}.{} {}", enm, name, sp),
         ExprKind::MacroCall { name, args } => {
             let mut out = format!("macrocall {} {}", name, sp);
             for a in args {

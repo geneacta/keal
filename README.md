@@ -44,6 +44,9 @@ At a glance:
   and what it *holds* belongs to the caller unless the signature says `var`.
   The checker refuses every way around it, a call to something that would
   included
+* **Enums that close a `when`** — `enum Suit { Hearts, Spades }`, and a
+  `when` over one needs no `else`. Add a variant and every `when` that
+  forgot it is an error, in statement position too
 * **Macros that are syntax, not text** — `swap!(a, b)` rebinds both names,
   an argument may run twice or never, and a `return` inside one returns from
   the function around it. Hygiene by scoping: what a macro binds lives in a

@@ -1,0 +1,2 @@
+// What the parser refuses in an enum declaration.
+enum Shape { Circle(r: Float), Square }

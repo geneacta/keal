@@ -159,6 +159,20 @@ pub struct ClassShape {
     pub fields: Vec<(String, Type)>,
 }
 
+/// A list of names, backticked, joined the way every other list of names in
+/// a diagnostic is joined.
+fn list_names(names: &[String]) -> String {
+    let parts: Vec<String> = names.iter().map(|n| format!("`{}`", n)).collect();
+    parts.join(", ")
+}
+
+/// What the checker knows about an enum: its values, and who may name it.
+struct EnumInfo {
+    variants: Vec<Rc<str>>,
+    vis: Vis,
+    span: Span,
+}
+
 pub struct Checker {
     classes: HashMap<String, ClassInfo>,
     /// Declaration order, so anything reporting on classes is deterministic.
@@ -203,6 +217,10 @@ pub struct Checker {
     declared: HashMap<(u32, String), String>,
     /// The unique names already handed out.
     taken: HashSet<String>,
+    /// Every enum, by its unique name. The variants are in declaration
+    /// order: that order is the ordinal a compiled program stores, and the
+    /// order `values()` and a missing-variant message list them in.
+    enums: HashMap<String, EnumInfo>,
     /// Every macro the program declares, collected before anything is
     /// checked: a call may stand above the declaration it names.
     macros: crate::macros::Macros,
@@ -245,6 +263,7 @@ impl Checker {
             file_names: Vec::new(),
             declared: HashMap::new(),
             taken: HashSet::new(),
+            enums: HashMap::new(),
             macros: crate::macros::Macros::empty(),
             constexpr_funs: HashMap::new(),
             constexpr_vals: HashMap::new(),
@@ -478,6 +497,7 @@ impl Checker {
                 Item::Fun(f) => &f.name,
                 Item::Class(c) => &c.name,
                 Item::Trait(t) => &t.name,
+                Item::Enum(en) => &en.name,
                 Item::Extern(x) => &x.name,
                 Item::Stmt(st) => match &st.kind {
                     StmtKind::Let { name, .. } => name,
@@ -493,6 +513,7 @@ impl Checker {
                 Item::Fun(f) => (f.span.file, &mut f.name),
                 Item::Class(c) => (c.span.file, &mut c.name),
                 Item::Trait(t) => (t.span.file, &mut t.name),
+                Item::Enum(en) => (en.span.file, &mut en.name),
                 Item::Extern(x) => (x.span.file, &mut x.name),
                 Item::Stmt(st) => match &mut st.kind {
                     StmtKind::Let { name, .. } => (st.span.file, name),
@@ -715,6 +736,7 @@ impl Checker {
         for item in &program.items {
             match item {
                 Item::Class(c) => self.collect_class(c),
+                Item::Enum(en) => self.collect_enum(en),
                 Item::Fun(f) => self.collect_fun(f),
                 _ => {}
             }
@@ -891,6 +913,90 @@ impl Checker {
         }
         self.scopes[0]
             .insert(x.name.clone(), Binding::global(ty, BindKind::Fun, x.vis, x.span.file));
+    }
+
+    /// The values a type has, when it has finitely many and the checker
+    /// knows all of them. `None` for every other type — which is most of
+    /// them, and which is why this rule adds no message anywhere else.
+    fn closed_set(&self, t: &Type) -> Option<Vec<String>> {
+        match t {
+            Type::Enum(name) => {
+                Some(self.enums.get(&**name)?.variants.iter().map(|v| v.to_string()).collect())
+            }
+            Type::Bool => Some(vec!["true".to_string(), "false".to_string()]),
+            // `null` is one more value, and the only one `?` adds.
+            Type::Nullable(inner) => {
+                let mut out = self.closed_set(inner)?;
+                out.insert(0, "null".to_string());
+                Some(out)
+            }
+            _ => None,
+        }
+    }
+
+    /// What one arm value accounts for, if anything. A name, a call, an
+    /// aliased `val h = Suit.Hearts` — none of them count: the checker has
+    /// to *see* the value, not merely believe it is one.
+    fn covers(v: &Expr) -> Option<String> {
+        match &v.kind {
+            ExprKind::Variant { name, .. } => Some(name.to_string()),
+            ExprKind::Bool(b) => Some(b.to_string()),
+            ExprKind::Null => Some("null".to_string()),
+            _ => None,
+        }
+    }
+
+    /// `Suit.Hearts` when `Suit` names an enum here and nothing else does.
+    ///
+    /// Order matters and is the whole rule: a binding in scope wins, then an
+    /// import alias, then an enum. So `val Suit = 3` shadows the enum the
+    /// way any inner name shadows an outer one, and this can never take a
+    /// name out from under a program.
+    fn resolve_variant(&mut self, e: &mut Expr, name: &str, span: Span) -> Option<Type> {
+        let ExprKind::Field { obj, .. } = &e.kind else { return None };
+        let ExprKind::Ident(base) = &obj.kind else { return None };
+        if self.lookup(base).is_some()
+            || self.aliases.contains_key(&(span.file, base.clone()))
+        {
+            return None;
+        }
+        let key = self.global_key(base, span.file);
+        let info = self.enums.get(&key)?;
+        let (vis, home) = (info.vis, info.span.file);
+        let ordinal = info.variants.iter().position(|v| &**v == name);
+        let known: Vec<String> = info.variants.iter().map(|v| v.to_string()).collect();
+        self.check_visible(span, "enum", &key, vis, home);
+        let Some(ordinal) = ordinal else {
+            self.error_note(
+                span,
+                format!("`{}` has no variant `{}`", key, name),
+                format!("it has {}", list_names(&known)),
+            );
+            return Some(Type::Error);
+        };
+        let enm: Rc<str> = Rc::from(key.as_str());
+        e.kind = ExprKind::Variant {
+            enm: enm.clone(),
+            name: Rc::from(name),
+            ordinal: ordinal as u32,
+        };
+        Some(Type::Enum(enm))
+    }
+
+    fn collect_enum(&mut self, en: &EnumDecl) {
+        if self.classes.contains_key(&en.name) || self.traits.contains_key(&en.name) {
+            self.error(en.span, format!("`{}` is already the name of a type", en.name));
+            return;
+        }
+        if self.enums.contains_key(&en.name) {
+            self.error(en.span, format!("enum `{}` is declared twice", en.name));
+            return;
+        }
+        let variants: Vec<Rc<str>> = en.variants.iter().map(|v| Rc::from(v.name.as_str())).collect();
+        self.enums.insert(
+            en.name.clone(),
+            EnumInfo { variants, vis: en.vis, span: en.span },
+        );
     }
 
     fn collect_fun(&mut self, f: &FunDecl) {
@@ -1450,6 +1556,9 @@ impl Checker {
                 } else if let Some(info) = self.traits.get(&**name) {
                     let (vis, home) = (info.vis, info.span.file);
                     self.check_visible(te.span, "trait", name, vis, home);
+                } else if let Some(info) = self.enums.get(&**name) {
+                    let (vis, home) = (info.vis, info.span.file);
+                    self.check_visible(te.span, "enum", name, vis, home);
                 }
                 for a in args {
                     self.check_type_names(a);
@@ -1548,6 +1657,13 @@ impl Checker {
                             .map(|a| self.resolve_quiet(a))
                             .collect::<Result<Vec<_>, _>>()?;
                         Ok(Type::class(other, resolved))
+                    }
+                    other if self.enums.contains_key(&self.global_key(other, te.span.file)) => {
+                        let key = self.global_key(other, te.span.file);
+                        if arity != 0 {
+                            return Err(wrong_arity(0));
+                        }
+                        Ok(Type::Enum(Rc::from(key.as_str())))
                     }
                     other => Err(Diag::new(te.span, format!("unknown type `{}`", other))),
                 }
@@ -2254,6 +2370,9 @@ impl Checker {
         self.unqualify(e);
         match &mut e.kind {
             ExprKind::MacroCall { .. } => Type::Error,
+            // Already resolved: only this checker builds one, and only from
+            // a `Suit.Hearts` it has just recognised.
+            ExprKind::Variant { enm, .. } => Type::Enum(enm.clone()),
             ExprKind::Int(_) => Type::Int,
             ExprKind::Float(_) => Type::Float,
             ExprKind::Bool(_) => Type::Bool,
@@ -2686,9 +2805,20 @@ impl Checker {
                 }
             }
 
-            ExprKind::Field { obj, name, safe } => {
+            ExprKind::Field { name, safe, .. } => {
                 let (name, safe) = (name.clone(), *safe);
+                // `Suit.Hearts`, resolved here and nowhere else. Below this
+                // line every engine sees a constant, so none of them has to
+                // learn the rule — which would be the same five-line test
+                // in six places, all required to agree byte for byte.
+                if !safe {
+                    if let Some(t) = self.resolve_variant(e, &name, span) {
+                        return t;
+                    }
+                }
+                let ExprKind::Field { obj, .. } = &mut e.kind else { unreachable!() };
                 let ot = self.check_expr(obj, None);
+                let ExprKind::Field { obj, .. } = &e.kind else { unreachable!() };
                 let hint = self.var_narrowing_hint(obj);
                 let (base, nullable) = match self.unwrap_receiver(&ot, safe, span, &name, hint) {
                     Some(v) => v,
@@ -3854,10 +3984,16 @@ impl Checker {
 
         let mut result = Type::Never;
         let mut has_else = false;
+        let mut else_span: Option<Span> = None;
         // Reaching an arm means every earlier arm failed to match, and that
         // is often worth knowing: after `x == null -> ...`, the arms below
         // can treat `x` as non-null.
         let mut ruled_out: Vec<(String, Type)> = Vec::new();
+        // What the arms so far have accounted for, when the subject's type
+        // is a closed set. Filled only from unguarded arms — the rule the
+        // language already states for `else`, applied to the same question.
+        let closed = subject_ty.as_ref().and_then(|t| self.closed_set(t));
+        let mut covered: Vec<String> = Vec::new();
 
         for arm in arms.iter_mut() {
             self.push_scope();
@@ -3869,7 +4005,12 @@ impl Checker {
             let mut below: Vec<(String, Type)> = Vec::new();
 
             match &mut arm.pattern {
-                WhenPattern::Else => has_else = arm.guard.is_none(),
+                WhenPattern::Else => {
+                    has_else = arm.guard.is_none();
+                    if has_else {
+                        else_span = Some(arm.span);
+                    }
+                }
 
                 WhenPattern::Values(values) => match &subject_ty {
                     Some(st) => {
@@ -3879,6 +4020,21 @@ impl Checker {
                                 matches_null = true;
                             }
                             let vt = self.check_coerced(v, st);
+                            // Read after `check_coerced`, because that is
+                            // where `Suit.Hearts` became a resolved node.
+                            if closed.is_some() && arm.guard.is_none() {
+                                if let Some(c) = Self::covers(v) {
+                                    if covered.contains(&c) {
+                                        self.error_note(
+                                            v.span,
+                                            format!("`{}` is already covered above", c),
+                                            "the first matching arm wins, so this one can never run",
+                                        );
+                                    } else {
+                                        covered.push(c);
+                                    }
+                                }
+                            }
                             if !vt.assignable_to(st) && !st.assignable_to(&vt) {
                                 self.error(
                                     v.span,
@@ -3963,6 +4119,34 @@ impl Checker {
             // established for the arms below it.
             if arm.guard.is_none() {
                 ruled_out.extend(below);
+            }
+        }
+
+        // A closed subject settles the question the generic `else` rule
+        // could only guess at, so it is answered first — and, unlike that
+        // rule, in statement position too. A `when` that dispatches on a
+        // variant and forgets one is the exact thing this exists to catch,
+        // and it usually produces nothing.
+        if let Some(all) = &closed {
+            let missing: Vec<String> =
+                all.iter().filter(|c| !covered.contains(c)).cloned().collect();
+            let st = subject_ty.as_ref().map(|t| t.to_string()).unwrap_or_default();
+            if missing.is_empty() {
+                if let Some(sp) = else_span {
+                    self.warn_note(
+                        sp,
+                        format!("this `else` cannot be reached: `{}` has no value left uncovered", st),
+                        "delete it, so that a variant added later reaches this `when` as an error",
+                    );
+                }
+                has_else = true;
+            } else if !has_else {
+                self.error_note(
+                    span,
+                    format!("this `when` over `{}` does not cover {}", st, list_names(&missing)),
+                    "add an arm for each, or `else -> ...`",
+                );
+                has_else = true;
             }
         }
 
@@ -4083,7 +4267,10 @@ impl Checker {
     /// (`ActorRef`, `Outbox`) pass by decree — they are the channels.
     fn deeply_immutable(&self, t: &Type, seen: &mut Vec<String>) -> Result<(), String> {
         match t {
-            Type::Int
+            // A variant has nothing to mutate: it is one word, and the set
+            // it comes from is fixed when the program is compiled.
+            Type::Enum(_)
+            | Type::Int
             | Type::Float
             | Type::Bool
             | Type::Str
@@ -4160,7 +4347,8 @@ impl Checker {
     /// stops the recursion); a cyclic *value* is the runtime's to refuse.
     fn copyable(&self, t: &Type, seen: &mut Vec<String>) -> Result<(), String> {
         match t {
-            Type::Int
+            Type::Enum(_)
+            | Type::Int
             | Type::Float
             | Type::Bool
             | Type::Str

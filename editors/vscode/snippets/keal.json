@@ -9,6 +9,11 @@
     "body": ["proc ${1:name}(${2:param}: ${3:Int}) {", "\t$0", "}"],
     "description": "A procedure, which returns nothing"
   },
+  "Enum": {
+    "prefix": "enum",
+    "body": ["enum ${1:Name} { ${2:First}, ${3:Second} }"],
+    "description": "A closed set of names; a `when` over one needs no `else`"
+  },
   "Macro": {
     "prefix": "macro",
     "body": ["macro ${1:name}(${2:a}) {", "\t$0", "}"],

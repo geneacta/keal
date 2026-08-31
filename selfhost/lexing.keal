@@ -55,6 +55,11 @@ func keywordOf(w: String): String {
         // yet; they are reserved so that the day they do, no program has
         // to be renamed to make room for them.
         "public", "private", "package", "internal", "protected",
+        // Held for features the language does not have. Reserved now so
+        // that the day one arrives, no program has to be renamed to make
+        // room for it — and refused where written rather than quietly read
+        // as a name, so nobody builds on one by accident.
+        "async", "await", "yield", "sealed", "super", "static", "typealias",
         "not", "and", "or", "xor", "xnor", "nand", "nor", "implies" -> w
         else -> ""
     }

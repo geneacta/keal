@@ -276,6 +276,11 @@ impl<'a> Folder<'a> {
     fn eval(&mut self, e: &Expr) -> Result<CVal, Diag> {
         self.step(e.span)?;
         match &e.kind {
+            // A variant is a value the compiler already knows, but not one a
+            // literal can spell, so a `constexpr` cannot end with one.
+            ExprKind::Variant { enm, name, .. } => {
+                refuse(e.span, &format!("`{}.{}`, which no literal spells", enm, name))
+            }
             ExprKind::Int(n) => Ok(CVal::Int(*n)),
             ExprKind::Float(f) => Ok(CVal::Float(*f)),
             ExprKind::Bool(b) => Ok(CVal::Bool(*b)),

@@ -353,6 +353,8 @@ func declaredNameOf(item: ItemN): String {
     if (item.kind == "class" and c != null) { return c.name }
     val t = item.traitDecl
     if (item.kind == "trait" and t != null) { return t.name }
+    val en = item.enumDecl
+    if (item.kind == "enum" and en != null) { return en.name }
     val x = item.externDecl
     if (item.kind == "extern" and x != null) { return x.name }
     val st = item.stmt
@@ -369,6 +371,8 @@ proc setDeclaredName(item: ItemN, unique: String) {
     if (item.kind == "class" and c != null) { c.name = unique }
     val t = item.traitDecl
     if (item.kind == "trait" and t != null) { t.name = unique }
+    val en = item.enumDecl
+    if (item.kind == "enum" and en != null) { en.name = unique }
     val x = item.externDecl
     if (item.kind == "extern" and x != null) { x.name = unique }
     val st = item.stmt
@@ -390,6 +394,29 @@ func memberVis(written: String, c: ClassN): String {
     return "private"
 }
 
+/// What one arm value accounts for, or "" when it accounts for nothing. A
+/// name, a call, an aliased `val h = Suit.Hearts` — none of them count: the
+/// checker has to *see* the value, not merely believe it is one.
+package func coversValue(v: Ex): String {
+    if (v.kind == "variant") { return v.text }
+    if (v.kind == "bool") { return v.text }
+    if (v.kind == "null") { return "null" }
+    return ""
+}
+
+/// A list of names, backticked, joined the way every other list of names in
+/// a diagnostic is joined.
+package func listNames(names: List<String>): String {
+    var out = ""
+    var i = 0
+    while (i < names.size) {
+        if (i > 0) { out += ", " }
+        out += "`" + names[i] + "`"
+        i += 1
+    }
+    return out
+}
+
 package class Checker() {
     package var classes: Map<String, CInfo> = {}
     var scopes: List<Map<String, Binding>> = [{}]
@@ -403,6 +430,12 @@ package class Checker() {
     var impls: Map<String, List<String>> = {}
     var lastInst: List<Ty>? = null
     var guardNarrowing: List<Fact>? = null
+    /// Every enum, by its unique name. The variants are in declaration
+    /// order: that order is the ordinal a compiled program stores, and the
+    /// order `values()` and a missing-variant message list them in.
+    var enums: Map<String, List<String>> = {}
+    var enumVis: Map<String, String> = {}
+    var enumFile: Map<String, Int> = {}
     /// Every macro the program declares, collected before anything is
     /// checked: a call may stand above the declaration it names.
     var macros: Macros = Macros({})
@@ -745,6 +778,7 @@ package class Checker() {
         // Collected first, and from the whole program: a macro may be called
         // above the line that declares it, as a function may be.
         this.collectMacros(program)
+        this.collectEnums(program)
         // 0a. Who can see what, and one unique name per declaration. Nothing
         //     below this line has to think about two files sharing a name.
         this.planNamespaces(program)
@@ -989,6 +1023,88 @@ package class Checker() {
     /// back over it. The folder reports through its own five fields, so a
     /// failure becomes exactly one diagnostic here, as it does in the
     /// Rust half.
+    /// `Suit.Hearts` when `Suit` names an enum here and nothing else does.
+    ///
+    /// Order matters and is the whole rule: a binding in scope wins, then an
+    /// import alias, then an enum. So `val Suit = 3` shadows the enum the
+    /// way any inner name shadows an outer one, and this can never take a
+    /// name out from under a program.
+    func resolveVariant(var e: Ex): Ty? {
+        val obj = e.kids[0]
+        unless (obj.kind == "ident") { return null }
+        val base = obj.text
+        if (this.lookup(base) != null) { return null }
+        if (this.aliases.contains("${e.file}|${base}")) { return null }
+        val key = this.globalKey(base, e.file)
+        unless (this.enums.contains(key)) { return null }
+        val names = this.enums[key]!!
+        val evis = this.enumVis[key] ?: ""
+        val efile = this.enumFile[key] ?: 0
+        this.checkVisible(e.file, e.line, e.col, "enum", key, evis, efile)
+        var ordinal = -1
+        var i = 0
+        while (i < names.size) {
+            if (names[i] == e.text) { ordinal = i }
+            i += 1
+        }
+        if (ordinal < 0) {
+            this.errorNote(
+                e.file, e.line, e.col,
+                "`${key}` has no variant `${e.text}`",
+                "it has ${listNames(names)}"
+            )
+            return Ty("Error")
+        }
+        e.kind = "variant"
+        e.enumName = key
+        e.iVal = ordinal
+        e.kids = []
+        return tyEnum(key)
+    }
+
+    /// The values a type has, when it has finitely many and the checker
+    /// knows all of them. Null for every other type — which is most of
+    /// them, and which is why this rule adds no message anywhere else.
+    func closedSet(t: Ty): List<String>? {
+        if (t.kind == "Enum") {
+            unless (this.enums.contains(t.name)) { return null }
+            val out: List<String> = []
+            for (n in this.enums[t.name]!!) { out.add(n) }
+            return out
+        }
+        if (t.kind == "Bool") { return ["true", "false"] }
+        // `null` is one more value, and the only one `?` adds.
+        if (t.kind == "Nullable") {
+            val inner = this.closedSet(t.args[0])
+            if (inner == null) { return null }
+            val out: List<String> = ["null"]
+            for (n in inner) { out.add(n) }
+            return out
+        }
+        return null
+    }
+
+    proc collectEnums(program: ProgramN) {
+        for (item in program.items) {
+            val en = item.enumDecl
+            if (item.kind == "enum" and en != null) {
+                if (this.classes.contains(en.name) or this.traits.contains(en.name)) {
+                    this.error(en.file, en.line, en.col, "`${en.name}` is already the name of a type")
+                    continue
+                }
+                if (this.enums.contains(en.name)) {
+                    this.error(en.file, en.line, en.col, "enum `${en.name}` is declared twice")
+                    continue
+                }
+                val names: List<String> = []
+                for (v in en.variants) { names.add(v.name) }
+                this.enums[en.name] = names
+                this.enumVis[en.name] = en.vis
+                this.enumFile[en.name] = en.file
+            }
+        }
+    }
+
     /// Every macro a program declares. Two with one name is refused here
     /// rather than resolved by order.
     proc collectMacros(program: ProgramN) {
@@ -1625,6 +1741,12 @@ package class Checker() {
             val ti = this.traits[key]
             if (ti != null) {
                 this.checkVisible(te.file, te.line, te.col, "trait", te.name, ti.vis, ti.file)
+            } else {
+                if (this.enums.contains(key)) {
+                    val evis = this.enumVis[key] ?: ""
+                    val efile = this.enumFile[key] ?: 0
+                    this.checkVisible(te.file, te.line, te.col, "enum", te.name, evis, efile)
+                }
             }
         }
         for (a in te.args) { this.checkTypeNames(a) }
@@ -1749,6 +1871,16 @@ package class Checker() {
                 resolved.add(t)
             }
             return tyClass(key, resolved)
+        }
+        if (this.enums.contains(key)) {
+            unless (arity == 0) {
+                this.quietDiag = DiagN(
+                    te.file, te.line, te.col,
+                    "`${name}` takes 0 type argument(s), found ${arity}"
+                )
+                return null
+            }
+            return tyEnum(key)
         }
         this.quietDiag = DiagN(te.file, te.line, te.col, "unknown type `${name}`")
         return null
@@ -2397,6 +2529,9 @@ package class Checker() {
             becomeEx(e, out.block!!.stmts[0].ex!!)
         }
         this.unqualify(e)
+        // Already resolved: only this checker builds one, and only from a
+        // `Suit.Hearts` it has just recognised.
+        if (e.kind == "variant") { return tyEnum(e.enumName) }
         if (e.kind == "int") { return Ty("Int") }
         if (e.kind == "float") { return Ty("Float") }
         if (e.kind == "bool") { return Ty("Bool") }
@@ -2833,6 +2968,14 @@ package class Checker() {
             return Ty("Error")
         }
         if (e.kind == "field") {
+            // `Suit.Hearts`, resolved here and nowhere else. Below this line
+            // every engine sees a constant, so none of them has to learn the
+            // rule — which would be the same five-line test in six places,
+            // all required to agree byte for byte.
+            unless (e.safe) {
+                val asVariant = this.resolveVariant(e)
+                if (asVariant != null) { return asVariant }
+            }
             val obj = e.kids[0]
             val name = e.text
             val ot = this.checkExpr(obj, null)
@@ -3800,9 +3943,17 @@ package class Checker() {
 
         var result = Ty("Never")
         var hasElse = false
+        var elseLine = 0
+        var elseCol = 0
         // Reaching an arm means every earlier arm failed to match: after
         // `x == null -> ...`, the arms below can treat `x` as non-null.
         val ruledOut: List<Fact> = []
+        // What the arms so far have accounted for, when the subject's type
+        // is a closed set. Filled only from unguarded arms — the rule the
+        // language already states for `else`, applied to the same question.
+        var closed: List<String>? = null
+        if (subjectTy != null) { closed = this.closedSet(subjectTy!!) }
+        val covered: List<String> = []
 
         for (arm in e.arms) {
             this.pushScope()
@@ -3816,7 +3967,11 @@ package class Checker() {
             val below: List<Fact> = []
 
             if (arm.patternKind == "else") {
-                if (arm.guard == null) { hasElse = true }
+                if (arm.guard == null) {
+                    hasElse = true
+                    elseLine = arm.line
+                    elseCol = arm.col
+                }
             } else if (arm.patternKind == "values") {
                 val st = subjectTy
                 if (st != null) {
@@ -3824,6 +3979,22 @@ package class Checker() {
                     for (v in arm.values) {
                         if (v.kind == "null") { matchesNull = true }
                         val vt = this.checkCoerced(v, st)
+                        // Read after `checkCoerced`, because that is where
+                        // `Suit.Hearts` became a resolved node.
+                        if (closed != null and arm.guard == null) {
+                            val c = coversValue(v)
+                            unless (c == "") {
+                                if (covered.contains(c)) {
+                                    this.errorNote(
+                                        v.file, v.line, v.col,
+                                        "`${c}` is already covered above",
+                                        "the first matching arm wins, so this one can never run"
+                                    )
+                                } else {
+                                    covered.add(c)
+                                }
+                            }
+                        }
                         if (not assignableTo(vt, st) and not assignableTo(st, vt)) {
                             this.error(
                                 v.file, v.line, v.col,
@@ -3905,6 +4076,40 @@ package class Checker() {
             // established for the arms below it.
             if (arm.guard == null) {
                 for (f in below) { ruledOut.add(f) }
+            }
+        }
+
+        // A closed subject settles the question the generic `else` rule
+        // could only guess at, so it is answered first — and, unlike that
+        // rule, in statement position too. A `when` that dispatches on a
+        // variant and forgets one is the exact thing this exists to catch,
+        // and it usually produces nothing.
+        val all = closed
+        if (all != null) {
+            val missing: List<String> = []
+            for (c in all) {
+                unless (covered.contains(c)) { missing.add(c) }
+            }
+            var stName = ""
+            if (subjectTy != null) { stName = tyShow(subjectTy!!) }
+            if (missing.size == 0) {
+                if (hasElse) {
+                    this.warnNote(
+                        e.file, elseLine, elseCol,
+                        "this `else` cannot be reached: `${stName}` has no value left uncovered",
+                        "delete it, so that a variant added later reaches this `when` as an error"
+                    )
+                }
+                hasElse = true
+            } else {
+                unless (hasElse) {
+                    this.errorNote(
+                        e.file, e.line, e.col,
+                        "this `when` over `${stName}` does not cover ${listNames(missing)}",
+                        "add an arm for each, or `else -> ...`"
+                    )
+                    hasElse = true
+                }
             }
         }
 

@@ -1,0 +1,48 @@
+// What an enum refuses, and what an exhaustive `when` refuses. Both are
+// checked where they are written.
+
+enum Suit { Hearts, Diamonds, Clubs, Spades }
+enum Mood { Blue }
+
+// A `when` that forgets a variant, in value position and in statement
+// position alike — the statement one is exactly the case this exists for.
+func short(s: Suit): Bool {
+    return when (s) {
+        Suit.Hearts -> true
+        Suit.Clubs -> false
+    }
+}
+
+proc dispatch(s: Suit) {
+    when (s) {
+        Suit.Hearts -> println("h")
+    }
+}
+
+// Two arms for one variant: the first wins, so the second can never run.
+func twice(s: Suit): Int {
+    return when (s) {
+        Suit.Hearts -> 1
+        Suit.Hearts -> 2
+        else -> 3
+    }
+}
+
+// A variant that does not exist.
+val absent = Suit.Jokers
+
+// A variant of another enum against this subject.
+func crossed(s: Suit): Int {
+    return when (s) {
+        Mood.Blue -> 1
+        else -> 0
+    }
+}
+
+// A nullable subject that forgets `null`.
+func maybe(s: Suit?): Int {
+    return when (s) {
+        Suit.Hearts, Suit.Diamonds -> 1
+        Suit.Clubs, Suit.Spades -> 0
+    }
+}

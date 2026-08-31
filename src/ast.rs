@@ -71,6 +71,7 @@ pub enum Item {
     Class(ClassDecl),
     Trait(TraitDecl),
     Macro(MacroDecl),
+    Enum(EnumDecl),
     /// `native "..."` — text passed verbatim into the generated C, for
     /// headers and helper definitions the externs below need.
     Native { code: String, span: Span },
@@ -115,6 +116,26 @@ pub struct FunDecl {
     pub params: Rc<Vec<Param>>,
     pub ret: Option<TypeExpr>,
     pub body: Rc<Block>,
+    pub span: Span,
+}
+
+/// `enum Suit { Hearts, Diamonds, Clubs, Spades }` — a closed set of names.
+///
+/// Closed is the whole of it: the checker knows every value the type has,
+/// so a `when` over one needs no `else`, and the day a variant is added,
+/// every `when` that forgot it is an error rather than a surprise at run
+/// time. A variant carries nothing; one that wants fields is a `record`.
+#[derive(Clone, Debug)]
+pub struct EnumDecl {
+    pub name: String,
+    pub vis: Vis,
+    pub variants: Vec<Variant>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct Variant {
+    pub name: String,
     pub span: Span,
 }
 
@@ -328,6 +349,14 @@ pub enum ExprKind {
     MapLit(Vec<(Expr, Expr)>),
     Lambda { params: Rc<Vec<Param>>, body: Rc<Block> },
     Range { start: Box<Expr>, end: Box<Expr> },
+    /// One value of an enum, already resolved.
+    ///
+    /// **The parser never builds one.** `Suit.Hearts` parses as an ordinary
+    /// field access, and the checker rewrites it here once it knows `Suit`
+    /// names an enum. That is why no engine below the checker has to learn
+    /// the resolution rule — six copies of one five-line test, all of which
+    /// would have to agree byte for byte.
+    Variant { enm: std::rc::Rc<str>, name: std::rc::Rc<str>, ordinal: u32 },
     /// `name!(a, b)` — a macro, spliced where it is written rather than
     /// called. The arguments are expressions, unevaluated: the body decides
     /// whether each one runs, and how many times.

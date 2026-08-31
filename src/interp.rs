@@ -310,6 +310,13 @@ impl Interp {
     pub fn eval(&mut self, e: &Expr, env: &Env) -> R<Value> {
         let span = e.span;
         match &e.kind {
+            ExprKind::Variant { enm, name, ordinal } => {
+                Ok(Value::Variant(std::rc::Rc::new(crate::value::VariantVal {
+                    enm: enm.clone(),
+                    name: name.clone(),
+                    ordinal: *ordinal,
+                })))
+            }
             // Expansion happens while the tree is checked, so a call that
             // reaches here is one nothing expanded.
             ExprKind::MacroCall { name, .. } => {
