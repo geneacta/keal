@@ -10,7 +10,7 @@ use std::process::{Command, ExitCode};
 use crate::{cbackend, checker, loader, span::Sources};
 
 /// Type-checks and emits C, or reports why it cannot.
-fn compile(path: &str) -> Result<String, ExitCode> {
+fn compile_with(path: &str, audit: bool) -> Result<String, ExitCode> {
     let mut sources = Sources::new();
     let mut program = match loader::load_generating(path, &mut sources) {
         Ok(p) => p,
@@ -29,7 +29,7 @@ fn compile(path: &str) -> Result<String, ExitCode> {
         return Err(ExitCode::FAILURE);
     }
 
-    cbackend::emit(&program, &checker.class_shapes()).map_err(|diags| {
+    cbackend::emit_with(&program, &checker.class_shapes(), audit).map_err(|diags| {
         for d in &diags {
             eprint!("{}", sources.render("error", d));
         }
@@ -42,8 +42,8 @@ fn compile(path: &str) -> Result<String, ExitCode> {
     })
 }
 
-pub fn emit_only(path: &str) -> ExitCode {
-    match compile(path) {
+pub fn emit_only(path: &str, audit: bool) -> ExitCode {
+    match compile_with(path, audit) {
         Ok(c) => {
             print!("{}", c);
             ExitCode::SUCCESS
@@ -135,8 +135,11 @@ pub fn no_compiler_advice() -> Vec<String> {
     out
 }
 
-pub fn build(path: &str, extras: &[String]) -> ExitCode {
-    let c = match compile(path) {
+/// `audit` is the build's switch, not the program's: a binary cannot grow
+/// counters after it is compiled, so the audit is asked for here where the
+/// interpreters take the same question from `KEAL_AUDIT`.
+pub fn build(path: &str, extras: &[String], audit: bool) -> ExitCode {
+    let c = match compile_with(path, audit) {
         Ok(c) => c,
         Err(code) => return code,
     };

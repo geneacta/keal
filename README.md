@@ -559,10 +559,13 @@ Keal file in [`examples/interop/polyglot/`](examples/interop/polyglot/),
 and [`docs/interop.md`](docs/interop.md) tells that whole story. Exceptions
 used to live here too; all three engines catch them now. So did actors on
 real threads: `keal build` runs one OS thread per actor today, TSan-clean,
-and [`docs/threads.md`](docs/threads.md) is the record of how. And so did
-`Any` natively — the tag-and-payload pair, `is` as a tag compare. And
-`weak`, which is how the back edge of a cycle is written so that the whole
-cycle dies on schedule and every `deinit` runs.)
+and [`docs/threads.md`](docs/threads.md) is the record of how. So did `Any`
+natively — the tag-and-payload pair, `is` as a tag compare — and `weak`,
+which is how the back edge of a cycle is written so that the whole cycle
+dies on schedule and every `deinit` runs. And so did the whole module
+question: a declaration is private to its file unless it says `package` or
+`public`, class members included, and two modules may declare the same name
+because an import can be given one.)
 
 * **Dependencies that have dependencies.** A project declares what it
   needs in `keal.toml` — each a git repository at an exact tag or commit —
@@ -574,10 +577,12 @@ cycle dies on schedule and every `deinit` runs.)
 * **Cycles across several classes still leak silently** — `weak` breaks
   the ones you can see, and the checker cautions about the shape that
   voids a `deinit`; a cycle nobody marked is still never freed. What
-  exists now is evidence: `KEAL_AUDIT=1 keal run prog.keal` names what
-  outlived the program, by type, on either interpreter. Carrying the
-  counters into `keal build` is the next step. Why there is no cycle
-  collector is argued in [`docs/memory.md`](docs/memory.md) §5.
+  exists now is evidence, on all three engines: `KEAL_AUDIT=1 keal run
+  prog.keal` on the interpreters, `keal build --audit` for a compiled one,
+  and the same report either way — what outlived the program, by type. What
+  is missing is a rule that tells an accidental cycle from a global that
+  simply lived to the end. Why there is no cycle collector is argued in
+  [`docs/memory.md`](docs/memory.md) §5.
 * **Typed exceptions** — `catch (e)` binds the message as a `String`
   today; catching by kind (and letting `throw` carry a value) is the
   natural second step now that all three engines unwind.
@@ -586,6 +591,14 @@ cycle dies on schedule and every `deinit` runs.)
   evaluator.
 * **Macros** — deliberately last: the language keeps earning features the
   hard way first.
+* **Windows at parity.** The compiler and both interpreters run there; so
+  does `keal build`, given a C driver that is not MSVC — the runtime checks
+  overflow with GCC and Clang builtins, and MSVC is exactly what a default
+  Rust install on Windows brings. A Windows machine running the suite is
+  what turned up the line endings, the path separators and an error message
+  written in the operating system's own language; what is left is the
+  toolchain question, and whether a bare CI runner has a usable compiler at
+  all. [`docs/interop.md`](docs/interop.md) says what to install.
 * Smaller items: indexing/call operator overloads, a language server (one
   would serve VS Code, JetBrains, Neovim and Zed at once — the TextMate
   grammar in [`editors/`](editors/README.md) cannot go to a definition),

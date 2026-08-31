@@ -113,6 +113,96 @@ typedef int64_t keal_rc_t;
 #define KEAL_RC_DROP(rc) (--(rc) > 0)
 #endif
 
+/* ---- the cycle audit ----------------------------------------------------
+ *
+ * `keal build --audit` defines KEAL_AUDIT, and then every class counts its
+ * live objects by name. What is still counted when the program ends is what
+ * nothing could free — which, reference counting being what it is, is a
+ * cycle. The interpreters answer the same question when KEAL_AUDIT is set in
+ * the environment, and print the same report, because a program's answer
+ * must not depend on which engine asked.
+ *
+ * Off, none of this exists and no object pays for it. */
+#ifdef KEAL_AUDIT
+typedef struct KealAuditRow {
+    const char* name;
+    int64_t live;
+} KealAuditRow;
+
+static KealAuditRow keal_audit_rows[256];
+static int keal_audit_used = 0;
+
+#ifdef KEAL_ACTORS
+/* Actors count from several threads at once, so the rows go under the lock
+ * the scheduler already owns. */
+KEAL_FN void keal_actor_lock(void);
+KEAL_FN void keal_actor_unlock(void);
+#define KEAL_AUDIT_LOCK() keal_actor_lock()
+#define KEAL_AUDIT_UNLOCK() keal_actor_unlock()
+#else
+#define KEAL_AUDIT_LOCK() ((void)0)
+#define KEAL_AUDIT_UNLOCK() ((void)0)
+#endif
+
+static KealAuditRow* keal_audit_row(const char* name) {
+    for (int i = 0; i < keal_audit_used; i++) {
+        if (strcmp(keal_audit_rows[i].name, name) == 0) { return &keal_audit_rows[i]; }
+    }
+    if (keal_audit_used == (int)(sizeof(keal_audit_rows) / sizeof(keal_audit_rows[0]))) {
+        return NULL;
+    }
+    keal_audit_rows[keal_audit_used].name = name;
+    keal_audit_rows[keal_audit_used].live = 0;
+    return &keal_audit_rows[keal_audit_used++];
+}
+
+KEAL_FN void keal_audit_born(const char* name) {
+    KEAL_AUDIT_LOCK();
+    KealAuditRow* r = keal_audit_row(name);
+    if (r != NULL) { r->live++; }
+    KEAL_AUDIT_UNLOCK();
+}
+
+KEAL_FN void keal_audit_died(const char* name) {
+    KEAL_AUDIT_LOCK();
+    KealAuditRow* r = keal_audit_row(name);
+    if (r != NULL) { r->live--; }
+    KEAL_AUDIT_UNLOCK();
+}
+
+/* The same words, in the same order, as the interpreters print. */
+KEAL_FN void keal_audit_report(void) {
+    int order[256];
+    int n = 0;
+    int64_t total = 0;
+    for (int i = 0; i < keal_audit_used; i++) {
+        if (keal_audit_rows[i].live > 0) {
+            order[n++] = i;
+            total += keal_audit_rows[i].live;
+        }
+    }
+    if (n == 0) {
+        fprintf(stderr, "audit: nothing outlived the program\n");
+        return;
+    }
+    for (int i = 1; i < n; i++) {
+        int key = order[i];
+        int j = i - 1;
+        while (j >= 0 && strcmp(keal_audit_rows[order[j]].name, keal_audit_rows[key].name) > 0) {
+            order[j + 1] = order[j];
+            j--;
+        }
+        order[j + 1] = key;
+    }
+    fprintf(stderr, "audit: %" PRId64 " object(s) outlived the program\n", total);
+    for (int i = 0; i < n; i++) {
+        fprintf(stderr, "  %" PRId64 " %s\n", keal_audit_rows[order[i]].live,
+                keal_audit_rows[order[i]].name);
+    }
+    fprintf(stderr, "  = note: a class that survives its last reference is in a cycle; `weak` on the back edge breaks it\n");
+}
+#endif
+
 /* Every heap object begins with its count. A string is that count, a length,
  * and the bytes; `static_bytes` marks a literal, whose bytes are not ours to
  * free. */

@@ -25,7 +25,20 @@ use crate::types::Type;
 const RUNTIME: &str = include_str!("runtime.c");
 
 pub fn emit(program: &Program, shapes: &[ClassShape]) -> Result<String, Vec<Diag>> {
+    emit_with(program, shapes, false)
+}
+
+/// The same, with the switches a build can turn on that a program cannot ask
+/// for itself. `audit` is one: a binary cannot grow counters after it is
+/// compiled, so the audit is asked for at build time rather than through the
+/// environment as the interpreters take it.
+pub fn emit_with(
+    program: &Program,
+    shapes: &[ClassShape],
+    audit: bool,
+) -> Result<String, Vec<Diag>> {
     let mut b = CBackend::new();
+    b.audit_mode = audit;
     b.catch_mode = program_has_try(program);
     // A `weak` field observes *when* its target dies, exactly as `deinit`
     // does, so both put statement temps on the same short leash.
@@ -176,6 +189,10 @@ struct CBackend {
     /// through the weak entry points. Off, every class keeps one count and
     /// the emitted C is what it always was.
     weak_mode: bool,
+    /// `keal build --audit`: every class counts its live objects by name,
+    /// and the program says at exit what it left behind. Off, none of the
+    /// counting is emitted and no object pays for it.
+    audit_mode: bool,
     /// Set just before a statement's expression is emitted: its value is
     /// discarded, so a branch join of `Any` — which the checker only ever
     /// produces where using the value would be refused — needs no slot.
@@ -253,6 +270,7 @@ impl CBackend {
             global_decls: String::new(),
             at_top_level: false,
             weak_mode: false,
+            audit_mode: false,
             discard_join: false,
             lambda_defs: String::new(),
             next_lambda: 0,
@@ -975,6 +993,11 @@ impl CBackend {
                 n = name
             );
         }
+        if self.audit_mode {
+            // After the hook's turn, not before: an object that queues its
+            // `deinit` comes back here once, and dies once.
+            let _ = writeln!(rel, "    keal_audit_died({});", c_string(&c.name));
+        }
         // The last reference to an object is also the last to each of the
         // references it held.
         let bare = c.name.clone();
@@ -1137,6 +1160,11 @@ impl CBackend {
         }
         self.at_top_level = false;
         self.close_scope();
+        if self.audit_mode {
+            // After the scope closed: what is still counted here is what
+            // closing it could not free.
+            self.line("keal_audit_report();");
+        }
         self.line("return 0;");
         self.end_function_unwind();
         let body = std::mem::take(&mut self.body).join("\n");
@@ -1239,6 +1267,12 @@ impl CBackend {
             }
         }
         self.line(format!("{n}* self = ({n}*)keal_alloc(sizeof({n}));", n = name));
+        if self.audit_mode {
+            // Counted under the class's own name, not the struct's: a
+            // generic's instantiations are one class to the reader, and one
+            // class to the interpreters that count the same thing.
+            self.line(format!("keal_audit_born({});", c_string(&c.name)));
+        }
         if Self::class_has_drop(c) {
             self.line("self->kdropped = false;");
         }
@@ -5848,6 +5882,10 @@ impl CBackend {
         if self.weak_mode {
             // The one switch that gives objects a weak count.
             out.push_str("#define KEAL_WEAK 1\n");
+        }
+        if self.audit_mode {
+            // The one switch that makes a class count its live objects.
+            out.push_str("#define KEAL_AUDIT 1\n");
         }
         out.push_str(RUNTIME);
         out.push('\n');

@@ -742,6 +742,10 @@ class CBackend() {
     /// through the weak entry points. Off, every class keeps one count and
     /// the emitted C is what it always was.
     var weakMode: Bool = false
+    /// `keal build --audit`: every class counts its live objects by name,
+    /// and the program says at exit what it left behind. Off, none of the
+    /// counting is emitted and no object pays for it.
+    package var auditMode: Bool = false
     /// Set just before a statement's expression is emitted: its value is
     /// discarded, so a branch join of `Any` — which the checker only ever
     /// produces where using the value would be refused — needs no slot.
@@ -1639,6 +1643,11 @@ class CBackend() {
             // unless `deinit` gave it away, in which case it lives on.
             rel += "    if (!o->kdropped) {\n        o->kdropped = true;\n        o->rc = 1;\n        keal_queue_drop((void*)o, ${name}_dropper);\n        return;\n    }\n"
         }
+        if (this.auditMode) {
+            // After the hook's turn, not before: an object that queues its
+            // `deinit` comes back here once, and dies once.
+            rel += "    keal_audit_died(${cString(c.name)});\n"
+        }
         // The last reference to an object is also the last to each of the
         // references it held.
         for (f in fields) {
@@ -1764,6 +1773,11 @@ class CBackend() {
         }
         this.atTopLevel = false
         this.closeScope()
+        if (this.auditMode) {
+            // After the scope closed: what is still counted here is what
+            // closing it could not free.
+            this.line("keal_audit_report();")
+        }
         this.line("return 0;")
         this.endFunctionUnwind()
         val joined = this.body.join("\n")
@@ -1870,6 +1884,12 @@ class CBackend() {
             }
         }
         this.line("${name}* self = (${name}*)keal_alloc(sizeof(${name}));")
+        if (this.auditMode) {
+            // Counted under the class's own name, not the struct's: a
+            // generic's instantiations are one class to the reader, and one
+            // class to the interpreters that count the same thing.
+            this.line("keal_audit_born(${cString(c.name)});")
+        }
         if (classHasDeinit(c)) {
             this.line("self->kdropped = false;")
         }
@@ -5951,6 +5971,10 @@ class CBackend() {
             // The one switch that gives objects a weak count.
             out += "#define KEAL_WEAK 1\n"
         }
+        if (this.auditMode) {
+            // The one switch that makes a class count its live objects.
+            out += "#define KEAL_AUDIT 1\n"
+        }
         out += runtimeSource()
         out += "\n"
 
@@ -5996,9 +6020,17 @@ class SubstPair(val name: String, val ty: Ty)
 
 // ---- driver -------------------------------------------------------------
 
-val argv = args()
+val rawArgv = args()
+// `--audit` is the build's switch, not the program's: a binary cannot grow
+// counters after it is compiled. The interpreters take the same question
+// from `KEAL_AUDIT` in the environment.
+val argv: List<String> = []
+var wantsAudit = false
+for (a in rawArgv) {
+    if (a == "--audit") { wantsAudit = true } else { argv.add(a) }
+}
 if (argv.size != 1) {
-    println("usage: keal selfhost/cbackend.keal <file.keal>")
+    println("usage: keal selfhost/cbackend.keal [--audit] <file.keal>")
     exit(2)
 }
 parseNoteMode = true
@@ -6287,6 +6319,7 @@ for (item in loaded.program.items) {
 if (programUsesWeak(loaded.program)) { backend.dropMode = true }
 backend.actorsMode = programUsesActors(loaded.program)
 backend.weakMode = programUsesWeak(loaded.program)
+backend.auditMode = wantsAudit
 for (name in checker.classes.keys()) {
     val info = checker.classes[name]!!
     val fields: List<SField> = []

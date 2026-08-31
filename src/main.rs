@@ -64,10 +64,13 @@ usage:
                               --jvm <path> sets the emitted import path,
                               --cache <dir> writes the module a no-path
                               `import java.time.LocalDate` loads)
-    keal build <file.keal> [sources... libs... flags...]
+    keal build [--audit] <file.keal> [sources... libs... flags...]
                               compile to a native executable; extras may be
                               C/C++ sources, .a/.so/.o link inputs, -l/-L
-                              linker flags and -I/-D compile flags
+                              linker flags and -I/-D compile flags;
+                              --audit makes the program say at exit what it
+                              left behind, by type, as `KEAL_AUDIT=1` does
+                              on the interpreters
     keal repl                 start an interactive session
     keal version              print the version
 ";
@@ -99,7 +102,14 @@ enum Engine {
 fn real_main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let mut engine = Engine::Bytecode;
+    // `--audit` is a build switch and may be written anywhere on the line,
+    // like `--ast` and `--vm`: it is a question about the run, not a file.
+    let mut audit = false;
     args.retain(|a| match a.as_str() {
+        "--audit" => {
+            audit = true;
+            false
+        }
         "--ast" => {
             engine = Engine::Ast;
             false
@@ -183,11 +193,11 @@ fn real_main() -> ExitCode {
         "cgen" => dump_cgen(&target.unwrap()),
         "emit-header" => emit_header(&target.unwrap()),
         "bindgen" => bindgen::run(&target.unwrap()),
-        "emit-c" => nativebuild::emit_only(&target.unwrap()),
+        "emit-c" => nativebuild::emit_only(&target.unwrap(), audit),
         "build" => {
             // Anything after the program is a C or C++ source built with it.
             let extras: Vec<String> = args.iter().skip(2).cloned().collect();
-            nativebuild::build(&target.unwrap(), &extras)
+            nativebuild::build(&target.unwrap(), &extras, audit)
         }
         cmd => {
             // Everything after the program's path belongs to the program,

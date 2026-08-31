@@ -359,6 +359,67 @@ fn the_audit_names_what_outlived_the_program() {
     }
 }
 
+/// The audit under `keal build --audit`: the same question the interpreters
+/// answer from the environment, answered by a compiled binary in the same
+/// words. A binary cannot grow counters after it is compiled, which is why
+/// this one is asked at build time; the report has to be identical anyway,
+/// or the three engines disagree about what a program left behind.
+#[test]
+fn the_native_audit_says_what_the_interpreters_say() {
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-audit-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+    let src = root().join("tests/audit/cycle.keal");
+
+    let built = Command::new(BIN)
+        .current_dir(&dir)
+        .args(["build", "--audit"])
+        .arg(&src)
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the audited program did not build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+    let ran = Command::new(dir.join("cycle")).output().expect("cannot run the binary");
+    let native = String::from_utf8_lossy(&ran.stderr).into_owned();
+
+    for engine in ENGINES {
+        let interpreted = Command::new(BIN)
+            .args([engine, &relative(&src)])
+            .current_dir(root())
+            .env("KEAL_AUDIT", "1")
+            .output()
+            .expect("cannot run the audit");
+        assert_eq!(
+            native,
+            String::from_utf8_lossy(&interpreted.stderr),
+            "the native audit and {} disagree about what outlived the program",
+            engine
+        );
+    }
+    // And a program built without the switch says nothing at all.
+    let plain = Command::new(BIN)
+        .current_dir(&dir)
+        .arg("build")
+        .arg(&src)
+        .output()
+        .expect("cannot run keal build");
+    assert!(plain.status.success());
+    let quiet = Command::new(dir.join("cycle")).output().expect("cannot run the binary");
+    assert!(
+        !String::from_utf8_lossy(&quiet.stderr).contains("audit:"),
+        "an unaudited build audited anyway"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn examples_run_successfully() {
     for file in keal_files("examples") {
@@ -974,6 +1035,14 @@ fn jbind_matches_snapshot_and_typechecks() {
 /// live `javap`, build a native program against them, and run it.
 #[test]
 fn jbind_works_end_to_end() {
+    // A JDK is not enough: these build native binaries, so they need the C
+    // compiler every other native test asks for. Without this they fail
+    // where every one of their neighbours skips.
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
     let Some(jh) = java_home() else {
         eprintln!("skipping: no JDK found (set JAVA_HOME)");
         return;
@@ -1045,6 +1114,14 @@ d.free()
 /// JDK-gated, and the corpora stay pure.
 #[test]
 fn import_sugar_works_end_to_end() {
+    // A JDK is not enough: these build native binaries, so they need the C
+    // compiler every other native test asks for. Without this they fail
+    // where every one of their neighbours skips.
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
     let Some(jh) = java_home() else {
         eprintln!("skipping: no JDK found (set JAVA_HOME)");
         return;
@@ -1105,6 +1182,14 @@ d.free()
 /// native binary, with the program carrying on.
 #[test]
 fn java_exceptions_are_catchable_natively() {
+    // A JDK is not enough: these build native binaries, so they need the C
+    // compiler every other native test asks for. Without this they fail
+    // where every one of their neighbours skips.
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
     let Some(jh) = java_home() else {
         eprintln!("skipping: no JDK found (set JAVA_HOME)");
         return;
@@ -1161,6 +1246,14 @@ good.free()
 
 #[test]
 fn jvm_gateway_works_end_to_end() {
+    // A JDK is not enough: these build native binaries, so they need the C
+    // compiler every other native test asks for. Without this they fail
+    // where every one of their neighbours skips.
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
     let Some(jh) = java_home() else {
         eprintln!("skipping: no JDK found (set JAVA_HOME)");
         return;
@@ -1204,6 +1297,14 @@ fn jvm_gateway_works_end_to_end() {
 /// a JDK, like the other gateway tests.
 #[test]
 fn jvm_calls_work_from_actor_threads() {
+    // A JDK is not enough: these build native binaries, so they need the C
+    // compiler every other native test asks for. Without this they fail
+    // where every one of their neighbours skips.
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
     let Some(jh) = java_home() else {
         eprintln!("skipping: no JDK found (set JAVA_HOME)");
         return;

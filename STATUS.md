@@ -77,10 +77,26 @@ Tests: `tests/audit/cycle.keal` (a cycle beside an acyclic pair whose
 deinits do run) + `the_audit_names_what_outlived_the_program`, which also
 asserts the audit stays silent when unasked. Suite 34/34, corpora
 656/656.
-NEXT: carry the counters into `keal build` — a `KEAL_AUDIT` define like
-`KEAL_ACTORS`/`KEAL_WEAK`, per-class counters in the generated C, and the
-twin mirroring the emission. Not done, and the docs say so rather than
-implying three engines already agree.
+DONE natively too: `keal build --audit` defines `KEAL_AUDIT`, and the
+runtime carries a 256-row registry keyed by class name (`keal_audit_born`
+/`_died`/`_report`) whose report is the interpreters' words, in the
+interpreters' order, on stderr. Rows go behind `keal_actor_lock` when
+KEAL_ACTORS is on, so threads count one total. Emission: `born` after the
+`keal_alloc` in `X_new`, `died` in `X_release` AFTER the drop-hook block
+(an object that queues its `deinit` returns once and dies once), and
+`keal_audit_report()` before main's `return 0`. Counted under the CLASS's
+name, not the struct's, so a generic's instantiations count as one class
+— which is what the interpreters count. `--audit` is a build flag, not an
+environment variable, because a binary cannot grow counters after it is
+compiled; it is stripped in `main.rs`'s arg pass like `--ast`/`--vm`, so
+it may sit anywhere on the line. `keal emit-c` takes it too, which is how
+oracle and twin are compared with it on; `keal cgen` never does, so the
+corpora stay pure. Twin mirrored (`auditMode`, same three emission
+points, `--audit` in its driver). Test:
+`the_native_audit_says_what_the_interpreters_say` builds
+`tests/audit/cycle.keal` twice and demands the audited binary's stderr
+equal both interpreters' byte for byte, and the unaudited one say
+nothing.
 
 **Dependencies, step one: `keal.toml` + `keal fetch` + `dep:` imports.
 DONE.** A project's manifest names it and lists what it depends on, each

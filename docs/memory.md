@@ -339,11 +339,26 @@ ask pays one boolean read per object and prints exactly what it printed
 before. The report goes to standard error, so it never joins a program's own
 output.
 
-Two limits, stated rather than left to be discovered. It is the two
-interpreters that count today — `keal build` does not carry the counters
-yet — and a type that survives for an ordinary reason (a global that lives
-to the end of the program) is reported like any other. The audit is a place
-to start looking, not a verdict.
+A compiled program answers the same question, asked at build time:
+
+```
+$ keal build --audit notes.keal && ./notes
+audit: 2 object(s) outlived the program
+  1 Item
+  1 Owner
+```
+
+Same words, same order, same stream — the three engines cannot disagree
+about what a program left behind. The switch is a build flag rather than an
+environment variable there because a binary cannot grow counters after it is
+compiled; without it none of the counting is emitted and no object pays for
+it. Under actors the rows go behind the lock the scheduler already owns, so
+threads count the same total.
+
+One limit remains, stated rather than left to be discovered: a type that
+survives for an ordinary reason — a global that lives to the end of the
+program — is reported like any other. The audit is a place to start looking,
+not a verdict.
 
 ---
 
