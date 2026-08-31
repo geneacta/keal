@@ -18,6 +18,13 @@ examples/interop/polyglot/.jbind/
 /mini
 .DS_Store
 
+# `editors/README.md` tells a contributor to run `npm install` there, so
+# this appears the first time anyone follows the instructions. Two and a
+# half megabytes of it. `package-lock.json` beside it is NOT ignored and is
+# committed: a lockfile is what makes that instruction reproducible, and at
+# ninety-seven lines for one dependency it costs nothing to keep.
+editors/vscode/node_modules/
+
 # Python leaves this behind every time anything runs the site's scripts —
 # the generator, the tour check, the drift check. Untracked noise is where
 # a real change hides, so it is named rather than swept up by hand.

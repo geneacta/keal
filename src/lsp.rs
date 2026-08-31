@@ -102,6 +102,12 @@ struct Server {
     /// What the editor is holding, by path. The server answers about these
     /// rather than about the files on disk, because they are what a person
     /// is looking at.
+    ///
+    /// The key has to be canonical, because a lookup can arrive from a URI
+    /// the editor sent *or* from a path the loader resolved an import to,
+    /// and those two travel by different roads. `uri_to_path` is where the
+    /// spellings are made one — separators and, on Windows, the case of the
+    /// drive letter.
     open: HashMap<PathBuf, String>,
 }
 
@@ -1008,7 +1014,23 @@ fn uri_to_path(uri: &Json) -> Option<PathBuf> {
         } else {
             out
         };
-        out.replace('/', "\\")
+        let out = out.replace('/', "\\");
+        // And the drive letter is upper-cased. VS Code sends
+        // `file:///c%3A/…` — a lower-case drive, percent-encoded colon —
+        // while anything that came from the filesystem says `C:\…`. Both
+        // name the same file, and this is the key of the map holding the
+        // editor's unsaved buffers: two spellings of one path means a
+        // buffer nothing can find. Today every path in this server is made
+        // from a URI, so they agree by accident; one canonical form here
+        // means they agree on purpose.
+        match out.as_bytes() {
+            [d, b':', ..] if d.is_ascii_lowercase() => {
+                let mut fixed = out.clone();
+                fixed.replace_range(..1, &(*d as char).to_ascii_uppercase().to_string());
+                fixed
+            }
+            _ => out,
+        }
     } else {
         out
     };
