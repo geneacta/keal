@@ -600,14 +600,14 @@ because an import can be given one.)
   evaluator.
 * **Macros** — deliberately last: the language keeps earning features the
   hard way first.
-* **Windows at parity.** The compiler and both interpreters run there; so
-  does `keal build`, given a C driver that is not MSVC — the runtime checks
-  overflow with GCC and Clang builtins, and MSVC is exactly what a default
-  Rust install on Windows brings. A Windows machine running the suite is
-  what turned up the line endings, the path separators and an error message
-  written in the operating system's own language; what is left is the
-  toolchain question, and whether a bare CI runner has a usable compiler at
-  all. [`docs/interop.md`](docs/interop.md) says what to install.
+* Windows used to be here. It is not: the whole suite runs there on both
+  ABIs, including the `x86_64-pc-windows-msvc` binary the release workflow
+  ships, and including JNI from an actor thread. `keal build` needs a C
+  driver that is not MSVC — the runtime checks overflow with GCC and Clang
+  builtins — and [`docs/interop.md`](docs/interop.md) says what to install
+  and why. Running the suite there is what turned up the line endings, the
+  path separators, an error message written in the operating system's own
+  language, and a site generator that deleted a page on its way out.
 * Smaller items: indexing/call operator overloads, a language server (one
   would serve VS Code, JetBrains, Neovim and Zed at once — the TextMate
   grammar in [`editors/`](editors/README.md) cannot go to a definition),

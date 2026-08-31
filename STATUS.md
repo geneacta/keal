@@ -59,6 +59,35 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**WINDOWS IS DONE, on both ABIs.** 36/36 on
+`x86_64-pc-windows-gnu` and 36/36 on the `x86_64-pc-windows-msvc` the
+release workflow ships — compiler, both interpreters, native builds,
+actors, JNI from an actor thread, the bootstrap to its fixed point, the
+self-hosted twins byte-identical, the audits agreeing three ways, and the
+site generator. One skip: TSan, which MinGW does not have.
+The MSVC run proves the load-bearing claim: an MSVC-ABI `keal.exe`
+shelling out to MinGW `gcc` mixes nothing, because the emitted program is
+its own executable sharing no runtime with the compiler. Three toolchains
+in one process tree in `jvm_calls_work_from_actor_threads` — MSVC-built
+compiler, MinGW gcc, MSVC-built JDK — and none notices the others.
+WHAT WINDOWS COST, and it is the list worth keeping: CRLF in two halves
+(text-mode stdout AND `.gitattributes`), `\r\r\n` CORRUPTION of content
+that already had CRLF, path separators in diagnostics, `io::Error`'s
+LOCALISED text in a compared message, `keal jbind` emitting unparseable
+Keal from a `C:\` path, a hardcoded `darwin` in the JNI include path, the
+JNI link line and the PATH a JNI binary needs, `cc` not existing there,
+`.exe`, five JVM tests with no C-compiler guard, Python's `open()` at
+cp1252 DELETING a page, `subprocess` at cp1252 writing mojibake and
+exiting 0, and a drift test that skipped on the one platform its subject
+was broken on.
+THE PATTERN: four times, Windows used a locale-specific default where the
+code assumed UTF-8, and the machine was right each time. And four defects
+were really a missing or a skipped test.
+Toolchain a Windows developer needs: MinGW-w64 POSIX-threads (NOT win32
+or mcf — no `pthread.h`), because MSVC cannot compile the runtime's
+overflow builtins. Everything except MSVC Build Tools installs per-user
+with no elevation.
+
 **A claim I made and withdrew: the prelude does NOT leak.** The audit
 reported `3 Score` and `3 Sequence` surviving `tests/programs/sequences.
 keal` on all three engines, and I read that as a cycle in the standard

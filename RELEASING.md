@@ -72,6 +72,11 @@ needed for `keal build`, and `keal doctor` will say whether one is there.
 
 Four platforms are built and tested, and held to the same standard:
 macOS on Apple silicon, macOS on Intel, Linux x86_64 and Windows x86_64.
+Windows has been run on both of its ABIs — `x86_64-pc-windows-gnu` and the
+`x86_64-pc-windows-msvc` the workflow ships — with the same result: the
+whole suite, the bootstrap to its fixed point, and JNI from an actor
+thread. The only test that stands down there is the ThreadSanitizer one,
+because MinGW has no ThreadSanitizer.
 
 **Upgrading an existing Windows checkout.** `.gitattributes` renormalises
 only the files a commit rewrites, so a `git pull` onto a tree checked out

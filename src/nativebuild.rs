@@ -202,7 +202,14 @@ pub fn build(path: &str, extras: &[String], audit: bool) -> ExitCode {
             return ExitCode::FAILURE;
         }
         Err(e) => {
-            eprintln!("error: cannot run `{}`: {}", cc, e);
+            // Name what was looked for, not what happened to be tried first:
+            // `cc` is a Unix convention, and a Windows developer reading that
+            // it could not run has no `cc` to look for and none to install.
+            if std::env::var("CC").is_ok() {
+                eprintln!("error: cannot run `{}`, which `CC` names: {}", cc, e);
+            } else {
+                eprintln!("error: no C compiler found — tried `cc`, `gcc`, `clang`");
+            }
             for line in no_compiler_advice() {
                 eprintln!("  = note: {}", line);
             }
