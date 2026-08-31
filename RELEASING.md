@@ -51,19 +51,28 @@ last tag is one the suite actually checks.
 4. **Tag and push:**
 
    ```sh
-   git tag -a v0.8.0 -m "dependencies, the cycle audit, Windows"
+   git tag -a v0.8.0 -m "dependencies, the cycle audit, Windows
+
+   A project names what it depends on in \`keal.toml\` ...
+   "
    git push origin v0.8.0
    ```
+
+   The message is not a label: it becomes the top of the release notes, so
+   write it as the paragraphs a reader wants — what changed, for whom, and
+   what is still missing.
 
 5. The `release` workflow (see [`ci/README.md`](ci/README.md)) builds the
    compiler for macOS arm64, macOS x86_64 and Linux x86_64, runs the
    suite and the bootstrap on each, and opens a **draft** release with
    the three archives attached.
-6. **Write the notes and publish.** GitHub's generated list of commits is
-   the raw material, not the notes: say what changed for someone writing
-   Keal, in the order that matters to them, and name what is still
-   missing. The commit messages in this repository are written to make
-   that easy.
+6. **Read the notes and publish.** The draft's notes are already written:
+   the workflow puts the tag's own message at the top — which is why step 4
+   asks for a real one rather than a version number — then the permanent
+   installing section from `ci/release-notes.md`, then GitHub's generated
+   commit list under both. That list is raw material and stays at the
+   bottom. Read what came out, add what a reader needs and the tag message
+   did not carry, and publish.
 
 ## What ships in an archive
 

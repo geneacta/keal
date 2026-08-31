@@ -44,7 +44,7 @@ jobs:
             name: keal-windows-x86_64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
       - uses: dtolnay/rust-toolchain@stable
@@ -106,7 +106,7 @@ jobs:
           cp README.md LICENSE dist-release/
           tar -czf ${{ matrix.name }}.tar.gz -C dist-release .
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
           path: ${{ matrix.name }}.tar.gz
@@ -115,16 +115,34 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
+      # `body_path` is the notes a person wrote; `generate_release_notes`
+      # appends GitHub's commit list under them. The commit list is raw
+      # material, not notes — it says what changed, never what it means.
+      # The notes are the tag's own message — written when the tag was cut,
+      # by whoever knew what it contained — above the permanent footer that
+      # says how to install the thing. GitHub's generated commit list goes
+      # under both: raw material, not notes.
+      - name: Compose the notes
+        shell: bash
+        run: |
+          tag='${{ inputs.tag || github.ref_name }}'
+          git fetch --force --tags --quiet origin "$tag"
+          git tag -l --format='%(contents)' "$tag" > notes.md
+          printf '\n' >> notes.md
+          cat ci/release-notes.md >> notes.md
+          cat notes.md
+
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           files: artifacts/**/*.tar.gz
+          body_path: notes.md
           generate_release_notes: true
           draft: true
