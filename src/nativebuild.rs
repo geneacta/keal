@@ -133,8 +133,15 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
     // would reject its compound literals, so it is compiled to an object
     // first and only the link is shared.
     let obj = format!("{}.o", base);
+    // `-pthread` is the actor scheduler's, and nothing else's: the emitted
+    // C says whether it wants one. A program without actors then builds on
+    // a toolchain that has no threads library at all.
+    let threaded = c.contains("#define KEAL_ACTORS");
     let mut compile_cmd = Command::new(&cc);
-    compile_cmd.args(["-O2", "-std=c11", "-pthread"]);
+    compile_cmd.args(["-O2", "-std=c11"]);
+    if threaded {
+        compile_cmd.arg("-pthread");
+    }
     for f in &compile_flags {
         compile_cmd.arg(f);
     }
@@ -197,7 +204,10 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
 
     let linker = if any_cpp { &cxx } else { &cc };
     let mut cmd = Command::new(linker);
-    cmd.args(["-O2", "-pthread", "-o", &out]);
+    cmd.args(["-O2", "-o", &out]);
+    if threaded {
+        cmd.arg("-pthread");
+    }
     for o in &objs {
         cmd.arg(o);
     }
@@ -207,7 +217,12 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
     for extra in rest {
         cmd.arg(extra);
     }
-    cmd.arg("-lm");
+    // The runtime calls `pow` and `floor`. Where libm is a library of its
+    // own the link has to say so; on Windows it is part of the C runtime and
+    // asking for it fails.
+    if !cfg!(windows) {
+        cmd.arg("-lm");
+    }
     match cmd.status() {
         Ok(s) if s.success() => {
             let _ = std::fs::remove_file(&csrc);
