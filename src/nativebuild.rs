@@ -63,6 +63,35 @@ pub fn emit_only(path: &str) -> ExitCode {
 /// * **compile flags** (`-I...`, `-D...`) — applied when compiling the
 ///   generated C and the extra sources, and passed to the link line too,
 ///   where the sources are actually built.
+/// The C driver to use: `CC` when it is set, otherwise the first name on
+/// this machine that answers.
+///
+/// `cc` is the Unix convention and does not exist on Windows, where a
+/// MinGW `gcc` or an LLVM `clang` is what a developer has. Looking past
+/// the first name is the difference between "no C compiler" and a working
+/// `keal build` there.
+pub fn c_driver() -> String {
+    driver("CC", &["cc", "gcc", "clang"])
+}
+
+pub fn cxx_driver() -> String {
+    driver("CXX", &["c++", "g++", "clang++"])
+}
+
+fn driver(var: &str, candidates: &[&str]) -> String {
+    if let Ok(named) = std::env::var(var) {
+        return named;
+    }
+    for name in candidates {
+        if Command::new(name).arg("--version").output().is_ok() {
+            return name.to_string();
+        }
+    }
+    // Nothing answered: name the conventional one, so the message a caller
+    // prints says what it looked for.
+    candidates[0].to_string()
+}
+
 pub fn build(path: &str, extras: &[String]) -> ExitCode {
     let c = match compile(path) {
         Ok(c) => c,
@@ -70,8 +99,11 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
     };
 
     let stem = Path::new(path).file_stem().map(|s| s.to_string_lossy().into_owned());
-    let out = stem.unwrap_or_else(|| "a.out".to_string());
-    let csrc = format!("{}.c", out);
+    let base = stem.unwrap_or_else(|| "a.out".to_string());
+    // Windows runs `program.exe` and nothing else; every other system runs
+    // whatever the file is called.
+    let out = if cfg!(windows) { format!("{}.exe", base) } else { base.clone() };
+    let csrc = format!("{}.c", base);
 
     if let Err(e) = std::fs::write(&csrc, &c) {
         eprintln!("error: cannot write `{}`: {}", csrc, e);
@@ -94,13 +126,13 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
         .filter(|a| !(a.starts_with("-I") || a.starts_with("-D")))
         .collect();
 
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
-    let cxx = std::env::var("CXX").unwrap_or_else(|_| "c++".to_string());
+    let cc = c_driver();
+    let cxx = cxx_driver();
 
     // The generated file is C11 whatever else is on the line; a C++ driver
     // would reject its compound literals, so it is compiled to an object
     // first and only the link is shared.
-    let obj = format!("{}.o", out);
+    let obj = format!("{}.o", base);
     let mut compile_cmd = Command::new(&cc);
     compile_cmd.args(["-O2", "-std=c11", "-pthread"]);
     for f in &compile_flags {
@@ -137,7 +169,7 @@ pub fn build(path: &str, extras: &[String]) -> ExitCode {
             rest.push(extra);
             continue;
         }
-        let sobj = format!("{}-x{}.o", out, i);
+        let sobj = format!("{}-x{}.o", base, i);
         let driver = if is_cpp(extra) { &cxx } else { &cc };
         let mut sc = Command::new(driver);
         sc.arg("-O2");

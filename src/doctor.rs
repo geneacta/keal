@@ -39,8 +39,13 @@ const PROBES: &[Probe] = &[
 pub fn run() -> ExitCode {
     println!("keal doctor — the interop toolchains on this machine\n");
     let mut missing_required = false;
+    // The C driver is whichever this machine actually has: `cc` on Unix,
+    // more often `gcc` or `clang` on Windows. Reporting the one that will
+    // be used beats reporting the one that is conventional.
+    let cc = crate::nativebuild::c_driver();
     for p in PROBES {
-        let found = Command::new(p.tool).args(p.args).output();
+        let tool = if p.tool == "cc" { cc.as_str() } else { p.tool };
+        let found = Command::new(tool).args(p.args).output();
         let line = match &found {
             Ok(out) if out.status.success() => {
                 let all = format!(
@@ -63,12 +68,12 @@ pub fn run() -> ExitCode {
             }
             println!(
                 "  {:8} MISSING{}  — {}",
-                p.tool,
+                tool,
                 if required { " (required)" } else { "          " },
                 p.unlocks
             );
         } else {
-            println!("  {:8} {}", p.tool, line);
+            println!("  {:8} {}", tool, line);
             if let Some(k) = known {
                 println!("  {:8}   verified against: {}", "", k);
             }

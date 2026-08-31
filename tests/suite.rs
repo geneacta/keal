@@ -91,6 +91,21 @@ fn check_snapshot(source: &Path, actual: &str) {
     );
 }
 
+/// The C driver this machine has, the way `keal build` looks for it: `CC`
+/// when set, then `cc`, `gcc`, `clang`. A Windows machine has the last two
+/// and not the first, and its tests should run rather than skip.
+fn c_driver() -> String {
+    if let Ok(named) = std::env::var("CC") {
+        return named;
+    }
+    for name in ["cc", "gcc", "clang"] {
+        if Command::new(name).arg("--version").output().is_ok() {
+            return name.to_string();
+        }
+    }
+    "cc".to_string()
+}
+
 /// The two engines, named as the command line spells them.
 const ENGINES: [&str; 2] = ["--vm", "--ast"];
 
@@ -351,7 +366,7 @@ fn layouts_match_snapshots() {
 /// of the language.
 #[test]
 fn native_agrees_with_the_interpreters() {
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    let cc = c_driver();
     if Command::new(&cc).arg("--version").output().is_err() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
@@ -413,7 +428,7 @@ fn native_agrees_with_the_interpreters() {
 /// that cannot run the check rather than pretending they did.
 #[test]
 fn actors_are_clean_under_thread_sanitizer() {
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    let cc = c_driver();
     if Command::new(&cc).arg("--version").output().is_err() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
@@ -474,7 +489,7 @@ fn the_native_backend_says_what_it_cannot_compile() {
 /// the snapshot says. Skipped without a C compiler, like the native tests.
 #[test]
 fn extern_programs_build_and_run() {
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    let cc = c_driver();
     if Command::new(&cc).arg("--version").output().is_err() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
@@ -656,7 +671,7 @@ fn the_compiler_compiles_itself() {
     // It compiles through C, so it needs the compiler `keal build` needs.
     // Skipped rather than failed where there is none, like every other test
     // that reaches for one.
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    let cc = c_driver();
     if Command::new(&cc).arg("--version").output().is_err() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
@@ -745,7 +760,7 @@ fn bindgen_matches_snapshot() {
 /// links it in. Everything the generated bindings promise must run.
 #[test]
 fn bindgen_and_link_inputs_work_end_to_end() {
-    let cc = std::env::var("CC").unwrap_or_else(|_| "cc".to_string());
+    let cc = c_driver();
     if Command::new(&cc).arg("--version").output().is_err() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;

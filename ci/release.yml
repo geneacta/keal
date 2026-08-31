@@ -43,7 +43,6 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             name: keal-windows-x86_64
-            optional: true
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.optional == true }}
     steps:
