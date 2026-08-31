@@ -28,19 +28,22 @@ pub struct Interp {
 
 impl Interp {
     pub fn new() -> Interp {
-        Interp { globals: Scope::root(), classes: HashMap::new(), depth: 0 }
+        Interp {
+            globals: Scope::root(),
+            classes: HashMap::new(),
+            depth: 0,
+        }
     }
 
     /// Declares every top-level class and function, then runs the top-level
     /// statements in order.
     pub fn run(&mut self, program: &Program) -> Result<(), RtError> {
         let out = self.run_repl(program).map(|_| ());
-        // The top level is a scope like any other, and a closure bound there
-        // holds it exactly the same way. Nothing runs after a program but
-        // this, so this is where the globals are let go — which is what makes
-        // a top-level object's `deinit` run at all.
-        Scope::close(&self.globals);
-        Scope::empty(&self.globals);
+        // Reported while the globals are still alive, because they are: all
+        // three engines let a top-level object live to the end of the
+        // program without running its `deinit`, so all three must count it
+        // as having outlived the program.
+        crate::value::audit::report();
         out
     }
 
@@ -97,6 +100,43 @@ impl Interp {
 
     // ---- statements ----------------------------------------------------
 
+    /// What a closure should hold on to.
+    ///
+    /// The other two engines capture the values a lambda uses; this one used
+    /// to capture the whole scope it was written in, which made two cycles
+    /// reference counting cannot see through — the scope holding a closure
+    /// that holds the scope, and an object holding a closure whose scope
+    /// holds the object. Either kept everything alive for ever, so a
+    /// `deinit` that fired on the VM and natively never fired here.
+    ///
+    /// A capture is safe to copy when nothing in the program ever assigns to
+    /// that name: the binding can never come to mean anything else, so a
+    /// copy of it is indistinguishable from the binding itself. Objects are
+    /// shared either way — copying a `Value` copies a handle, not an object
+    /// — so identity and mutation through the object survive untouched.
+    ///
+    /// Where a name IS assigned somewhere, the old whole-scope capture is
+    /// kept: that is the one case where the closure must see later writes.
+    fn captured_env(&self, params: &Rc<Vec<Param>>, body: &Rc<Block>, env: &Env) -> Env {
+        let mut bound: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+        let mut free: Vec<String> = Vec::new();
+        crate::cbackend::collect_free(&body.stmts, &mut bound, &mut free);
+        // A `var` is the only binding a program can reassign, and a closure
+        // over one must see the writes — so that scope is captured whole.
+        if free.iter().any(|n| env.is_mutable(n)) {
+            return env.clone();
+        }
+        let narrowed = Scope::child(&Scope::root_of(env));
+        for name in &free {
+            // A name the chain resolves below the globals is a capture; a
+            // global is already reachable through the root.
+            if let Some(v) = env.find_below_root(name) {
+                narrowed.define(name, v);
+            }
+        }
+        narrowed
+    }
+
     /// Runs a block in a fresh scope; its value is that of the last statement.
     pub fn exec_block(&mut self, b: &Block, env: &Env) -> R<Value> {
         let scope = Scope::child(env);
@@ -122,15 +162,23 @@ impl Interp {
 
     fn exec_stmt(&mut self, s: &Stmt, env: &Env) -> R<Value> {
         match &s.kind {
-            StmtKind::Let { name, init, .. } => {
+            StmtKind::Let { name, init, mutable, .. } => {
                 let v = self.eval(init, env)?;
-                env.define(name, v);
+                if *mutable {
+                    env.define_mutable(name, v);
+                } else {
+                    env.define(name, v);
+                }
                 Ok(Value::Unit)
             }
-            StmtKind::Destructure { pattern, init, .. } => {
+            StmtKind::Destructure { pattern, init, mutable, .. } => {
                 let v = self.eval(init, env)?;
                 for (name, value) in destructure(&v, pattern, s.span)? {
-                    env.define(&name, value);
+                    if *mutable {
+                        env.define_mutable(&name, value);
+                    } else {
+                        env.define(&name, value);
+                    }
                 }
                 Ok(Value::Unit)
             }
@@ -347,13 +395,16 @@ impl Interp {
                 Ok(Value::Map(Rc::new(RefCell::new(data))))
             }
 
-            ExprKind::Lambda { params, body } => Ok(Value::Fun(Rc::new(Closure {
-                name: Rc::from("<lambda>"),
-                params: params.clone(),
-                body: body.clone(),
-                env: env.clone(),
-                this: env.get("this"),
-            }))),
+            ExprKind::Lambda { params, body } => {
+                let this = env.get("this");
+                Ok(Value::Fun(Rc::new(Closure {
+                    name: Rc::from("<lambda>"),
+                    params: params.clone(),
+                    body: body.clone(),
+                    env: self.captured_env(params, body, env),
+                    this,
+                })))
+            }
 
             ExprKind::If { cond, then, els } => {
                 if self.eval(cond, env)?.truthy() {
@@ -993,4 +1044,3 @@ fn checked(v: Option<i64>, span: Span, op: &str) -> R<i64> {
         None => err(span, "integer overflow"),
     }
 }
-

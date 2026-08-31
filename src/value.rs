@@ -1,7 +1,7 @@
 //! Runtime values and the environment they live in.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::ast::{Block, ClassDecl, Param};
@@ -379,6 +379,10 @@ pub type Env = Rc<Scope>;
 
 pub struct Scope {
     vars: RefCell<HashMap<Rc<str>, Value>>,
+    /// The names here that came from `var`. Only those can be assigned to,
+    /// and only a closure over one of them has to watch the binding rather
+    /// than take a copy of what it holds.
+    mutable: RefCell<HashSet<Rc<str>>>,
     /// Names in the order they were bound, so the scope can die in
     /// reverse-declaration order — the destructor convention all three
     /// engines share, and the order `deinit` hooks observe.
@@ -402,6 +406,7 @@ impl Scope {
     pub fn root() -> Env {
         Rc::new(Scope {
             vars: RefCell::new(HashMap::new()),
+            mutable: RefCell::new(HashSet::new()),
             order: RefCell::new(Vec::new()),
             parent: None,
         })
@@ -468,6 +473,7 @@ impl Scope {
     pub fn child(parent: &Env) -> Env {
         Rc::new(Scope {
             vars: RefCell::new(HashMap::new()),
+            mutable: RefCell::new(HashSet::new()),
             order: RefCell::new(Vec::new()),
             parent: Some(parent.clone()),
         })
@@ -501,6 +507,24 @@ impl Scope {
         let key: Rc<str> = Rc::from(name);
         if self.vars.borrow_mut().insert(key.clone(), value).is_none() {
             self.order.borrow_mut().push(key);
+        }
+    }
+
+    /// Defines a name a program may assign to. A closure over one of these
+    /// has to keep watching the binding, so it cannot be narrowed away.
+    pub fn define_mutable(&self, name: &str, value: Value) {
+        self.define(name, value);
+        self.mutable.borrow_mut().insert(Rc::from(name));
+    }
+
+    /// Whether this name resolves, anywhere up the chain, to a `var`.
+    pub fn is_mutable(&self, name: &str) -> bool {
+        if self.vars.borrow().contains_key(name) {
+            return self.mutable.borrow().contains(name);
+        }
+        match &self.parent {
+            Some(p) => p.is_mutable(name),
+            None => false,
         }
     }
 

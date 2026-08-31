@@ -355,10 +355,25 @@ compiled; without it none of the counting is emitted and no object pays for
 it. Under actors the rows go behind the lock the scheduler already owns, so
 threads count the same total.
 
-One limit remains, stated rather than left to be discovered: a type that
-survives for an ordinary reason — a global that lives to the end of the
-program — is reported like any other. The audit is a place to start looking,
-not a verdict.
+Two limits remain, stated rather than left to be discovered.
+
+**A global is reported like anything else.** A top-level object lives to the
+end of the program on every engine — none of them runs its `deinit` there —
+so every engine counts it as having outlived one. That is the truth, and it
+is why the report is taken before any engine lets its globals go; but it
+means the list names things that are perfectly healthy. The audit is a place
+to start looking, not a verdict.
+
+**A closure can retain differently on different engines.** The VM and the C
+backend give a closure the values it uses; the tree-walker gives it the
+scope it was written in, narrowed to the same values where it safely can —
+which is everywhere except a capture of a `var`, whose later writes the
+closure must see. Where that narrowing cannot apply, the tree-walker holds
+more, and its count is higher. Both numbers are true about their own engine.
+The prelude's `Sequence` is the case to know about: it holds the closure
+that produces its iterator, and that closure captures the sequence as
+`this` — a cycle in the standard library, which every engine reports and no
+engine can break, since a closure's capture cannot be declared `weak`.
 
 ---
 

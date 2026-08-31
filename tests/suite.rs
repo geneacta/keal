@@ -327,6 +327,25 @@ fn fetch_puts_a_dependency_where_an_import_finds_it() {
 /// must print exactly what it printed before the audit existed.
 #[test]
 fn the_audit_names_what_outlived_the_program() {
+    // The two interpreters, on every shape the audit is meant to see: a
+    // cycle, a cycle broken by `weak`, and actors holding one another.
+    for path in ["tests/audit/cycle.keal", "tests/native/weak.keal",
+                 "tests/native/actors.keal", "tests/native/actor-mesh.keal"] {
+        let mut reports = Vec::new();
+        for engine in ENGINES {
+            let out = Command::new(BIN)
+                .args([engine, path])
+                .current_dir(root())
+                .env("KEAL_AUDIT", "1")
+                .output()
+                .expect("cannot run the audit");
+            assert!(out.status.success(), "{} failed on {}", path, engine);
+            reports.push(String::from_utf8_lossy(&out.stderr).into_owned());
+        }
+        assert_eq!(reports[0], reports[1], "the engines disagree about {}", path);
+        assert!(reports[0].contains("audit:"), "no audit for {}", path);
+    }
+
     let path = "tests/audit/cycle.keal";
     let quiet = keal(&["--vm", path]);
     assert!(quiet.success);
@@ -374,7 +393,12 @@ fn the_native_audit_says_what_the_interpreters_say() {
     let dir = std::env::temp_dir().join("keal-audit-test");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
-    let src = root().join("tests/audit/cycle.keal");
+    // Four shapes, not one: a plain cycle, a cycle a `weak` edge breaks, and
+    // two actor programs whose objects hold each other. Covering only the
+    // first is how a disagreement between engines went unnoticed once.
+    for name in ["tests/audit/cycle.keal", "tests/native/weak.keal",
+                 "tests/native/actors.keal", "tests/native/actor-mesh.keal"] {
+    let src = root().join(name);
 
     let built = Command::new(BIN)
         .current_dir(&dir)
@@ -387,7 +411,8 @@ fn the_native_audit_says_what_the_interpreters_say() {
         "the audited program did not build:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
-    let ran = Command::new(dir.join("cycle")).output().expect("cannot run the binary");
+    let stem = Path::new(name).file_stem().unwrap().to_string_lossy().into_owned();
+    let ran = Command::new(dir.join(&stem)).output().expect("cannot run the binary");
     let native = String::from_utf8_lossy(&ran.stderr).into_owned();
 
     for engine in ENGINES {
@@ -404,11 +429,12 @@ fn the_native_audit_says_what_the_interpreters_say() {
             engine
         );
     }
+    }
     // And a program built without the switch says nothing at all.
     let plain = Command::new(BIN)
         .current_dir(&dir)
         .arg("build")
-        .arg(&src)
+        .arg(root().join("tests/audit/cycle.keal"))
         .output()
         .expect("cannot run keal build");
     assert!(plain.status.success());

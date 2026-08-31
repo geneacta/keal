@@ -751,11 +751,6 @@ fn run_file(path: &str, check_only: bool, engine: Engine) -> ExitCode {
         }
     };
 
-    // The engine's own values are gone by the time this runs — the program
-    // is over — so what the audit still counts is what nothing could free.
-    drop(program);
-    value::audit::report();
-
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

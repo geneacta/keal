@@ -583,15 +583,12 @@ because an import can be given one.)
   is missing is a rule that tells an accidental cycle from a global that
   simply lived to the end. Why there is no cycle collector is argued in
   [`docs/memory.md`](docs/memory.md) §5.
-* **The tree-walker holds more than the other two engines.** A closure there
-  captures the whole scope it was written in, where the VM and the C backend
-  capture the values they need. When such a closure escapes into an object
-  that the same scope holds, the pair is a cycle no count can see through,
-  and that object's `deinit` never runs on the tree-walker while it runs on
-  the other two — an observable difference in the engine that is meant to be
-  the specification. The audit is what made it visible. The fix is to
-  capture values in the interpreter as the other engines do, which needs
-  cells for the mutable ones, and it is the next thing to do here.
+* **A sequence chain leaks, on every engine.** `Sequence` holds the closure
+  that produces its iterator, and that closure captures the sequence as
+  `this`: a cycle in the standard library itself, which the audit reports
+  and which `weak` cannot break, since a closure's capture cannot be
+  declared. Rewriting the prelude's sequences so the cycle is not made is
+  the fix, and it is the next thing to do here.
 * **Typed exceptions** — `catch (e)` binds the message as a `String`
   today; catching by kind (and letting `throw` carry a value) is the
   natural second step now that all three engines unwind.

@@ -77,11 +77,16 @@ impl Vm {
             unit.classes.iter().map(|c| (c.name.clone(), c.clone())).collect();
         self.globals.resize(unit.globals.len(), Value::Unit);
 
-        match self.call_compiled(unit.main.clone(), Vec::new(), None, Span::default()) {
+        let out = match self.call_compiled(unit.main.clone(), Vec::new(), None, Span::default()) {
             Ok(v) => Ok(v),
             Err(Flow::Err(e)) => Err(e),
             Err(_) => Ok(Value::Unit),
-        }
+        };
+        // Reported while the globals are still alive, because they are: a
+        // top-level object lives to the end of the program on every engine,
+        // so every engine counts it as having outlived one.
+        crate::value::audit::report();
+        out
     }
 
     // ---- stack helpers -------------------------------------------------
