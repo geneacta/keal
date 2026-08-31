@@ -554,8 +554,20 @@ words are contextual, so a program that already calls something `public`
 keeps working.
 
 Write the modifier on a top-level `fun`, `proc`, `class`, `record`, `trait`,
-`extern fun`, `val` or `var`. Inside a body there is nothing to write it on:
-a local is reachable exactly where it is in scope.
+`extern fun`, `val` or `var` — and on a class's members, where the same
+default applies:
+
+```keal
+public class Counter(public var n: Int) {
+    var steps: Int = 0                 // the class's own business
+    public proc bump() { this.n += 1 }
+}
+```
+
+A record is different, because a record *is* its fields: they follow the
+record's own visibility unless one of them says otherwise. Inside a body
+there is nothing to write a modifier on — a local is reachable exactly where
+it is in scope.
 
 ---
 

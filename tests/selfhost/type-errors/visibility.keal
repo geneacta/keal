@@ -10,3 +10,15 @@ println(secret())
 println(shared())
 val t: Kept = Kept(1)
 println(t.n)
+
+// Members, too. A class keeps its own counsel — a member that says nothing
+// is private — while a record IS its fields, so theirs follow the record.
+val c = Counter(1)
+c.bump()
+println(c.n)
+println(c.secret)
+c.hidden()
+c.secret = 3
+val p = Marker(1, 2)
+println(p.x)
+println(p.hidden)

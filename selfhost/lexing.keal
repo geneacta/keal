@@ -47,6 +47,10 @@ fun keywordOf(w: String): String {
         "while", "for", "in", "break", "continue", "try", "catch", "throw",
         "class", "this", "null",
         "true", "false", "when", "is", "import",
+        // The visibility words. `internal` and `protected` name no rule
+        // yet; they are reserved so that the day they do, no program has
+        // to be renamed to make room for them.
+        "public", "private", "package", "internal", "protected",
         "not", "and", "or", "xor", "xnor", "nand", "nor", "implies" -> w
         else -> ""
     }
@@ -69,22 +73,22 @@ fun endsStatement(kind: String): Bool {
 /// lexed for interpolation holes inherit it automatically.
 var lexErrorPrefix = ""
 
-record Part(val isLit: Bool, val text: String, val line: Int, val col: Int)
+record Part(package val isLit: Bool, package val text: String, package val line: Int, package val col: Int)
 
 /// One token. `parts` is only ever filled for `str`.
 package record Token(
     val kind: String,
-    val text: String,
-    val line: Int,
-    val col: Int,
+    package val text: String,
+    package val line: Int,
+    package val col: Int,
     val parts: List<Part>
 )
 
 class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShebang: Bool) {
     val cs: List<String> = src.chars()
     var pos: Int = 0
-    var line: Int = startLine
-    var col: Int = startCol
+    package var line: Int = startLine
+    package var col: Int = startCol
     var lastKind: String = ""
     val brackets: List<String> = []
     val out: List<Token> = []

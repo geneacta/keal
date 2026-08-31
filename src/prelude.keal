@@ -71,13 +71,13 @@ public trait Ord {
 
 /// The outcome of a comparison: less, equal or greater — exactly one.
 public record Comp(val sign: Int) {
-    fun isLess(): Bool { return this.sign < 0 }
-    fun isEqual(): Bool { return this.sign == 0 }
-    fun isGreater(): Bool { return this.sign > 0 }
-    fun isAtMost(): Bool { return this.sign <= 0 }
-    fun isAtLeast(): Bool { return this.sign >= 0 }
+    public fun isLess(): Bool { return this.sign < 0 }
+    public fun isEqual(): Bool { return this.sign == 0 }
+    public fun isGreater(): Bool { return this.sign > 0 }
+    public fun isAtMost(): Bool { return this.sign <= 0 }
+    public fun isAtLeast(): Bool { return this.sign >= 0 }
 
-    fun toString(): String {
+    public fun toString(): String {
         if (this.sign < 0) { return "less" }
         if (this.sign > 0) { return "greater" }
         return "equal"
@@ -136,13 +136,13 @@ public class SeqIter<T>(val hasNextFn: () -> Bool, val nextFn: () -> T)
 /// A recipe for iteration. Each terminal operation asks `iterFn` for a
 /// fresh pass, so a sequence built from a stable source can be walked twice.
 public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
-    fun iterator(): SeqIter<T> {
+    public fun iterator(): SeqIter<T> {
         val make = this.iterFn
         return make()
     }
 
     /// Transforms each element as it is pulled.
-    fun map<R>(transform: (T) -> R): Sequence<R> {
+    public fun map<R>(transform: (T) -> R): Sequence<R> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -153,7 +153,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
     /// Keeps the elements the predicate accepts. One element of lookahead,
     /// held in a one-slot buffer, is what makes `hasNext` honest.
-    fun filter(predicate: (T) -> Bool): Sequence<T> {
+    public fun filter(predicate: (T) -> Bool): Sequence<T> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -177,7 +177,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 
     /// At most `n` elements, then stops pulling.
-    fun take(n: Int): Sequence<T> {
+    public fun take(n: Int): Sequence<T> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -193,7 +193,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
     /// Skips the first `n` elements, lazily: nothing is pulled until the
     /// downstream asks.
-    fun drop(n: Int): Sequence<T> {
+    public fun drop(n: Int): Sequence<T> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -218,7 +218,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
     /// Elements while the predicate holds; the first refusal ends the
     /// sequence and nothing after it is pulled.
-    fun takeWhile(predicate: (T) -> Bool): Sequence<T> {
+    public fun takeWhile(predicate: (T) -> Bool): Sequence<T> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -243,7 +243,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 
     /// Skips the leading run the predicate accepts, keeps everything after.
-    fun dropWhile(predicate: (T) -> Bool): Sequence<T> {
+    public fun dropWhile(predicate: (T) -> Bool): Sequence<T> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val it = makeIter()
@@ -275,7 +275,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
     /// Substitutes a whole sequence for each element and flattens, still
     /// pulling one element at a time.
-    fun flatMap<R>(transform: (T) -> Sequence<R>): Sequence<R> {
+    public fun flatMap<R>(transform: (T) -> Sequence<R>): Sequence<R> {
         val makeIter = this.iterFn
         return Sequence({ ->
             val outer = makeIter()
@@ -311,7 +311,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
 
     // -- terminal operations: these pull. --
 
-    fun toList(): List<T> {
+    public fun toList(): List<T> {
         val out: List<T> = []
         val it = this.iterator()
         val has = it.hasNextFn
@@ -322,7 +322,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
         return out
     }
 
-    proc forEach(action: (T) -> Unit) {
+    public proc forEach(action: (T) -> Unit) {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -331,7 +331,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
         }
     }
 
-    fun fold<R>(initial: R, operation: (R, T) -> R): R {
+    public fun fold<R>(initial: R, operation: (R, T) -> R): R {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -342,7 +342,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
         return acc
     }
 
-    fun count(): Int {
+    public fun count(): Int {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -355,7 +355,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 
     /// True as soon as one element passes; pulls no further.
-    fun any(predicate: (T) -> Bool): Bool {
+    public fun any(predicate: (T) -> Bool): Bool {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -366,7 +366,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 
     /// False as soon as one element fails; pulls no further.
-    fun all(predicate: (T) -> Bool): Bool {
+    public fun all(predicate: (T) -> Bool): Bool {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -377,7 +377,7 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 
     /// The first element, or null for an empty sequence.
-    fun first(): T? {
+    public fun first(): T? {
         val it = this.iterator()
         val has = it.hasNextFn
         val next = it.nextFn
@@ -442,7 +442,7 @@ public class ActorRef<M>(val mailbox: List<M>) {
     /// must not depend on the scheduler — so mutating a value after
     /// sending it never reaches the receiver. An `ActorRef` inside a
     /// message is the exception: an address is shared, not duplicated.
-    proc send(msg: M) {
+    public proc send(msg: M) {
         this.mailbox.add(copy(msg))
     }
 }
@@ -453,14 +453,14 @@ public class ActorRef<M>(val mailbox: List<M>) {
 /// threaded scheduler the posts interleave; treat the contents as a bag
 /// unless one actor alone is posting.
 public class Outbox<T>(val items: List<T>) {
-    proc post(v: T) {
+    public proc post(v: T) {
         this.items.add(copy(v))
     }
 
     /// Everything posted so far, in arrival order — as **copies**: what
     /// leaves the box is yours alone, so draining twice aliases nothing,
     /// on any scheduler.
-    fun drain(): List<T> {
+    public fun drain(): List<T> {
         val out: List<T> = []
         for (v in this.items) {
             out.add(copy(v))
@@ -478,8 +478,8 @@ public fun outbox<T>(): Outbox<T> {
 /// A set of actors and their mailboxes. `spawn` registers a handler; `run`
 /// delivers until every mailbox is empty.
 public class ActorSystem<M>() {
-    var handlers: List<(ActorRef<M>, M) -> Unit> = []
-    var mailboxes: List<List<M>> = []
+    public var handlers: List<(ActorRef<M>, M) -> Unit> = []
+    public var mailboxes: List<List<M>> = []
 
     /// A new actor. The handler receives the actor's own ref — for replies
     /// and self-sends — and one message; its state lives in what the
@@ -488,7 +488,7 @@ public class ActorSystem<M>() {
     /// mutating a captured value after the spawn never reaches the actor,
     /// and two actors never share one. Aggregate the actor way — reply
     /// with messages — not through a captured collection.
-    fun spawn(handler: (ActorRef<M>, M) -> Unit): ActorRef<M> {
+    public fun spawn(handler: (ActorRef<M>, M) -> Unit): ActorRef<M> {
         val box: List<M> = []
         this.handlers.add(copyClosure(handler))
         this.mailboxes.add(box)
@@ -502,7 +502,7 @@ public class ActorSystem<M>() {
     /// mailbox is promised, which is the only order the model ever
     /// promised. A handler's panic ends `run` on the calling thread, so
     /// `try { sys.run() }` catches it on every engine.
-    proc run() {
+    public proc run() {
         var progress = true
         while (progress) {
             progress = false

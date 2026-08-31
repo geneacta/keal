@@ -2,3 +2,12 @@ public fun open(): Int { secret() }
 fun secret(): Int { 42 }
 package fun shared(): Int { 7 }
 class Kept(val n: Int)
+
+public class Counter(public var n: Int) {
+    var secret: Int = 7
+    public proc bump() { this.n += 1 }
+    proc hidden() { this.n += 2 }
+}
+
+// A record's fields follow the record; one that says otherwise is obeyed.
+public record Marker(val x: Int, private val hidden: Int)

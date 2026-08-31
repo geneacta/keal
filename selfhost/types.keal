@@ -15,13 +15,13 @@
 // too; `tyEq` reproduces that exactly, because `assignableTo` leans on where
 // the Rust code uses `==` and where it deliberately does not.
 
-package class PTy(val name: String, val ty: Ty, val hasDefault: Bool)
+package class PTy(package val name: String, package val ty: Ty, package val hasDefault: Bool)
 
-package class Ty(val kind: String) {
-    var name: String = ""
-    var args: List<Ty> = []
-    var params: List<PTy> = []
-    var ret: Ty? = null
+package class Ty(package val kind: String) {
+    package var name: String = ""
+    package var args: List<Ty> = []
+    package var params: List<PTy> = []
+    package var ret: Ty? = null
 }
 
 fun ty(kind: String): Ty { Ty(kind) }

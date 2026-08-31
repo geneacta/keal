@@ -52,6 +52,40 @@ Comments are `// line`, and `/* block */`, which nests.
 A file may begin with `#!/usr/bin/env keal`, which is ignored, so a script can
 be made executable and run directly.
 
+### Reserved words
+
+Thirty-seven words are reserved: none of them can be the name of anything.
+
+| | |
+|---|---|
+| **Declarations** | `fun` `proc` `class` `val` `var` `import` |
+| **Visibility** | `public` `private` `package` `internal` `protected` |
+| **Control flow** | `if` `unless` `else` `when` `while` `for` `in` `break` `continue` `return` |
+| **Errors** | `try` `catch` `throw` |
+| **Values** | `true` `false` `null` `this` `is` |
+| **Connectives** | `not` `and` `or` `xor` `xnor` `nand` `nor` `implies` |
+
+`internal` and `protected` name no rule today. They are reserved anyway, so
+that the day the language grows a visibility between `package` and `public`,
+or one that reaches a class's own kind, no existing program has to be renamed
+to make room for it. Writing one is refused where it appears rather than
+quietly ignored.
+
+Five more words are **contextual**: they introduce a declaration where one
+follows, and stay ordinary names everywhere else.
+
+| Word | Where it means something |
+|---|---|
+| `record` | before a name: `record Point(...)` |
+| `trait` | before a name: `trait Show { ... }` |
+| `weak` | before a field: `weak var parent: Node?` |
+| `native` | before a string block |
+| `extern` | before `fun`: `extern fun sqrt(...)` |
+
+So `val record = 3` is a perfectly good binding, and always will be. The line
+between the two lists is deliberate: a word becomes reserved when reading it
+as a name would make a program ambiguous, and not before.
+
 ---
 
 ## 2. Values and types
@@ -855,9 +889,29 @@ declarations, which is what lets a group of files collaborate without
 promising anything to the outside.
 
 The modifier goes on a top-level `fun`, `proc`, `class`, `record`, `trait`,
-`extern fun`, `val` or `var`. It is contextual, like `record` and `weak`: a
-program that already has a variable called `public` keeps working, because
-the word is only a modifier where a declaration follows it.
+`extern fun`, `val` or `var` — and on a class's own members:
+
+```keal
+public class Counter(public var n: Int) {
+    var steps: Int = 0                    // the class's own business
+    public proc bump() { this.n += 1; this.steps += 1 }
+    proc audit() { ... }                  // likewise
+}
+```
+
+A **class keeps its own counsel**: a member that says nothing is private,
+like a top-level declaration. A **record is its fields**, so a field that
+says nothing is as visible as the record itself — a record whose data cannot
+be read is not the data case. Writing a modifier on a record's field is
+still obeyed:
+
+```keal
+public record Marker(val x: Int, private val salt: Int)
+```
+
+A method that answers a trait the class implements is always reachable,
+whatever it says: `a + b` is `a.plus(b)`, and an operator must not depend on
+which file it is written in.
 
 Inside a body, nothing takes a modifier — a local is reachable exactly where
 it is in scope, which is what a scope already says. And a type parameter

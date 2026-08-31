@@ -43,6 +43,15 @@ pub enum Tok {
     Is,
     Import,
 
+    // The visibility words. `internal` and `protected` name no rule yet;
+    // they are reserved so that the day they do, no program has to be
+    // renamed to make room for them.
+    Public,
+    Private,
+    Package,
+    Internal,
+    Protected,
+
     // The logical connectives. These are the spelling the language
     // recommends; `&&`, `||`, `!` and `^` are accepted as aliases.
     KwNot,
@@ -184,6 +193,11 @@ impl Tok {
             Tok::When => "when",
             Tok::Is => "is",
             Tok::Import => "import",
+            Tok::Public => "public",
+            Tok::Private => "private",
+            Tok::Package => "package",
+            Tok::Internal => "internal",
+            Tok::Protected => "protected",
             Tok::KwNot => "not",
             Tok::KwAnd => "and",
             Tok::KwOr => "or",
@@ -630,6 +644,11 @@ impl<'a> Lexer<'a> {
             "when" => Tok::When,
             "is" => Tok::Is,
             "import" => Tok::Import,
+            "public" => Tok::Public,
+            "private" => Tok::Private,
+            "package" => Tok::Package,
+            "internal" => Tok::Internal,
+            "protected" => Tok::Protected,
             "not" => Tok::KwNot,
             "and" => Tok::KwAnd,
             "or" => Tok::KwOr,

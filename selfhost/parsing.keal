@@ -90,7 +90,7 @@ package class Parser(val toks: List<Token>) {
     var pos: Int = 0
     var quiet: Int = 0
     var failed: Bool = false
-    var errorPrefix: String = ""
+    package var errorPrefix: String = ""
 
     fun peek(): Token {
         val i = this.pos.min(this.toks.size - 1)
@@ -166,42 +166,33 @@ package class Parser(val toks: List<Token>) {
 
     /// A visibility modifier, when one is written.
     ///
-    /// `public`, `package` and `private` are contextual, like `record` and
-    /// `weak`: they are modifiers only where a declaration follows, so a
-    /// program that already uses one as a name keeps working.
+    /// The five words are reserved, so nothing has to be looked ahead at to
+    /// know one: `public`, `package` and `private` say who may name a
+    /// declaration, while `internal` and `protected` are held for
+    /// visibilities the language does not have yet and are refused where
+    /// they appear rather than silently ignored.
     fun visibility(): String {
         val t = this.peek()
-        if (t.kind != "ident") { return "" }
-        val isMod = t.text == "public" or t.text == "package" or t.text == "private"
-        unless (isMod) { return "" }
-        unless (this.opensDeclaration(1)) { return "" }
-        this.advance()
-        if (t.text == "private") { return "" }
-        return t.text
-    }
-
-    /// True when the token at `n` opens something a modifier can precede.
-    fun opensDeclaration(n: Int): Bool {
-        val t = this.peekAt(n)
         val k = t.kind
-        if (k == "fun" or k == "proc" or k == "class" or k == "val" or k == "var") {
-            return true
+        if (k == "internal" or k == "protected") {
+            this.advance()
+            this.failNote(
+                t.line, t.col,
+                "`${k}` is reserved, but names no visibility yet",
+                "Keal has `private` — which is the default — `package` and `public`"
+            )
+            return ""
         }
-        unless (k == "ident") { return false }
-        if (t.text == "record" or t.text == "trait") {
-            return this.peekAt(n + 1).kind == "ident"
+        if (k == "private" or k == "public" or k == "package") {
+            this.advance()
+            return k
         }
-        if (t.text == "extern") { return this.peekAt(n + 1).kind == "fun" }
-        if (t.text == "weak") {
-            val after = this.peekAt(n + 1).kind
-            return after == "val" or after == "var"
-        }
-        return false
+        return ""
     }
 
     // ---- program --------------------------------------------------------
 
-    fun program(): ProgramN {
+    package fun program(): ProgramN {
         val out = ProgramN()
         while (true) {
             this.skipSemis()

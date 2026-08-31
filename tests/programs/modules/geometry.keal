@@ -1,7 +1,7 @@
 // A module: everything it declares becomes visible to whoever imports it.
 
-package class Vec2(val x: Float, val y: Float) {
-    fun length(): Float { sqrt(this.x * this.x + this.y * this.y) }
+package class Vec2(package val x: Float, val y: Float) {
+    package fun length(): Float { sqrt(this.x * this.x + this.y * this.y) }
     fun toString(): String { "Vec2(${this.x}, ${this.y})" }
 }
 

@@ -17,8 +17,8 @@ import "./loader.keal"
 import "./builtins.keal"
 import "./astprint.keal"
 
-package class DiagN(val file: Int, val line: Int, val col: Int, val msg: String) {
-    var note: String = ""
+package class DiagN(package val file: Int, package val line: Int, package val col: Int, package val msg: String) {
+    package var note: String = ""
 }
 
 /// Why a binding cannot be assigned to, by the kind that introduced it.
@@ -44,12 +44,12 @@ fun whyImmutable(kind: String): String {
 }
 
 /// A declared type parameter: its name and the traits it must satisfy.
-class PDef(val name: String) {
+class PDef(package val name: String) {
     var bounds: List<String> = []
 }
 
-class Binding(val ty: Ty, val kind: String) {
-    var typeParams: List<PDef> = []
+class Binding(package val ty: Ty, val kind: String) {
+    package var typeParams: List<PDef> = []
     /// What the declaration said about who may name it, and the file that
     /// said it. `home` is -1 for anything declared inside a body: a local is
     /// reachable exactly where it is in scope, which scoping already settles.
@@ -57,30 +57,38 @@ class Binding(val ty: Ty, val kind: String) {
     var home: Int = -1
 }
 
-class FInfo(val name: String, var ty: Ty, val mutable: Bool, val weak: Bool)
+class FInfo(package val name: String, package var ty: Ty, val mutable: Bool, val weak: Bool) {
+    /// Who may read it, already resolved: what the field wrote, or — in a
+    /// record, which *is* its fields — what the record itself says.
+    package var vis: String = "private"
+}
 
-class MInfo(val typeParams: List<PDef>, val sig: Ty)
+class MInfo(package val typeParams: List<PDef>, val sig: Ty) {
+    /// Resolved like a field's. A trait method is always reachable: it is
+    /// named through the trait, and refusing it would break the operators.
+    package var vis: String = "private"
+}
 
-class CInfo(val file: Int, val line: Int, val col: Int, val isRecord: Bool) {
+class CInfo(package val file: Int, package val line: Int, package val col: Int, val isRecord: Bool) {
     var vis: String = ""
-    var typeParams: List<PDef> = []
-    var fields: List<FInfo> = []
+    package var typeParams: List<PDef> = []
+    package var fields: List<FInfo> = []
     var methods: Map<String, MInfo> = {}
     var ctor: Ty = tyFun([], Ty("Unit"))
 }
 
 class TrInfo() {
     var vis: String = ""
-    var file: Int = 0
+    package var file: Int = 0
     var methods: Map<String, MInfo> = {}
     var required: List<String> = []
 }
 
 /// What `return` may do at the current point.
-class RetCtx(val isLambda: Bool, val ty: Ty)
+class RetCtx(val isLambda: Bool, package val ty: Ty)
 
 /// One fact a guard proved about a variable.
-class Fact(val name: String, val ty: Ty)
+class Fact(package val name: String, package val ty: Ty)
 
 /// A receiver with its `?` peeled: no base means the error is already out.
 class Recv(val base: Ty?, val nullable: Bool)
@@ -334,15 +342,30 @@ fun cloneFun(f: FunN): FunN {
 
 // ---- the checker --------------------------------------------------------
 
+/// What a member's modifier means once the class it belongs to is known.
+///
+/// A `record` **is** its fields: a field that says nothing is as visible as
+/// the record, because a record whose data cannot be read is not the data
+/// case. A `class` keeps its own counsel: a member that says nothing is
+/// private, like a top-level declaration.
+fun memberVis(written: String, c: ClassN): String {
+    if (written != "") { return written }
+    if (c.isRecord) {
+        if (c.vis == "") { return "private" }
+        return c.vis
+    }
+    return "private"
+}
+
 package class Checker() {
-    var classes: Map<String, CInfo> = {}
+    package var classes: Map<String, CInfo> = {}
     var scopes: List<Map<String, Binding>> = [{}]
     var returns: List<RetCtx> = []
     var thisTy: List<Ty> = []
     var loopDepth: Int = 0
-    var errors: List<DiagN> = []
-    var warnings: List<DiagN> = []
-    var typeParams: List<List<PDef>> = []
+    package var errors: List<DiagN> = []
+    package var warnings: List<DiagN> = []
+    package var typeParams: List<List<PDef>> = []
     var traits: Map<String, TrInfo> = {}
     var impls: Map<String, List<String>> = {}
     var lastInst: List<Ty>? = null
@@ -390,7 +413,7 @@ package class Checker() {
 
     /// Learns which package each file belongs to: its directory. Called
     /// once, before checking, from whoever loaded the files.
-    proc learnPackages(paths: List<String>) {
+    package proc learnPackages(paths: List<String>) {
         this.packages = []
         this.fileNames = []
         for (path in paths) {
@@ -420,6 +443,45 @@ package class Checker() {
             return this.packageOf(home) == this.packageOf(here)
         }
         return home == here
+    }
+
+    /// True when a trait the class implements declares this method.
+    ///
+    /// Such a method is named through the trait — `a + b` is `a.plus(b)` —
+    /// so refusing it by its own modifier would make an operator depend on
+    /// where it is written. A class that says it implements a trait has
+    /// promised the trait's methods.
+    fun methodAnswersATrait(cls: String, name: String): Bool {
+        val ts = this.impls[cls]
+        if (ts == null) { return false }
+        for (t in ts) {
+            val ti = this.traits[t]
+            if (ti != null and ti.methods.contains(name)) { return true }
+        }
+        return false
+    }
+
+    /// Checks a member against what its declaration allows.
+    proc checkMemberVisible(file: Int, line: Int, col: Int, what: String, cls: String, name: String) {
+        val info = this.classes[cls]
+        if (info == null) { return }
+        var vis = ""
+        if (what == "field") {
+            var found = false
+            for (f in info.fields) {
+                if (f.name == name) {
+                    vis = f.vis
+                    found = true
+                }
+            }
+            unless (found) { return }
+        } else {
+            val m = info.methods[name]
+            if (m == null) { return }
+            if (this.methodAnswersATrait(cls, name)) { return }
+            vis = m.vis
+        }
+        this.checkVisible(file, line, col, what, name, vis, info.file)
     }
 
     /// Checks a written name against what its declaration allows.
@@ -455,7 +517,7 @@ package class Checker() {
 
     // ---- driver --------------------------------------------------------
 
-    proc checkProgram(program: ProgramN) {
+    package proc checkProgram(program: ProgramN) {
         // 0. Traits first: bounds and implements lists need them registered.
         for (item in program.items) {
             val t = item.traitDecl
@@ -763,7 +825,9 @@ package class Checker() {
             val sig = this.funType(m.decl)
             val tps = this.paramDefs(m.decl.typeParams)
             unless (m.hasDefault) { info.required.add(m.decl.name) }
-            info.methods[m.decl.name] = MInfo(tps, sig)
+            val tm = MInfo(tps, sig)
+            tm.vis = "public"
+            info.methods[m.decl.name] = tm
         }
         this.thisTy.removeAt(this.thisTy.size - 1)
         info.vis = t.vis
@@ -1002,7 +1066,9 @@ package class Checker() {
                     this.error(p.file, p.line, p.col, "field `${p.name}` is declared twice")
                 }
                 this.checkWeakField(p.weak, t, p.name, p.file, p.line, p.col)
-                fields.add(FInfo(p.name, t, p.fieldKind == "var", p.weak))
+                val fi = FInfo(p.name, t, p.fieldKind == "var", p.weak)
+                fi.vis = memberVis(p.vis, c)
+                fields.add(fi)
             }
         }
         for (f in c.fields) {
@@ -1019,7 +1085,9 @@ package class Checker() {
             if (f.tyEx != null) {
                 this.checkWeakField(f.weak, t, f.name, f.file, f.line, f.col)
             }
-            fields.add(FInfo(f.name, t, f.mutable, f.weak))
+            val fi2 = FInfo(f.name, t, f.mutable, f.weak)
+            fi2.vis = memberVis(f.vis, c)
+            fields.add(fi2)
         }
 
         val methods: Map<String, MInfo> = {}
@@ -1035,7 +1103,9 @@ package class Checker() {
                 )
             }
             val ft = this.funType(m)
-            methods[m.name] = MInfo(this.paramDefs(m.typeParams), ft)
+            val mi = MInfo(this.paramDefs(m.typeParams), ft)
+            mi.vis = memberVis(m.vis, c)
+            methods[m.name] = mi
         }
 
         // A constructor returns the class instantiated at its own parameters.
@@ -2397,7 +2467,11 @@ package class Checker() {
             val info = this.classes[cls]
             if (info != null) {
                 for (f in info.fields) {
-                    if (f.name == name) { return substitute(f.ty, subst) }
+                    if (f.name == name) {
+                        val fty = substitute(f.ty, subst)
+                        this.checkMemberVisible(e.file, e.line, e.col, "field", cls, name)
+                        return fty
+                    }
                 }
                 val m = info.methods[name]
                 if (m != null) {
@@ -2416,7 +2490,9 @@ package class Checker() {
                         )
                         return Ty("Error")
                     }
-                    return substituteFun(m.sig, subst)
+                    val mty = substituteFun(m.sig, subst)
+                    this.checkMemberVisible(e.file, e.line, e.col, "method", cls, name)
+                    return mty
                 }
             }
             this.error(e.file, e.line, e.col, "`${cls}` has no field or method `${name}`")
@@ -2498,6 +2574,7 @@ package class Checker() {
             val found = found0
             if (found != null) {
                 val sig = substituteFun(found.sig, subst)
+                this.checkMemberVisible(e.file, e.line, e.col, "method", cls, name)
                 return this.checkArgs(sig, found.typeParams, args, e, "method `${name}`", expected)
             }
             var isField = false
@@ -2891,6 +2968,9 @@ package class Checker() {
                     for (f in info.fields) {
                         if (f.name == name) {
                             val fty = substitute(f.ty, subst)
+                            this.checkMemberVisible(
+                                target.file, target.line, target.col, "field", cls, name
+                            )
                             if (f.mutable) { return fty, "", "" }
                             val why = if (info.isRecord) {
                                 "a record's fields are immutable; build a new one instead"

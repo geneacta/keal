@@ -15,7 +15,7 @@ fun jbindClassUUID(): Int {
 
 public class UUID(val handle: Int) : Ord {
     var released: Bool = false
-    fun toString(): String { return jvmToString(this.handle) }
+    public fun toString(): String { return jvmToString(this.handle) }
     proc free() {
         unless (this.released) {
             this.released = true

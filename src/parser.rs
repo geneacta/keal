@@ -144,34 +144,30 @@ impl Parser {
 
     /// A visibility modifier, when one is written.
     ///
-    /// `public`, `package` and `private` are contextual, like `record` and
-    /// `weak`: they are modifiers only where a declaration follows, so a
-    /// program that already uses one as a name keeps working.
-    fn visibility(&mut self) -> Vis {
+    /// The five words are reserved, so nothing has to be looked ahead at to
+    /// know one: `public`, `package` and `private` say who may name a
+    /// declaration, while `internal` and `protected` are held for
+    /// visibilities the language does not have yet and are refused where
+    /// they appear rather than silently ignored.
+    fn visibility(&mut self) -> Result<Vis, Diag> {
         let level = match self.peek() {
-            Tok::Ident(w) if w == "public" => Vis::Public,
-            Tok::Ident(w) if w == "package" => Vis::Package,
-            Tok::Ident(w) if w == "private" => Vis::Private,
-            _ => return Vis::Private,
-        };
-        if !self.opens_declaration(1) {
-            return Vis::Private;
-        }
-        self.advance();
-        level
-    }
-
-    /// True when the token at `n` opens something a modifier can precede.
-    fn opens_declaration(&self, n: usize) -> bool {
-        match self.peek_at(n) {
-            Tok::Fun | Tok::Proc | Tok::Class | Tok::Val | Tok::Var => true,
-            Tok::Ident(w) if w == "record" || w == "trait" => {
-                matches!(self.peek_at(n + 1), Tok::Ident(_))
+            Tok::Public => Vis::Public,
+            Tok::Package => Vis::Package,
+            Tok::Private => Vis::Private,
+            Tok::Internal | Tok::Protected => {
+                let word = self.peek().symbol();
+                let span = self.span();
+                self.advance();
+                return Err(Diag::new(
+                    span,
+                    format!("`{}` is reserved, but names no visibility yet", word),
+                )
+                .with_note("Keal has `private` — which is the default — `package` and `public`"));
             }
-            Tok::Ident(w) if w == "extern" => matches!(self.peek_at(n + 1), Tok::Fun),
-            Tok::Ident(w) if w == "weak" => matches!(self.peek_at(n + 1), Tok::Val | Tok::Var),
-            _ => false,
-        }
+            _ => return Ok(Vis::Unset),
+        };
+        self.advance();
+        Ok(level)
     }
 
     fn err_here(&self, msg: impl Into<String>) -> Diag {
@@ -200,7 +196,7 @@ impl Parser {
 
     fn item(&mut self) -> Result<Item, Diag> {
         let vis_span = self.span();
-        let vis = self.visibility();
+        let vis = self.visibility()?;
         self.item_after_vis(vis, vis_span)
     }
 
@@ -296,7 +292,7 @@ impl Parser {
                 let mut stmt = self.stmt()?;
                 match &mut stmt.kind {
                     StmtKind::Let { vis: v, .. } => *v = vis,
-                    _ if vis != Vis::Private => {
+                    _ if vis != Vis::Unset => {
                         return Err(Diag::new(
                             vis_span,
                             format!(
@@ -514,7 +510,7 @@ impl Parser {
                     name: mname,
                     // A trait's methods are named through the trait, never on
                     // their own, so they carry no visibility of their own.
-                    vis: Vis::Private,
+                    vis: Vis::Unset,
                     type_params,
                     params: Rc::new(params),
                     ret,
@@ -549,7 +545,7 @@ impl Parser {
         if self.at(&Tok::LParen) {
             self.advance();
             while !self.at(&Tok::RParen) {
-                let pvis = self.visibility();
+                let pvis = self.visibility()?;
                 let pspan = self.span();
                 // `weak` is contextual, like `record`: it is a modifier only
                 // where a field is being declared, and stays a usable name
@@ -614,7 +610,7 @@ impl Parser {
             if self.at(&Tok::RBrace) || self.at(&Tok::Eof) {
                 break;
             }
-            let mvis = self.visibility();
+            let mvis = self.visibility()?;
             match self.peek() {
                 Tok::Fun | Tok::Proc => methods.push(self.fun_decl(mvis)?),
                 Tok::Val | Tok::Var | Tok::Ident(_)
@@ -720,7 +716,7 @@ impl Parser {
                 let ty = if self.eat(&Tok::Colon) { Some(self.type_expr()?) } else { None };
                 self.expect(Tok::Assign, "in a variable declaration")?;
                 let init = self.expr()?;
-                StmtKind::Let { name, ty, init, mutable, vis: Vis::Private }
+                StmtKind::Let { name, ty, init, mutable, vis: Vis::Unset }
             }
             Tok::Return => {
                 self.advance();
@@ -834,8 +830,8 @@ impl Parser {
                 let body = self.block()?;
                 StmtKind::For { var, ty, iter, body }
             }
-            Tok::Fun | Tok::Proc => StmtKind::Fun(self.fun_decl(Vis::Private)?),
-            Tok::Class => StmtKind::Class(self.class_decl(false, Vis::Private)?),
+            Tok::Fun | Tok::Proc => StmtKind::Fun(self.fun_decl(Vis::Unset)?),
+            Tok::Class => StmtKind::Class(self.class_decl(false, Vis::Unset)?),
             _ => {
                 let target = self.expr()?;
                 // `x++` and `x--` are statements, as Go has them: sugar for

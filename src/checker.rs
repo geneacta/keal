@@ -96,6 +96,9 @@ impl Binding {
 
 struct FieldInfo {
     ty: Type,
+    /// Who may read it, already resolved: what the field wrote, or — in a
+    /// record, which *is* its fields — what the record itself says.
+    vis: Vis,
     mutable: bool,
     /// Declared `weak`: the field does not keep its target alive, and
     /// reads back null once that target's last strong reference dies.
@@ -106,6 +109,9 @@ struct MethodInfo {
     /// The method's own `<R>`, separate from the class's parameters.
     type_params: Vec<ParamDef>,
     sig: Rc<FunType>,
+    /// Resolved like a field's. A trait method is always reachable: it is
+    /// named through the trait, and refusing it would break the operators.
+    vis: Vis,
 }
 
 struct ClassInfo {
@@ -310,6 +316,7 @@ impl Checker {
     fn reachable(&self, vis: Vis, home: u32, here: u32) -> bool {
         match vis {
             Vis::Public => true,
+            Vis::Unset => home == here,
             Vis::Package => home == here || self.package_of(home) == self.package_of(here),
             Vis::Private => home == here,
         }
@@ -320,7 +327,7 @@ impl Checker {
     fn refuse_hidden(&mut self, span: Span, what: &str, name: &str, vis: Vis, home: u32) {
         let where_ = self.file_name(home);
         let (msg, note) = match vis {
-            Vis::Private => (
+            Vis::Unset | Vis::Private => (
                 format!("{} `{}` is private to {}", what, name, where_),
                 format!("declare it `public` there, or `package` to share it with the files beside it"),
             ),
@@ -331,6 +338,39 @@ impl Checker {
             Vis::Public => return,
         };
         self.error_note(span, msg, note);
+    }
+
+    /// True when a trait the class implements declares this method.
+    ///
+    /// Such a method is named through the trait — `a + b` is `a.plus(b)` —
+    /// so refusing it by its own modifier would make an operator depend on
+    /// where it is written. A class that says it implements a trait has
+    /// promised the trait's methods.
+    fn method_answers_a_trait(&self, cls: &str, name: &str) -> bool {
+        let Some(traits) = self.impls.get(cls) else { return false };
+        traits.iter().any(|t| {
+            self.traits.get(&**t).map(|ti| ti.methods.contains_key(name)).unwrap_or(false)
+        })
+    }
+
+    /// Checks a member against what its declaration allows.
+    fn check_member_visible(&mut self, span: Span, what: &str, cls: &str, name: &str) {
+        let Some(info) = self.classes.get(cls) else { return };
+        let home = info.span.file;
+        let vis = match what {
+            "field" => match info.field(name) {
+                Some(f) => f.vis,
+                None => return,
+            },
+            _ => match info.methods.get(name) {
+                Some(m) => m.vis,
+                None => return,
+            },
+        };
+        if what != "field" && self.method_answers_a_trait(cls, name) {
+            return;
+        }
+        self.check_visible(span, what, name, vis, home);
     }
 
     /// Checks a written name against what its declaration allows.
@@ -687,7 +727,7 @@ impl Checker {
             }
             methods.insert(
                 m.decl.name.clone(),
-                Rc::new(MethodInfo { type_params: tps, sig: Rc::new(sig) }),
+                Rc::new(MethodInfo { type_params: tps, sig: Rc::new(sig), vis: Vis::Public }),
             );
         }
         self.this_ty.pop();
@@ -932,7 +972,8 @@ impl Checker {
                     self.error(p.span, format!("field `{}` is declared twice", p.name));
                 }
                 self.check_weak_field(p.weak, &ty, &p.name, p.span);
-                fields.push((p.name.clone(), FieldInfo { ty, mutable, weak: p.weak }));
+                let vis = member_vis(p.vis, c);
+                fields.push((p.name.clone(), FieldInfo { ty, vis, mutable, weak: p.weak }));
             }
         }
         for f in &c.fields {
@@ -948,7 +989,8 @@ impl Checker {
             if f.ty.is_some() {
                 self.check_weak_field(f.weak, &ty, &f.name, f.span);
             }
-            fields.push((f.name.clone(), FieldInfo { ty, mutable: f.mutable, weak: f.weak }));
+            let vis = member_vis(f.vis, c);
+            fields.push((f.name.clone(), FieldInfo { ty, vis, mutable: f.mutable, weak: f.weak }));
         }
 
         let mut methods = HashMap::new();
@@ -967,7 +1009,9 @@ impl Checker {
             }
             let ft = self.fun_type(m);
             let tps = self.param_defs(&m.type_params);
-            methods.insert(m.name.clone(), Rc::new(MethodInfo { type_params: tps, sig: Rc::new(ft) }));
+            let vis = member_vis(m.vis, c);
+            methods
+                .insert(m.name.clone(), Rc::new(MethodInfo { type_params: tps, sig: Rc::new(ft), vis }));
         }
 
         // A constructor returns the class instantiated at its own
@@ -2340,7 +2384,9 @@ impl Checker {
             let subst = self.class_subst(&cls, targs);
             if let Some(info) = self.classes.get(&cls) {
                 if let Some(f) = info.field(name) {
-                    return f.ty.substitute(&subst);
+                    let ty = f.ty.substitute(&subst);
+                    self.check_member_visible(span, "field", &cls, name);
+                    return ty;
                 }
                 if let Some(m) = info.methods.get(name) {
                     if !m.type_params.is_empty() {
@@ -2358,7 +2404,9 @@ impl Checker {
                         );
                         return Type::Error;
                     }
-                    return Type::Fun(Rc::new(m.sig.substitute(&subst)));
+                    let ty = Type::Fun(Rc::new(m.sig.substitute(&subst)));
+                    self.check_member_visible(span, "method", &cls, name);
+                    return ty;
                 }
             }
             self.error(span, format!("`{}` has no field or method `{}`", cls, name));
@@ -2472,6 +2520,7 @@ impl Checker {
             let found = self.classes.get(&cls).and_then(|i| i.methods.get(name).cloned());
             if let Some(m) = found {
                 let sig = m.sig.substitute(&subst);
+                self.check_member_visible(span, "method", &cls, name);
                 return self.check_args(
                     &sig,
                     &m.type_params,
@@ -2890,11 +2939,13 @@ impl Checker {
                 if let Type::Class(cls, targs) = &ot {
                     let cls = cls.to_string();
                     let subst = self.class_subst(&cls, targs);
-                    if let Some(info) = self.classes.get(&cls) {
-                        if let Some(f) = info.field(&name) {
-                            let fty = f.ty.substitute(&subst);
-                            let is_record = info.is_record;
-                            let problem = (!f.mutable).then(|| {
+                    let assigned = self.classes.get(&cls).and_then(|i| {
+                        i.field(&name).map(|f| (f.ty.substitute(&subst), f.mutable, i.is_record))
+                    });
+                    if let Some((fty, mutable, is_record)) = assigned {
+                        self.check_member_visible(span, "field", &cls, &name);
+                        {
+                            let problem = (!mutable).then(|| {
                                 let why = if is_record {
                                     "a record's fields are immutable; build a new one instead"
                                 } else {
@@ -3823,6 +3874,19 @@ fn describe_arity(required: usize, total: usize) -> String {
         required.to_string()
     } else {
         format!("{} to {}", required, total)
+    }
+}
+
+/// What a member's modifier means once the class it belongs to is known.
+///
+/// A `record` **is** its fields: a field that says nothing is as visible as
+/// the record, because a record whose data cannot be read is not the data
+/// case. A `class` keeps its own counsel: a member that says nothing is
+/// private, like a top-level declaration.
+fn member_vis(written: Vis, c: &ClassDecl) -> Vis {
+    match written {
+        Vis::Unset if c.is_record => c.vis.or_private(),
+        other => other.or_private(),
     }
 }
 

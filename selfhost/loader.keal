@@ -13,7 +13,7 @@ import "./parsing.keal"
 import "./preludesrc.keal"
 
 /// The paths the loader registered, by file id. `paths()[0]` is `<prelude>`.
-class Loaded(val program: ProgramN, val paths: List<String>)
+class Loaded(package val program: ProgramN, package val paths: List<String>)
 
 /// Collapses `.` and `..` segments so the same file is never loaded twice
 /// under two spellings. Does not need the file to exist.
@@ -56,11 +56,11 @@ package fun dirOf(path: String): String {
 }
 
 package class Loader() {
-    var paths: List<String> = []
+    package var paths: List<String> = []
     var seen: Map<String, Bool> = {}
     var items: List<ItemN> = []
 
-    fun load(entry: String): Loaded {
+    package fun load(entry: String): Loaded {
         // The prelude parses under its own file id, 0.
         this.paths.add("<prelude>")
         lexErrorPrefix = "<prelude>:"

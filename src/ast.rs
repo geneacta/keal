@@ -17,18 +17,31 @@ pub struct Program {
 /// that has to be written on purpose.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Vis {
+    /// Nothing was written. For a top-level declaration that means private;
+    /// for a record's member it means the record's own, which is the point
+    /// of keeping the two apart.
+    Unset,
     Private,
     Package,
     Public,
 }
 
 impl Vis {
-    /// How the modifier is spelled, or `None` when nothing is written.
+    /// How the modifier is spelled, or `None` when nothing was written.
     pub fn keyword(self) -> Option<&'static str> {
         match self {
-            Vis::Private => None,
+            Vis::Unset => None,
+            Vis::Private => Some("private"),
             Vis::Package => Some("package"),
             Vis::Public => Some("public"),
+        }
+    }
+
+    /// What an unwritten modifier means where nothing inherits: private.
+    pub fn or_private(self) -> Vis {
+        match self {
+            Vis::Unset => Vis::Private,
+            other => other,
         }
     }
 }

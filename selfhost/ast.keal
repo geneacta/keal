@@ -8,39 +8,39 @@
 import "./types.keal"
 
 /// A type as written: kind is "named", "nullable" or "fun".
-package class TypeEx(val kind: String, val line: Int, val col: Int) {
-    var file: Int = 0
-    var name: String = ""          // named
-    var args: List<TypeEx> = []    // named: type arguments; fun: parameters
-    var inner: TypeEx? = null      // nullable
-    var ret: TypeEx? = null        // fun
+package class TypeEx(package val kind: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var name: String = ""          // named
+    package var args: List<TypeEx> = []    // named: type arguments; fun: parameters
+    package var inner: TypeEx? = null      // nullable
+    package var ret: TypeEx? = null        // fun
 }
 
 /// One piece of an interpolated string.
-package class PartN(val isLit: Bool) {
-    var text: String = ""          // lit
-    var ex: Ex? = null             // hole
+package class PartN(package val isLit: Bool) {
+    package var text: String = ""          // lit
+    package var ex: Ex? = null             // hole
 }
 
-package class ArgN(val name: String, val value: Ex)
+package class ArgN(package val name: String, package val value: Ex)
 
-package class ParamN(val name: String, val line: Int, val col: Int) {
-    var file: Int = 0
-    var tyEx: TypeEx? = null
-    var default: Ex? = null
+package class ParamN(package val name: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var tyEx: TypeEx? = null
+    package var default: Ex? = null
 }
 
-package class TParamN(val name: String) {
-    var bounds: List<TypeEx> = []
+package class TParamN(package val name: String) {
+    package var bounds: List<TypeEx> = []
 }
 
 package class BlockN() {
-    var stmts: List<StmtN> = []
+    package var stmts: List<StmtN> = []
 }
 
 /// `Name(a, _, c)`: "_" stands for a bind that names nothing.
-package class DestrN(val typeName: String, val binds: List<String>, val line: Int, val col: Int) {
-    var file: Int = 0
+package class DestrN(package val typeName: String, package val binds: List<String>, package val line: Int, package val col: Int) {
+    package var file: Int = 0
 }
 
 /// Expressions. kind is one of: int float bool str interp null this ident
@@ -50,127 +50,127 @@ package class DestrN(val typeName: String, val binds: List<String>, val line: In
 /// `kind` is a `var` because the checker rewrites nodes in place: an integer
 /// literal widens to a float, and an operator on a user type becomes the
 /// method call it stands for.
-package class Ex(var kind: String, val line: Int, val col: Int) {
-    var file: Int = 0
-    var iVal: Int = 0              // int
-    var fVal: Float = 0.0          // float
-    var text: String = ""          // str value; ident/field/method name;
+package class Ex(package var kind: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var iVal: Int = 0              // int
+    package var fVal: Float = 0.0          // float
+    package var text: String = ""          // str value; ident/field/method name;
                                    // bool "true"/"false"; unary "neg"/"not";
                                    // binary/logical operator
-    var kids: List<Ex> = []        // operands, in dump order
-    var args: List<ArgN> = []      // call/method arguments
-    var parts: List<PartN> = []    // interp
-    var tyEx: TypeEx? = null       // is
-    var negated: Bool = false      // is
-    var safe: Bool = false         // field/method
-    var assignOp: String = "="     // assign: "=" or the compound op's symbol
-    var params: List<ParamN> = []  // lambda
-    var body: BlockN? = null       // lambda body; if: then-block
-    var els: BlockN? = null        // if: else-block
-    var elseif: Ex? = null         // if: else-if chain
-    var subject: Ex? = null        // when
-    var arms: List<ArmN> = []      // when
-    var keys: List<Ex> = []        // map
-    var values: List<Ex> = []      // map
+    package var kids: List<Ex> = []        // operands, in dump order
+    package var args: List<ArgN> = []      // call/method arguments
+    package var parts: List<PartN> = []    // interp
+    package var tyEx: TypeEx? = null       // is
+    package var negated: Bool = false      // is
+    package var safe: Bool = false         // field/method
+    package var assignOp: String = "="     // assign: "=" or the compound op's symbol
+    package var params: List<ParamN> = []  // lambda
+    package var body: BlockN? = null       // lambda body; if: then-block
+    package var els: BlockN? = null        // if: else-block
+    package var elseif: Ex? = null         // if: else-if chain
+    package var subject: Ex? = null        // when
+    package var arms: List<ArmN> = []      // when
+    package var keys: List<Ex> = []        // map
+    package var values: List<Ex> = []      // map
 
     // Filled in by the checker.
-    var ty: Ty? = null
-    var inst: List<Ty>? = null
+    package var ty: Ty? = null
+    package var inst: List<Ty>? = null
 }
 
 /// A `when` arm. Pattern kind: "else", "values", "is", "in".
-package class ArmN(val line: Int, val col: Int) {
-    var file: Int = 0
-    var patternKind: String = "values"
-    var values: List<Ex> = []      // values / in (values[0] is the range)
-    var patTyEx: TypeEx? = null    // is
-    var patNegated: Bool = false   // is / in
-    var binds: DestrN? = null      // is T(a, b)
-    var guard: Ex? = null
-    var body: BlockN = BlockN()
+package class ArmN(package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var patternKind: String = "values"
+    package var values: List<Ex> = []      // values / in (values[0] is the range)
+    package var patTyEx: TypeEx? = null    // is
+    package var patNegated: Bool = false   // is / in
+    package var binds: DestrN? = null      // is T(a, b)
+    package var guard: Ex? = null
+    package var body: BlockN = BlockN()
 }
 
 /// Statements. kind: let destructure expr return while for break continue
 /// fun class
-package class StmtN(val kind: String, val line: Int, val col: Int) {
-    var file: Int = 0
-    var vis: String = ""           // only ever set on a top-level let
-    var name: String = ""          // let / for: the bound name
-    var mutable: Bool = false      // let / destructure
-    var tyEx: TypeEx? = null       // let / for: declared type
-    var init: Ex? = null           // let / destructure
-    var pattern: DestrN? = null    // destructure
-    var ex: Ex? = null             // expr / return value / while cond / for iter
-    var body: BlockN? = null       // while / for / try
-    var handler: BlockN? = null    // try: the catch block (`name` binds the message)
-    var funDecl: FunN? = null
-    var classDecl: ClassN? = null
+package class StmtN(package val kind: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var vis: String = ""           // only ever set on a top-level let
+    package var name: String = ""          // let / for: the bound name
+    package var mutable: Bool = false      // let / destructure
+    package var tyEx: TypeEx? = null       // let / for: declared type
+    package var init: Ex? = null           // let / destructure
+    package var pattern: DestrN? = null    // destructure
+    package var ex: Ex? = null             // expr / return value / while cond / for iter
+    package var body: BlockN? = null       // while / for / try
+    package var handler: BlockN? = null    // try: the catch block (`name` binds the message)
+    package var funDecl: FunN? = null
+    package var classDecl: ClassN? = null
 }
 
-package class FunN(val name: String, val line: Int, val col: Int) {
-    var file: Int = 0
-    var vis: String = ""           // "", "package" or "public"
-    var typeParams: List<TParamN> = []
-    var params: List<ParamN> = []
-    var ret: TypeEx? = null
-    var body: BlockN = BlockN()
+package class FunN(package val name: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var vis: String = ""           // "", "package" or "public"
+    package var typeParams: List<TParamN> = []
+    package var params: List<ParamN> = []
+    package var ret: TypeEx? = null
+    package var body: BlockN = BlockN()
 }
 
-package class CtorN(val name: String, val line: Int, val col: Int) {
-    var file: Int = 0
-    var vis: String = ""
-    var tyEx: TypeEx? = null
-    var default: Ex? = null
-    var fieldKind: String = ""     // "val", "var" or "" for a plain parameter
-    var weak: Bool = false         // `weak val parent: Parent?`
+package class CtorN(package val name: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var vis: String = ""
+    package var tyEx: TypeEx? = null
+    package var default: Ex? = null
+    package var fieldKind: String = ""     // "val", "var" or "" for a plain parameter
+    package var weak: Bool = false         // `weak val parent: Parent?`
 }
 
-package class FieldN(val name: String, val line: Int, val col: Int) {
-    var file: Int = 0
-    var vis: String = ""
-    var tyEx: TypeEx? = null
-    var init: Ex? = null
-    var mutable: Bool = false
-    var weak: Bool = false         // `weak var next: Node?`
+package class FieldN(package val name: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var vis: String = ""
+    package var tyEx: TypeEx? = null
+    package var init: Ex? = null
+    package var mutable: Bool = false
+    package var weak: Bool = false         // `weak var next: Node?`
 }
 
-package class ClassN(val name: String, val isRecord: Bool, val line: Int, val col: Int) {
-    var file: Int = 0
-    var vis: String = ""
-    var typeParams: List<TParamN> = []
-    var traits: List<TypeEx> = []
-    var ctor: List<CtorN> = []
-    var fields: List<FieldN> = []
-    var methods: List<FunN> = []
+package class ClassN(package val name: String, package val isRecord: Bool, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var vis: String = ""
+    package var typeParams: List<TParamN> = []
+    package var traits: List<TypeEx> = []
+    package var ctor: List<CtorN> = []
+    package var fields: List<FieldN> = []
+    package var methods: List<FunN> = []
 }
 
-package class TraitMethodN(val decl: FunN, val hasDefault: Bool)
+package class TraitMethodN(package val decl: FunN, package val hasDefault: Bool)
 
-package class TraitN(val name: String, val line: Int, val col: Int) {
-    var file: Int = 0
-    var vis: String = ""
-    var methods: List<TraitMethodN> = []
+package class TraitN(package val name: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var vis: String = ""
+    package var methods: List<TraitMethodN> = []
 }
 
-package class ExternN(val name: String, val line: Int, val col: Int) {
-    var file: Int = 0
-    var vis: String = ""
-    var symbol: String = ""
-    var params: List<ParamN> = []
-    var ret: TypeEx? = null
+package class ExternN(package val name: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var vis: String = ""
+    package var symbol: String = ""
+    package var params: List<ParamN> = []
+    package var ret: TypeEx? = null
 }
 
 /// Top-level items. kind: fun class trait native extern import stmt
-package class ItemN(val kind: String, val line: Int, val col: Int) {
-    var file: Int = 0
-    var funDecl: FunN? = null
-    var classDecl: ClassN? = null
-    var traitDecl: TraitN? = null
-    var externDecl: ExternN? = null
-    var text: String = ""          // native code / import path
-    var stmt: StmtN? = null
+package class ItemN(package val kind: String, package val line: Int, package val col: Int) {
+    package var file: Int = 0
+    package var funDecl: FunN? = null
+    package var classDecl: ClassN? = null
+    package var traitDecl: TraitN? = null
+    package var externDecl: ExternN? = null
+    package var text: String = ""          // native code / import path
+    package var stmt: StmtN? = null
 }
 
 package class ProgramN() {
-    var items: List<ItemN> = []
+    package var items: List<ItemN> = []
 }
