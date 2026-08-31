@@ -26,7 +26,10 @@ jobs:
           - os: macos-14
             target: aarch64-apple-darwin
             name: keal-macos-arm64
-          - os: macos-13
+          # GitHub is retiring the macOS 13 runners; `macos-15-intel` is the
+          # Intel one that still exists. A leg whose runner never comes is a
+          # release that never opens, so this label matters.
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             name: keal-macos-x86_64
           - os: ubuntu-latest

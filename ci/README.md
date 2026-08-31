@@ -19,7 +19,7 @@ web UI takes a moment and needs no such token.
 | file | what it does | installed? |
 |---|---|---|
 | `pages.yml` | Publishes `site/` to GitHub Pages on every push that touches it | yes |
-| `release.yml` | On a `v*` tag: builds the compiler for macOS (arm64, x86_64) and Linux, runs the suite and the bootstrap on each, and opens a **draft** release with the binaries attached | not yet |
+| `release.yml` | On a `v*` tag: builds the compiler for macOS (arm64, x86_64) and Linux, runs the suite and the bootstrap on each, and opens a **draft** release with the binaries attached | yes |
 
 `pages.yml` also needs the repository setting **Settings → Pages →
 Source: GitHub Actions**, once.
@@ -27,3 +27,15 @@ Source: GitHub Actions**, once.
 Nothing else about the project depends on these files: `cargo test
 --release` and `./bootstrap.sh` are the same commands the workflows run,
 and they are what a contributor runs locally.
+
+## When a runner label goes away
+
+GitHub retires runner images, and a job whose label no longer exists sits
+in the queue forever rather than failing — the release never opens. If a
+build leg is queued while the others have finished, that is the first thing
+to check, and the fix is a new label in the matrix here, re-copied through
+the web UI.
+
+A workflow already installed does not have to be re-tagged to be re-run
+after such a fix: **Actions → release → Run workflow** takes the tag as an
+input, which is what that input is for.
