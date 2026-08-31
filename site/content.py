@@ -167,6 +167,7 @@ DOC_PAGES = [
     ("docs/threads.md", "threads.html", "Threads and actors", "Threads et acteurs", "INTERNALS"),
     ("docs/drop.md", "deinit.html", "Deterministic deinit", "deinit déterministe", "INTERNALS"),
     ("docs/interop.md", "interop.html", "Interop: C to Kotlin", "Interop : de C à Kotlin", "INTERNALS"),
+    ("docs/packages.md", "packages.html", "Packages and namespaces", "Paquets et espaces de noms", "LANGUAGE"),
     ("CONTRIBUTING.md", "contributing.html", "Contributing", "Contribuer", "GUIDE"),
 ]
 
@@ -180,6 +181,7 @@ SIDEBAR = {
         ("GROUP", "LANGUAGE"),
         ("language.html", "The complete reference"),
         ("types.html", "Types and inference"),
+        ("packages.html", "Packages and namespaces"),
         ("GROUP", "INTERNALS"),
         ("memory.html", "The memory model"),
         ("deinit.html", "Deterministic deinit"),
@@ -195,6 +197,7 @@ SIDEBAR = {
         ("GROUP", "LANGAGE"),
         ("language.html", "La référence complète"),
         ("types.html", "Types et inférence"),
+        ("packages.html", "Paquets et espaces de noms"),
         ("GROUP", "INTERNES"),
         ("memory.html", "Le modèle mémoire"),
         ("deinit.html", "deinit déterministe"),

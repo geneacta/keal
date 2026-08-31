@@ -59,8 +59,36 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
-**Visibility, stage A — top-level declarations. DONE, and stage B (class
-members) is what remains of what Tony asked for.** A declaration that
+**Visibility — DONE IN FULL (stages A and B), five words reserved, and
+the namespace half designed in `docs/packages.md` but NOT built.**
+Stage B: a class's members take the same modifier with the same default
+(a member that says nothing is private to the file declaring the class);
+a RECORD is the exception that proves it — its fields follow the record's
+own visibility unless one says otherwise, because a record is its fields
+(`member_vis` / `memberVis`). A method answering a trait the class
+implements is always reachable, or `a + b` (which is `a.plus(b)`) would
+depend on where it is written. Enforced at field read, field assignment,
+method call, and a method taken as a value.
+RESERVED WORDS: `public`, `private`, `package`, `internal`, `protected`
+are real keywords now, not contextual ones; `internal`/`protected` name
+no rule and are refused where written. `Vis::Unset` distinguishes
+"nothing written" from an explicit `private` — the record rule is
+unsayable without it. `record`, `trait`, `weak`, `native` and `extern`
+stay contextual; both lists are in language.md §1 now.
+MIGRATION of the members, by the same compiler-driven loop: of ~2700
+members in `selfhost/`, **121** had to open; all 1391 of cbackend's
+stayed private, and `ast.keal` is the only file open all the way through.
+Two migrator bugs cost time and are worth remembering: it skipped lines
+whose class already carried a modifier, and it truncated a member line to
+its matched prefix — the repair was positional, against `git show HEAD:`.
+NEXT, and it is the last thing before a first release: **the flat
+namespace**. `docs/packages.md` has the whole design — `import ... as
+text`, own-declarations-first resolution, ambiguity reported at use and
+not at import, unique internal names so two `Node`s are two types — and
+argues the package-manager question (not yet: a manifest with git URLs
+when namespaces exist, a registry maybe never).
+
+**Visibility, stage A — top-level declarations.** A declaration that
 says nothing is **private to its own file**; `package` opens it to every
 file in the same directory — a package IS a directory, nothing declares
 one — and `public` opens it to whoever imports the file. The three words

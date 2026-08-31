@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — Packages and namespaces</title>
+<meta name="description" content="Packages and namespaces">
+<link rel="canonical" href="https://geneacta.github.io/keal/packages.html">
+<link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/packages.html">
+<link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/packages.html">
+<link rel="alternate" hreflang="x-default" href="https://geneacta.github.io/keal/packages.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Keal">
+<meta property="og:locale" content="en_GB">
+<meta property="og:title" content="Keal — Packages and namespaces">
+<meta property="og:description" content="Packages and namespaces">
+<meta property="og:url" content="https://geneacta.github.io/keal/packages.html">
+<meta property="og:image" content="https://geneacta.github.io/keal/assets/keal.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Keal — Packages and namespaces">
+<meta name="twitter:description" content="Packages and namespaces">
+<meta name="twitter:image" content="https://geneacta.github.io/keal/assets/keal.png">
+<link rel="icon" type="image/png" href="assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Home</a><a href="tour.html">Tour</a><a href="docs.html" class="tab-active">Docs</a><a href="coming-from.html">Coming from…</a><a href="stdlib.html">Library</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v0.6.0</span>
+    <a class="btn-lang" href="fr/packages.html">Français</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Tour of Keal</a><a href="stdlib.html">Standard library</a><a href="coming-from.html">Coming from another language</a><a href="contributing.html">Contributing</a><div class="grp">LANGUAGE</div><a href="language.html">The complete reference</a><a href="types.html">Types and inference</a><a href="packages.html" class="on">Packages and namespaces</a><div class="grp">INTERNALS</div><a href="memory.html">The memory model</a><a href="deinit.html">Deterministic deinit</a><a href="threads.html">Threads and actors</a><a href="interop.html">Interop: C to Kotlin</a></div><div class="dmain prose"><h1 id="packages-namespaces-and-the-manager-that-comes-last">Packages, namespaces, and the manager that comes last</h1>
+<p><em>Status: the visibility half is implemented (see <a href="language.html#13-modules-and-visibility">the reference</a>). The namespace half is designed here and not yet built. A package manager is argued against, for now, at the end.</em></p>
+<h2 id="what-is-true-today">What is true today</h2>
+<p><code>import "./geometry.keal"</code> reads a file, and everything that file lets out — <code>public</code>, or <code>package</code> from a file in the same directory — becomes visible under its own bare name. There is one namespace and no way to write a qualified one. Two consequences follow, and only the second is a problem:</p>
+<ul><li>A helper can be kept private. That is settled: a declaration says who may name it, and a package is a directory.</li><li><strong>Two files cannot both declare <code>parse</code>.</strong> If a program imports both, the checker reports the second as declared twice, and there is nothing the program can write to mean one rather than the other. This is what a namespace is for, and Keal does not have one yet.</li></ul>
+<h2 id="what-a-namespace-has-to-do-here">What a namespace has to do here</h2>
+<p>Three requirements, in the order they matter:</p>
+<ol><li><strong>Two files may declare the same name.</strong> The importing file says which one it means.</li><li><strong>A bare name keeps working.</strong> The overwhelming case is one import, one <code>parse</code>, and no ambiguity; qualification must be the answer to a real collision, not a tax on every call.</li><li><strong>It must survive monomorphisation and C.</strong> Generated C has one flat namespace of its own, so two <code>parse</code> functions need two symbols, and the emitter must agree with itself across the twin, byte for byte.</li></ol>
+<h3 id="the-shape">The shape</h3>
+<pre class="lang-keal"><code>import &quot;./geometry.keal&quot;              // as today: bare names
+import &quot;./text.keal&quot; as text          // qualified: text.parse(...)</code></pre>
+<ul><li>A file's <strong>own</strong> declarations come first: nothing an import brings in can shadow what the file itself declares.</li><li>Then the <strong>unqualified</strong> imports, in one set. A name that lands in that set twice is not an error at import time — it is an error only where it is <em>used</em> unqualified, and the message names both files and says to alias one. Importing two libraries that happen to share a name must not break a program that never mentions it.</li><li>An <strong>aliased</strong> import contributes nothing to the bare set. <code>text.parse</code> is the only way to reach it, which is what makes the alias a real answer.</li><li>The alias is a name in the file that declares it, like any other, and it is not a value: <code>text</code> alone is refused by name.</li></ul>
+<h3 id="what-it-costs-inside">What it costs inside</h3>
+<p>The checker's global scope stops being one map and becomes one per file, with a resolution order (own → unqualified imports → builtins) and an ambiguity error where two candidates survive. Classes and traits need the same treatment, and a class's identity has to stop being its source name: two <code>Node</code> types must be two types. The plan is to give every declaration a <strong>unique internal name</strong> at collection — the source name where it is unambiguous, a suffixed one where it is not — and to keep the source name beside it for diagnostics. Everything downstream (the interpreters, the VM, the C emitter, <code>keal layout</code>, <code>keal doc</code>) then keeps working on unique names as it does today, and the four dumps change on both sides together.</p>
+<p>That is the whole design. It is a day's work in the oracle and the same again in the twin, and it is the last thing standing between this language and a first release that will not have to break programs later.</p>
+<h2 id="then-a-package-manager">Then: a package manager?</h2>
+<p><strong>Not yet, and the reason is not effort.</strong> A package manager is a promise about <em>other people's code</em>: that a name means one thing, that a version means what it says, that what was fetched yesterday is what is fetched today. Keal cannot honestly make any of the three right now.</p>
+<ul><li><strong>A name means one thing</strong> — only once namespaces exist. Publishing to a registry before that would mint the exact collisions the language cannot yet express a way out of.</li><li><strong>A version means what it says</strong> — only once the semantics are frozen enough that a minor release cannot change what a correct program does. <code>RELEASING.md</code> says plainly that they are not: the cycle audit, typed exceptions and now namespaces are all still open.</li><li><strong>Reproducibility</strong> — a lockfile is easy; a registry that never rewrites history is a service somebody has to run, and a compiler project should not be running one before it has users.</li></ul>
+<h3 id="what-to-do-instead-in-order">What to do instead, in order</h3>
+<ol><li><strong>Namespaces first.</strong> Nothing about dependencies can be designed honestly before a program can say which <code>parse</code> it means.</li><li><strong>Then a manifest, and only that.</strong> A <code>keal.toml</code> naming the project, its version, and its dependencies as <em>git URLs with a commit or tag</em> — no registry, no resolution, no network protocol of its own. <code>keal fetch</code> clones into <code>.keal/deps/</code>, <code>import "dep:geometry/shapes.keal"</code> reads from there. Git already provides the naming, the versioning and the immutability; borrowing them costs nothing and owes nobody a service.</li><li><strong>A lockfile when there is transitivity.</strong> The moment a dependency has dependencies, record the exact commits. Not before.</li><li><strong>A registry last, if ever.</strong> It is worth building when there are enough packages that finding one is the problem. Until then it is infrastructure in search of a user, and <code>cargo install --git</code> is proof the middle step is enough for a long time.</li></ol>
+<p>The honest summary: a package manager is a distribution problem, and this project's remaining problems are still language problems. When <code>import</code> finally says exactly which code it means, the distribution question becomes easy — and until then, no amount of tooling would make it right.</p></div><div class="dtoc"><div class="h">ON THIS PAGE</div><div class="dtoc-items"><a href="#what-is-true-today">What is true today</a><a href="#what-a-namespace-has-to-do-here">What a namespace has to do here</a><a href="#then-a-package-manager">Then: a package manager?</a></div></div></div>
+<footer class="foot">
+  <div class="foot-l">A statically typed, self-hosting programming language. Built by Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Source on GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribute</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code of conduct</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Security</a>
+  </div>
+</footer>
+</div>
+<script src="site.js"></script>
+</body>
+</html>

@@ -86,6 +86,11 @@
     <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/memory.html"/>
   </url>
   <url>
+    <loc>https://geneacta.github.io/keal/packages.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/packages.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/packages.html"/>
+  </url>
+  <url>
     <loc>https://geneacta.github.io/keal/stdlib.html</loc>
     <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/stdlib.html"/>
     <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/stdlib.html"/>
@@ -189,6 +194,11 @@
     <loc>https://geneacta.github.io/keal/fr/memory.html</loc>
     <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/memory.html"/>
     <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/memory.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/packages.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/packages.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/packages.html"/>
   </url>
   <url>
     <loc>https://geneacta.github.io/keal/fr/stdlib.html</loc>

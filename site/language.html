@@ -39,7 +39,7 @@
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>
 </nav>
-<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Tour of Keal</a><a href="stdlib.html">Standard library</a><a href="coming-from.html">Coming from another language</a><a href="contributing.html">Contributing</a><div class="grp">LANGUAGE</div><a href="language.html" class="on">The complete reference</a><a href="types.html">Types and inference</a><div class="grp">INTERNALS</div><a href="memory.html">The memory model</a><a href="deinit.html">Deterministic deinit</a><a href="threads.html">Threads and actors</a><a href="interop.html">Interop: C to Kotlin</a></div><div class="dmain prose"><h1 id="the-keal-language">The Keal language</h1>
+<div class="dgrid"><div class="dside"><div class="grp">GUIDE</div><a href="tour.html">Tour of Keal</a><a href="stdlib.html">Standard library</a><a href="coming-from.html">Coming from another language</a><a href="contributing.html">Contributing</a><div class="grp">LANGUAGE</div><a href="language.html" class="on">The complete reference</a><a href="types.html">Types and inference</a><a href="packages.html">Packages and namespaces</a><div class="grp">INTERNALS</div><a href="memory.html">The memory model</a><a href="deinit.html">Deterministic deinit</a><a href="threads.html">Threads and actors</a><a href="interop.html">Interop: C to Kotlin</a></div><div class="dmain prose"><h1 id="the-keal-language">The Keal language</h1>
 <p>Keal is a small, statically typed, garbage-free-by-construction scripting language. It is close in spirit to Kotlin, with a C-family surface syntax: declared types, mandatory braces, classes with primary constructors, and null safety enforced by the type checker.</p>
 <p>Everything below is implemented and covered by the test suite.</p>
 <hr>
@@ -447,6 +447,7 @@ package fun parse(src: String): Ast { ... }  // the files beside it
 public class Ast(val root: Node) { ... }     // anyone who imports it</code></pre>
 <div class="tablewrap"><table><thead><tr><th>Written</th><th>Who may name it</th></tr></thead><tbody><tr><td>nothing, or <code>private</code></td><td>the file that declares it</td></tr><tr><td><code>package</code></td><td>every file in the same directory</td></tr><tr><td><code>public</code></td><td>every file that imports it</td></tr></tbody></table></div>
 <p>A <strong>package is a directory</strong>. Nothing declares it and nothing names it: the files that sit together are the ones that can see each other's <code>package</code> declarations, which is what lets a group of files collaborate without promising anything to the outside.</p>
+<p>What an import brings in is still one flat set of names, so two files cannot both declare <code>parse</code> and be imported together. The namespace that fixes that is designed in <a href="docs.html">packages and namespaces</a>, along with the reason there is no package manager yet.</p>
 <p>The modifier goes on a top-level <code>fun</code>, <code>proc</code>, <code>class</code>, <code>record</code>, <code>trait</code>, <code>extern fun</code>, <code>val</code> or <code>var</code> — and on a class's own members:</p>
 <pre class="lang-keal"><code>public class Counter(public var n: Int) {
     var steps: Int = 0                    // the class&#x27;s own business

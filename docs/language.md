@@ -888,6 +888,11 @@ files that sit together are the ones that can see each other's `package`
 declarations, which is what lets a group of files collaborate without
 promising anything to the outside.
 
+What an import brings in is still one flat set of names, so two files cannot
+both declare `parse` and be imported together. The namespace that fixes that
+is designed in [packages and namespaces](packages.md), along with the reason
+there is no package manager yet.
+
 The modifier goes on a top-level `fun`, `proc`, `class`, `record`, `trait`,
 `extern fun`, `val` or `var` — and on a class's own members:
 
