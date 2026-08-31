@@ -403,6 +403,221 @@ public class Sequence<T>(val iterFn: () -> SeqIter<T>) {
     }
 }
 
+// ---- two collections the built-in three do not cover -------------------
+//
+// Written in Keal, in the prelude, rather than added to the compiler. A
+// standard library that can only grow by teaching the compiler a new type
+// is a standard library with a ceiling; these two have none, and a program
+// can write its own the same way.
+
+/// A set: membership, without order and without duplicates.
+///
+/// Backed by a map, because a map is already a hash table and a set is a
+/// map that only ever answers yes or no. Anything a map can key, a set can
+/// hold.
+public class Set<T>() : Index {
+    package var seen: Map<T, Bool> = {}
+
+    /// Whether the value is in the set. Also `s[x]`, through `Index`.
+    public func get(value: T): Bool {
+        return this.seen.contains(value)
+    }
+
+    /// Adds a value. Adding one already there changes nothing, which is
+    /// what makes a set a set.
+    public proc add(value: T) {
+        this.seen[value] = true
+    }
+
+    /// `s[x] = true` adds, `s[x] = false` removes — so a set reads and
+    /// writes with the same two brackets a list does.
+    public proc set(value: T, present: Bool) {
+        if (present) {
+            this.seen[value] = true
+        } else {
+            this.seen.remove(value)
+        }
+    }
+
+    public proc remove(value: T) {
+        this.seen.remove(value)
+    }
+
+    public func size(): Int {
+        return this.seen.size
+    }
+
+    public func isEmpty(): Bool {
+        return this.seen.size == 0
+    }
+
+    /// The values, in the order they were first added.
+    public func toList(): List<T> {
+        return this.seen.keys()
+    }
+}
+
+/// A set holding everything in `xs`, duplicates collapsed.
+public func setOf<T>(xs: List<T>): Set<T> {
+    val s: Set<T> = Set()
+    for (x in xs) { s.add(x) }
+    return s
+}
+
+/// A double-ended queue: add and take at either end, without the cost.
+///
+/// A list can do this already — `add` at the back, `removeAt(0)` at the
+/// front — but `removeAt(0)` moves every remaining element, so a queue
+/// built that way costs the square of its length. This one keeps a head
+/// index and only compacts when the wasted front is most of the buffer, so
+/// taking from the front is what it looks like.
+public class Deque<T>() {
+    package var items: List<T> = []
+    package var head: Int = 0
+
+    public func size(): Int {
+        return this.items.size - this.head
+    }
+
+    public func isEmpty(): Bool {
+        return this.items.size == this.head
+    }
+
+    public proc addLast(value: T) {
+        this.items.add(value)
+    }
+
+    /// Adding at the front is the one operation that must move things, and
+    /// it is the rare one; a queue is filled at the back.
+    public proc addFirst(value: T) {
+        if (this.head > 0) {
+            this.head -= 1
+            this.items[this.head] = value
+            return
+        }
+        this.items.insert(0, value)
+    }
+
+    /// The front value, removed. Null when there is nothing to take —
+    /// which is a question, not a failure, so it is answered rather than
+    /// thrown.
+    public func removeFirst(): T? {
+        if (this.items.size == this.head) { return null }
+        val v = this.items[this.head]
+        this.head += 1
+        // Half the buffer wasted is where copying once beats holding on.
+        if (this.head > 32 and this.head * 2 > this.items.size) {
+            this.items = this.items.slice(this.head, this.items.size)
+            this.head = 0
+        }
+        return v
+    }
+
+    public func removeLast(): T? {
+        if (this.items.size == this.head) { return null }
+        return this.items.removeAt(this.items.size - 1)
+    }
+
+    public func first(): T? {
+        if (this.items.size == this.head) { return null }
+        return this.items[this.head]
+    }
+
+    public func toList(): List<T> {
+        return this.items.slice(this.head, this.items.size)
+    }
+}
+
+/// A queue holding everything in `xs`, front first.
+public func dequeOf<T>(xs: List<T>): Deque<T> {
+    val d: Deque<T> = Deque()
+    for (x in xs) { d.addLast(x) }
+    return d
+}
+
+// ---- the handful of list and string operations you reach for ------------
+//
+// Free functions rather than methods, because a class cannot be extended
+// from outside itself here. That is a real cost and it is stated: the day
+// extension methods exist, these move.
+
+/// The values of `xs`, first occurrence kept, duplicates dropped.
+public func distinct<T>(xs: List<T>): List<T> {
+    val seen: Map<T, Bool> = {}
+    val out: List<T> = []
+    for (x in xs) {
+        unless (seen.contains(x)) {
+            seen[x] = true
+            out.add(x)
+        }
+    }
+    return out
+}
+
+/// Pairs off two lists, stopping at the shorter.
+public func zip<A, B>(a: List<A>, b: List<B>): List<Tuple2<A, B>> {
+    val out: List<Tuple2<A, B>> = []
+    var i = 0
+    while (i < a.size and i < b.size) {
+        out.add(Tuple2(a[i], b[i]))
+        i += 1
+    }
+    return out
+}
+
+/// Splits `xs` in two: what satisfies the test, and what does not. One
+/// pass, and both halves come back — which is what a pair of `filter`s
+/// costs twice over.
+public func partition<T>(xs: List<T>, keep: (T) -> Bool): Tuple2<List<T>, List<T>> {
+    val yes: List<T> = []
+    val no: List<T> = []
+    for (x in xs) {
+        if (keep(x)) { yes.add(x) } else { no.add(x) }
+    }
+    return Tuple2(yes, no)
+}
+
+/// `xs` cut into runs of `n`, the last one short if it has to be.
+public func chunked<T>(xs: List<T>, n: Int): List<List<T>> {
+    if (n < 1) { throw "`chunked` needs a size of one or more" }
+    val out: List<List<T>> = []
+    var i = 0
+    while (i < xs.size) {
+        var end = i + n
+        if (end > xs.size) { end = xs.size }
+        out.add(xs.slice(i, end))
+        i += n
+    }
+    return out
+}
+
+/// `s` with `pad` repeated in front until it is `width` wide. A string
+/// already that wide comes back unchanged — padding never truncates.
+public func padStart(s: String, width: Int, pad: String): String {
+    if (pad == "") { throw "`padStart` needs a non-empty pad" }
+    var out = s
+    while (out.length < width) { out = pad + out }
+    return out
+}
+
+/// The same, at the end.
+public func padEnd(s: String, width: Int, pad: String): String {
+    if (pad == "") { throw "`padEnd` needs a non-empty pad" }
+    var out = s
+    while (out.length < width) { out += pad }
+    return out
+}
+
+/// The lines of `s`, without their newlines. A trailing newline does not
+/// make a last empty line — a file ending in one has as many lines as it
+/// looks like it has.
+public func lines(s: String): List<String> {
+    var text = s
+    if (text.endsWith("\n")) { text = text.substring(0, text.length - 1) }
+    if (text == "") { return [] }
+    return text.split("\n")
+}
+
 /// A sequence over a list. The list is read as the sequence is pulled, one
 /// index at a time.
 public func seq<T>(xs: List<T>): Sequence<T> {

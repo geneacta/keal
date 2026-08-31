@@ -2992,14 +2992,67 @@ impl CBackend {
         Some(call)
     }
 
+    /// How one element of a list renders as a string, with `$V` standing
+    /// for the element. The same rendering an interpolation would give, so
+    /// `join` and `"${xs}"` cannot disagree about a number.
+    fn elem_show(&mut self, ty: &Type, span: Span) -> Option<String> {
+        // The thunk `join` pushes into a list of strings needs to exist.
+        let _ = self.releaser_thunk(&Elem::Ptr("KealStr".to_string(), "keal_str".to_string()));
+        Some(match ty {
+            Type::Int => "keal_str_from_int($V)".to_string(),
+            Type::Float => "keal_str_from_float($V)".to_string(),
+            Type::Bool => "keal_str_from_bool($V)".to_string(),
+            Type::Str => "keal_str_retain($V)".to_string(),
+            Type::Class(name, cargs) => format!("{}_show($V)", struct_name_of(name, cargs)),
+            other => {
+                self.unsupported(span, &format!("`join` on a list of `{}`", other));
+                None?
+            }
+        })
+    }
+
     /// The map methods: membership, and the keys and values as lists.
     fn map_method(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> Option<String> {
-        if !matches!(name, "contains" | "containsKey" | "keys" | "values") {
+        if !matches!(name, "contains" | "containsKey" | "keys" | "values" | "remove") {
             return None;
         }
         let (kt, vt, kk, vk) = self.map_parts(obj, e.span)?;
         let m = self.expr(obj);
         match name {
+            // The interpreters answer with what was there, or null. The
+            // value is dropped far more often than it is read, so it is
+            // fetched only when the call is used for it.
+            "remove" => {
+                let key = self.expr(&args[0].value);
+                let t = self.temp();
+                let vc = self.ctype(&vt.clone().nullable(), e.span)?;
+                let at = self.temp();
+                self.line(format!(
+                    "const int64_t {} = keal_map_find({}, {});",
+                    at,
+                    m,
+                    kk.word(&key)
+                ));
+                self.line(format!("{} {};", vc, t));
+                self.line(format!("if ({} >= 0) {{", at));
+                self.indent += 1;
+                let held = self.temp();
+                let raw = vk.unword(&format!("{}->data[2 * {} + 1]", m, at));
+                let vcb = self.ctype(&vt, e.span)?;
+                self.line(format!("{} {} = {};", vcb, held, raw));
+                let wrapped = opt_wrap(&vt, &Self::retained(&vt, &held));
+                self.line(format!("{} = {};", t, wrapped));
+                self.indent -= 1;
+                self.line("} else {");
+                self.indent += 1;
+                let none = opt_null(&vt);
+                self.line(format!("{} = {};", t, none));
+                self.indent -= 1;
+                self.line("}");
+                self.line(format!("keal_map_remove({}, {});", m, kk.word(&key)));
+                self.own(&t, &vt.clone().nullable());
+                Some(t)
+            }
             "contains" | "containsKey" => {
                 let key = self.expr(&args[0].value);
                 let t = self.temp();
@@ -3651,16 +3704,45 @@ impl CBackend {
                 Some(t)
             }
             ("join", 0) | ("join", 1) => {
-                if !matches!(elem_ty, Type::Str) {
-                    self.unsupported(e.span, &format!("`join` on a list of `{}`", elem_ty));
-                    return Some("0".to_string());
-                }
                 let l = self.expr(obj);
                 let sep = match args.first() {
                     Some(a) => self.expr(&a.value),
                     None => self.own_temp("keal_str_static(\", \", 2)".to_string()),
                 };
-                Some(self.own_temp(format!("keal_list_join_str({}, {})", l, sep)))
+                if matches!(elem_ty, Type::Str) {
+                    return Some(self.own_temp(format!("keal_list_join_str({}, {})", l, sep)));
+                }
+                // Anything else is rendered element by element, the way an
+                // interpolation renders it — so `[1, 2].join("-")` says
+                // what a reader expects instead of being refused.
+                let Some(elem) = self.elem_kind(elem_ty, e.span) else {
+                    return Some("0".to_string());
+                };
+                let Some(show) = self.elem_show(elem_ty, e.span) else {
+                    return Some("0".to_string());
+                };
+                let snap = self.temp();
+                self.line(format!("KealList* {} = keal_list_snapshot({});", snap, l));
+                self.own(&snap, &Type::list(elem_ty.clone()));
+                let parts = self.temp();
+                self.line(format!("KealList* {} = keal_list_new(rel_keal_str);", parts));
+                self.own(&parts, &Type::list(Type::Str));
+                let i = self.temp();
+                self.line(format!(
+                    "for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{",
+                    i = i,
+                    s = snap
+                ));
+                self.indent += 1;
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                self.line(format!(
+                    "keal_list_push({}, (KealWord){{ .p = (void*){} }});",
+                    parts,
+                    show.replace("$V", &item)
+                ));
+                self.indent -= 1;
+                self.line("}");
+                Some(self.own_temp(format!("keal_list_join_str({}, {})", parts, sep)))
             }
             ("any", 1) => {
                 use crate::types::FunType;
@@ -3702,6 +3784,15 @@ impl CBackend {
                 Some(self.own_temp_of(
                     &Type::list(elem_ty.clone()),
                     format!("{}({}, {})", f, l, n),
+                ))
+            }
+            ("slice", 2) => {
+                let l = self.expr(obj);
+                let a = self.expr(&args[0].value);
+                let b = self.expr(&args[1].value);
+                Some(self.own_temp_of(
+                    &Type::list(elem_ty.clone()),
+                    format!("keal_list_slice({}, {}, {})", l, a, b),
                 ))
             }
             ("sorted", 0) => {

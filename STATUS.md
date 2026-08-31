@@ -59,6 +59,30 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
+**THE STANDARD LIBRARY GREW, IN KEAL.** `Set<T>` and `Deque<T>` plus
+`distinct`, `zip`, `partition`, `chunked`, `padStart`, `padEnd`, `lines`,
+`setOf`, `dequeOf` — all in `src/prelude.keal`, NONE in the compiler. A
+standard library that can only grow by teaching the compiler a new type is a
+standard library with a ceiling.
+`Set` is backed by `Map<T, Bool>` (a generic map key typechecks for any `T`,
+which is what makes this possible) and implements `Index`, so `s[x]` asks
+and `s[x] = true`/`false` add and remove. `Deque` keeps a HEAD INDEX and
+compacts only when the wasted front is most of the buffer — a queue built on
+`removeAt(0)` costs the square of its length.
+Free functions rather than methods, because a class cannot be extended from
+outside itself here. Stated in the prelude as a real cost.
+WHAT WRITING THEM FOUND — three genuine holes in the C backend, which is
+exactly what real use is for: `Map.remove` did not exist (added
+`keal_map_remove`, order-preserving because `keys()` promises insertion
+order, so no swap-with-the-last); `List.slice` did not exist (added
+`keal_list_slice`, clamping like the interpreters rather than panicking);
+and `join` refused any list that was not of `String` — it now renders
+element by element the way an interpolation does, through a new `elem_show`
+/ `elemShow`. In the twin the render template needed a placeholder that is
+not `$V`, because `${...}` inside a Keal string is a hole: `SHOW_HOLE`.
+Corpus: `tests/native/stdlib-collections.keal` (+`.expected`, three
+engines).
+
 **`Index` AND `Invoke` — DONE, all three engines.** `a[i]`, `a[i] = v` and
 `a(x)` on a class, rewritten in the checker to `get`, `set` and `invoke` so
 every backend sees an ordinary method call.

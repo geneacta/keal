@@ -1,0 +1,24 @@
+// The two collections the built-in three do not cover, and the handful of
+// operations you reach for. All of it is written in Keal, in the prelude:
+// a standard library that can only grow by teaching the compiler a new type
+// is a standard library with a ceiling.
+
+val s: Set<String> = setOf(["a", "b", "a", "c"])
+println("${s.size()} ${s["a"]} ${s["z"]}")
+s.add("z")
+s["b"] = false
+println("${s.size()} ${s.toList().join(",")}")
+
+val q: Deque<Int> = dequeOf([1, 2, 3])
+q.addFirst(0)
+q.addLast(4)
+println("${q.removeFirst()!!} ${q.removeLast()!!} ${q.toList().join(",")}")
+
+println(distinct([3, 1, 3, 2, 1]).join(","))
+val pairs = zip([1, 2, 3], ["a", "b"])
+println("${pairs.size} ${pairs[1].first} ${pairs[1].second}")
+val (even, odd) = partition([1, 2, 3, 4, 5], { n -> n % 2 == 0 })
+println("${even.join(",")} | ${odd.join(",")}")
+println(chunked([1, 2, 3, 4, 5], 2).size)
+println("[${padStart("7", 3, "0")}] [${padEnd("x", 4, ".")}]")
+println(lines("a\nb\nc\n").size)

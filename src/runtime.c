@@ -1039,6 +1039,22 @@ KEAL_FN KealList* keal_list_take(KealList* l, int64_t n) {
     return out;
 }
 
+/* `xs.slice(start, end)` — end exclusive, both clamped, and an empty list
+ * where they cross. The interpreters clamp rather than panic, so this does
+ * too: asking for more than there is answers with what there is. */
+KEAL_FN KealList* keal_list_slice(KealList* l, int64_t start, int64_t end) {
+    int64_t a = start < 0 ? 0 : (start > l->len ? l->len : start);
+    int64_t b = end < 0 ? 0 : (end > l->len ? l->len : end);
+    KealList* out = keal_list_new(l->release_elem);
+    for (int64_t i = a; i < b; i++) {
+        if (out->release_elem != NULL) {
+            keal_word_retain_raw(l->data[i].p);
+        }
+        keal_list_push(out, l->data[i]);
+    }
+    return out;
+}
+
 KEAL_FN KealList* keal_list_drop(KealList* l, int64_t n) {
     int64_t k = n < 0 ? 0 : (n > l->len ? l->len : n);
     KealList* out = keal_list_new(l->release_elem);
@@ -1234,6 +1250,25 @@ KEAL_FN void keal_map_set(KealMap* m, KealWord key, KealWord value) {
     m->data[2 * m->len] = key;
     m->data[2 * m->len + 1] = value;
     m->len++;
+}
+
+/* Removes an entry, keeping the order of the ones around it: a map here
+ * remembers the order its keys were first set, and `keys()` promises it, so
+ * a removal cannot be the usual swap-with-the-last. */
+KEAL_FN void keal_map_remove(KealMap* m, KealWord key) {
+    int64_t at = keal_map_find(m, key);
+    if (at < 0) {
+        return;
+    }
+    if (m->release_key != NULL) {
+        m->release_key(m->data[2 * at].p);
+    }
+    if (m->release_val != NULL) {
+        m->release_val(m->data[2 * at + 1].p);
+    }
+    memmove(m->data + 2 * at, m->data + 2 * (at + 1),
+            (size_t)(m->len - at - 1) * 2 * sizeof(KealWord));
+    m->len--;
 }
 
 /* Structural map equality, as the interpreters compare maps: same size, and

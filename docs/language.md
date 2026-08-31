@@ -1066,6 +1066,43 @@ everything, because a standard library is nothing but its public surface.
 | `random(): Float` | in `[0, 1)` |
 | `randomInt(min, max): Int` | in `[min, max)` |
 | `time(): Float` | seconds since the Unix epoch |
+| `distinct(xs)` | the values of `xs`, duplicates dropped, first kept |
+| `zip(a, b): List<Tuple2<A, B>>` | pairs off two lists, stopping at the shorter |
+| `partition(xs, keep): Tuple2<List<T>, List<T>>` | what passes the test and what does not, in one pass |
+| `chunked(xs, n): List<List<T>>` | `xs` in runs of `n`, the last one short if it has to be |
+| `padStart(s, width, pad)` `padEnd(...)` | pad to a width; never truncates |
+| `lines(s): List<String>` | the lines, without their newlines |
+| `setOf(xs)` `dequeOf(xs)` | the two collections below, from a list |
+
+### `Set<T>` and `Deque<T>`
+
+Neither is built into the compiler. Both are ordinary Keal, in the prelude,
+and that is the point: a standard library that can only grow by teaching the
+compiler a new type is a standard library with a ceiling. A program can
+write its own the same way.
+
+`Set<T>` is membership without order or duplicates, backed by a map — so
+anything a map can key, a set can hold. It implements `Index`, so `s[x]`
+asks and `s[x] = true` / `s[x] = false` add and remove.
+
+| | |
+|---|---|
+| `add(v)` `remove(v)` | |
+| `s[v]: Bool` | membership, through `Index` |
+| `size()` `isEmpty()` | |
+| `toList()` | the values, in the order first added |
+
+`Deque<T>` is a queue you can take from either end. A list can do this
+already — `add` at the back, `removeAt(0)` at the front — but `removeAt(0)`
+moves every remaining element, so a queue built that way costs the square of
+its length. This one keeps a head index and compacts only when the wasted
+front is most of the buffer.
+
+| | |
+|---|---|
+| `addFirst(v)` `addLast(v)` | |
+| `removeFirst(): T?` `removeLast(): T?` | `null` when empty — a question, not a failure |
+| `first(): T?` `size()` `isEmpty()` `toList()` | |
 
 ### `String`
 

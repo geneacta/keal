@@ -12,6 +12,10 @@
 import "./checking.keal"
 import "./runtimesrc.keal"
 
+/// The stand-in for one element inside a rendering template, spelled so
+/// that it can never be part of a C identifier.
+package val SHOW_HOLE = "@elem@"
+
 // ---- names and small helpers --------------------------------------------
 
 /// Prefixes every Keal name, so none can collide with C's own.
@@ -3572,8 +3576,25 @@ class CBackend() {
     }
 
     /// The map methods: membership, and the keys and values as lists.
+    /// How one element of a list renders as a string, with the hole below
+    /// standing for the element. The same rendering an interpolation would
+    /// give, so `join` and `"${xs}"` cannot disagree about a number.
+    func elemShow(t: Ty, file: Int, atLine: Int, atCol: Int): String? {
+        // The thunk `join` pushes into a list of strings needs to exist.
+        val _thunk = this.releaserThunk(CElem("ptr", "KealStr", "keal_str"))
+        if (t.kind == "Int") { return "keal_str_from_int(" + SHOW_HOLE + ")" }
+        if (t.kind == "Float") { return "keal_str_from_float(" + SHOW_HOLE + ")" }
+        if (t.kind == "Bool") { return "keal_str_from_bool(" + SHOW_HOLE + ")" }
+        if (t.kind == "Str") { return "keal_str_retain(" + SHOW_HOLE + ")" }
+        if (t.kind == "Class") {
+            return structNameOf(t.name, t.args) + "_show(" + SHOW_HOLE + ")"
+        }
+        this.unsupported(file, atLine, atCol, "`join` on a list of `${tyShow(t)}`")
+        return null
+    }
+
     func mapMethod(e: Ex, obj: Ex, name: String): String? {
-        unless (name == "contains" or name == "containsKey" or name == "keys" or name == "values") {
+        unless (name == "contains" or name == "containsKey" or name == "keys" or name == "values" or name == "remove") {
             return null
         }
         val ot = this.ety(obj)
@@ -3589,6 +3610,34 @@ class CBackend() {
             val key = this.expr(e.args[0].value)
             val t = this.temp()
             this.line("const bool ${t} = keal_map_find(${m}, ${elemWord(kk, key)}) >= 0;")
+            return t
+        }
+        // The interpreters answer with what was there, or null. The value is
+        // dropped far more often than it is read, so it is fetched only when
+        // the call is used for it.
+        if (name == "remove") {
+            val key = this.expr(e.args[0].value)
+            val t = this.temp()
+            val vc = this.ctype(tyNullable(vt), e.file, e.line, e.col)
+            if (vc == null) { return null }
+            val at = this.temp()
+            this.line("const int64_t ${at} = keal_map_find(${m}, ${elemWord(kk, key)});")
+            this.line("${vc} ${t};")
+            this.line("if (${at} >= 0) {")
+            this.indent += 1
+            val held = this.temp()
+            val vcb = this.ctype(vt, e.file, e.line, e.col)
+            if (vcb == null) { return null }
+            this.line("${vcb} ${held} = ${elemUnword(vk, "${m}->data[2 * ${at} + 1]")};")
+            this.line("${t} = ${optWrap(vt, retained(vt, held))};")
+            this.indent -= 1
+            this.line("} else {")
+            this.indent += 1
+            this.line("${t} = ${optNull(vt)};")
+            this.indent -= 1
+            this.line("}")
+            this.line("keal_map_remove(${m}, ${elemWord(kk, key)});")
+            this.own(t, tyNullable(vt))
             return t
         }
         // keys / values
@@ -4108,17 +4157,37 @@ class CBackend() {
             return t
         }
         if (name == "join" and n <= 1) {
-            unless (elemTy.kind == "Str") {
-                this.unsupported(e.file, e.line, e.col, "`join` on a list of `${tyShow(elemTy)}`")
-                return "0"
-            }
             val l = this.expr(obj)
             val sep = if (n == 1) {
                 this.expr(e.args[0].value)
             } else {
                 this.ownTemp("keal_str_static(\", \", 2)")
             }
-            return this.ownTemp("keal_list_join_str(${l}, ${sep})")
+            if (elemTy.kind == "Str") {
+                return this.ownTemp("keal_list_join_str(${l}, ${sep})")
+            }
+            // Anything else is rendered element by element, the way an
+            // interpolation renders it — so `[1, 2].join("-")` says what a
+            // reader expects instead of being refused.
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return "0" }
+            val show = this.elemShow(elemTy, e.file, e.line, e.col)
+            if (show == null) { return "0" }
+            val snap = this.temp()
+            this.line("KealList* ${snap} = keal_list_snapshot(${l});")
+            this.own(snap, tyList(elemTy))
+            val parts = this.temp()
+            this.line("KealList* ${parts} = keal_list_new(rel_keal_str);")
+            this.own(parts, tyList(Ty("Str")))
+            val i = this.temp()
+            this.line("for (int64_t ${i} = 0; ${i} < ${snap}->len; ${i}++) {")
+            this.indent += 1
+            val item = elemUnword(elem, "${snap}->data[${i}]")
+            val rendered = show.replace(SHOW_HOLE, item)
+            this.line("keal_list_push(${parts}, (KealWord){ .p = (void*)${rendered} });")
+            this.indent -= 1
+            this.line("}")
+            return this.ownTemp("keal_list_join_str(${parts}, ${sep})")
         }
         if (name == "any" and n == 1) {
             val elem = this.elemKind(elemTy, e.file, e.line, e.col)
@@ -4152,6 +4221,12 @@ class CBackend() {
             val cnt = this.expr(e.args[0].value)
             val f = if (name == "take") { "keal_list_take" } else { "keal_list_drop" }
             return this.ownTempOf(tyList(elemTy), "${f}(${l}, ${cnt})")
+        }
+        if (name == "slice" and n == 2) {
+            val l = this.expr(obj)
+            val a = this.expr(e.args[0].value)
+            val b = this.expr(e.args[1].value)
+            return this.ownTempOf(tyList(elemTy), "keal_list_slice(${l}, ${a}, ${b})")
         }
         if (name == "sorted" and n == 0) {
             var cmp = ""

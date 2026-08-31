@@ -61,6 +61,17 @@
 <a href="#the-standard-library-Tuple5"><span class="k k-record">record</span>Tuple5</a>
 <a href="#the-standard-library-SeqIter"><span class="k k-class">class</span>SeqIter</a>
 <a href="#the-standard-library-Sequence"><span class="k k-class">class</span>Sequence</a>
+<a href="#the-standard-library-Set"><span class="k k-class">class</span>Set</a>
+<a href="#the-standard-library-setOf"><span class="k k-func">func</span>setOf</a>
+<a href="#the-standard-library-Deque"><span class="k k-class">class</span>Deque</a>
+<a href="#the-standard-library-dequeOf"><span class="k k-func">func</span>dequeOf</a>
+<a href="#the-standard-library-distinct"><span class="k k-func">func</span>distinct</a>
+<a href="#the-standard-library-zip"><span class="k k-func">func</span>zip</a>
+<a href="#the-standard-library-partition"><span class="k k-func">func</span>partition</a>
+<a href="#the-standard-library-chunked"><span class="k k-func">func</span>chunked</a>
+<a href="#the-standard-library-padStart"><span class="k k-func">func</span>padStart</a>
+<a href="#the-standard-library-padEnd"><span class="k k-func">func</span>padEnd</a>
+<a href="#the-standard-library-lines"><span class="k k-func">func</span>lines</a>
 <a href="#the-standard-library-seq"><span class="k k-func">func</span>seq</a>
 <a href="#the-standard-library-iterate"><span class="k k-func">func</span>iterate</a>
 <a href="#the-standard-library-ActorRef"><span class="k k-class">class</span>ActorRef</a>
@@ -252,6 +263,96 @@ pulling one element at a time.</p>
 <pre class="sig m">func first(): T?</pre>
 <p>The first element, or null for an empty sequence.</p>
 </div>
+</section>
+<section id="the-standard-library-Set">
+<pre class="sig">class Set&lt;T&gt;() : Index</pre>
+<p>A set: membership, without order and without duplicates.</p>
+<p>Backed by a map, because a map is already a hash table and a set is a
+map that only ever answers yes or no. Anything a map can key, a set can
+hold.</p>
+<div class="members">
+<pre class="sig m">var seen: Map&lt;T, Bool&gt;</pre>
+<pre class="sig m">func get(value: T): Bool</pre>
+<p>Whether the value is in the set. Also <code>s[x]</code>, through <code>Index</code>.</p>
+<pre class="sig m">proc add(value: T)</pre>
+<p>Adds a value. Adding one already there changes nothing, which is
+what makes a set a set.</p>
+<pre class="sig m">proc set(value: T, present: Bool)</pre>
+<p><code>s[x] = true</code> adds, <code>s[x] = false</code> removes — so a set reads and
+writes with the same two brackets a list does.</p>
+<pre class="sig m">proc remove(value: T)</pre>
+<pre class="sig m">func size(): Int</pre>
+<pre class="sig m">func isEmpty(): Bool</pre>
+<pre class="sig m">func toList(): List&lt;T&gt;</pre>
+<p>The values, in the order they were first added.</p>
+</div>
+</section>
+<section id="the-standard-library-setOf">
+<pre class="sig">func setOf&lt;T&gt;(xs: List&lt;T&gt;): Set&lt;T&gt;</pre>
+<p>A set holding everything in <code>xs</code>, duplicates collapsed.</p>
+</section>
+<section id="the-standard-library-Deque">
+<pre class="sig">class Deque&lt;T&gt;()</pre>
+<p>A double-ended queue: add and take at either end, without the cost.</p>
+<p>A list can do this already — <code>add</code> at the back, <code>removeAt(0)</code> at the
+front — but <code>removeAt(0)</code> moves every remaining element, so a queue
+built that way costs the square of its length. This one keeps a head
+index and only compacts when the wasted front is most of the buffer, so
+taking from the front is what it looks like.</p>
+<div class="members">
+<pre class="sig m">var items: List&lt;T&gt;</pre>
+<pre class="sig m">var head: Int</pre>
+<pre class="sig m">func size(): Int</pre>
+<pre class="sig m">func isEmpty(): Bool</pre>
+<pre class="sig m">proc addLast(value: T)</pre>
+<pre class="sig m">proc addFirst(value: T)</pre>
+<p>Adding at the front is the one operation that must move things, and
+it is the rare one; a queue is filled at the back.</p>
+<pre class="sig m">func removeFirst(): T?</pre>
+<p>The front value, removed. Null when there is nothing to take —
+which is a question, not a failure, so it is answered rather than
+thrown.</p>
+<pre class="sig m">func removeLast(): T?</pre>
+<pre class="sig m">func first(): T?</pre>
+<pre class="sig m">func toList(): List&lt;T&gt;</pre>
+</div>
+</section>
+<section id="the-standard-library-dequeOf">
+<pre class="sig">func dequeOf&lt;T&gt;(xs: List&lt;T&gt;): Deque&lt;T&gt;</pre>
+<p>A queue holding everything in <code>xs</code>, front first.</p>
+</section>
+<section id="the-standard-library-distinct">
+<pre class="sig">func distinct&lt;T&gt;(xs: List&lt;T&gt;): List&lt;T&gt;</pre>
+<p>The values of <code>xs</code>, first occurrence kept, duplicates dropped.</p>
+</section>
+<section id="the-standard-library-zip">
+<pre class="sig">func zip&lt;A, B&gt;(a: List&lt;A&gt;, b: List&lt;B&gt;): List&lt;Tuple2&lt;A, B&gt;&gt;</pre>
+<p>Pairs off two lists, stopping at the shorter.</p>
+</section>
+<section id="the-standard-library-partition">
+<pre class="sig">func partition&lt;T&gt;(xs: List&lt;T&gt;, keep: (T) -&gt; Bool): Tuple2&lt;List&lt;T&gt;, List&lt;T&gt;&gt;</pre>
+<p>Splits <code>xs</code> in two: what satisfies the test, and what does not. One
+pass, and both halves come back — which is what a pair of <code>filter</code>s
+costs twice over.</p>
+</section>
+<section id="the-standard-library-chunked">
+<pre class="sig">func chunked&lt;T&gt;(xs: List&lt;T&gt;, n: Int): List&lt;List&lt;T&gt;&gt;</pre>
+<p><code>xs</code> cut into runs of <code>n</code>, the last one short if it has to be.</p>
+</section>
+<section id="the-standard-library-padStart">
+<pre class="sig">func padStart(s: String, width: Int, pad: String): String</pre>
+<p><code>s</code> with <code>pad</code> repeated in front until it is <code>width</code> wide. A string
+already that wide comes back unchanged — padding never truncates.</p>
+</section>
+<section id="the-standard-library-padEnd">
+<pre class="sig">func padEnd(s: String, width: Int, pad: String): String</pre>
+<p>The same, at the end.</p>
+</section>
+<section id="the-standard-library-lines">
+<pre class="sig">func lines(s: String): List&lt;String&gt;</pre>
+<p>The lines of <code>s</code>, without their newlines. A trailing newline does not
+make a last empty line — a file ending in one has as many lines as it
+looks like it has.</p>
 </section>
 <section id="the-standard-library-seq">
 <pre class="sig">func seq&lt;T&gt;(xs: List&lt;T&gt;): Sequence&lt;T&gt;</pre>
