@@ -26,7 +26,7 @@ commit that leaves work in flight.*
    included); `tests/native/*` runs on all three engines.
 5. **Verification loop** (run before every commit):
    - the four-corpora loop (see below), `cargo test --release` (currently
-     29 green incl. bootstrap fixed point, actor TSan, actor-thread JNI,
+     30 green incl. bootstrap fixed point, actor TSan, actor-thread JNI,
      the site tour's printed outputs), `./bootstrap.sh`.
    - corpora loop, for each cmd/driver pair above:
      `for f in tests/programs/*.keal examples/*.keal tests/native/*.keal
@@ -59,8 +59,38 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
-**Visibility — DONE IN FULL (stages A and B), five words reserved, and
-the namespace half designed in `docs/packages.md` but NOT built.**
+**NAMESPACES — DONE. Two files may declare the same name.** One pass
+(`plan_namespaces` / `planNamespaces`) runs before anything is checked: it
+gives every top-level declaration a UNIQUE NAME (the source name for the
+first claimant, `parse#2` for the next — `#` is unwritable in Keal, so a
+minted name can never be one a program chose; the C backends `flatten` it
+to `_dup2`, and the pass skips a spelling whose flattened form any file
+declares), and records what each file can see: itself, everything its
+UNALIASED imports reach, then the prelude (loaded, not imported).
+`import "./x.keal" as x` puts nothing in the bare set; `x.parse` and
+`x.Node` are rewritten to the unique name by `unqualify` (expressions)
+and `global_key` (types, which the parser now accepts dotted). A name
+two visible modules declare is an error WHERE IT IS WRITTEN, once
+(`ambiguous_at` dedupes: a callee resolves twice, as a name and as a
+call), naming both files — never at the import.
+THE SUBTLETY THAT COST THE MOST: only LOCALS shadow. `lookup` finds
+globals in scope 0, so the resolution has to run whenever `lookup_local`
+finds nothing — checking `lookup` instead silently kept the first
+declaration and no ambiguity was ever reported.
+Where nothing collides the unique name IS the source name, so the whole
+corpus is unchanged. Twin mirrored, including two Keal-side workarounds:
+a `Map<_, Int>` read needs `?: -1` (the C backend cannot compile `m[k]`
+to an `Int?` yet), and the twin's AST node names had to become `var`.
+Tests: `tests/programs/namespaces/` (three engines, two modules with the
+same `parse` and `Node`, one aliased, incl. a `config.Node` annotation)
++ suite test `namespaces_keep_two_modules_apart`;
+`tests/selfhost/type-errors/ambiguous-name.keal` + its `namespace-lib/`.
+Verified: corpora 4x164 = 656/656, suite 30/30, bootstrap fixed point,
+fuzz 3000 clean, 0 leaks. Docs: `docs/packages.md` rewritten as-built
+(and it argues the package-manager order: manifest of git URLs, then a
+lockfile, registry last if ever), language.md §13, TUTORIAL §10, README.
+
+**Visibility — DONE IN FULL (stages A and B), five words reserved.**
 Stage B: a class's members take the same modifier with the same default
 (a member that says nothing is private to the file declaring the class);
 a RECORD is the exception that proves it — its fields follow the record's
@@ -81,12 +111,8 @@ stayed private, and `ast.keal` is the only file open all the way through.
 Two migrator bugs cost time and are worth remembering: it skipped lines
 whose class already carried a modifier, and it truncated a member line to
 its matched prefix — the repair was positional, against `git show HEAD:`.
-NEXT, and it is the last thing before a first release: **the flat
-namespace**. `docs/packages.md` has the whole design — `import ... as
-text`, own-declarations-first resolution, ambiguity reported at use and
-not at import, unique internal names so two `Node`s are two types — and
-argues the package-manager question (not yet: a manifest with git URLs
-when namespaces exist, a registry maybe never).
+(The namespace half that used to be listed here as next is DONE — see
+the entry above.)
 
 **Visibility, stage A — top-level declarations.** A declaration that
 says nothing is **private to its own file**; `package` opens it to every

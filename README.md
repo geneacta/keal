@@ -559,14 +559,13 @@ and [`docs/threads.md`](docs/threads.md) is the record of how. And so did
 `weak`, which is how the back edge of a cycle is written so that the whole
 cycle dies on schedule and every `deinit` runs.)
 
-* **Imports still bring in one flat namespace.** Visibility landed — a
-  declaration is private to its file unless it says `package` (the files
-  in its directory) or `public` — so a module keeps its helpers to itself
-  now, and the compiler's own 250-odd declarations turned out to need only
-  60 of them open. What is left is the other half: two files still cannot
-  both declare `parse`, because an import brings names in unqualified.
-  Named imports (`import "./geometry.keal" as geometry`) are the next
-  piece.
+* **A package manager.** Modules are done — a declaration is private to
+  its file unless it says `package` or `public`, and two modules may
+  declare the same name because an import can be given one
+  (`import "./config.keal" as config`). What is missing is a way to depend
+  on somebody else's code: a manifest of git URLs first, a lockfile when
+  dependencies have dependencies, a registry last if ever.
+  [`docs/packages.md`](docs/packages.md) argues the order.
 * **Cycles across several classes still leak silently** — `weak` breaks
   the ones you can see, and the checker cautions about the shape that
   voids a `deinit`; a cycle nobody marked is still never freed. The next

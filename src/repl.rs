@@ -31,7 +31,7 @@ pub fn run() -> ExitCode {
     // The REPL loads the prelude the same way a program does.
     match crate::loader::prelude(&mut sources) {
         Ok(items) => {
-            let mut p = crate::ast::Program { items };
+            let mut p = crate::ast::Program { items, imports: Vec::new() };
             checker.check_program(&mut p);
             // The prelude is only trait declarations, so nothing can fail
             // here that the loader did not already catch.

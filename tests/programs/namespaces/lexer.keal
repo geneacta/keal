@@ -1,0 +1,6 @@
+// Two modules that both call their entry point `parse`, and both have a
+// `Node`. Nothing about either is unusual — that is the point.
+
+public record Node(val kind: String, val text: String)
+
+public fun parse(src: String): Node { Node("token", src) }

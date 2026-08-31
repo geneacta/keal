@@ -57,8 +57,11 @@ package fun dirOf(path: String): String {
 
 package class Loader() {
     package var paths: List<String> = []
-    var seen: Map<String, Bool> = {}
+    /// The file id each path was read under, so a second importer records an
+    /// edge without reading the file again.
+    var seen: Map<String, Int> = {}
     var items: List<ItemN> = []
+    var imports: List<ImportEdge> = []
 
     package fun load(entry: String): Loaded {
         // The prelude parses under its own file id, 0.
@@ -74,12 +77,17 @@ package class Loader() {
 
         val program = ProgramN()
         program.items = this.items
+        program.imports = this.imports
         return Loaded(program, this.paths)
     }
 
-    proc loadFile(path: String, fromPath: String, fromLine: Int, fromCol: Int) {
-        if (this.seen.contains(path)) { return }
-        this.seen[path] = true
+    fun loadFile(path: String, fromPath: String, fromLine: Int, fromCol: Int): Int {
+        // A file is read once, but an edge is recorded every time: two files
+        // importing the same module are two importers.
+        // `?: -1` rather than a nullable read: a map of values is what the
+        // C backend can compile with the fallback fused in.
+        val already = this.seen[path] ?: -1
+        if (already >= 0) { return already }
 
         val text = readFile(path)
         if (text == null) {
@@ -100,6 +108,7 @@ package class Loader() {
 
         val file = this.paths.size
         this.paths.add(path)
+        this.seen[path] = file
         lexErrorPrefix = path + ":"
         val parser = Parser(lexFile(text))
         parser.errorPrefix = path + ":"
@@ -110,13 +119,15 @@ package class Loader() {
         for (item in program.items) {
             if (item.kind == "import") {
                 val target = normalisePath(dir + "/" + item.text)
-                this.loadFile(target, path, item.line, item.col)
+                val to = this.loadFile(target, path, item.line, item.col)
+                this.imports.add(ImportEdge(file, to, item.alias))
             } else {
                 stampItem(item, file)
                 own.add(item)
             }
         }
         this.items.addAll(own)
+        return file
     }
 }
 

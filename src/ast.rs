@@ -6,6 +6,20 @@ use std::rc::Rc;
 #[derive(Clone, Debug)]
 pub struct Program {
     pub items: Vec<Item>,
+    /// Who imported whom, once the loader has resolved the paths to files.
+    /// The declarations are all spliced into one list, so this is what is
+    /// left of the shape they came in.
+    pub imports: Vec<ImportEdge>,
+}
+
+/// One `import`, resolved: the file that wrote it, the file it names, and
+/// the alias it gave it, if any.
+#[derive(Clone, Debug)]
+pub struct ImportEdge {
+    pub from: u32,
+    pub to: u32,
+    pub alias: Option<String>,
+    pub span: Span,
 }
 
 /// Who may name a declaration.
@@ -59,8 +73,10 @@ pub enum Item {
     /// `extern fun name(params): Ret [= "symbol"]` — a C function made
     /// callable, with the signature the checker will hold callers to.
     Extern(ExternDecl),
-    /// `import "./other.keal"` — resolved and inlined by the module loader.
-    Import { path: String, span: Span },
+    /// `import "./other.keal"`, or `import "./other.keal" as other` —
+    /// resolved and inlined by the module loader. An alias keeps the file's
+    /// names out of the bare set: they are reachable only through it.
+    Import { path: String, alias: Option<String>, span: Span },
     /// A top-level statement, executed in order when the program runs.
     Stmt(Stmt),
 }

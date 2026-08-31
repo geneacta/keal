@@ -342,6 +342,36 @@ fun cloneFun(f: FunN): FunN {
 
 // ---- the checker --------------------------------------------------------
 
+/// The name a top-level item declares, or "" when it declares none.
+fun declaredNameOf(item: ItemN): String {
+    val f = item.funDecl
+    if (item.kind == "fun" and f != null) { return f.name }
+    val c = item.classDecl
+    if (item.kind == "class" and c != null) { return c.name }
+    val t = item.traitDecl
+    if (item.kind == "trait" and t != null) { return t.name }
+    val x = item.externDecl
+    if (item.kind == "extern" and x != null) { return x.name }
+    val st = item.stmt
+    if (item.kind == "stmt" and st != null and st.kind == "let") { return st.name }
+    return ""
+}
+
+/// Renames what `declaredNameOf` found. Only a collision makes the two
+/// names differ, so on almost every program this changes nothing.
+proc setDeclaredName(item: ItemN, unique: String) {
+    val f = item.funDecl
+    if (item.kind == "fun" and f != null) { f.name = unique }
+    val c = item.classDecl
+    if (item.kind == "class" and c != null) { c.name = unique }
+    val t = item.traitDecl
+    if (item.kind == "trait" and t != null) { t.name = unique }
+    val x = item.externDecl
+    if (item.kind == "extern" and x != null) { x.name = unique }
+    val st = item.stmt
+    if (item.kind == "stmt" and st != null and st.kind == "let") { st.name = unique }
+}
+
 /// What a member's modifier means once the class it belongs to is known.
 ///
 /// A `record` **is** its fields: a field that says nothing is as visible as
@@ -377,6 +407,21 @@ package class Checker() {
     var packages: List<String> = []
     /// File names, for saying which file a private name belongs to.
     var fileNames: List<String> = []
+    /// Every top-level declaration, by the file that wrote it and the name
+    /// it wrote there: the unique name it is known by everywhere else. The
+    /// two differ only where two files declare the same name.
+    var declared: Map<String, String> = {}
+    /// The unique names already handed out.
+    var taken: Map<String, Bool> = {}
+    /// What each file can see under a bare name, in order: itself first,
+    /// then everything its unaliased imports reach. The prelude is visible
+    /// to all: it is loaded, not imported.
+    var visibleFiles: Map<Int, List<Int>> = {}
+    /// `import "./text.keal" as text` — which file an alias names, per file.
+    var aliases: Map<String, Int> = {}
+    /// Where an ambiguity has already been reported. A callee is resolved
+    /// once as a name and once as a call, and the reader deserves one.
+    var ambiguousAt: Map<String, Bool> = {}
 
     proc error(file: Int, line: Int, col: Int, msg: String) {
         this.errors.add(DiagN(file, line, col, msg))
@@ -505,6 +550,159 @@ package class Checker() {
         )
     }
 
+    /// Works out what each file can see, and gives every top-level
+    /// declaration a name unique across the whole program.
+    ///
+    /// Two files may declare `parse`. The first keeps the name; the second
+    /// is known as `parse#2` everywhere below the checker, and the source
+    /// name is what each file writes to reach its own. Where a file can see
+    /// both, writing `parse` is an error at the point of use — never at the
+    /// import, so two libraries that happen to share a name cannot break a
+    /// program that never mentions it.
+    proc planNamespaces(program: ProgramN) {
+        val edges: Map<Int, List<Int>> = {}
+        for (e in program.imports) {
+            if (e.alias != "") {
+                this.aliases["${e.from}|${e.alias}"] = e.to
+            } else {
+                val cur = edges[e.from]
+                if (cur == null) {
+                    edges[e.from] = [e.to]
+                } else {
+                    cur.add(e.to)
+                }
+            }
+        }
+        var count = this.fileNames.size
+        if (count < 1) { count = 1 }
+        var f = 0
+        while (f < count) {
+            val order = [f]
+            var i = 0
+            while (i < order.size) {
+                val at = order[i]
+                i += 1
+                val next = edges[at]
+                if (next != null) {
+                    for (n in next) {
+                        unless (order.contains(n)) { order.add(n) }
+                    }
+                }
+            }
+            // The prelude is loaded before a program's own code rather than
+            // imported, so every file sees it.
+            unless (order.contains(0)) { order.add(0) }
+            this.visibleFiles[f] = order
+            f += 1
+        }
+
+        // Every name any file declares, so that a name minted for a
+        // collision cannot collide in turn — not even after the C backend
+        // has flattened `#` out of it.
+        val allNames: Map<String, Bool> = {}
+        for (item in program.items) {
+            val n = declaredNameOf(item)
+            unless (n == "") { allNames[n] = true }
+        }
+
+        for (item in program.items) {
+            val source = declaredNameOf(item)
+            if (source == "") { continue }
+            val key = "${item.file}|${source}"
+            if (this.declared.contains(key)) { continue }
+            var unique = source
+            if (this.taken.contains(source)) {
+                var n = 2
+                var searching = true
+                while (searching) {
+                    val candidate = "${source}#${n}"
+                    // `#` cannot be written in Keal, and the backends flatten
+                    // it to `_dup`; neither spelling may already be a name.
+                    val flattened = "${source}_dup${n}"
+                    if (this.taken.contains(candidate) or allNames.contains(flattened)) {
+                        n += 1
+                    } else {
+                        unique = candidate
+                        searching = false
+                    }
+                }
+            }
+            this.taken[unique] = true
+            this.declared[key] = unique
+            setDeclaredName(item, unique)
+        }
+    }
+
+    /// The unique name a written name reaches from `file`, unchanged when
+    /// nothing does. Pure: the ambiguity is reported by `resolveGlobal`,
+    /// which every writable path goes through first.
+    fun globalKey(name: String, file: Int): String {
+        val dot = name.indexOf(".")
+        if (dot > 0) {
+            val alias = name.substring(0, dot)
+            val member = name.substring(dot + 1, name.length)
+            // `?: -1` rather than a nullable read: a map of values is what
+            // the C backend can compile with the fallback fused in.
+            val f = this.aliases["${file}|${alias}"] ?: -1
+            if (f >= 0) {
+                val u = this.declared["${f}|${member}"]
+                if (u != null) { return u }
+            }
+            return name
+        }
+        val own = this.declared["${file}|${name}"]
+        if (own != null) { return own }
+        val files = this.visibleFiles[file]
+        if (files == null) { return name }
+        for (v in files) {
+            unless (v == file) {
+                val u = this.declared["${v}|${name}"]
+                if (u != null) { return u }
+            }
+        }
+        return name
+    }
+
+    /// The unique name a bare name written in `file` reaches, or null when
+    /// nothing does. Reports ambiguity where two files answer.
+    fun resolveGlobal(name: String, file: Int, line: Int, col: Int): String? {
+        val own = this.declared["${file}|${name}"]
+        if (own != null) { return own }
+        val files = this.visibleFiles[file]
+        if (files == null) { return null }
+        val foundFiles: List<Int> = []
+        val foundNames: List<String> = []
+        for (v in files) {
+            unless (v == file) {
+                val u = this.declared["${v}|${name}"]
+                if (u != null) {
+                    unless (foundNames.contains(u)) {
+                        foundFiles.add(v)
+                        foundNames.add(u)
+                    }
+                }
+            }
+        }
+        if (foundNames.size == 0) { return null }
+        if (foundNames.size == 1) { return foundNames[0] }
+        val at = "${file}|${line}|${col}"
+        if (this.ambiguousAt.contains(at)) { return foundNames[0] }
+        this.ambiguousAt[at] = true
+        var where = ""
+        var first = true
+        for (v in foundFiles) {
+            unless (first) { where += " and " }
+            where += this.fileName(v)
+            first = false
+        }
+        this.errorNote(
+            file, line, col,
+            "`${name}` could be the one in ${where}",
+            "import one of them with `as` and write the name through it"
+        )
+        return foundNames[0]
+    }
+
     fun lookup(name: String): Binding? {
         var i = this.scopes.size - 1
         while (i >= 0) {
@@ -515,9 +713,25 @@ package class Checker() {
         return null
     }
 
+    /// A binding introduced by a body rather than by a declaration. Only
+    /// these shadow: a global is reached through the file that wrote it, so
+    /// the resolution has to happen even when the name is in scope 0.
+    fun lookupLocal(name: String): Binding? {
+        var i = this.scopes.size - 1
+        while (i >= 1) {
+            val b = this.scopes[i][name]
+            if (b != null) { return b }
+            i -= 1
+        }
+        return null
+    }
+
     // ---- driver --------------------------------------------------------
 
     package proc checkProgram(program: ProgramN) {
+        // 0a. Who can see what, and one unique name per declaration. Nothing
+        //     below this line has to think about two files sharing a name.
+        this.planNamespaces(program)
         // 0. Traits first: bounds and implements lists need them registered.
         for (item in program.items) {
             val t = item.traitDecl
@@ -1276,11 +1490,17 @@ package class Checker() {
             for (a in te.args) { this.checkTypeNames(a) }
             return
         }
-        val ci = this.classes[te.name]
+        // Written in a type, a name is as ambiguous as it is anywhere else,
+        // and says so at the same place: here.
+        unless (te.name.contains(".")) {
+            this.resolveGlobal(te.name, te.file, te.line, te.col)
+        }
+        val key = this.globalKey(te.name, te.file)
+        val ci = this.classes[key]
         if (ci != null) {
             this.checkVisible(te.file, te.line, te.col, "class", te.name, ci.vis, ci.file)
         } else {
-            val ti = this.traits[te.name]
+            val ti = this.traits[key]
             if (ti != null) {
                 this.checkVisible(te.file, te.line, te.col, "trait", te.name, ti.vis, ti.file)
             }
@@ -1387,13 +1607,16 @@ package class Checker() {
             }
             return tyParam(name)
         }
-        val info = this.classes[name]
+        // A written class name means the one this file reaches; where two
+        // files declare it, they are two types.
+        val key = this.globalKey(name, te.file)
+        val info = this.classes[key]
         if (info != null) {
             val wanted = info.typeParams.size
             unless (arity == wanted) {
                 this.quietDiag = DiagN(
                     te.file, te.line, te.col,
-                    "`${name}` takes ${wanted} type argument(s), found ${arity}"
+                    "`${key}` takes ${wanted} type argument(s), found ${arity}"
                 )
                 return null
             }
@@ -1403,7 +1626,7 @@ package class Checker() {
                 if (t == null) { return null }
                 resolved.add(t)
             }
-            return tyClass(name, resolved)
+            return tyClass(key, resolved)
         }
         this.quietDiag = DiagN(te.file, te.line, te.col, "unknown type `${name}`")
         return null
@@ -1937,6 +2160,38 @@ package class Checker() {
         return t
     }
 
+    /// Rewrites `text.name` and `text.name(...)` into the name itself when
+    /// `text` is an import alias rather than a value.
+    ///
+    /// An alias is not a binding and never becomes one, so this can only be
+    /// the qualified form; and once rewritten, everything below sees the
+    /// ordinary name it would have seen from an unaliased import.
+    proc unqualify(e: Ex) {
+        unless (e.kind == "field" or e.kind == "method") { return }
+        if (e.safe) { return }
+        if (e.kids.size == 0) { return }
+        val obj = e.kids[0]
+        unless (obj.kind == "ident") { return }
+        if (this.lookup(obj.text) != null) { return }
+        val f = this.aliases["${obj.file}|${obj.text}"] ?: -1
+        if (f < 0) { return }
+        var unique = e.text
+        val u = this.declared["${f}|${e.text}"]
+        if (u != null) { unique = u }
+        if (e.kind == "field") {
+            e.kind = "ident"
+            e.text = unique
+            e.kids = []
+            return
+        }
+        val ident = Ex("ident", e.line, e.col)
+        ident.file = e.file
+        ident.text = unique
+        e.kind = "call"
+        e.text = ""
+        e.kids = [ident]
+    }
+
     /// Types an expression and records the answer on the node, so a backend
     /// never has to work it out again.
     fun checkExpr(e: Ex, expected: Ty?): Ty {
@@ -1953,6 +2208,7 @@ package class Checker() {
     }
 
     fun checkExprInner(e: Ex, expected: Ty?): Ty {
+        this.unqualify(e)
         if (e.kind == "int") { return Ty("Int") }
         if (e.kind == "float") { return Ty("Float") }
         if (e.kind == "bool") { return Ty("Bool") }
@@ -1981,6 +2237,13 @@ package class Checker() {
             return this.thisTy[this.thisTy.size - 1]
         }
         if (e.kind == "ident") {
+            // A local wins; otherwise the name is resolved against what this
+            // file can see, and rewritten to what the rest of the compiler
+            // calls it.
+            if (this.lookupLocal(e.text) == null) {
+                val u0 = this.resolveGlobal(e.text, e.file, e.line, e.col)
+                if (u0 != null) { e.text = u0 }
+            }
             val name = e.text
             val b = this.lookup(name)
             if (b != null) {
@@ -2700,6 +2963,13 @@ package class Checker() {
         }
         // Constructor call, or a call to a built-in global.
         if (callee.kind == "ident") {
+            // Resolve the callee the way any other written name resolves,
+            // and rewrite it, so what is emitted names the same declaration
+            // the checker chose.
+            if (this.lookupLocal(callee.text) == null) {
+                val u1 = this.resolveGlobal(callee.text, callee.file, callee.line, callee.col)
+                if (u1 != null) { callee.text = u1 }
+            }
             val name = callee.text
             if (this.lookup(name) == null) {
                 val info = this.classes[name]

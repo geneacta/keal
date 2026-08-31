@@ -191,7 +191,19 @@ impl Parser {
             }
             items.push(self.item()?);
         }
-        Ok(Program { items })
+        Ok(Program { items, imports: Vec::new() })
+    }
+
+    /// The `as name` after an import, when one is written. `as` is not a
+    /// reserved word: it is only this clause, and only right here.
+    fn import_alias(&mut self) -> Result<Option<String>, Diag> {
+        let is_as = matches!(self.peek(), Tok::Ident(w) if w == "as");
+        if !is_as || !matches!(self.peek_at(1), Tok::Ident(_)) {
+            return Ok(None);
+        }
+        self.advance();
+        let (name, _) = self.expect_ident("a name for the imported module")?;
+        Ok(Some(name))
     }
 
     fn item(&mut self) -> Result<Item, Diag> {
@@ -235,7 +247,10 @@ impl Parser {
                     Tok::Str(parts) => {
                         self.advance();
                         match parts.as_slice() {
-                            [StrPart::Lit(path)] => Ok(Item::Import { path: path.clone(), span }),
+                            [StrPart::Lit(path)] => {
+                                let alias = self.import_alias()?;
+                                Ok(Item::Import { path: path.clone(), alias, span })
+                            }
                             _ => Err(Diag::new(span, "import path must be a plain string literal")),
                         }
                     }
@@ -277,8 +292,10 @@ impl Parser {
                                 break;
                             }
                         }
+                        let alias = self.import_alias()?;
                         Ok(Item::Import {
                             path: format!(".jbind/{}.keal", classes.join("+")),
+                            alias,
                             span,
                         })
                     }
@@ -1517,6 +1534,14 @@ impl Parser {
         let mut ty = match self.peek().clone() {
             Tok::Ident(name) => {
                 self.advance();
+                // `text.Node` — a type reached through an import alias. The
+                // checker resolves the pair; the parser only records it.
+                let mut name = name;
+                if self.at(&Tok::Dot) && matches!(self.peek_at(1), Tok::Ident(_)) {
+                    self.advance();
+                    let (member, _) = self.expect_ident("a type name after the module")?;
+                    name = format!("{}.{}", name, member);
+                }
                 let mut args = Vec::new();
                 if self.at(&Tok::Lt) {
                     self.advance();

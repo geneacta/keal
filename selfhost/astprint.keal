@@ -77,7 +77,11 @@ fun pItem(i: ItemN): String {
         "fun" -> pFun("fun", i.funDecl!!)
         "class" -> pClass(i.classDecl!!)
         "trait" -> pTrait(i.traitDecl!!)
-        "import" -> "import ${esc(i.text)} ${i.line}:${i.col}"
+        "import" -> if (i.alias == "") {
+            "import ${esc(i.text)} ${i.line}:${i.col}"
+        } else {
+            "import ${esc(i.text)} as ${i.alias} ${i.line}:${i.col}"
+        }
         "native" -> "native ${esc(i.text)} ${i.line}:${i.col}"
         "extern" -> pExtern(i.externDecl!!)
         else -> pStmt(i.stmt!!)

@@ -15,10 +15,25 @@ import "./runtimesrc.keal"
 // ---- names and small helpers --------------------------------------------
 
 /// Prefixes every Keal name, so none can collide with C's own.
-fun mangle(name: String): String { "k_" + name }
+fun mangle(name: String): String { "k_" + flatten(name) }
+
+/// A Keal name as C can spell it. Only one character needs the treatment:
+/// the `#` the checker mints when two files declare the same name, which is
+/// unwritable in Keal and illegal in C.
+fun flatten(name: String): String {
+    unless (name.contains("#")) { return name }
+    var out = ""
+    var i = 0
+    while (i < name.length) {
+        val c = name.get(i)
+        if (c == "#") { out += "_dup" } else { out += c }
+        i += 1
+    }
+    return out
+}
 
 /// A method's part of the function name it becomes.
-fun mangleMethod(name: String): String { "m_" + name }
+fun mangleMethod(name: String): String { "m_" + flatten(name) }
 
 /// Whether the class declares the hook the runtime calls at death.
 /// Whether this class declares that field `weak`. The declaration is the
@@ -41,7 +56,7 @@ fun classHasDeinit(c: ClassN): Bool {
 }
 
 /// The C struct a class is emitted as.
-fun structName(class_: String): String { "K_" + class_ }
+fun structName(class_: String): String { "K_" + flatten(class_) }
 
 /// The `Keal_Name` mirror struct's exact text — the by-value contract a
 /// record shares with C across an extern boundary.
@@ -114,7 +129,7 @@ fun structNameOf(class_: String, args: List<Ty>): String {
         parts += mangleType(a)
         first = false
     }
-    return "K_${class_}__${parts}"
+    return "K_${flatten(class_)}__${parts}"
 }
 
 /// What a written type is called, for a message about it. Unlike the

@@ -202,6 +202,16 @@ package class Parser(val toks: List<Token>) {
         return out
     }
 
+    /// The `as name` after an import, when one is written. `as` is not a
+    /// reserved word: it is only this clause, and only right here.
+    fun importAlias(): String {
+        val t = this.peek()
+        unless (t.kind == "ident" and t.text == "as") { return "" }
+        unless (this.peekAt(1).kind == "ident") { return "" }
+        this.advance()
+        return this.expectIdent("a name for the imported module")
+    }
+
     fun item(): ItemN {
         val vis = this.visibility()
         return this.itemAfterVis(vis)
@@ -257,6 +267,7 @@ package class Parser(val toks: List<Token>) {
                 if (next.parts.size == 1 and next.parts[0].isLit) {
                     val i = ItemN("import", t.line, t.col)
                     i.text = next.parts[0].text
+                    i.alias = this.importAlias()
                     return i
                 }
                 this.fail(t.line, t.col, "import path must be a plain string literal")
@@ -302,6 +313,7 @@ package class Parser(val toks: List<Token>) {
                 }
                 val i = ItemN("import", t.line, t.col)
                 i.text = ".jbind/" + classes + ".keal"
+                i.alias = this.importAlias()
                 return i
             }
             this.failHere(
@@ -1440,6 +1452,13 @@ package class Parser(val toks: List<Token>) {
         if (t.kind == "ident") {
             this.advance()
             out.name = t.text
+            // `text.Node` — a type reached through an import alias. The
+            // checker resolves the pair; the parser only records it.
+            if (this.at(".") and this.peekAt(1).kind == "ident") {
+                this.advance()
+                val member = this.expectIdent("a type name after the module")
+                out.name = out.name + "." + member
+            }
             if (this.at("<")) {
                 this.advance()
                 var going = true

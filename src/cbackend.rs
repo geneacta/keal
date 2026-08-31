@@ -5921,7 +5921,18 @@ pub fn mirror_struct_c(name: &str, fields: &[(String, Type)]) -> String {
 
 /// Prefixes every Keal name, so none can collide with C's own.
 fn mangle(name: &str) -> String {
-    format!("k_{}", name)
+    format!("k_{}", flatten(name))
+}
+
+/// A Keal name as C can spell it. Only one character needs the treatment:
+/// the `#` the checker mints when two files declare the same name, which is
+/// unwritable in Keal and illegal in C.
+fn flatten(name: &str) -> String {
+    if name.contains('#') {
+        name.replace('#', "_dup")
+    } else {
+        name.to_string()
+    }
 }
 
 /// Every name that any lambda inside `stmts` mentions without binding it —
@@ -6317,7 +6328,7 @@ fn is_reference(ty: &Type) -> bool {
 /// The C struct a class is emitted as. A generic class gets one struct per
 /// instantiation, told apart by the mangled type arguments.
 fn struct_name(class: &str) -> String {
-    format!("K_{}", class)
+    format!("K_{}", flatten(class))
 }
 
 fn struct_name_of(class: &str, args: &[Type]) -> String {
@@ -6325,7 +6336,7 @@ fn struct_name_of(class: &str, args: &[Type]) -> String {
         struct_name(class)
     } else {
         let parts: Vec<String> = args.iter().map(mangle_type).collect();
-        format!("K_{}__{}", class, parts.join("__"))
+        format!("K_{}__{}", flatten(class), parts.join("__"))
     }
 }
 
@@ -6362,7 +6373,7 @@ fn mangle_type(ty: &Type) -> String {
 
 /// A method's part of the function name it becomes.
 fn mangle_method(name: &str) -> String {
-    format!("m_{}", name)
+    format!("m_{}", flatten(name))
 }
 
 /// What a written type is called, for a message about it.

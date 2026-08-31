@@ -888,10 +888,26 @@ files that sit together are the ones that can see each other's `package`
 declarations, which is what lets a group of files collaborate without
 promising anything to the outside.
 
-What an import brings in is still one flat set of names, so two files cannot
-both declare `parse` and be imported together. The namespace that fixes that
-is designed in [packages and namespaces](packages.md), along with the reason
-there is no package manager yet.
+### Naming what you import
+
+Two files may declare `parse`. The file that imports them says which it
+means:
+
+```keal
+import "./lexer.keal"                 // its names, bare
+import "./config.keal" as config      // its names, through `config`
+```
+
+An aliased import contributes nothing to the bare set: `parse` is the
+lexer's, `config.parse` is the other, and `config.Node` names its type in a
+type position too. Writing a name that two visible modules declare is an
+error **where the name is written**, naming both files — never at the
+import, so two modules that happen to share a name cannot break a program
+that never mentions it.
+
+There is no `package` declaration and no registry: an import names a file,
+and [packages and namespaces](packages.md) explains what runs underneath
+and why there is no package manager yet.
 
 The modifier goes on a top-level `fun`, `proc`, `class`, `record`, `trait`,
 `extern fun`, `val` or `var` — and on a class's own members:

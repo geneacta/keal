@@ -107,7 +107,7 @@ package class StmtN(package val kind: String, package val line: Int, package val
     package var classDecl: ClassN? = null
 }
 
-package class FunN(package val name: String, package val line: Int, package val col: Int) {
+package class FunN(package var name: String, package val line: Int, package val col: Int) {
     package var file: Int = 0
     package var vis: String = ""           // "", "package" or "public"
     package var typeParams: List<TParamN> = []
@@ -134,7 +134,7 @@ package class FieldN(package val name: String, package val line: Int, package va
     package var weak: Bool = false         // `weak var next: Node?`
 }
 
-package class ClassN(package val name: String, package val isRecord: Bool, package val line: Int, package val col: Int) {
+package class ClassN(package var name: String, package val isRecord: Bool, package val line: Int, package val col: Int) {
     package var file: Int = 0
     package var vis: String = ""
     package var typeParams: List<TParamN> = []
@@ -146,13 +146,13 @@ package class ClassN(package val name: String, package val isRecord: Bool, packa
 
 package class TraitMethodN(package val decl: FunN, package val hasDefault: Bool)
 
-package class TraitN(package val name: String, package val line: Int, package val col: Int) {
+package class TraitN(package var name: String, package val line: Int, package val col: Int) {
     package var file: Int = 0
     package var vis: String = ""
     package var methods: List<TraitMethodN> = []
 }
 
-package class ExternN(package val name: String, package val line: Int, package val col: Int) {
+package class ExternN(package var name: String, package val line: Int, package val col: Int) {
     package var file: Int = 0
     package var vis: String = ""
     package var symbol: String = ""
@@ -168,9 +168,22 @@ package class ItemN(package val kind: String, package val line: Int, package val
     package var traitDecl: TraitN? = null
     package var externDecl: ExternN? = null
     package var text: String = ""          // native code / import path
+    package var alias: String = ""         // import: the name given with `as`
     package var stmt: StmtN? = null
 }
 
 package class ProgramN() {
     package var items: List<ItemN> = []
+    /// Who imported whom, once the loader has resolved the paths to files.
+    /// The declarations are all spliced into one list, so this is what is
+    /// left of the shape they came in.
+    package var imports: List<ImportEdge> = []
 }
+
+/// One `import`, resolved: the file that wrote it, the file it names, and
+/// the alias it gave it, "" for none.
+package class ImportEdge(
+    package val from: Int,
+    package val to: Int,
+    package val alias: String
+)

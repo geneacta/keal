@@ -154,7 +154,10 @@ fn item_node(item: &Item) -> String {
         Item::Fun(f) => fun_node("fun", f),
         Item::Class(c) => class_node(c),
         Item::Trait(t) => trait_node(t),
-        Item::Import { path, span } => format!("import {} {}", esc(path), at(*span)),
+        Item::Import { path, alias, span } => match alias {
+            Some(a) => format!("import {} as {} {}", esc(path), a, at(*span)),
+            None => format!("import {} {}", esc(path), at(*span)),
+        },
         Item::Native { code, span } => format!("native {} {}", esc(code), at(*span)),
         Item::Extern(x) => extern_node(x),
         Item::Stmt(s) => stmt_node(s),

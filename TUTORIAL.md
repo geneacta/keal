@@ -569,6 +569,22 @@ record's own visibility unless one of them says otherwise. Inside a body
 there is nothing to write a modifier on — a local is reachable exactly where
 it is in scope.
 
+Two modules may declare the same name. Give one of them an alias and say
+which you mean:
+
+```keal
+import "./lexer.keal"                 // its names, bare
+import "./config.keal" as config      // its names, through `config`
+
+val token = parse("let")              // the lexer's
+val setting = config.parse("width")   // the other one's
+val n: config.Node = setting          // its type, too
+```
+
+Writing a name that both declare is an error where you write it, not where
+you import — so two modules sharing a name never break a program that does
+not mention it.
+
 ---
 
 ## 11. When something goes wrong

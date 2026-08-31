@@ -1,23 +1,16 @@
 # Packages, namespaces, and the manager that comes last
 
-*Status: the visibility half is implemented (see
-[the reference](language.md#13-modules-and-visibility)). The namespace half
-is designed here and not yet built. A package manager is argued against, for
-now, at the end.*
+*Status: both halves are implemented — visibility and namespaces (see
+[the reference](language.md#13-modules-and-visibility)). What follows is the
+design as built, and the argument for why there is no package manager yet.*
 
 ## What is true today
 
 `import "./geometry.keal"` reads a file, and everything that file lets out —
 `public`, or `package` from a file in the same directory — becomes visible
-under its own bare name. There is one namespace and no way to write a
-qualified one. Two consequences follow, and only the second is a problem:
-
-* A helper can be kept private. That is settled: a declaration says who may
-  name it, and a package is a directory.
-* **Two files cannot both declare `parse`.** If a program imports both, the
-  checker reports the second as declared twice, and there is nothing the
-  program can write to mean one rather than the other. This is what a
-  namespace is for, and Keal does not have one yet.
+under its own bare name. `import "./text.keal" as text` keeps those names
+out of the bare set and reaches them through `text.` instead. Two files may
+declare `parse`; the file that imports both says which one it means.
 
 ## What a namespace has to do here
 
@@ -32,7 +25,7 @@ Three requirements, in the order they matter:
    namespace of its own, so two `parse` functions need two symbols, and the
    emitter must agree with itself across the twin, byte for byte.
 
-### The shape
+### The shape, as built
 
 ```keal
 import "./geometry.keal"              // as today: bare names
@@ -51,22 +44,29 @@ import "./text.keal" as text          // qualified: text.parse(...)
 * The alias is a name in the file that declares it, like any other, and it
   is not a value: `text` alone is refused by name.
 
-### What it costs inside
+### How it works inside
 
-The checker's global scope stops being one map and becomes one per file,
-with a resolution order (own → unqualified imports → builtins) and an
-ambiguity error where two candidates survive. Classes and traits need the
-same treatment, and a class's identity has to stop being its source name:
-two `Node` types must be two types. The plan is to give every declaration a
-**unique internal name** at collection — the source name where it is
-unambiguous, a suffixed one where it is not — and to keep the source name
-beside it for diagnostics. Everything downstream (the interpreters, the VM,
-the C emitter, `keal layout`, `keal doc`) then keeps working on unique names
-as it does today, and the four dumps change on both sides together.
+Before anything is checked, one pass walks every top-level declaration and
+gives it a **unique name**: the source name for the first to claim it, and
+`parse#2`, `parse#3` and so on for the others. `#` cannot be written in
+Keal, so a minted name can never be one a program chose; the C backend
+flattens it to `_dup2`, and the pass refuses a spelling whose flattened form
+any file declares. Where nothing collides — which is every program written
+so far — the unique name *is* the source name and nothing downstream can
+tell the pass ran.
 
-That is the whole design. It is a day's work in the oracle and the same
-again in the twin, and it is the last thing standing between this language
-and a first release that will not have to break programs later.
+The same pass records what each file can see: itself, then everything its
+unaliased imports reach, and the prelude, which is loaded rather than
+imported. A written name is then resolved against that list, and the node in
+the tree is rewritten to the unique name, so the interpreters, the VM and
+the C emitter all name the declaration the checker chose. An alias
+contributes nothing to that list: `text.parse` and `text.Node` are rewritten
+to the unique name directly, which is what makes an alias a real answer to a
+collision rather than a second chance at one.
+
+Two candidates for one written name is an error **where the name is
+written**, naming both files. Neither import is at fault, and a program that
+never mentions the shared name never hears about it.
 
 ## Then: a package manager?
 

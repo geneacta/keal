@@ -1,0 +1,10 @@
+// Two imported modules declare the same names. Importing both is fine —
+// the error is where a name is written, and says how to say which.
+
+import "./namespace-lib/one.keal"
+import "./namespace-lib/two.keal"
+
+println(parse("x"))
+
+fun holds(n: Node): Int { n.n }
+println(holds(Node(1)))

@@ -8,7 +8,7 @@
 //! It also performs the language's one implicit conversion: an integer
 //! *literal* used where a `Float` is expected is rewritten in place.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::ast::*;
@@ -189,6 +189,21 @@ pub struct Checker {
     packages: Vec<String>,
     /// File names, for saying which file a private name belongs to.
     file_names: Vec<String>,
+    /// Every top-level declaration, by the file that wrote it and the name
+    /// it wrote there: the unique name it is known by everywhere else. The
+    /// two differ only where two files declare the same name.
+    declared: HashMap<(u32, String), String>,
+    /// The unique names already handed out.
+    taken: HashSet<String>,
+    /// What each file can see under a bare name, in order: itself first,
+    /// then everything its unaliased imports reach. The prelude is visible
+    /// to all: it is loaded, not imported.
+    visible_files: HashMap<u32, Vec<u32>>,
+    /// `import "./text.keal" as text` — which file an alias names, per file.
+    aliases: HashMap<(u32, String), u32>,
+    /// Where an ambiguity has already been reported. A callee is resolved
+    /// once as a name and once as a call, and the reader deserves one.
+    ambiguous_at: HashSet<(u32, u32, u32)>,
 }
 
 impl Checker {
@@ -210,6 +225,11 @@ impl Checker {
             repl: false,
             packages: Vec::new(),
             file_names: Vec::new(),
+            declared: HashMap::new(),
+            taken: HashSet::new(),
+            visible_files: HashMap::new(),
+            aliases: HashMap::new(),
+            ambiguous_at: HashSet::new(),
         }
     }
 
@@ -380,13 +400,194 @@ impl Checker {
         }
     }
 
+    /// Works out what each file can see, and gives every top-level
+    /// declaration a name unique across the whole program.
+    ///
+    /// Two files may declare `parse`. The first keeps the name; the second
+    /// is known as `parse#2` everywhere below the checker, and the source
+    /// name is what each file writes to reach its own. Where a file can see
+    /// both, writing `parse` is an error at the point of use — never at the
+    /// import, so two libraries that happen to share a name cannot break a
+    /// program that never mentions it.
+    fn plan_namespaces(&mut self, program: &mut Program) {
+        // Who reaches whom, following only the imports that were not given
+        // an alias: an aliased module contributes its alias and nothing else.
+        let mut edges: HashMap<u32, Vec<u32>> = HashMap::new();
+        for e in &program.imports {
+            match &e.alias {
+                Some(a) => {
+                    self.aliases.insert((e.from, a.clone()), e.to);
+                }
+                None => edges.entry(e.from).or_default().push(e.to),
+            }
+        }
+        let files: Vec<u32> = (0..self.file_names.len().max(1) as u32).collect();
+        for f in files {
+            let mut order = vec![f];
+            let mut i = 0;
+            while i < order.len() {
+                let at = order[i];
+                i += 1;
+                if let Some(next) = edges.get(&at) {
+                    for n in next {
+                        if !order.contains(n) {
+                            order.push(*n);
+                        }
+                    }
+                }
+            }
+            // The prelude is loaded before a program's own code rather than
+            // imported, so every file sees it.
+            if !order.contains(&0) {
+                order.push(0);
+            }
+            self.visible_files.insert(f, order);
+        }
+
+        // Every name any file declares, so that a name minted for a
+        // collision cannot collide in turn — not even after the C backend
+        // has flattened `#` out of it.
+        let mut all_names: HashSet<String> = HashSet::new();
+        for item in program.items.iter() {
+            let name = match item {
+                Item::Fun(f) => &f.name,
+                Item::Class(c) => &c.name,
+                Item::Trait(t) => &t.name,
+                Item::Extern(x) => &x.name,
+                Item::Stmt(st) => match &st.kind {
+                    StmtKind::Let { name, .. } => name,
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            all_names.insert(name.clone());
+        }
+
+        for item in program.items.iter_mut() {
+            let (file, name): (u32, &mut String) = match item {
+                Item::Fun(f) => (f.span.file, &mut f.name),
+                Item::Class(c) => (c.span.file, &mut c.name),
+                Item::Trait(t) => (t.span.file, &mut t.name),
+                Item::Extern(x) => (x.span.file, &mut x.name),
+                Item::Stmt(st) => match &mut st.kind {
+                    StmtKind::Let { name, .. } => (st.span.file, name),
+                    _ => continue,
+                },
+                _ => continue,
+            };
+            let source = name.clone();
+            if self.declared.contains_key(&(file, source.clone())) {
+                // Declared twice in one file: the existing error says so.
+                continue;
+            }
+            let unique = if self.taken.contains(&source) {
+                let mut n = 2;
+                loop {
+                    let candidate = format!("{}#{}", source, n);
+                    // `#` cannot be written in Keal, and the backends flatten
+                    // it to `_dup`; neither spelling may already be a name.
+                    let flattened = format!("{}_dup{}", source, n);
+                    if !self.taken.contains(&candidate) && !all_names.contains(&flattened) {
+                        break candidate;
+                    }
+                    n += 1;
+                }
+            } else {
+                source.clone()
+            };
+            self.taken.insert(unique.clone());
+            self.declared.insert((file, source), unique.clone());
+            *name = unique;
+        }
+    }
+
+    /// The unique name a written name reaches from `file`, unchanged when
+    /// nothing does. Pure: the ambiguity is reported by `resolve_global`,
+    /// which every writable path goes through first.
+    fn global_key(&self, name: &str, file: u32) -> String {
+        if let Some((alias, member)) = name.split_once('.') {
+            if let Some(f) = self.aliases.get(&(file, alias.to_string())) {
+                if let Some(u) = self.declared.get(&(*f, member.to_string())) {
+                    return u.clone();
+                }
+            }
+            return name.to_string();
+        }
+        if let Some(u) = self.declared.get(&(file, name.to_string())) {
+            return u.clone();
+        }
+        let files = match self.visible_files.get(&file) {
+            Some(f) => f,
+            None => return name.to_string(),
+        };
+        for f in files {
+            if *f == file {
+                continue;
+            }
+            if let Some(u) = self.declared.get(&(*f, name.to_string())) {
+                return u.clone();
+            }
+        }
+        name.to_string()
+    }
+
+    /// The unique name a bare name written in `span.file` reaches, or `None`
+    /// when nothing does. Reports ambiguity where two files answer.
+    fn resolve_global(&mut self, name: &str, span: Span) -> Option<String> {
+        if let Some(u) = self.declared.get(&(span.file, name.to_string())) {
+            return Some(u.clone());
+        }
+        let files = self.visible_files.get(&span.file).cloned().unwrap_or_default();
+        let mut found: Vec<(u32, String)> = Vec::new();
+        for f in files {
+            if f == span.file {
+                continue;
+            }
+            if let Some(u) = self.declared.get(&(f, name.to_string())) {
+                if !found.iter().any(|(_, x)| x == u) {
+                    found.push((f, u.clone()));
+                }
+            }
+        }
+        match found.len() {
+            0 => None,
+            1 => Some(found.remove(0).1),
+            _ => {
+                if !self.ambiguous_at.insert((span.file, span.line, span.col)) {
+                    return Some(found.remove(0).1);
+                }
+                let where_ = found
+                    .iter()
+                    .map(|(f, _)| self.file_name(*f))
+                    .collect::<Vec<_>>()
+                    .join(" and ");
+                self.error_note(
+                    span,
+                    format!("`{}` could be the one in {}", name, where_),
+                    "import one of them with `as` and write the name through it",
+                );
+                Some(found.remove(0).1)
+            }
+        }
+    }
+
     fn lookup(&self, name: &str) -> Option<&Binding> {
         self.scopes.iter().rev().find_map(|s| s.get(name))
+    }
+
+    /// A binding introduced by a body rather than by a declaration. Only
+    /// these shadow: a global is reached through the file that wrote it, so
+    /// the resolution has to happen even when the name is in scope 0.
+    fn lookup_local(&self, name: &str) -> Option<&Binding> {
+        self.scopes.iter().skip(1).rev().find_map(|s| s.get(name))
     }
 
     // ---- driver --------------------------------------------------------
 
     fn run(&mut self, program: &mut Program) -> Option<Type> {
+        // 0a. Who can see what, and one unique name per declaration. Nothing
+        //     below this line has to think about two files sharing a name.
+        self.plan_namespaces(program);
         // 0. Traits first: bounds and implements lists are written in terms
         //    of them, so every later phase needs them already registered.
         for item in &program.items {
@@ -1168,6 +1369,12 @@ impl Checker {
                     }
                     return;
                 }
+                // Written in a type, a name is as ambiguous as it is
+                // anywhere else, and says so at the same place: here.
+                if !name.contains('.') {
+                    self.resolve_global(name, te.span);
+                }
+                let name = &self.global_key(name, te.span.file);
                 if let Some(info) = self.classes.get(&**name) {
                     let (vis, home) = (info.vis, info.span.file);
                     self.check_visible(te.span, "class", name, vis, home);
@@ -1252,7 +1459,10 @@ impl Checker {
                         )),
                     },
                     other if self.type_param_in_scope(other) => simple(Type::param(other)),
-                    other if self.classes.contains_key(other) => {
+                    // A written class name means the one this file reaches;
+                    // where two files declare it, they are two types.
+                    other if self.classes.contains_key(&self.global_key(other, te.span.file)) => {
+                        let other = &self.global_key(other, te.span.file);
                         let info = &self.classes[other];
                         let wanted = info.type_params.len();
                         if arity != wanted {
@@ -1829,6 +2039,52 @@ impl Checker {
         t
     }
 
+    /// Rewrites `text.name` and `text.name(...)` into the name itself when
+    /// `text` is an import alias rather than a value.
+    ///
+    /// An alias is not a binding and never becomes one, so this can only be
+    /// the qualified form; and once rewritten, everything below sees the
+    /// ordinary name it would have seen from an unaliased import.
+    fn unqualify(&mut self, e: &mut Expr) {
+        let alias_of = |c: &Self, obj: &Expr| -> Option<u32> {
+            let ExprKind::Ident(a) = &obj.kind else { return None };
+            if c.lookup(a).is_some() {
+                return None;
+            }
+            c.aliases.get(&(obj.span.file, a.clone())).copied()
+        };
+        let replacement = match &mut e.kind {
+            ExprKind::Field { obj, name, safe: false } => alias_of(self, obj).map(|f| {
+                let unique = self
+                    .declared
+                    .get(&(f, name.clone()))
+                    .cloned()
+                    .unwrap_or_else(|| name.clone());
+                (unique, None)
+            }),
+            ExprKind::MethodCall { obj, name, args, safe: false } => {
+                alias_of(self, obj).map(|f| {
+                    let unique = self
+                        .declared
+                        .get(&(f, name.clone()))
+                        .cloned()
+                        .unwrap_or_else(|| name.clone());
+                    (unique, Some(std::mem::take(args)))
+                })
+            }
+            _ => None,
+        };
+        let Some((unique, args)) = replacement else { return };
+        let ident = Expr { kind: ExprKind::Ident(unique), ty: None, inst: None, span: e.span };
+        e.kind = match args {
+            Some(args) => ExprKind::Call { callee: Box::new(ident), args },
+            None => ExprKind::Ident(match ident.kind {
+                ExprKind::Ident(n) => n,
+                _ => unreachable!(),
+            }),
+        };
+    }
+
     /// Types an expression and records the answer on the node, so that a
     /// backend never has to work it out again.
     fn check_expr(&mut self, e: &mut Expr, expected: Option<&Type>) -> Type {
@@ -1845,6 +2101,7 @@ impl Checker {
 
     fn check_expr_inner(&mut self, e: &mut Expr, expected: Option<&Type>) -> Type {
         let span = e.span;
+        self.unqualify(e);
         match &mut e.kind {
             ExprKind::Int(_) => Type::Int,
             ExprKind::Float(_) => Type::Float,
@@ -1870,6 +2127,16 @@ impl Checker {
                 }
             },
             ExprKind::Ident(name) => {
+                // A local wins; otherwise the name is resolved against what
+                // this file can see, and rewritten to what the rest of the
+                // compiler calls it.
+                if self.lookup_local(name).is_none() {
+                    if let Some(u) = self.resolve_global(name, span) {
+                        if u != *name {
+                            *name = u;
+                        }
+                    }
+                }
                 if let Some(b) = self.lookup(name) {
                     let hidden = b.home.map(|h| (b.vis, h));
                     if let Some((vis, home)) = hidden {
@@ -2646,7 +2913,18 @@ impl Checker {
             }
         }
         // Constructor call, or a call to a built-in global.
-        if let ExprKind::Ident(name) = &callee.kind {
+        if let ExprKind::Ident(name) = &mut callee.kind {
+            // Resolve the callee the way any other written name resolves,
+            // and rewrite it, so what is emitted names the same declaration
+            // the checker chose.
+            if self.lookup_local(name).is_none() {
+                if let Some(u) = self.resolve_global(name, callee.span) {
+                    if u != *name {
+                        *name = u;
+                    }
+                }
+            }
+            let ExprKind::Ident(name) = &callee.kind else { unreachable!() };
             let name = name.clone();
             if self.lookup(&name).is_none() {
                 if let Some(info) = self.classes.get(&name) {

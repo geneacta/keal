@@ -1,0 +1,20 @@
+// One import bare, one behind a name. The bare one owns the plain spelling;
+// the aliased one is reachable only through its alias, so nothing collides
+// and both are usable in the same file.
+
+import "./lexer.keal"
+import "./config.keal" as config
+
+val token = parse("let")
+assert(token.kind == "token", "the bare name is the unaliased module's")
+assert(token.text == "let", "and its record's fields read")
+
+val setting = config.parse("width")
+assert(setting.key == "width", "the aliased module answers through its name")
+assert(setting.value == 5, "and its own Node is a different type")
+
+val n: config.Node = config.parse("depth")
+assert(n.value == 5, "a type can be written through the alias too")
+
+fun describe(node: Node): String { node.kind }
+assert(describe(token) == "token", "the bare `Node` is the unaliased one")

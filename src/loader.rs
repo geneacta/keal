@@ -3,10 +3,10 @@
 //!
 //! A file is loaded at most once, so diamond imports and cycles both work.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::ast::{Item, Program};
+use crate::ast::{ImportEdge, Item, Program};
 use crate::lexer;
 use crate::parser;
 use crate::span::{Diag, Sources, Span};
@@ -29,11 +29,12 @@ pub fn load_generating(entry: &str, sources: &mut Sources) -> Result<Program, Di
 }
 
 fn load_inner(entry: &str, sources: &mut Sources, generate: bool) -> Result<Program, Diag> {
-    let mut seen = HashSet::new();
+    let mut seen = HashMap::new();
     let mut items = prelude(sources)?;
+    let mut imports = Vec::new();
     let path = normalise(Path::new(entry));
-    load_file(&path, None, sources, &mut seen, &mut items, generate)?;
-    Ok(Program { items })
+    load_file(&path, None, sources, &mut seen, &mut items, &mut imports, generate)?;
+    Ok(Program { items, imports })
 }
 
 /// Parses the prelude and registers it with `sources`, so a diagnostic that
@@ -50,12 +51,15 @@ fn load_file(
     path: &Path,
     imported_from: Option<Span>,
     sources: &mut Sources,
-    seen: &mut HashSet<PathBuf>,
+    seen: &mut HashMap<PathBuf, u32>,
     items: &mut Vec<Item>,
+    imports: &mut Vec<ImportEdge>,
     generate: bool,
-) -> Result<(), Diag> {
-    if !seen.insert(path.to_path_buf()) {
-        return Ok(());
+) -> Result<u32, Diag> {
+    // A file is read once, but an edge is recorded every time: two files
+    // importing the same module are two importers.
+    if let Some(id) = seen.get(path) {
+        return Ok(*id);
     }
 
     if generate && !path.exists() && path.parent().map(|d| d.ends_with(".jbind")).unwrap_or(false)
@@ -87,6 +91,7 @@ fn load_file(
     };
 
     let file = sources.add(path, text.clone());
+    seen.insert(path.to_path_buf(), file);
     let tokens = lexer::lex(&text, file)?;
     let program = parser::parse(tokens)?;
 
@@ -94,15 +99,17 @@ fn load_file(
     let mut own = Vec::new();
     for item in program.items {
         match item {
-            Item::Import { path: rel, span } => {
+            Item::Import { path: rel, alias, span } => {
                 let target = normalise(&dir.join(&rel));
-                load_file(&target, Some(span), sources, seen, items, generate)?;
+                let to =
+                    load_file(&target, Some(span), sources, seen, items, imports, generate)?;
+                imports.push(ImportEdge { from: file, to, alias, span });
             }
             other => own.push(other),
         }
     }
     items.extend(own);
-    Ok(())
+    Ok(file)
 }
 
 /// Collapses `.` and `..` segments so the same file is never loaded twice

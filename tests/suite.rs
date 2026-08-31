@@ -121,6 +121,18 @@ fn modules_are_loaded_once() {
     }
 }
 
+/// Two modules may declare the same names. The importing file says which
+/// it means — bare for the unaliased one, through the alias for the other —
+/// and both engines must agree that they are two different things.
+#[test]
+fn namespaces_keep_two_modules_apart() {
+    for engine in ENGINES {
+        let out = keal(&[engine, "tests/programs/namespaces/main.keal"]);
+        assert!(out.success, "namespace test failed on {}:\n{}", engine, out.stderr);
+        assert!(out.stdout.is_empty(), "namespace test printed:\n{}", out.stdout);
+    }
+}
+
 #[test]
 fn examples_run_successfully() {
     for file in keal_files("examples") {
