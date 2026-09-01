@@ -25,3 +25,4 @@ nested find: ["b", "c"]
 nested count: 1
 nested last: []
 nested reversed: [[], ["b", "c"], ["a"]]
+nullable: null ["x"] null ["a"]

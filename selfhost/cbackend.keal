@@ -5738,6 +5738,17 @@ class CBackend() {
                 rendered = "keal_str_from_float(${optGet(inner, v)})"
             } else if (inner.kind == "Bool") {
                 rendered = "keal_str_from_bool(${optGet(inner, v)})"
+            } else if (inner.kind == "List") {
+                // A nullable container is a plain pointer, so once the absent
+                // case is out of the way the renderer for the container
+                // itself is the one that already exists.
+                val f = this.listShow(inner.args[0], e.file, e.line, e.col)
+                if (f == null) { return "keal_str_empty()" }
+                rendered = "${f}(${v})"
+            } else if (inner.kind == "Map") {
+                val f = this.mapShow(inner.args[0], inner.args[1], e.file, e.line, e.col)
+                if (f == null) { return "keal_str_empty()" }
+                rendered = "${f}(${v})"
             } else {
                 this.unsupported(e.file, e.line, e.col, "rendering a value of type `${tyShow(inner)}?`")
                 return "keal_str_empty()"

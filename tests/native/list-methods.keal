@@ -68,8 +68,13 @@ println("clear str: ${strs}")
 // ---- and all of it over a counted element type, nested ----
 val nested = [["a"], ["b", "c"], []]
 println("nested: ${nested.flatMap({ xs: List<String> -> xs })}")
-// `?:` because rendering a nullable list is a separate refusal.
-println("nested find: ${nested.find({ xs: List<String> -> xs.size == 2 }) ?: ["none"]}")
+println("nested find: ${nested.find({ xs: List<String> -> xs.size == 2 })}")
 println("nested count: ${nested.count({ xs: List<String> -> xs.isEmpty() })}")
-println("nested last: ${nested.last() ?: ["none"]}")
+println("nested last: ${nested.last()}")
 println("nested reversed: ${nested.reversed()}")
+
+// A nullable container renders as itself, or as `null`.
+val absent: List<String>? = null
+val present: List<String>? = ["x"]
+val noMap: Map<String, Int>? = null
+println("nullable: ${absent} ${present} ${noMap} ${nested.first()}")

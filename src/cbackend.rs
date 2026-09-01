@@ -5355,6 +5355,17 @@ impl CBackend {
                     Type::Int => format!("keal_str_from_int({})", opt_get(&inner, &v)),
                     Type::Float => format!("keal_str_from_float({})", opt_get(&inner, &v)),
                     Type::Bool => format!("keal_str_from_bool({})", opt_get(&inner, &v)),
+                    // A nullable container is a plain pointer, so once the
+                    // absent case is out of the way the renderer for the
+                    // container itself is the one that already exists.
+                    Type::List(elem) => match self.list_show(elem, e.span) {
+                        Some(f) => format!("{}({})", f, v),
+                        None => return "keal_str_empty()".to_string(),
+                    },
+                    Type::Map(kt, vt) => match self.map_show(kt, vt, e.span) {
+                        Some(f) => format!("{}({})", f, v),
+                        None => return "keal_str_empty()".to_string(),
+                    },
                     other => {
                         self.unsupported(
                             e.span,
