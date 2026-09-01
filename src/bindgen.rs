@@ -1,4 +1,5 @@
-//! `keal bindgen header.h` — C prototypes in, `extern funcc` declarations out.
+//! `keal bindgen header.h` — C prototypes in, `extern func`/`extern proc`
+//! declarations out.
 //!
 //! The mapping is deliberately exact: only types whose ABI Keal can promise
 //! are bound — `int64_t`/`long long`, `double`, `bool`, `const char*` as
@@ -339,13 +340,15 @@ fn bind(decl: &str) -> Bound {
         }
     }
 
-    let ret_part = match ret {
-        Some(t) => format!(": {}", t),
-        None => ": Unit".to_string(),
+    // A C function returning `void` is an `extern proc`: the boundary says
+    // what the language says, rather than naming a type for the nothing.
+    let (kw, ret_part) = match ret {
+        Some(t) => ("func", format!(": {}", t)),
+        None => ("proc", String::new()),
     };
     // A generated header binding exists to be imported: the whole file is
     // the boundary someone else is meant to call across.
-    Bound::Fun(format!("public extern func {}({}){}", name, rendered.join(", "), ret_part))
+    Bound::Fun(format!("public extern {} {}({}){}", kw, name, rendered.join(", "), ret_part))
 }
 
 /// The Keal spelling of a C type, `Ok(None)` for `void`, or the reason it

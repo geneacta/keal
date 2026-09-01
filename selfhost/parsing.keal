@@ -339,7 +339,8 @@ package class Parser(val toks: List<Token>) {
             )
             return ItemN("native", t.line, t.col)
         }
-        if (t.kind == "ident" and t.text == "extern" and this.peekAt(1).kind == "func") {
+        if (t.kind == "ident" and t.text == "extern"
+            and (this.peekAt(1).kind == "func" or this.peekAt(1).kind == "proc")) {
             val i = ItemN("extern", t.line, t.col)
             i.externDecl = this.externDecl(vis)
             return i
@@ -755,15 +756,24 @@ package class Parser(val toks: List<Token>) {
         return t
     }
 
+    /// `extern func` names a C function with a result; `extern proc` names
+    /// one that returns `void`. The boundary keeps the distinction the
+    /// language makes on its own side rather than making a `void` function
+    /// claim an `Int` nobody reads.
     func externDecl(vis: String): ExternN {
         val start = this.peek()
         this.advance() // extern
-        this.expect("func", "after `extern`")
+        val returnsValue = this.at("func")
+        if (returnsValue) {
+            this.expect("func", "after `extern`")
+        } else {
+            this.expect("proc", "after `extern`")
+        }
         val name = this.expectIdent("a function name")
         val x = ExternN(name, start.line, start.col)
         x.vis = vis
         x.params = this.paramList()
-        x.ret = this.returnType(true, name)
+        x.ret = this.returnType(returnsValue, name)
         x.symbol = name
         if (this.eat("=")) {
             // The token is consumed before it is judged, so a bad one is

@@ -17,9 +17,9 @@ public extern func count_vowels(text: borrow String): Int
 
 public extern func shout(text: borrow String): own String
 
-public extern func reset(): Unit
+public extern proc reset()
 
-public extern func tick(): Unit
+public extern proc tick()
 
 public extern func vec2_dot(a: Vec2, b: Vec2): Float
 

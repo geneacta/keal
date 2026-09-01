@@ -1,0 +1,45 @@
+// `extern proc`: a C function that returns `void`, declared as one.
+//
+// Before this existed, `extern func` was the only way across, so a C
+// function returning nothing had to claim an `Int` its caller then ignored.
+// One lie per declaration is cheap; thirty of them — which is what a window
+// system's boundary looks like — is a house style.
+//
+// The result is not a value here in any of the three senses that matter: it
+// cannot be bound, it cannot be an argument, and the C backend emits the
+// call as a statement rather than assigning it to a temp.
+
+native """
+#include <stdio.h>
+#include <string.h>
+
+static int64_t sink = 0;
+
+static void kv_note(int64_t n) { sink += n; }
+static void kv_say(const char* s) { printf("C says: %s\n", s); }
+static void kv_reset(void) { sink = 0; }
+static int64_t kv_total(void) { return sink; }
+"""
+
+extern proc note(n: Int) = "kv_note"
+extern proc say(s: borrow String) = "kv_say"
+extern proc reset() = "kv_reset"
+extern func total(): Int = "kv_total"
+
+proc main() {
+    reset()
+    note(1)
+    note(20)
+    note(300)
+    println(total())
+
+    say("hello")
+
+    // A `proc` in the two places a value would be: a branch and a loop body.
+    for (i in 1..3) { note(i) }
+    if (total() > 300) { say("more than three hundred") }
+    println(total())
+
+    reset()
+    println(total())
+}

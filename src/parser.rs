@@ -310,7 +310,9 @@ impl Parser {
                         .with_note("it is passed to the C compiler verbatim")),
                 }
             }
-            Tok::Ident(name) if name == "extern" && matches!(self.peek_at(1), Tok::Fun) => {
+            Tok::Ident(name)
+                if name == "extern" && matches!(self.peek_at(1), Tok::Fun | Tok::Proc) =>
+            {
                 self.extern_decl(vis)
             }
             Tok::Import => {
@@ -404,13 +406,24 @@ impl Parser {
 
     /// `extern func name(params): Ret [= "symbol"]` — a body would be C's
     /// business, so there is none.
+    ///
+    /// `extern proc` is the same declaration for a C function that returns
+    /// `void`. The boundary keeps the distinction the language makes on its
+    /// own side rather than making a `void` function claim an `Int` nobody
+    /// reads: one lie per declaration is one too many, and thirty of them
+    /// is a house style.
     fn extern_decl(&mut self, vis: Vis) -> Result<Item, Diag> {
         let span = self.span();
         self.advance(); // extern
-        self.expect(Tok::Fun, "after `extern`")?;
+        let returns_value = matches!(self.peek(), Tok::Fun);
+        if !returns_value {
+            self.expect(Tok::Proc, "after `extern`")?;
+        } else {
+            self.expect(Tok::Fun, "after `extern`")?;
+        }
         let (name, _) = self.expect_ident("a function name")?;
         let params = self.param_list()?;
-        let ret = self.return_type(true, &name)?;
+        let ret = self.return_type(returns_value, &name)?;
         let symbol = if self.eat(&Tok::Assign) {
             match self.advance().tok {
                 Tok::Str(parts) => match parts.as_slice() {

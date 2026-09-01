@@ -47,6 +47,10 @@ println(hypot3(1.0, 2.0, 2.0))   // 3.0
 * `native "..."` — C pasted verbatim into the generated translation unit.
 * `extern func name(...): Ret [= "symbol"]` — a C symbol made callable, with
   the checker holding callers to the declared signature.
+* `extern proc name(...) [= "symbol"]` — the same for a C function that
+  returns `void`. The boundary keeps the language's own distinction rather
+  than making a `void` function claim a result nobody reads; `keal bindgen`
+  emits it for every `void` prototype it finds.
 * `keal build prog.keal extra.c extra.cpp` — extra C/C++ sources compiled
   and linked in; any C++ among them switches the linker to `c++` so its
   runtime is present. **This is already C++ interop** for anything wrapped

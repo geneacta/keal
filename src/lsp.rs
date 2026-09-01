@@ -648,7 +648,15 @@ impl Index {
                     self.walk_block(&m.body);
                 }
                 Item::Extern(x) => {
-                    self.declare(&x.name, x.span, Some(format!("extern func {}", x.name)), true, 12, 3);
+                    let kw = if x.ret.is_some() { "func" } else { "proc" };
+                    self.declare(
+                        &x.name,
+                        x.span,
+                        Some(format!("extern {} {}", kw, x.name)),
+                        true,
+                        12,
+                        3,
+                    );
                 }
                 Item::Stmt(s) => self.walk_stmt(s, true),
                 Item::Native { .. } | Item::Import { .. } => {}

@@ -148,7 +148,7 @@ follows, and stay ordinary names everywhere else.
 | `macro` | before a name: `macro swap(a, b) { ... }` |
 | `enum` | before a name: `enum Suit { Hearts, Spades }` |
 | `native` | before a string block |
-| `extern` | before `func`: `extern func sqrt(...)` |
+| `extern` | before `func` or `proc`: `extern func sqrt(...)` |
 
 So `val record = 3` is a perfectly good binding, and always will be. The line
 between the two lists is deliberate: a word becomes reserved when reading it
@@ -1764,9 +1764,16 @@ static int64_t triple(int64_t n) { return n * 3; }
 extern func sin(x: Float): Float
 extern func triple(n: Int): Int
 extern func pow(base: Float, exponent: Float): Float = "pow"
+extern proc srand(seed: Int)
 ```
 
 The `= "symbol"` names the C symbol when it differs from the Keal name.
+
+`extern proc` is the boundary's `void`. The distinction the language makes
+between `func` and `proc` is the one C makes between a return type and
+`void`, so the declaration keeps it: a C function that returns nothing is
+declared as returning nothing, rather than claiming an `Int` its caller then
+has to ignore.
 
 Three rules, each there for a reason:
 

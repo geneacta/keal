@@ -282,11 +282,11 @@ fn class_sig(c: &ClassDecl) -> String {
 }
 
 fn extern_sig(x: &ExternDecl) -> String {
-    let ret = match &x.ret {
-        Some(t) => format!(": {}", ty(t)),
-        None => String::new(),
+    let (kw, ret) = match &x.ret {
+        Some(t) => ("func", format!(": {}", ty(t))),
+        None => ("proc", String::new()),
     };
-    format!("extern func {}({}){}", x.name, params(&x.params), ret)
+    format!("extern {} {}({}){}", kw, x.name, params(&x.params), ret)
 }
 
 fn escape(s: &str) -> String {
