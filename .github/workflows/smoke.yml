@@ -1,0 +1,86 @@
+# Runs the PUBLISHED archive, on the platform it was built for.
+#
+# The release workflow tests the compiler it built and then packages it. It
+# never opens the tarball. So the archive a person downloads is an output
+# with no consumer — and on 2026-09-01, when 1.1.0 went out, nobody involved
+# had a Linux machine and the Linux build had been executed by exactly one
+# process: a CI runner that then deleted itself.
+#
+# This downloads what was actually published, extracts it, and asks the
+# binary to run a program and then compile one. It cannot catch everything,
+# but it catches the class where the archive is the broken part rather than
+# the compiler: a missing or misnamed binary, a wrong architecture, a
+# dynamic-link failure, a permission bit lost in the tarball.
+name: smoke
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to smoke-test (must already be published)"
+        required: true
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            asset: keal-macos-arm64.tar.gz
+          - os: macos-15-intel
+            asset: keal-macos-x86_64.tar.gz
+          - os: ubuntu-latest
+            asset: keal-linux-x86_64.tar.gz
+          - os: windows-latest
+            asset: keal-windows-x86_64.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      # For `ci/smoke.keal` and, on Windows, the toolchain script.
+      - uses: actions/checkout@v7
+
+      - name: A C compiler that is not MSVC
+        if: runner.os == 'Windows'
+        shell: bash
+        run: bash ci/windows-toolchain.sh
+
+      - name: Download what was published
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '${{ matrix.asset }}'
+
+      - name: Unpack it the way a person would
+        shell: bash
+        run: |
+          mkdir -p shipped
+          tar -xzf '${{ matrix.asset }}' -C shipped
+          ls -l shipped
+
+      # macOS marks a downloaded file, and a person clearing that flag is
+      # part of the documented install. Doing it here keeps this a test of
+      # the archive rather than of Gatekeeper.
+      - name: Run it
+        shell: bash
+        run: |
+          bin=./shipped/keal
+          [ -x "$bin.exe" ] && bin="$bin.exe"
+          if [ "${{ runner.os }}" = "macOS" ]; then xattr -d com.apple.quarantine "$bin" 2>/dev/null || true; fi
+          chmod +x "$bin" 2>/dev/null || true
+          "$bin" version
+          "$bin" doctor || true
+          "$bin" run ci/smoke.keal
+
+      # And the half a `keal run` cannot reach: the C backend, the embedded
+      # runtime, and the C compiler on this machine.
+      - name: Compile with it
+        shell: bash
+        run: |
+          bin=./shipped/keal
+          [ -x "$bin.exe" ] && bin="$bin.exe"
+          "$bin" build ci/smoke.keal
+          out=./smoke
+          [ -x "$out.exe" ] && out="$out.exe"
+          "$out"

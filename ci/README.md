@@ -24,6 +24,7 @@ there is one copy.
 | workflow | when | what |
 |---|---|---|
 | `check.yml` | every push to `main`, every pull request | the suite and the bootstrap, on **Linux** |
+| `smoke.yml` | a release is published, or by hand with a tag | downloads the PUBLISHED archive on each of the four platforms, unpacks it, and asks that binary to run a program and then compile one |
 | `pages.yml` | every push touching `site/` | publishes to GitHub Pages |
 | `release.yml` | a `v*` tag, or **Actions → release → Run workflow** with a tag | builds for macOS (arm64, x86_64), Linux and Windows, runs the suite and the bootstrap on each, and opens a release with the binaries attached |
 
@@ -43,6 +44,21 @@ Linux is the leg to run per push because it is the one nobody develops on:
 macOS and Windows each have a person watching them. It is also the strictest
 of the three about what a header declares, which is the failure it just
 caught.
+
+### Why `smoke.yml` exists
+
+The release workflow tests the compiler it built and then packages it. It
+never opens the tarball. So the archive a person downloads was an output with
+no consumer — and when 1.1.0 went out, nobody involved had a Linux machine
+and the Linux build had been executed by exactly one process: a CI runner
+that then deleted itself.
+
+It cannot catch everything, and it is not meant to: the suite already asked
+the compiler every question worth asking. What this catches is the class
+where the ARCHIVE is the broken part rather than the compiler — a missing or
+misnamed binary, a wrong architecture, a dynamic-link failure, a permission
+bit lost in the tarball. `ci/smoke.keal` is what it runs, and it asserts
+rather than prints, so a sound release produces `ok` and nothing else.
 
 ## When a runner label goes away
 
