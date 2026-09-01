@@ -4,6 +4,45 @@
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
+## What a first real consumer found (2026-09-01)
+
+A second Claude session is writing **keal-view**, a cross-platform GUI
+framework, in Keal — rasteriser, TrueType parser, glyph engine, layout,
+widgets, all of it Keal, with C left holding the window and a few `static
+inline` accessors. About 2% C by line. It reported six things in a day, and
+the shape of what it found is worth keeping, because it is not the shape a
+compiler's own test suite produces.
+
+Three were backend defects, and all three had the same signature: **the C
+backend describing its own walk order or its own lookup as a limit of the
+language.**
+
+* `b.f(21)` where `f` is a field of function type aborted the process. The
+  zero-argument case was already in the corpus, and it is the one case where
+  the loop that indexes never runs. A test that covers the shape without
+  covering the argument proves nothing about the shape.
+* A local shadowing a global function compiled to a call to the global. The
+  checker had always been right; only the backend read past the binding in
+  scope. The consumer's own diagnosis — that `keal check` let an arity error
+  through — was wrong, and saying so mattered: the fix goes somewhere else
+  entirely, and `keal types` settles it in one line.
+* "Cannot compile capturing `counter`" was not a missing feature. A top-level
+  binding IS a C global the lambda reads directly; the pass that registers it
+  simply ran last. The refusal named a limit that did not exist.
+
+The other three were language requests, answered as language decisions:
+`extern proc`, the bit operators, and the `0x`/`0b` literals that make them
+usable. The consumer proposed the names and the truncation rule and was right
+about both; what it left to this side — how the operators rank — is where the
+work was.
+
+**The lesson to carry:** a refusal is a claim about the language, and a
+backend that refuses in the words of its own internals is making a claim it
+has not checked. Two of the three defects were invisible to the whole suite
+because nothing here writes the kind of program a GUI writes: state at the
+top, a handler beside it, a short name for a local. The corpus tests the
+compiler; it does not test the styles the compiler will meet.
+
 ## Working with a second machine (2026-08-31 / 09-01)
 
 A second Claude session on Tony's Windows box ran alongside this one for two
