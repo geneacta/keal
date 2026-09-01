@@ -6051,6 +6051,10 @@ class CBackend() {
             this.line("const bool ${t} = keal_write_file(${p}, ${c});")
             return t
         }
+        if (name == "runCommand" and args.size == 1) {
+            val v = this.expr(args[0].value)
+            return this.ownTempOf(tyNullable(tyList(Ty("Str"))), "keal_run_command(${v})")
+        }
         if (name == "readLine" and args.size == 0) {
             return this.ownTempOf(tyNullable(Ty("Str")), "keal_read_line()")
         }

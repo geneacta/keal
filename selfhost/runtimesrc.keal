@@ -33,7 +33,11 @@ package func runtimeSource(): String {
 #include <windows.h>
 #else
 #include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/types.h>
 #include <unistd.h>
 #endif
@@ -2524,6 +2528,348 @@ KEAL_FN bool keal_remove_path(KealStr* path) {
     }
     return remove(cpath) == 0;
 }
+
+/* ---- running another program ------------------------------------------- */
+
+/* `runCommand(argv)` — the exit code, the standard output and the standard
+ * error, or NULL when the program could not be STARTED, which is a different
+ * thing from a program that ran and failed. No shell: the list is the
+ * argument vector, so a path with a space in it stays one argument.
+ *
+ * Two things here are not obvious and both were measured rather than
+ * reasoned about. The first is that reading one stream to the end before the
+ * other DEADLOCKS as soon as the child fills the other's pipe buffer — 4096
+ * bytes on Windows, 65536 here — which is not a stress case but any command
+ * that writes a result and a warning. So both streams are drained at once:
+ * `poll` on this side, a thread per stream on the other. The second is that
+ * on Windows the ANSI entry points appear to round-trip UTF-8 perfectly into
+ * the child's own argv while the command line Windows actually built is
+ * mojibake — correct in a test, wrong for any child that reads the wide
+ * command line. So the wide entry points, and a conversion at the boundary.
+ */
+
+/* [exit code, standard output, standard error], the code as text because
+ * that is the shape the interpreters return and the three have to agree. */
+static KealList* keal_run_result(int64_t code, KealBuf* out, KealBuf* err) {
+    char digits[24];
+    snprintf(digits, sizeof digits, "%" PRId64, code);
+    KealList* l = keal_list_new(rel_keal_str_thunk);
+    keal_list_push(l, (KealWord){ .p = keal_str_from_bytes(digits, (int64_t)strlen(digits)) });
+    keal_list_push(l, (KealWord){ .p = keal_str_from_bytes(out->data, out->len) });
+    keal_list_push(l, (KealWord){ .p = keal_str_from_bytes(err->data, err->len) });
+    return l;
+}
+
+#ifdef _WIN32
+
+/* One argument, quoted the way `CommandLineToArgvW` unquotes. Backslashes
+ * are only escapes next to a quote: a run before a literal quote is doubled
+ * and the quote escaped, a run before the CLOSING quote is doubled, and
+ * anything else is left alone. Without the second rule `"C:\dir\"` ends in an
+ * escaped quote, the string never closes, and the next argument is swallowed. */
+static void keal_win_quote(const wchar_t* arg, KealBuf* line) {
+    size_t len = wcslen(arg);
+    bool bare = len > 0;
+    for (size_t i = 0; i < len; i++) {
+        if (arg[i] == L' ' || arg[i] == L'\t' || arg[i] == L'"') {
+            bare = false;
+            break;
+        }
+    }
+    if (bare) {
+        keal_buf_bytes(line, (const char*)arg, (int64_t)(len * sizeof(wchar_t)));
+        return;
+    }
+    wchar_t q = L'"';
+    keal_buf_bytes(line, (const char*)&q, (int64_t)sizeof q);
+    for (size_t i = 0; i < len;) {
+        size_t slashes = 0;
+        while (i < len && arg[i] == L'\\') {
+            slashes++;
+            i++;
+        }
+        wchar_t bs = L'\\';
+        if (i == len) {
+            for (size_t k = 0; k < slashes * 2; k++) {
+                keal_buf_bytes(line, (const char*)&bs, (int64_t)sizeof bs);
+            }
+            break;
+        }
+        if (arg[i] == L'"') {
+            for (size_t k = 0; k < slashes * 2 + 1; k++) {
+                keal_buf_bytes(line, (const char*)&bs, (int64_t)sizeof bs);
+            }
+        } else {
+            for (size_t k = 0; k < slashes; k++) {
+                keal_buf_bytes(line, (const char*)&bs, (int64_t)sizeof bs);
+            }
+        }
+        keal_buf_bytes(line, (const char*)&arg[i], (int64_t)sizeof(wchar_t));
+        i++;
+    }
+    keal_buf_bytes(line, (const char*)&q, (int64_t)sizeof q);
+}
+
+static wchar_t* keal_widen(const char* utf8, int64_t len) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)len, NULL, 0);
+    wchar_t* w = (wchar_t*)malloc(((size_t)n + 1) * sizeof(wchar_t));
+    if (w == NULL) {
+        return NULL;
+    }
+    if (n > 0) {
+        MultiByteToWideChar(CP_UTF8, 0, utf8, (int)len, w, n);
+    }
+    w[n] = L'\0';
+    return w;
+}
+
+typedef struct {
+    HANDLE h;
+    KealBuf buf;
+} KealReader;
+
+static DWORD WINAPI keal_drain(LPVOID arg) {
+    KealReader* r = (KealReader*)arg;
+    char chunk[16384];
+    DWORD got;
+    while (ReadFile(r->h, chunk, sizeof chunk, &got, NULL) && got > 0) {
+        keal_buf_bytes(&r->buf, chunk, (int64_t)got);
+    }
+    return 0;
+}
+
+KEAL_FN KealList* keal_run_command(KealList* argv) {
+    if (argv->len == 0) {
+        return NULL;
+    }
+    /* The command line, as wide characters. The program's path is token
+     * zero even though it is also passed as lpApplicationName: the first
+     * token is consumed as argv[0] regardless, so leaving it out loses an
+     * argument. */
+    KealBuf line;
+    keal_buf_init(&line);
+    wchar_t* app = NULL;
+    for (int64_t i = 0; i < argv->len; i++) {
+        KealStr* a = (KealStr*)argv->data[i].p;
+        wchar_t* w = keal_widen(a->bytes, a->len);
+        if (w == NULL) {
+            free(line.data);
+            free(app);
+            return NULL;
+        }
+        if (i == 0) {
+            app = w;
+            keal_win_quote(w, &line);
+            continue;
+        }
+        wchar_t sp = L' ';
+        keal_buf_bytes(&line, (const char*)&sp, (int64_t)sizeof sp);
+        keal_win_quote(w, &line);
+        free(w);
+    }
+    wchar_t nul = L'\0';
+    keal_buf_bytes(&line, (const char*)&nul, (int64_t)sizeof nul);
+
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof sa;
+    sa.lpSecurityDescriptor = NULL;
+    sa.bInheritHandle = TRUE;
+    HANDLE or_ = NULL, ow = NULL, er = NULL, ew = NULL, nulh = INVALID_HANDLE_VALUE;
+    if (!CreatePipe(&or_, &ow, &sa, 0) || !CreatePipe(&er, &ew, &sa, 0)) {
+        goto fail;
+    }
+    /* The parent's read ends must not be inherited, or the child holds them
+     * open and ReadFile never reaches end of file. */
+    SetHandleInformation(or_, HANDLE_FLAG_INHERIT, 0);
+    SetHandleInformation(er, HANDLE_FLAG_INHERIT, 0);
+    nulh = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                       &sa, OPEN_EXISTING, 0, NULL);
+
+    STARTUPINFOW si;
+    ZeroMemory(&si, sizeof si);
+    si.cb = sizeof si;
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = nulh;
+    si.hStdOutput = ow;
+    si.hStdError = ew;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&pi, sizeof pi);
+    if (!CreateProcessW(app, (wchar_t*)line.bytes, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+        goto fail;
+    }
+    /* And the parent must drop the write ends, or end of file never comes. */
+    CloseHandle(ow);
+    ow = NULL;
+    CloseHandle(ew);
+    ew = NULL;
+    if (nulh != INVALID_HANDLE_VALUE) {
+        CloseHandle(nulh);
+        nulh = INVALID_HANDLE_VALUE;
+    }
+
+    KealReader ro;
+    KealReader re;
+    ro.h = or_;
+    re.h = er;
+    keal_buf_init(&ro.buf);
+    keal_buf_init(&re.buf);
+    HANDLE t1 = CreateThread(NULL, 0, keal_drain, &ro, 0, NULL);
+    HANDLE t2 = CreateThread(NULL, 0, keal_drain, &re, 0, NULL);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    if (t1 != NULL) {
+        WaitForSingleObject(t1, INFINITE);
+        CloseHandle(t1);
+    }
+    if (t2 != NULL) {
+        WaitForSingleObject(t2, INFINITE);
+        CloseHandle(t2);
+    }
+    DWORD code = 0;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    CloseHandle(or_);
+    CloseHandle(er);
+    free(line.data);
+    free(app);
+    KealList* result = keal_run_result((int64_t)(int32_t)code, &ro.buf, &re.buf);
+    free(ro.buf.data);
+    free(re.buf.data);
+    return result;
+
+fail:
+    if (or_) CloseHandle(or_);
+    if (ow) CloseHandle(ow);
+    if (er) CloseHandle(er);
+    if (ew) CloseHandle(ew);
+    if (nulh != INVALID_HANDLE_VALUE) CloseHandle(nulh);
+    free(line.data);
+    free(app);
+    return NULL;
+}
+
+#else
+
+KEAL_FN KealList* keal_run_command(KealList* argv) {
+    if (argv->len == 0) {
+        return NULL;
+    }
+    char** words = (char**)calloc((size_t)argv->len + 1, sizeof(char*));
+    if (words == NULL) {
+        return NULL;
+    }
+    for (int64_t i = 0; i < argv->len; i++) {
+        KealStr* a = (KealStr*)argv->data[i].p;
+        words[i] = (char*)malloc((size_t)a->len + 1);
+        if (words[i] == NULL) {
+            for (int64_t k = 0; k < i; k++) { free(words[k]); }
+            free(words);
+            return NULL;
+        }
+        memcpy(words[i], a->bytes, (size_t)a->len);
+        words[i][a->len] = '\0';
+    }
+
+    int outp[2], errp[2], failp[2];
+    if (pipe(outp) != 0) { goto cleanup_words; }
+    if (pipe(errp) != 0) { close(outp[0]); close(outp[1]); goto cleanup_words; }
+    /* How the child says `exec` failed. Closed automatically when exec
+     * succeeds, so an empty read is success — the same way the interpreters
+     * tell "could not start" from "started and failed". */
+    if (pipe(failp) != 0) {
+        close(outp[0]); close(outp[1]); close(errp[0]); close(errp[1]);
+        goto cleanup_words;
+    }
+    fcntl(failp[1], F_SETFD, FD_CLOEXEC);
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(outp[0]); close(outp[1]); close(errp[0]); close(errp[1]);
+        close(failp[0]); close(failp[1]);
+        goto cleanup_words;
+    }
+    if (pid == 0) {
+        close(outp[0]);
+        close(errp[0]);
+        close(failp[0]);
+        dup2(outp[1], STDOUT_FILENO);
+        dup2(errp[1], STDERR_FILENO);
+        close(outp[1]);
+        close(errp[1]);
+        execvp(words[0], words);
+        int e = errno;
+        ssize_t ignored = write(failp[1], &e, sizeof e);
+        (void)ignored;
+        _exit(127);
+    }
+
+    close(outp[1]);
+    close(errp[1]);
+    close(failp[1]);
+
+    KealBuf out;
+    KealBuf err;
+    keal_buf_init(&out);
+    keal_buf_init(&err);
+    /* Both streams drained together. Taking one to the end first deadlocks
+     * the moment the child fills the other's buffer, which is any command
+     * that writes a result and a warning. */
+    struct pollfd fds[2];
+    fds[0].fd = outp[0];
+    fds[1].fd = errp[0];
+    fds[0].events = fds[1].events = POLLIN;
+    int open_streams = 2;
+    while (open_streams > 0) {
+        fds[0].revents = fds[1].revents = 0;
+        if (poll(fds, 2, -1) < 0) {
+            if (errno == EINTR) { continue; }
+            break;
+        }
+        for (int i = 0; i < 2; i++) {
+            if (fds[i].fd < 0 || fds[i].revents == 0) {
+                continue;
+            }
+            char chunk[16384];
+            ssize_t got = read(fds[i].fd, chunk, sizeof chunk);
+            if (got > 0) {
+                keal_buf_bytes(i == 0 ? &out : &err, chunk, (int64_t)got);
+            } else if (got == 0 || errno != EINTR) {
+                close(fds[i].fd);
+                fds[i].fd = -1;
+                open_streams--;
+            }
+        }
+    }
+
+    int failed = 0;
+    ssize_t got_fail = read(failp[0], &failed, sizeof failed);
+    close(failp[0]);
+
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+    }
+    for (int64_t i = 0; i < argv->len; i++) { free(words[i]); }
+    free(words);
+
+    if (got_fail == (ssize_t)sizeof failed) {
+        /* `exec` never ran the program, so nothing started. */
+        free(out.data);
+        free(err.data);
+        return NULL;
+    }
+    int64_t code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    KealList* result = keal_run_result(code, &out, &err);
+    free(out.data);
+    free(err.data);
+    return result;
+
+cleanup_words:
+    for (int64_t i = 0; i < argv->len; i++) { free(words[i]); }
+    free(words);
+    return NULL;
+}
+
+#endif
 
 /* ---- checked integer arithmetic --------------------------------------- */
 

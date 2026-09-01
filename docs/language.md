@@ -1241,12 +1241,20 @@ if (r.size == 3 and r[0] == "0") { println(r[1]) }
 failed comes back with its exit code. Confusing the two is how a script
 retries the wrong thing.
 
-**The C backend refuses this one by name**, so it runs on the two
-interpreters and a compiled program is told to use them. Capturing two
-pipes without deadlocking is a hundred lines of C on each side of the
-platform line, and this project has been bitten twice by platform code that
-held on one machine; it will arrive when it can be verified on all three
-rather than asserted on one.
+It compiles natively too, and the part of that worth knowing is why it took
+a second pass. Draining one stream to the end before the other **deadlocks**
+the moment the child fills the other stream's pipe buffer — 65536 bytes on
+Unix, and 4096 on Windows, which is not a stress case but any command that
+writes a result and a warning. So both are drained at once: `poll` on Unix, a
+reader thread per stream on Windows.
+
+On Windows the wide entry points are used rather than the ANSI ones, and that
+was measured rather than assumed: the ANSI form appears to round-trip UTF-8
+perfectly into the child's own `argv`, while the command line Windows
+actually built is mojibake — so a child that reads the wide command line, or
+opens an argument as a path, gets a name that is not the one you passed. A
+Keal string is UTF-8, so it is converted at the boundary and quoted by
+`CommandLineToArgvW`'s own rules.
 
 ### Dates and times
 
@@ -1760,8 +1768,8 @@ there is no cycle collector.
 
 Class inheritance (a non-goal) · associated types on traits · generic
 traits · enum variants that carry data · `?.` on a built-in receiver in the
-C backend (refused by name; the interpreters answer `null`) · `runCommand`
-in the C backend · regular expressions · a network stack
+C backend (refused by name; the interpreters answer `null`) · regular
+expressions · a network stack
 (HTTPS needs TLS, which belongs behind the interop boundary rather than
 hand-written in the runtime).
 

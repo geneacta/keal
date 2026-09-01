@@ -6057,6 +6057,13 @@ impl CBackend {
             self.line(format!("const bool {} = keal_write_file({}, {});", t, p, c));
             return t;
         }
+        if name == "runCommand" && args.len() == 1 {
+            let v = self.expr(&args[0].value);
+            return self.own_temp_of(
+                &Type::list(Type::Str).nullable(),
+                format!("keal_run_command({})", v),
+            );
+        }
         if name == "readLine" && args.is_empty() {
             return self.own_temp_of(&Type::Str.nullable(), "keal_read_line()".to_string());
         }

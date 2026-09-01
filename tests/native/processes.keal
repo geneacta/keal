@@ -1,0 +1,38 @@
+// `runCommand` natively. What is PRINTED holds on every platform; what
+// depends on a shell existing is asserted instead, because an assertion that
+// does not run prints nothing and the expected output stays one file.
+
+// Absence, and the distinction that matters: null is "could not be started",
+// which is not the same as a program that ran and failed.
+println("empty vector: ${runCommand([]) == null}")
+println("missing program: ${runCommand(["keal-no-such-program-1234"]) == null}")
+
+if (isFile("/bin/sh")) {
+    val r = runCommand(["/bin/sh", "-c", "echo out; echo err 1>&2; exit 3"]) ?: []
+    assert(r.size == 3, "three parts")
+    assert(r[0] == "3", "the child's exit code, not the shell's: ${r[0]}")
+    assert(lines(r[1]) == ["out"], "standard output: ${r[1]}")
+    assert(lines(r[2]) == ["err"], "standard error, kept apart: ${r[2]}")
+
+    // A program that ran and failed still reports; only a program that never
+    // started is absent.
+    val failed = runCommand(["/bin/sh", "-c", "exit 42"]) ?: []
+    assert(failed[0] == "42", "a failure reports its code")
+
+    // The list is the argument vector, so a space stays inside one argument.
+    // A shell handed a string would split this.
+    val spaced = runCommand(["/bin/sh", "-c", "printf %s \"$1\"", "sh", "a b c"]) ?: []
+    assert(spaced[1] == "a b c", "one argument stayed one: ${spaced[1]}")
+
+    // THE ONE THAT MATTERS. A child writing past the pipe buffer on BOTH
+    // streams. Draining one to the end before the other deadlocks the moment
+    // the child fills the other's buffer — 4096 bytes on Windows, 65536 here
+    // — which is not a stress case but any command that writes a result and a
+    // warning. This wedges forever against a backend that gets it wrong.
+    val flood = "i=0; while [ $" + "i -lt 4000 ]; do echo 0123456789012345678901234567890123456789; echo 9876543210987654321098765432109876543210 1>&2; i=$" + "((i+1)); done; exit 7"
+    val big = runCommand(["/bin/sh", "-c", flood]) ?: []
+    assert(big.size == 3, "the flood came back at all")
+    assert(big[0] == "7", "and with the child's code: ${big[0]}")
+    assert(big[1].length == 164000, "every byte of stdout: ${big[1].length}")
+    assert(big[2].length == 164000, "every byte of stderr: ${big[2].length}")
+}
