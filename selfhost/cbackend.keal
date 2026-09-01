@@ -1450,6 +1450,37 @@ class CBackend() {
         for (item in program.items) {
             if (item.kind == "class") { this.classFunctions(item.classDecl!!) }
         }
+        // Which names the program binds at its top level, known before any
+        // body is emitted.
+        //
+        // A top-level binding becomes a C global that functions and lambdas
+        // read directly. The statement that says so is emitted last, inside
+        // `main`, so until this pass existed a lambda in a function compiled
+        // earlier could not see one — and refused to capture a name that was
+        // in fact a global it needed no capture for. That refusal was the
+        // backend describing the order it happened to walk the program in.
+        for (item in program.items) {
+            if (item.kind == "stmt") {
+                val st = item.stmt!!
+                if (st.kind == "let") {
+                    val init0 = st.init
+                    var declared0: Ty? = null
+                    val ann0 = st.tyEx
+                    if (ann0 != null) {
+                        val before = this.errors.size
+                        declared0 = this.resolvedTy(ann0, st.file, st.line, st.col)
+                        this.truncateErrors(before)
+                    }
+                    this.globalVars[st.name] = true
+                    var ty0: Ty? = declared0
+                    if (ty0 == null and init0 != null) { ty0 = this.ety(init0) }
+                    val ty1 = ty0
+                    if (ty1 != null) {
+                        if (ty1.kind == "Any") { this.anyGlobals[st.name] = true }
+                    }
+                }
+            }
+        }
         for (item in program.items) {
             if (item.kind == "func") { this.function(item.funDecl!!) }
         }

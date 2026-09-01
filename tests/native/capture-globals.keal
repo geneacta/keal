@@ -1,0 +1,65 @@
+// A lambda inside a function reads the program's top-level bindings.
+//
+// It always could — they are C globals, read directly and captured by
+// nothing. What the backend could not do was *know* that yet: the statement
+// that registers a top-level binding is emitted last, inside `main`, and a
+// function compiled before it saw a name it had no record of. It refused,
+// in the words of its own walk order: "capturing `counter`, which this
+// backend cannot see".
+//
+// The style this blocked is the one a declarative interface is written in —
+// a piece of state at the top, a handler that touches it — so the refusal
+// arrived after the whole example was written, `keal check` having been
+// content throughout.
+
+val zoneNone = 0
+val names = ["a", "b", "c"]
+var total = 0
+
+class Counter(var n: Int)
+val counter = Counter(0)
+
+proc bump() {
+    val step = { -> counter.n = counter.n + 1 + zoneNone }
+    step()
+    step()
+}
+
+func kept(): List<String> {
+    // A global reached from inside a higher-order call's lambda.
+    return names.filter({ s -> s != "b" })
+}
+
+proc addAll() {
+    // A top-level `var` written from a lambda: one variable, as the
+    // interpreters' global scope has it.
+    val add = { n: Int -> total = total + n }
+    add(3)
+    add(4)
+}
+
+bump()
+println(counter.n)
+println(kept())
+addAll()
+println(total)
+
+// A lambda held in a field, capturing a global — the shape a button's
+// handler takes.
+class Btn(val label: String, val onClick: () -> Unit)
+val plus = Btn("+1", { -> counter.n = counter.n + 1 })
+plus.onClick()
+println(counter.n)
+println(plus.label)
+
+// A lambda at the top level, where this already worked.
+val shift = { n: Int -> n + zoneNone + 10 }
+println(shift(5))
+
+// Nested: a lambda inside a lambda inside a function.
+proc twice() {
+    val outer = { -> { -> counter.n = counter.n + 100 } }
+    outer()()
+}
+twice()
+println(counter.n)

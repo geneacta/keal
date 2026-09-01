@@ -680,6 +680,26 @@ impl CBackend {
                 self.class_functions(c);
             }
         }
+        // Which names the program binds at its top level, known before any
+        // body is emitted.
+        //
+        // A top-level binding becomes a C global that functions and lambdas
+        // read directly. The statement that says so is emitted last, inside
+        // `main`, so until this pass existed a lambda in a function compiled
+        // earlier could not see one — and refused to capture a name that was
+        // in fact a global it needed no capture for. That refusal was the
+        // backend describing the order it happened to walk the program in.
+        for item in &program.items {
+            let Item::Stmt(s) = item else { continue };
+            let StmtKind::Let { name, ty: ann, init, .. } = &s.kind else { continue };
+            let before = self.errors.len();
+            let declared = ann.as_ref().and_then(|t| self.resolved(t, s.span));
+            self.errors.truncate(before);
+            self.global_vars.insert(name.clone());
+            if declared.or_else(|| self.ety(init)) == Some(Type::Any) {
+                self.any_globals.insert(name.clone());
+            }
+        }
         for item in &program.items {
             match item {
                 Item::Fun(f) => self.function(f),
