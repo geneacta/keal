@@ -990,8 +990,17 @@ fn local_offset(at: i64) -> i64 {
 
 /// `+0200` / `-0530` into seconds. Anything else is zero, because a
 /// half-understood offset is worse than none.
+///
+/// The sign is required, not merely allowed. A C library that answered
+/// `00200` would otherwise be read as `+02:00` by taking the wrong two
+/// digits for the hour, and one that answered `Z` or nothing at all — which
+/// is what `%Z` produces where it has been confused for `%z` — has to fall
+/// through to UTC rather than to a plausible number.
 fn parse_offset(text: &[u8]) -> i64 {
-    if text.len() != 5 || !text[1..].iter().all(|c| c.is_ascii_digit()) {
+    if text.len() != 5
+        || (text[0] != b'+' && text[0] != b'-')
+        || !text[1..].iter().all(|c| c.is_ascii_digit())
+    {
         return 0;
     }
     let sign = if text[0] == b'-' { -1 } else { 1 };

@@ -2167,6 +2167,14 @@ KEAL_FN int64_t keal_local_offset(int64_t at) {
     if (strftime(text, sizeof text, "%z", broken) != 5) {
         return 0;
     }
+    /* The sign is required, not merely allowed: a library answering `00200`
+     * would otherwise be read as `+02:00` off the wrong two digits, and one
+     * answering `Z` or nothing — which is what `%Z` gives where it has been
+     * confused for `%z` — must fall through to UTC rather than to a
+     * plausible number. */
+    if (text[0] != '+' && text[0] != '-') {
+        return 0;
+    }
     for (int i = 1; i < 5; i++) {
         if (text[i] < '0' || text[i] > '9') {
             return 0;
