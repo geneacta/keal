@@ -2,7 +2,7 @@
 
 # Keal — a statically typed language for programs that have to be predictable
 
-**Version 1.0.1** · `keal version` prints the toolchain's own.
+**Version 1.1.0** · `keal version` prints the toolchain's own.
 
 Kotlin's shape over a C-family syntax, compiled to native code, with
 **deterministic destruction and no garbage collector** — and no borrow

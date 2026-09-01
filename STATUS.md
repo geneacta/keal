@@ -1,6 +1,6 @@
 # STATUS — where the work stands, and how to resume it
 
-*Updated: 2026-08-31 (version 1.0.1). This file is the hand-off: if a session dies, the next
+*Updated: 2026-09-01 (version 1.1.0). This file is the hand-off: if a session dies, the next
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
@@ -58,6 +58,50 @@ commit that leaves work in flight.*
   (`examples/interop/java/`). Plan in `docs/interop.md`.
 
 ## IN FLIGHT
+
+**1.1.0 IS TAGGED (2026-09-01).** A day of standard library, and then a day
+of the corpus finding out what the C backend had been getting wrong.
+
+WHAT LANDED, in the order it was asked for:
+* `main` — `proc main()`, `func main(): Int` whose Int is the exit code,
+  either with `argv: List<String>`. Desugared in the LOADER, so all three
+  engines inherit the call and none of them learned the name.
+* The file system: four primitives (`listDir`, `pathKind`, `makeDir`,
+  `removePath`) and four prelude functions over them (`exists`, `isFile`,
+  `isDir`, `walkDir`). Only a system call earns a global, because a global
+  is reserved forever and a prelude function can be shadowed.
+* A calendar, in the prelude and costing NO primitive: `utcAt`, `utcNow`,
+  `localAt`, `localNow`, `DateTime` with its own offset, ISO-8601. Verified
+  against `date -u` across 1900–2100 and against six zones including
+  Chatham (+12:45) and Lord Howe (a thirty-minute daylight step).
+* `runCommand(argv)` — exit code, stdout, stderr, or null for "could not
+  start". Both streams drained at once; draining one first DEADLOCKS at
+  4096 bytes on Windows, which is any command that writes a result and a
+  warning.
+* Twenty-one collection methods and seven globals the C backend refused,
+  found by sweeping every method at once rather than meeting them one at a
+  time. That lesson repeated three times in one day.
+* `lib/regex.keal` — a parser, a compiler to instructions, a backtracking
+  matcher, written in KEAL. All three engines run one source, so there is
+  nothing to keep in step. A library rather than the prelude because the
+  backend emits the whole prelude into every program.
+* Visibility: `private val` and `private macro` were parsed and then
+  DROPPED. See the breaking change below.
+
+THE BREAKING CHANGE, and it is the only one: a top-level `val`/`var` and a
+`macro` now enforce their modifier, for reading and for assigning alike. A
+1.0.x program that read or wrote another file's `private` binding stops
+compiling. Every such program was relying on a modifier that said one thing
+and did nothing, and three of them were in this compiler's own source.
+
+THE CORPUS GOT ITS THIRD CONSUMER, which matters more than any of the above.
+`tests/programs` was run by two engines and compiled by none. Asking the C
+backend about all 33 at once found nine defects in an afternoon — a `return
+this` that never took the reference the caller released, a `weak` release
+freeing its own header underneath itself, a capture analysis where a global
+outranked the local shadowing it, and one TEST that asserted an actor
+interleaving `docs/threads.md` says on purpose not to depend on.
+`programs_compile_and_agree_natively` now compiles and compares every one.
 
 **1.0.1 IS PUBLISHED (2026-08-31).** The overlay is keyed by what the
 filesystem calls a file. The macOS arm64 archive was downloaded and the bug
