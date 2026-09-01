@@ -14,3 +14,6 @@ var secretVar: Int = 1
 public class PublicClass(val hiddenField: Int) {
     func hiddenMethod(): Int { return 1 }
 }
+
+macro secretMacro(x) { x }
+package macro packageMacro(x) { x }

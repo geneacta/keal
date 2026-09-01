@@ -23,3 +23,7 @@ val g = PublicClass(1).hiddenField
 val h = PublicClass(1).hiddenMethod()
 val i = SecretEnum.One
 secretVar = 2
+proc callThem() {
+    secretMacro!(println("x"))
+    packageMacro!(println("x"))
+}

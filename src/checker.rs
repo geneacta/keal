@@ -1917,6 +1917,9 @@ impl Checker {
         if let StmtKind::Expr(e) = &s.kind {
             if let ExprKind::MacroCall { name, args } = &e.kind {
                 let (name, args) = (name.clone(), args.clone());
+                if let Some((vis, home)) = self.macros.declared_at(&name) {
+                    self.check_visible(span, "macro", &name, vis, home);
+                }
                 match self.macros.expand_stmt(&name, &args, span) {
                     Ok(expanded) => *s = expanded,
                     Err(d) => {
@@ -2371,6 +2374,9 @@ impl Checker {
         // that expression takes the call's place before anything types it.
         if let ExprKind::MacroCall { name, args } = &e.kind {
             let (name, args) = (name.clone(), args.clone());
+            if let Some((vis, home)) = self.macros.declared_at(&name) {
+                self.check_visible(span, "macro", &name, vis, home);
+            }
             match self.macros.expand_expr(&name, &args, span) {
                 Ok(expanded) => *e = expanded,
                 Err(d) => {

@@ -84,6 +84,15 @@ impl Macros {
         Macros { by_name: HashMap::new() }
     }
 
+    /// What a macro said about who may call it, and the file that said it.
+    ///
+    /// A macro is spliced before anything types the program, so the checker
+    /// is where the question has to be asked: it is the only part that knows
+    /// which package a file belongs to.
+    pub fn declared_at(&self, name: &str) -> Option<(crate::ast::Vis, u32)> {
+        self.by_name.get(name).map(|m| (m.vis, m.span.file))
+    }
+
     /// Expands one call at **statement** position: the body becomes a block
     /// of its own, so what it binds does not reach the caller.
     pub fn expand_stmt(&self, name: &str, args: &[Expr], span: Span) -> Result<Stmt, Diag> {

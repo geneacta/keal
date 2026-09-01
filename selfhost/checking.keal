@@ -2120,6 +2120,12 @@ package class Checker() {
         // program would have had if it had been written out.
         if (s.kind == "expr" and s.ex!!.kind == "macrocall") {
             val call = s.ex!!
+            val mHome = this.macros.declaredHome(call.text)
+            if (mHome >= 0) {
+                var mv = this.macros.declaredVis(call.text)
+                if (mv == "") { mv = "private" }
+                this.checkVisible(s.file, s.line, s.col, "macro", call.text, mv, mHome)
+            }
             val out = this.macros.expandStmt(call.text, call.kids, s.file, s.line, s.col)
             if (out.block == null) {
                 this.reportMacro(s.file, out)
@@ -2536,6 +2542,12 @@ package class Checker() {
         // Where a value is wanted, a macro has to be one expression, and
         // that expression takes the call's place before anything types it.
         if (e.kind == "macrocall") {
+            val mHome = this.macros.declaredHome(e.text)
+            if (mHome >= 0) {
+                var mv = this.macros.declaredVis(e.text)
+                if (mv == "") { mv = "private" }
+                this.checkVisible(e.file, e.line, e.col, "macro", e.text, mv, mHome)
+            }
             val out = this.macros.expandExpr(e.text, e.kids, e.file, e.line, e.col)
             if (out.block == null) {
                 this.reportMacro(e.file, out)

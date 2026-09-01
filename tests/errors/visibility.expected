@@ -58,4 +58,16 @@ error: binding `secretVar` is private to tests/errors/visibility/shared.keal
 25 | secretVar = 2
    | ^
   = note: declare it `public` there, or `package` to share it with the files beside it
-10 errors found
+error: macro `secretMacro` is private to tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:27:5
+   |
+27 |     secretMacro!(println("x"))
+   |     ^
+  = note: declare it `public` there, or `package` to share it with the files beside it
+error: macro `packageMacro` belongs to the package around tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:28:5
+   |
+28 |     packageMacro!(println("x"))
+   |     ^
+  = note: declare it `public` there to let another package name it
+12 errors found

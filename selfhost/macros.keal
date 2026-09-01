@@ -55,6 +55,23 @@ package func mFail(atLine: Int, atCol: Int, msg: String, note: String): MOut {
 
 package class Macros(package val byName: Map<String, MacroN>) {
 
+    /// What a macro said about who may call it, and the file that said it.
+    ///
+    /// A macro is spliced before anything types the program, so the checker
+    /// is where the question has to be asked: it is the only part that knows
+    /// which package a file belongs to. `-1` for a name no macro claims.
+    package func declaredVis(name: String): String {
+        val m = this.byName[name]
+        if (m == null) { return "" }
+        return m.vis
+    }
+
+    package func declaredHome(name: String): Int {
+        val m = this.byName[name]
+        if (m == null) { return -1 }
+        return m.file
+    }
+
     /// The body with the arguments in place of the parameters, expanded all
     /// the way down.
     package func bodyFor(name: String, args: List<Ex>, file: Int, atLine: Int, atCol: Int, depth: Int): MOut {
