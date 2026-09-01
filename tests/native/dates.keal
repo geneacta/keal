@@ -1,0 +1,8 @@
+// The calendar, natively: the same arithmetic, over fixed moments so the
+// output is the same on every machine and in every year.
+for (t in [0, 951782400, 1788247767, -2208988800]) {
+    val d = utcAt(t)
+    println("${d.iso()} ${weekdayName(d.weekday)} ${monthName(d.month)} back=${d.epochSeconds()}")
+}
+// And that the clock is there, without printing a moment that would differ.
+println("clock: ${time() > 1700000000.0}")

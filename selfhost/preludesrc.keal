@@ -624,6 +624,128 @@ public func lines(s: String): List<String> {
     return text.split("\n")
 }
 
+// ---- dates and times ---------------------------------------------------
+//
+// Not one new primitive: `time()` already gives the seconds since the epoch,
+// and a calendar is arithmetic. Written here rather than in the runtime, so
+// all three engines get it by getting the prelude, and a program that wants
+// a calendar of its own can read this one and write another.
+//
+// UTC only, and deliberately. A local time means asking the operating system
+// what its offset is, and the only portable way through C reads `struct tm`,
+// whose field order the C standard does not fix. A timestamp that is wrong
+// by an hour on one platform is worse than one that is honestly UTC on all
+// of them.
+
+/// A moment, in the pieces a person reads. UTC.
+public record DateTime(
+    val year: Int, val month: Int, val day: Int,
+    val hour: Int, val minute: Int, val second: Int,
+    /// 0 is Sunday, as C's `tm_wday` has it.
+    val weekday: Int
+) {
+    /// ISO 8601, to the second: `2026-09-01T14:23:05Z`. The `Z` is not
+    /// decoration — it is the claim that this is UTC, and it is true.
+    public func iso(): String {
+        return "${this.date()}T${this.clock()}Z"
+    }
+
+    /// `2026-09-01`
+    public func date(): String {
+        return "${padStart("${this.year}", 4, "0")}-${twoDigits(this.month)}-${twoDigits(this.day)}"
+    }
+
+    /// `14:23:05`
+    public func clock(): String {
+        return "${twoDigits(this.hour)}:${twoDigits(this.minute)}:${twoDigits(this.second)}"
+    }
+
+    public func toString(): String { return this.iso() }
+
+    /// Back to seconds since the epoch, so a moment can make a round trip.
+    public func epochSeconds(): Int {
+        val days = daysFromCivil(this.year, this.month, this.day)
+        return days * 86400 + this.hour * 3600 + this.minute * 60 + this.second
+    }
+}
+
+func twoDigits(n: Int): String { return padStart("${n}", 2, "0") }
+
+/// Floor division, which is what a calendar needs: Keal's `/` truncates
+/// toward zero, and a moment before 1970 would land on the wrong day.
+func floorDiv(a: Int, b: Int): Int {
+    var q = a / b
+    if (a % b != 0 and ((a < 0) != (b < 0))) { q = q - 1 }
+    return q
+}
+
+func floorMod(a: Int, b: Int): Int { return a - floorDiv(a, b) * b }
+
+/// The moment `seconds` after the Unix epoch, in UTC.
+///
+/// The calendar arithmetic is Howard Hinnant's `civil_from_days`, which is
+/// exact for every year a 64-bit count of seconds can reach, and has no
+/// table and no leap-second fudge in it.
+public func utcAt(seconds: Int): DateTime {
+    val days = floorDiv(seconds, 86400)
+    val rest = floorMod(seconds, 86400)
+
+    val z = days + 719468
+    val era = floorDiv(z, 146097)
+    val doe = z - era * 146097
+    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    val mp = (5 * doy + 2) / 153
+    val d = doy - (153 * mp + 2) / 5 + 1
+    var m = mp + 3
+    if (mp >= 10) { m = mp - 9 }
+    var y = yoe + era * 400
+    if (m <= 2) { y = y + 1 }
+
+    // 1970-01-01 was a Thursday, which is 4 with Sunday at 0.
+    val weekday = floorMod(days + 4, 7)
+    return DateTime(y, m, d, rest / 3600, (rest / 60) % 60, rest % 60, weekday)
+}
+
+/// The inverse: the day number for a civil date. Hinnant's
+/// `days_from_civil`, and the exact undoing of the one above.
+public func daysFromCivil(year: Int, month: Int, day: Int): Int {
+    var y = year
+    if (month <= 2) { y = y - 1 }
+    val era = floorDiv(y, 400)
+    val yoe = y - era * 400
+    var mp = month - 3
+    if (month <= 2) { mp = month + 9 }
+    val doy = (153 * mp + 2) / 5 + day - 1
+    val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+    return era * 146097 + doe - 719468
+}
+
+/// The moment this is called, in UTC.
+public func utcNow(): DateTime { return utcAt(time().toInt()) }
+
+/// The names, for a program that wants to print one. January is 1, and
+/// Sunday is 0, so both are indexed the way the fields are numbered.
+public func monthName(month: Int): String {
+    val names = ["", "January", "February", "March", "April", "May", "June",
+                 "July", "August", "September", "October", "November", "December"]
+    if (month < 1 or month > 12) { return "?" }
+    return names[month]
+}
+
+public func weekdayName(weekday: Int): String {
+    val names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday",
+                 "Friday", "Saturday"]
+    if (weekday < 0 or weekday > 6) { return "?" }
+    return names[weekday]
+}
+
+/// Whether a year has a 29th of February, by the rule the calendar above
+/// already obeys.
+public func isLeapYear(year: Int): Bool {
+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+}
+
 // ---- the file system ---------------------------------------------------
 //
 // Written over the four primitives — `listDir`, `pathKind`, `makeDir` and

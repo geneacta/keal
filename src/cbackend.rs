@@ -5668,6 +5668,11 @@ impl CBackend {
                 format!("keal_read_file({})", p),
             );
         }
+        if name == "time" && args.is_empty() {
+            let t = self.temp();
+            self.line(format!("const double {} = keal_time();", t));
+            return t;
+        }
         if name == "listDir" && args.len() == 1 {
             let p = self.expr(&args[0].value);
             return self.own_temp_of(

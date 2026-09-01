@@ -1,0 +1,65 @@
+// The calendar: no primitive at all, only arithmetic over `time()`.
+//
+// Every expected value below was taken from `date -u -r <seconds>` rather
+// than from this code, so the test compares Keal against the operating
+// system's calendar and not against itself.
+
+// seconds, year, month, day, hour, minute, second, weekday (0 = Sunday)
+val known = [
+    [0, 1970, 1, 1, 0, 0, 0, 4],                  // the epoch, a Thursday
+    [1, 1970, 1, 1, 0, 0, 1, 4],
+    [86399, 1970, 1, 1, 23, 59, 59, 4],           // the last second of it
+    [86400, 1970, 1, 2, 0, 0, 0, 5],
+    [951782400, 2000, 2, 29, 0, 0, 0, 2],         // a leap day 400 years lets through
+    [1000000000, 2001, 9, 9, 1, 46, 40, 0],
+    [1788247767, 2026, 9, 1, 7, 29, 27, 2],
+    [2147483647, 2038, 1, 19, 3, 14, 7, 2],       // where a 32-bit count would stop
+    [4102444800, 2100, 1, 1, 0, 0, 0, 5],         // a century that is not a leap year
+    [-1, 1969, 12, 31, 23, 59, 59, 3],            // before the epoch
+    [-86400, 1969, 12, 31, 0, 0, 0, 3],
+    [-2208988800, 1900, 1, 1, 0, 0, 0, 1],        // and well before it
+]
+
+for (k in known) {
+    val d = utcAt(k[0])
+    assert(d.year == k[1], "year of ${k[0]}: ${d.year}")
+    assert(d.month == k[2], "month of ${k[0]}: ${d.month}")
+    assert(d.day == k[3], "day of ${k[0]}: ${d.day}")
+    assert(d.hour == k[4], "hour of ${k[0]}: ${d.hour}")
+    assert(d.minute == k[5], "minute of ${k[0]}: ${d.minute}")
+    assert(d.second == k[6], "second of ${k[0]}: ${d.second}")
+    assert(d.weekday == k[7], "weekday of ${k[0]}: ${d.weekday}")
+    // And back again: the two halves of the calendar undo each other.
+    assert(d.epochSeconds() == k[0], "round trip of ${k[0]}: ${d.epochSeconds()}")
+}
+
+// Every day of a leap year and of the year after it, one step at a time:
+// the day only ever moves forward by one, and the weekday cycles.
+var at = daysFromCivil(2024, 1, 1) * 86400
+var seen = 0
+var lastWeekday = utcAt(at).weekday
+while (seen < 731) {
+    val d = utcAt(at)
+    assert(d.epochSeconds() == at, "midnight round trips on day ${seen}")
+    if (seen > 0) {
+        assert(d.weekday == (lastWeekday + 1) % 7, "the weekday advanced by one")
+    }
+    lastWeekday = d.weekday
+    at = at + 86400
+    seen = seen + 1
+}
+// 2024 was a leap year, 2025 was not, so 731 days lands on 2026-01-01.
+val end = utcAt(at)
+assert(end.year == 2026 and end.month == 1 and end.day == 1, "landed on ${end.date()}")
+
+assert(isLeapYear(2000) and !isLeapYear(1900) and isLeapYear(2024) and !isLeapYear(2023),
+    "the leap rule")
+assert(utcAt(0).iso() == "1970-01-01T00:00:00Z", "ISO 8601, zero-padded: ${utcAt(0).iso()}")
+assert(utcAt(1788247767).iso() == "2026-09-01T07:29:27Z", "and a later one")
+assert("${utcAt(0)}" == "1970-01-01T00:00:00Z", "a DateTime prints as its ISO form")
+assert(weekdayName(utcAt(0).weekday) == "Thursday", "the epoch was a Thursday")
+assert(monthName(2) == "February" and monthName(13) == "?", "month names")
+
+// Two moments built the same way are the same moment: a record compares by
+// its fields, which a class would not.
+assert(utcAt(42) == utcAt(42), "records compare by value")

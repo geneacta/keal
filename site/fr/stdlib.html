@@ -72,6 +72,16 @@
 <a href="#the-standard-library-padStart"><span class="k k-func">func</span>padStart</a>
 <a href="#the-standard-library-padEnd"><span class="k k-func">func</span>padEnd</a>
 <a href="#the-standard-library-lines"><span class="k k-func">func</span>lines</a>
+<a href="#the-standard-library-DateTime"><span class="k k-record">record</span>DateTime</a>
+<a href="#the-standard-library-twoDigits"><span class="k k-func">func</span>twoDigits</a>
+<a href="#the-standard-library-floorDiv"><span class="k k-func">func</span>floorDiv</a>
+<a href="#the-standard-library-floorMod"><span class="k k-func">func</span>floorMod</a>
+<a href="#the-standard-library-utcAt"><span class="k k-func">func</span>utcAt</a>
+<a href="#the-standard-library-daysFromCivil"><span class="k k-func">func</span>daysFromCivil</a>
+<a href="#the-standard-library-utcNow"><span class="k k-func">func</span>utcNow</a>
+<a href="#the-standard-library-monthName"><span class="k k-func">func</span>monthName</a>
+<a href="#the-standard-library-weekdayName"><span class="k k-func">func</span>weekdayName</a>
+<a href="#the-standard-library-isLeapYear"><span class="k k-func">func</span>isLeapYear</a>
 <a href="#the-standard-library-exists"><span class="k k-func">func</span>exists</a>
 <a href="#the-standard-library-isFile"><span class="k k-func">func</span>isFile</a>
 <a href="#the-standard-library-isDir"><span class="k k-func">func</span>isDir</a>
@@ -357,6 +367,69 @@ already that wide comes back unchanged — padding never truncates.</p>
 <p>The lines of <code>s</code>, without their newlines. A trailing newline does not
 make a last empty line — a file ending in one has as many lines as it
 looks like it has.</p>
+</section>
+<section id="the-standard-library-DateTime">
+<pre class="sig">record DateTime(val year: Int, val month: Int, val day: Int, val hour: Int, val minute: Int, val second: Int, val weekday: Int)</pre>
+<p>A moment, in the pieces a person reads. UTC.</p>
+<div class="members">
+<pre class="sig m">val year: Int</pre>
+<pre class="sig m">val month: Int</pre>
+<pre class="sig m">val day: Int</pre>
+<pre class="sig m">val hour: Int</pre>
+<pre class="sig m">val minute: Int</pre>
+<pre class="sig m">val second: Int</pre>
+<pre class="sig m">val weekday: Int</pre>
+<pre class="sig m">func iso(): String</pre>
+<p>ISO 8601, to the second: <code>2026-09-01T14:23:05Z</code>. The <code>Z</code> is not
+decoration — it is the claim that this is UTC, and it is true.</p>
+<pre class="sig m">func date(): String</pre>
+<p><code>2026-09-01</code></p>
+<pre class="sig m">func clock(): String</pre>
+<p><code>14:23:05</code></p>
+<pre class="sig m">func toString(): String</pre>
+<pre class="sig m">func epochSeconds(): Int</pre>
+<p>Back to seconds since the epoch, so a moment can make a round trip.</p>
+</div>
+</section>
+<section id="the-standard-library-twoDigits">
+<pre class="sig">func twoDigits(n: Int): String</pre>
+</section>
+<section id="the-standard-library-floorDiv">
+<pre class="sig">func floorDiv(a: Int, b: Int): Int</pre>
+<p>Floor division, which is what a calendar needs: Keal's <code>/</code> truncates
+toward zero, and a moment before 1970 would land on the wrong day.</p>
+</section>
+<section id="the-standard-library-floorMod">
+<pre class="sig">func floorMod(a: Int, b: Int): Int</pre>
+</section>
+<section id="the-standard-library-utcAt">
+<pre class="sig">func utcAt(seconds: Int): DateTime</pre>
+<p>The moment <code>seconds</code> after the Unix epoch, in UTC.</p>
+<p>The calendar arithmetic is Howard Hinnant's <code>civil_from_days</code>, which is
+exact for every year a 64-bit count of seconds can reach, and has no
+table and no leap-second fudge in it.</p>
+</section>
+<section id="the-standard-library-daysFromCivil">
+<pre class="sig">func daysFromCivil(year: Int, month: Int, day: Int): Int</pre>
+<p>The inverse: the day number for a civil date. Hinnant's
+<code>days_from_civil</code>, and the exact undoing of the one above.</p>
+</section>
+<section id="the-standard-library-utcNow">
+<pre class="sig">func utcNow(): DateTime</pre>
+<p>The moment this is called, in UTC.</p>
+</section>
+<section id="the-standard-library-monthName">
+<pre class="sig">func monthName(month: Int): String</pre>
+<p>The names, for a program that wants to print one. January is 1, and
+Sunday is 0, so both are indexed the way the fields are numbered.</p>
+</section>
+<section id="the-standard-library-weekdayName">
+<pre class="sig">func weekdayName(weekday: Int): String</pre>
+</section>
+<section id="the-standard-library-isLeapYear">
+<pre class="sig">func isLeapYear(year: Int): Bool</pre>
+<p>Whether a year has a 29th of February, by the rule the calendar above
+already obeys.</p>
 </section>
 <section id="the-standard-library-exists">
 <pre class="sig">func exists(path: String): Bool</pre>

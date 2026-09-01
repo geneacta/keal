@@ -1213,7 +1213,7 @@ everything, because a standard library is nothing but its public surface.
 | `floor(x)` `ceil(x)` `round(x)` | `Float` to `Int` |
 | `random(): Float` | in `[0, 1)` |
 | `randomInt(min, max): Int` | in `[min, max)` |
-| `time(): Float` | seconds since the Unix epoch |
+| `time(): Float` | seconds since the Unix epoch, UTC |
 | `distinct(xs)` | the values of `xs`, duplicates dropped, first kept |
 | `zip(a, b): List<Tuple2<A, B>>` | pairs off two lists, stopping at the shorter |
 | `partition(xs, keep): Tuple2<List<T>, List<T>>` | what passes the test and what does not, in one pass |
@@ -1221,6 +1221,42 @@ everything, because a standard library is nothing but its public surface.
 | `padStart(s, width, pad)` `padEnd(...)` | pad to a width; never truncates |
 | `lines(s): List<String>` | the lines, without their newlines |
 | `setOf(xs)` `dequeOf(xs)` | the two collections below, from a list |
+
+### Dates and times
+
+`time(): Float` is seconds since the Unix epoch, and a calendar is written
+over it in the prelude — no primitive of its own, so a program that wants a
+different calendar can read this one and write another.
+
+| | |
+|---|---|
+| `utcAt(seconds: Int): DateTime` | a moment, broken into pieces |
+| `utcNow(): DateTime` | this moment |
+| `daysFromCivil(year, month, day): Int` | the inverse, exactly |
+| `monthName(m)` `weekdayName(w)` | January is 1, Sunday is 0 |
+| `isLeapYear(year): Bool` | |
+
+`DateTime` is a record — so two moments built the same way are equal — with
+`year`, `month`, `day`, `hour`, `minute`, `second` and `weekday` (0 is
+Sunday), and:
+
+| | |
+|---|---|
+| `iso()` | `2026-09-01T07:29:27Z` |
+| `date()` `clock()` | `2026-09-01` and `07:29:27` |
+| `epochSeconds()` | back to where it came from |
+
+```keal
+println(utcNow().iso())                  // 2026-09-01T07:29:27Z
+println(utcAt(0).date())                 // 1970-01-01
+```
+
+**UTC only, and on purpose.** A local time means asking the operating system
+for its offset, and the portable way through C reads `struct tm`, whose
+field order the C standard does not fix. A timestamp wrong by an hour on one
+platform is worse than one that is honestly UTC on all of them, so the `Z`
+in `iso()` is a claim that is true rather than a decoration. Local time is a
+gap, and it is named as one in §20.
 
 ### Files and directories
 
@@ -1686,7 +1722,10 @@ there is no cycle collector.
 ## 20. What is not here yet
 
 Class inheritance (a non-goal) · associated types on traits · generic
-traits · enum variants that carry data.
+traits · enum variants that carry data · local time and time zones (§14
+says why UTC is what there is) · regular expressions · a network stack
+(HTTPS needs TLS, which belongs behind the interop boundary rather than
+hand-written in the runtime).
 
 Shipped since this list was first written, and no longer on it: `throw` /
 `try` / `catch` on all three engines — typed clauses included, natively —

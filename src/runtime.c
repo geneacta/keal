@@ -18,6 +18,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <time.h>
+
 /* What the file-system primitives need, on both sides of the platform line.
  * Unconditional: a program reads a directory whether or not it has actors,
  * and `windows.h` guards itself against the copy the actor block includes. */
@@ -2104,6 +2106,30 @@ KEAL_FN bool keal_write_file(KealStr* path, KealStr* content) {
     size_t wrote = fwrite(content->bytes, 1, (size_t)content->len, f);
     int closed = fclose(f);
     return wrote == (size_t)content->len && closed == 0;
+}
+
+/* ---- the clock --------------------------------------------------------- */
+
+/* Seconds since the Unix epoch, with whatever fraction the platform keeps —
+ * the same number `SystemTime::now()` gives the two interpreters. UTC, and
+ * only UTC: the prelude's calendar is written over this, and a local time
+ * would mean reading `struct tm`, whose field order C does not fix. */
+KEAL_FN double keal_time(void) {
+#ifdef _WIN32
+    /* 100-nanosecond ticks since 1601-01-01, which is 11644473600 seconds
+     * before the Unix epoch. */
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    unsigned long long ticks =
+        ((unsigned long long)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    return (double)ticks / 10000000.0 - 11644473600.0;
+#else
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) {
+        return 0.0;
+    }
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
+#endif
 }
 
 /* ---- the file system --------------------------------------------------- */

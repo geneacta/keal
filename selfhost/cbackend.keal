@@ -5727,6 +5727,11 @@ class CBackend() {
             val p = this.expr(args[0].value)
             return this.ownTempOf(tyNullable(Ty("Str")), "keal_read_file(${p})")
         }
+        if (name == "time" and args.size == 0) {
+            val t = this.temp()
+            this.line("const double ${t} = keal_time();")
+            return t
+        }
         if (name == "listDir" and args.size == 1) {
             val p = this.expr(args[0].value)
             return this.ownTempOf(tyNullable(tyList(Ty("Str"))), "keal_list_dir(${p})")
