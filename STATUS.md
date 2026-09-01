@@ -59,7 +59,30 @@ commit that leaves work in flight.*
 
 ## IN FLIGHT
 
-**1.1.0 IS TAGGED (2026-09-01).** A day of standard library, and then a day
+**1.1.0 IS PUBLISHED (2026-09-01).**
+https://github.com/geneacta/keal/releases/tag/v1.1.0 — four archives, all
+four legs green at 45 tests each, marked Latest. The macOS arm64 archive was
+downloaded and the release's own new features replayed against the SHIPPED
+binary before this line was written: regex, `utcAt`, `localOffset`,
+`makeDir`/`isDir`/`listDir`, `runCommand`, and `reversed`/`sum`/`first` —
+run and then COMPILED by that binary, identical output both ways.
+
+THE TAG MOVED ONCE, and only because the first one was a wrong answer. Its
+Linux leg failed twelve tests: `keal build` compiles with `-std=c11`, which
+makes glibc withhold the POSIX half of `<time.h>`, while Apple's headers
+declare it regardless. `clock_gettime` and `localtime_r` had been broken on
+Linux since the morning and nothing asked, because the four-platform suite
+runs only on a tag. Nothing pointed at the tag — the release had not opened —
+so it moved. See `ci/check.yml`, which is the fix for the class rather than
+the instance and is waiting to be installed.
+
+WHAT A GREEN LINUX LEG PROVES, and what it does not: that `-std=c11` plus
+`_POSIX_C_SOURCE 200809L` works on ubuntu-latest's glibc. NOT that the audit
+of "every libc function this runtime calls is ISO C or POSIX.1-2008" was
+complete — 37 names checked by hand, and a missed one would show only on a
+libc that withholds it. musl would be the second reading and nobody has one.
+
+**1.1.0 WAS TAGGED (2026-09-01).** A day of standard library, and then a day
 of the corpus finding out what the C backend had been getting wrong.
 
 WHAT LANDED, in the order it was asked for:
