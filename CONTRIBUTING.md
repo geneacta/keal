@@ -93,22 +93,30 @@ error, just a fact `cargo test --release` settles.
    `std::io::Error`'s text: it is the operating system's sentence, in the
    operating system's language.
 
-8. **A symmetric error cancels, and the test reports success.** When the
-   same code both writes and reads, a mistake made in one direction is
-   undone in the other and the round trip agrees with itself — so the test
-   passes and says nothing. The file system primitives spent a release
-   writing UTF-8 path names through Windows' ANSI entry points: a program
-   that made a directory called `日本` listed `日本` back, while what sat on
-   disk was `æ—¥æœ¬` and no other tool on the machine could open it. Every
-   test written in Keal agreed with the bug. Reading the disk from outside
-   the program is what found it.
-   So a round trip is not evidence on its own. Where the same code is on
-   both ends, one end has to be something else: a file another program
-   wrote, a listing another tool produced, bytes read by something that
-   does not share the assumption. `runCommand` makes that reachable from
-   inside the corpus — `tests/programs/filesystem.keal` has a shell create
-   the directory and asks `listDir` what it sees. There are usually few
-   such places, and they are worth finding on purpose.
+8. **An output is witnessed when something CONSUMES it.** Of every
+   generated artefact the question is not "is there a test" but "what uses
+   this". A snapshot on its own attests that an output has not changed; it
+   never attests that the output was ever right, so a thing that has always
+   been wrong keeps a green test and a stable snapshot to go with it.
+   The reason to care is that a symmetric error CANCELS. When the same code
+   both writes and reads, a mistake made one way is undone the other, the
+   round trip agrees with itself, and the test does not merely miss the bug
+   — it reports success. The file-system primitives spent a release writing
+   UTF-8 path names through Windows' ANSI entry points: a program that made
+   a directory called `日本` listed `日本` back, while what sat on disk was
+   `æ—¥æœ¬` and no other tool on the machine could open it. Every test
+   written in Keal agreed with the bug.
+   So: where the same code is on both ends, put something else on one of
+   them. `tests/programs/filesystem.keal` has a shell create the directory
+   and asks `listDir` what it sees — `runCommand` is what made an outside
+   witness reachable from inside the corpus. `kealdoc_matches_snapshot`
+   compares bytes and then READS the page back, checking its tags balance
+   and that a doc comment's `<` arrived escaped; breaking the generator and
+   updating the snapshot to match is caught by the second half and not the
+   first. Most snapshots here are already witnessed without anyone planning
+   it — the diagnostics are compared against the self-hosted compiler too,
+   the bindings are compiled and run, the layouts are used by native
+   programs that would crash on a wrong one. Look for the ones that are not.
 
 9. **Say it plainly.** Diagnostics explain and suggest (`-- note:` with
    the fix). Comments state constraints, not narration. Costs and limits

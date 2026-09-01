@@ -19,3 +19,10 @@ trait Reportable {
     /// A one-line summary, derived from `report` unless overridden.
     func summary(): String { return this.report() }
 }
+
+/// A doc comment carrying characters HTML cares about: 1 < 2 && 3 > 2, an
+/// ampersand & on its own, and a tag-shaped thing, <script>alert("x")</script>.
+///
+/// These are here so the page has something to get wrong. A snapshot alone
+/// would keep a mangled page stable forever; the test reads the page back.
+public func escaping(a: Int, b: Int): Bool { return a < b }

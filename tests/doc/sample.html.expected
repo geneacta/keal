@@ -51,6 +51,7 @@ footer { margin-top: 64px; color: var(--dim); font-size: 13px;
 <a href="#tests-doc-sample-keal-grade"><span class="k k-func">func</span>grade</a>
 <a href="#tests-doc-sample-keal-Measure"><span class="k k-record">record</span>Measure</a>
 <a href="#tests-doc-sample-keal-Reportable"><span class="k k-trait">trait</span>Reportable</a>
+<a href="#tests-doc-sample-keal-escaping"><span class="k k-func">func</span>escaping</a>
 </nav>
 <main>
 <h1>Keal — tests/doc/sample.keal</h1>
@@ -79,6 +80,13 @@ footer { margin-top: 64px; color: var(--dim); font-size: 13px;
 <pre class="sig m">func summary(): String  (default)</pre>
 <p>A one-line summary, derived from <code>report</code> unless overridden.</p>
 </div>
+</section>
+<section id="tests-doc-sample-keal-escaping">
+<pre class="sig">func escaping(a: Int, b: Int): Bool</pre>
+<p>A doc comment carrying characters HTML cares about: 1 &lt; 2 &amp;&amp; 3 &gt; 2, an
+ampersand &amp; on its own, and a tag-shaped thing, &lt;script&gt;alert("x")&lt;/script&gt;.</p>
+<p>These are here so the page has something to get wrong. A snapshot alone
+would keep a mangled page stable forever; the test reads the page back.</p>
 </section>
 <footer>keal doc</footer>
 </main>

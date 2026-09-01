@@ -2229,6 +2229,63 @@ fn kealdoc_matches_snapshot() {
     let expected = std::fs::read_to_string(&expected_path)
         .expect("missing snapshot; run UPDATE_EXPECT=1 cargo test");
     assert_eq!(expected, out.stdout, "the generated documentation changed");
+
+    // And then something READS it, which the comparison above does not.
+    //
+    // A snapshot on its own attests that an output has not changed, never
+    // that it was ever right: nothing else in this suite consumed this page,
+    // so a template that had always been malformed would have a green test
+    // and a stable snapshot to go with it. This is the same shape as the
+    // file-system defect that CONTRIBUTING rule 8 records, and the remedy is
+    // the same one — put a consumer on the other end.
+    let doc = &out.stdout;
+    let void = ["area", "base", "br", "col", "embed", "hr", "img", "input",
+                "link", "meta", "source", "track", "wbr", "!doctype"];
+    let mut open: Vec<String> = Vec::new();
+    let mut rest = doc.as_str();
+    while let Some(lt) = rest.find('<') {
+        rest = &rest[lt + 1..];
+        let Some(gt) = rest.find('>') else { break };
+        let tag = &rest[..gt];
+        rest = &rest[gt + 1..];
+        if tag.starts_with("!--") {
+            continue;
+        }
+        let closing = tag.starts_with('/');
+        let name = tag
+            .trim_start_matches('/')
+            .split(|c: char| c.is_whitespace() || c == '/')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if name.is_empty() {
+            continue;
+        }
+        if closing {
+            let was = open.pop();
+            assert_eq!(
+                was.as_deref(),
+                Some(name.as_str()),
+                "the documentation closes `</{}>` where `<{}>` was open",
+                name,
+                was.as_deref().unwrap_or("nothing")
+            );
+        } else if !void.contains(&name.as_str()) && !tag.ends_with('/') {
+            open.push(name);
+        }
+    }
+    assert!(open.is_empty(), "the documentation leaves tags open: {:?}", open);
+
+    // And the escaping, which is the failure a well-formedness check alone
+    // would miss: a `<` in a doc comment must reach the page as text.
+    assert!(
+        doc.contains("&lt;") && doc.contains("&amp;"),
+        "the sample's `<` and `&` did not reach the page escaped"
+    );
+    assert!(
+        !doc.contains("<script>alert"),
+        "a doc comment's angle brackets were emitted as markup"
+    );
 }
 
 /// The site's tour tells the reader that every snippet on it is a real
