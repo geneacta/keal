@@ -229,6 +229,10 @@ package func globalSig(name: String, args: List<Ty?>): Ty? {
         // which is a different thing from a command that ran and failed.
         // No shell is involved: the list is the argument vector, so a path
         // with a space in it is one argument and nothing is ever re-parsed.
+        // Seconds east of UTC at a given instant — which depends on where
+        // the machine thinks it is and on which side of a daylight-saving
+        // change the instant falls, so it takes the instant.
+        "localOffset" -> tyFun([bp("at", Ty("Int"))], Ty("Int"))
         "runCommand" -> tyFun([bp("argv", tyList(Ty("Str")))], tyNullable(tyList(Ty("Str"))))
         "abs" -> {
             val t = numericOf([knownArg(args, 0)])

@@ -5673,6 +5673,12 @@ impl CBackend {
             self.line(format!("const double {} = keal_time();", t));
             return t;
         }
+        if name == "localOffset" && args.len() == 1 {
+            let at = self.expr(&args[0].value);
+            let t = self.temp();
+            self.line(format!("const int64_t {} = keal_local_offset({});", t, at));
+            return t;
+        }
         if name == "listDir" && args.len() == 1 {
             let p = self.expr(&args[0].value);
             return self.own_temp_of(

@@ -342,6 +342,10 @@ pub fn call_global(it: &mut dyn Runtime, name: &str, args: Vec<Value>, span: Spa
             };
             Ok(Value::Bool(gone))
         }
+        "localOffset" => {
+            let at = int(&args[0], span)?;
+            Ok(Value::Int(local_offset(at)))
+        }
         "runCommand" => {
             let Value::List(argv) = &args[0] else {
                 return err(span, "`runCommand` wants a list of strings".to_string());
@@ -919,4 +923,67 @@ fn next_random() -> f64 {
         let scaled = state.wrapping_mul(0x2545F4914F6CDD1D) >> 11;
         scaled as f64 / (1u64 << 53) as f64
     })
+}
+
+// ---- the local time offset ----------------------------------------------
+//
+// Seconds east of UTC at a given instant, which is the one thing a calendar
+// cannot work out for itself: it depends on where the machine thinks it is
+// and on which side of a daylight-saving change the instant falls.
+//
+// The C standard says `struct tm` contains certain members. It does not say
+// in what order, so this never declares one and never reads a field: the
+// pointer `localtime_r` returns goes straight into `strftime`, which prints
+// the offset as `+0200`, and only that string is read. The buffer handed to
+// `localtime_r` is deliberately larger than any `struct tm` and aligned like
+// a `u64`, because its size is as unspecified as its order.
+//
+// Zero on any failure, which is UTC — a wrong offset would be a silent lie,
+// and UTC is at least a true one that `iso()` labels honestly.
+
+#[cfg(not(windows))]
+extern "C" {
+    fn localtime_r(time: *const i64, result: *mut u8) -> *mut u8;
+    fn strftime(out: *mut u8, max: usize, format: *const u8, tm: *const u8) -> usize;
+}
+
+#[cfg(windows)]
+extern "C" {
+    fn localtime_s(result: *mut u8, time: *const i64) -> i32;
+    fn strftime(out: *mut u8, max: usize, format: *const u8, tm: *const u8) -> usize;
+}
+
+fn local_offset(at: i64) -> i64 {
+    // 256 bytes, 16-aligned: `struct tm` is 36 bytes with 4-byte alignment
+    // under MinGW and no larger anywhere that matters, and nothing here
+    // depends on knowing which bytes are which. Over-aligning costs a
+    // stack slot and removes a question nobody can answer portably.
+    #[repr(align(16))]
+    struct TmBuf([u8; 256]);
+    let mut storage = TmBuf([0; 256]);
+    let tm = storage.0.as_mut_ptr();
+
+    #[cfg(not(windows))]
+    let ok = unsafe { !localtime_r(&at, tm).is_null() };
+    #[cfg(windows)]
+    let ok = unsafe { localtime_s(tm, &at) == 0 };
+
+    if !ok {
+        return 0;
+    }
+    let mut buf = [0u8; 16];
+    let n = unsafe { strftime(buf.as_mut_ptr(), buf.len(), b"%z\0".as_ptr(), tm) };
+    parse_offset(&buf[..n.min(buf.len())])
+}
+
+/// `+0200` / `-0530` into seconds. Anything else is zero, because a
+/// half-understood offset is worse than none.
+fn parse_offset(text: &[u8]) -> i64 {
+    if text.len() != 5 || !text[1..].iter().all(|c| c.is_ascii_digit()) {
+        return 0;
+    }
+    let sign = if text[0] == b'-' { -1 } else { 1 };
+    let hours = i64::from(text[1] - b'0') * 10 + i64::from(text[2] - b'0');
+    let minutes = i64::from(text[3] - b'0') * 10 + i64::from(text[4] - b'0');
+    sign * (hours * 3600 + minutes * 60)
 }

@@ -2138,6 +2138,46 @@ KEAL_FN double keal_time(void) {
 #endif
 }
 
+/* Seconds east of UTC at a given instant — which depends on where the
+ * machine thinks it is and on which side of a daylight-saving change the
+ * instant falls, so it takes the instant rather than reading "now".
+ *
+ * The C standard says `struct tm` contains certain members but not in what
+ * order, and the two interpreters call this same pair of functions from Rust
+ * where a wrong guess about that order would be silent. So neither side ever
+ * reads a field: the pointer goes straight into `strftime`, which prints the
+ * offset as `+0200`, and only that string is read. Zero on any failure,
+ * which is UTC — a true answer rather than a plausible wrong one. */
+KEAL_FN int64_t keal_local_offset(int64_t at) {
+    time_t when = (time_t)at;
+    struct tm storage;
+    struct tm* broken;
+#ifdef _WIN32
+    if (localtime_s(&storage, &when) != 0) {
+        return 0;
+    }
+    broken = &storage;
+#else
+    broken = localtime_r(&when, &storage);
+    if (broken == NULL) {
+        return 0;
+    }
+#endif
+    char text[8];
+    if (strftime(text, sizeof text, "%z", broken) != 5) {
+        return 0;
+    }
+    for (int i = 1; i < 5; i++) {
+        if (text[i] < '0' || text[i] > '9') {
+            return 0;
+        }
+    }
+    int64_t sign = text[0] == '-' ? -1 : 1;
+    int64_t hours = (text[1] - '0') * 10 + (text[2] - '0');
+    int64_t minutes = (text[3] - '0') * 10 + (text[4] - '0');
+    return sign * (hours * 3600 + minutes * 60);
+}
+
 /* ---- the file system --------------------------------------------------- */
 
 /* Four primitives, and no more: a name in the global namespace is reserved

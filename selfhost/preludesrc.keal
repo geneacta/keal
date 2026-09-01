@@ -637,17 +637,32 @@ public func lines(s: String): List<String> {
 // by an hour on one platform is worse than one that is honestly UTC on all
 // of them.
 
-/// A moment, in the pieces a person reads. UTC.
+/// A moment, in the pieces a person reads, and how far east of UTC they
+/// were read. `offset` is 0 for UTC, 7200 for a summer in Paris.
 public record DateTime(
     val year: Int, val month: Int, val day: Int,
     val hour: Int, val minute: Int, val second: Int,
     /// 0 is Sunday, as C's `tm_wday` has it.
-    val weekday: Int
+    val weekday: Int,
+    /// Seconds east of UTC. Carried rather than assumed, so a moment always
+    /// knows what its own numbers mean.
+    val offset: Int
 ) {
-    /// ISO 8601, to the second: `2026-09-01T14:23:05Z`. The `Z` is not
-    /// decoration — it is the claim that this is UTC, and it is true.
+    /// ISO 8601, to the second: `2026-09-01T14:23:05Z`, or
+    /// `2026-09-01T16:23:05+02:00` away from UTC. The suffix is not
+    /// decoration — it is the claim about which clock these numbers are on,
+    /// and it is true either way.
     public func iso(): String {
-        return "${this.date()}T${this.clock()}Z"
+        return "${this.date()}T${this.clock()}${this.zone()}"
+    }
+
+    /// `Z`, or `+02:00`, or `-05:30`.
+    public func zone(): String {
+        if (this.offset == 0) { return "Z" }
+        var east = this.offset
+        var sign = "+"
+        if (east < 0) { sign = "-"; east = -east }
+        return "${sign}${twoDigits(east / 3600)}:${twoDigits((east / 60) % 60)}"
     }
 
     /// `2026-09-01`
@@ -663,10 +678,19 @@ public record DateTime(
     public func toString(): String { return this.iso() }
 
     /// Back to seconds since the epoch, so a moment can make a round trip.
+    /// The offset comes off again: these numbers are on a local clock, and
+    /// the epoch is not.
     public func epochSeconds(): Int {
         val days = daysFromCivil(this.year, this.month, this.day)
-        return days * 86400 + this.hour * 3600 + this.minute * 60 + this.second
+        val ofDay = this.hour * 3600 + this.minute * 60 + this.second
+        return days * 86400 + ofDay - this.offset
     }
+
+    /// The same moment, read on the UTC clock.
+    public func inUtc(): DateTime { return utcAt(this.epochSeconds()) }
+
+    /// The same moment, read on this machine's clock.
+    public func inLocalTime(): DateTime { return localAt(this.epochSeconds()) }
 }
 
 func twoDigits(n: Int): String { return padStart("${n}", 2, "0") }
@@ -704,8 +728,25 @@ public func utcAt(seconds: Int): DateTime {
 
     // 1970-01-01 was a Thursday, which is 4 with Sunday at 0.
     val weekday = floorMod(days + 4, 7)
-    return DateTime(y, m, d, rest / 3600, (rest / 60) % 60, rest % 60, weekday)
+    return DateTime(y, m, d, rest / 3600, (rest / 60) % 60, rest % 60, weekday, 0)
 }
+
+/// The moment `seconds` after the epoch, read on this machine's clock.
+///
+/// The offset is asked for that instant, not for now: a moment in July and
+/// a moment in January are on different sides of a daylight-saving change
+/// in most of the world, and a calendar that asks "what is the offset
+/// today" gets the other half of the year wrong by an hour.
+public func localAt(seconds: Int): DateTime {
+    val east = localOffset(seconds)
+    val shifted = utcAt(seconds + east)
+    return DateTime(shifted.year, shifted.month, shifted.day,
+                    shifted.hour, shifted.minute, shifted.second,
+                    shifted.weekday, east)
+}
+
+/// The moment this is called, on this machine's clock.
+public func localNow(): DateTime { return localAt(time().toInt()) }
 
 /// The inverse: the day number for a civil date. Hinnant's
 /// `days_from_civil`, and the exact undoing of the one above.

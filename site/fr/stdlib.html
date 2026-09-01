@@ -77,6 +77,8 @@
 <a href="#the-standard-library-floorDiv"><span class="k k-func">func</span>floorDiv</a>
 <a href="#the-standard-library-floorMod"><span class="k k-func">func</span>floorMod</a>
 <a href="#the-standard-library-utcAt"><span class="k k-func">func</span>utcAt</a>
+<a href="#the-standard-library-localAt"><span class="k k-func">func</span>localAt</a>
+<a href="#the-standard-library-localNow"><span class="k k-func">func</span>localNow</a>
 <a href="#the-standard-library-daysFromCivil"><span class="k k-func">func</span>daysFromCivil</a>
 <a href="#the-standard-library-utcNow"><span class="k k-func">func</span>utcNow</a>
 <a href="#the-standard-library-monthName"><span class="k k-func">func</span>monthName</a>
@@ -369,8 +371,9 @@ make a last empty line — a file ending in one has as many lines as it
 looks like it has.</p>
 </section>
 <section id="the-standard-library-DateTime">
-<pre class="sig">record DateTime(val year: Int, val month: Int, val day: Int, val hour: Int, val minute: Int, val second: Int, val weekday: Int)</pre>
-<p>A moment, in the pieces a person reads. UTC.</p>
+<pre class="sig">record DateTime(val year: Int, val month: Int, val day: Int, val hour: Int, val minute: Int, val second: Int, val weekday: Int, val offset: Int)</pre>
+<p>A moment, in the pieces a person reads, and how far east of UTC they
+were read. <code>offset</code> is 0 for UTC, 7200 for a summer in Paris.</p>
 <div class="members">
 <pre class="sig m">val year: Int</pre>
 <pre class="sig m">val month: Int</pre>
@@ -379,16 +382,27 @@ looks like it has.</p>
 <pre class="sig m">val minute: Int</pre>
 <pre class="sig m">val second: Int</pre>
 <pre class="sig m">val weekday: Int</pre>
+<pre class="sig m">val offset: Int</pre>
 <pre class="sig m">func iso(): String</pre>
-<p>ISO 8601, to the second: <code>2026-09-01T14:23:05Z</code>. The <code>Z</code> is not
-decoration — it is the claim that this is UTC, and it is true.</p>
+<p>ISO 8601, to the second: <code>2026-09-01T14:23:05Z</code>, or
+<code>2026-09-01T16:23:05+02:00</code> away from UTC. The suffix is not
+decoration — it is the claim about which clock these numbers are on,
+and it is true either way.</p>
+<pre class="sig m">func zone(): String</pre>
+<p><code>Z</code>, or <code>+02:00</code>, or <code>-05:30</code>.</p>
 <pre class="sig m">func date(): String</pre>
 <p><code>2026-09-01</code></p>
 <pre class="sig m">func clock(): String</pre>
 <p><code>14:23:05</code></p>
 <pre class="sig m">func toString(): String</pre>
 <pre class="sig m">func epochSeconds(): Int</pre>
-<p>Back to seconds since the epoch, so a moment can make a round trip.</p>
+<p>Back to seconds since the epoch, so a moment can make a round trip.
+The offset comes off again: these numbers are on a local clock, and
+the epoch is not.</p>
+<pre class="sig m">func inUtc(): DateTime</pre>
+<p>The same moment, read on the UTC clock.</p>
+<pre class="sig m">func inLocalTime(): DateTime</pre>
+<p>The same moment, read on this machine's clock.</p>
 </div>
 </section>
 <section id="the-standard-library-twoDigits">
@@ -408,6 +422,18 @@ toward zero, and a moment before 1970 would land on the wrong day.</p>
 <p>The calendar arithmetic is Howard Hinnant's <code>civil_from_days</code>, which is
 exact for every year a 64-bit count of seconds can reach, and has no
 table and no leap-second fudge in it.</p>
+</section>
+<section id="the-standard-library-localAt">
+<pre class="sig">func localAt(seconds: Int): DateTime</pre>
+<p>The moment <code>seconds</code> after the epoch, read on this machine's clock.</p>
+<p>The offset is asked for that instant, not for now: a moment in July and
+a moment in January are on different sides of a daylight-saving change
+in most of the world, and a calendar that asks "what is the offset
+today" gets the other half of the year wrong by an hour.</p>
+</section>
+<section id="the-standard-library-localNow">
+<pre class="sig">func localNow(): DateTime</pre>
+<p>The moment this is called, on this machine's clock.</p>
 </section>
 <section id="the-standard-library-daysFromCivil">
 <pre class="sig">func daysFromCivil(year: Int, month: Int, day: Int): Int</pre>

@@ -269,6 +269,10 @@ pub fn global_sig(name: &str, args: &[Option<Type>]) -> Option<FunType> {
         // which is a different thing from a command that ran and failed.
         // No shell is involved: the list is the argument vector, so a path
         // with a space in it is one argument and nothing is ever re-parsed.
+        // Seconds east of UTC at a given instant — which depends on where
+        // the machine thinks it is and on which side of a daylight-saving
+        // change the instant falls, so it takes the instant.
+        "localOffset" => sig(vec![p("at", Type::Int)], Type::Int),
         "runCommand" => {
             sig(vec![p("argv", Type::list(Type::Str))], Type::list(Type::Str).nullable())
         }

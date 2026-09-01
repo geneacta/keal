@@ -5732,6 +5732,12 @@ class CBackend() {
             this.line("const double ${t} = keal_time();")
             return t
         }
+        if (name == "localOffset" and args.size == 1) {
+            val at = this.expr(args[0].value)
+            val t = this.temp()
+            this.line("const int64_t ${t} = keal_local_offset(${at});")
+            return t
+        }
         if (name == "listDir" and args.size == 1) {
             val p = this.expr(args[0].value)
             return this.ownTempOf(tyNullable(tyList(Ty("Str"))), "keal_list_dir(${p})")

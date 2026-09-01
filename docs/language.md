@@ -1256,33 +1256,44 @@ different calendar can read this one and write another.
 
 | | |
 |---|---|
-| `utcAt(seconds: Int): DateTime` | a moment, broken into pieces |
-| `utcNow(): DateTime` | this moment |
-| `daysFromCivil(year, month, day): Int` | the inverse, exactly |
+| `utcAt(seconds: Int): DateTime` `utcNow()` | a moment on the UTC clock |
+| `localAt(seconds: Int): DateTime` `localNow()` | the same moment on this machine's clock |
+| `localOffset(at: Int): Int` | seconds east of UTC **at that instant** |
+| `daysFromCivil(year, month, day): Int` | the inverse of the calendar, exactly |
 | `monthName(m)` `weekdayName(w)` | January is 1, Sunday is 0 |
 | `isLeapYear(year): Bool` | |
 
 `DateTime` is a record — so two moments built the same way are equal — with
-`year`, `month`, `day`, `hour`, `minute`, `second` and `weekday` (0 is
-Sunday), and:
+`year`, `month`, `day`, `hour`, `minute`, `second`, `weekday` (0 is Sunday)
+and `offset` (seconds east of UTC, 0 for UTC), and:
 
 | | |
 |---|---|
-| `iso()` | `2026-09-01T07:29:27Z` |
+| `iso()` | `2026-09-01T07:29:27Z`, or `2026-09-01T09:29:27+02:00` |
+| `zone()` | `Z`, `+02:00`, `-05:30`, `+12:45` |
 | `date()` `clock()` | `2026-09-01` and `07:29:27` |
-| `epochSeconds()` | back to where it came from |
+| `epochSeconds()` | back to where it came from, offset removed |
+| `inUtc()` `inLocalTime()` | the same moment, read on the other clock |
 
 ```keal
 println(utcNow().iso())                  // 2026-09-01T07:29:27Z
-println(utcAt(0).date())                 // 1970-01-01
+println(localNow().iso())                // 2026-09-01T09:29:27+02:00
+println(localNow().inUtc() == utcNow())  // true — one moment, two clocks
 ```
 
-**UTC only, and on purpose.** A local time means asking the operating system
-for its offset, and the portable way through C reads `struct tm`, whose
-field order the C standard does not fix. A timestamp wrong by an hour on one
-platform is worse than one that is honestly UTC on all of them, so the `Z`
-in `iso()` is a claim that is true rather than a decoration. Local time is a
-gap, and it is named as one in §20.
+A moment **carries** its offset rather than assuming one, so its numbers
+always say which clock they are on. `localOffset` takes the instant, not
+"now": most of the world is on two different offsets across a year, and a
+calendar that asks what the offset is today gets the other half of the year
+wrong by an hour. Zones offset by 30 and 45 minutes are ordinary here —
+Kolkata is `+05:30`, Chatham is `+12:45`.
+
+The offset comes from the C library, and neither the interpreters nor the
+generated C ever reads a field of `struct tm` — the C standard fixes which
+members it has but not their order, and the two interpreters would have to
+declare that layout in Rust to read it. The pointer goes straight into
+`strftime`, which prints the offset, and only that is read. On any failure
+the answer is UTC, which is at least true and is labelled honestly.
 
 ### Files and directories
 
@@ -1748,8 +1759,7 @@ there is no cycle collector.
 ## 20. What is not here yet
 
 Class inheritance (a non-goal) · associated types on traits · generic
-traits · enum variants that carry data · local time and time zones (§14
-says why UTC is what there is) · regular expressions · a network stack
+traits · enum variants that carry data · regular expressions · a network stack
 (HTTPS needs TLS, which belongs behind the interop boundary rather than
 hand-written in the runtime).
 
