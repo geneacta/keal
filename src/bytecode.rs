@@ -38,6 +38,15 @@ pub enum Arith {
     Rem,
     Pow,
     Root,
+    /// The bit operators. They join the arithmetic opcodes because they take
+    /// the same two operands off the stack; what they do with them is the
+    /// interpreter's business, not the instruction set's.
+    BAnd,
+    BOr,
+    BXor,
+    Shl,
+    Shr,
+    UShr,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -85,6 +94,8 @@ pub enum Op {
     Ne,
     Neg,
     Not,
+    /// `bnot`: every bit of the `Int` on top of the stack flipped.
+    BNot,
     CheckNotNull,
     /// Combines two booleans already on the stack. Only reached for the
     /// connectives the left operand did not settle.

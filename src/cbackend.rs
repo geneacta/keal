@@ -2673,6 +2673,9 @@ impl CBackend {
                 match op {
                     UnOp::Not => format!("(!{})", r),
                     UnOp::Neg => format!("(-{})", r),
+                    // `~` on `int64_t` is total: it is `-x - 1`, and
+                    // `~INT64_MIN` is `INT64_MAX`. Nothing to check.
+                    UnOp::BNot => format!("(~{})", r),
                 }
             }
             ExprKind::Binary { op, lhs, rhs } => self.binary(e, *op, lhs, rhs),
@@ -5335,7 +5338,7 @@ impl CBackend {
             && matches!(
                 op,
                 BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem | BinOp::Pow
-                    | BinOp::Root
+                    | BinOp::Root | BinOp::Shl | BinOp::Shr | BinOp::UShr
             )
         {
             let t = self.temp();
@@ -5346,6 +5349,13 @@ impl CBackend {
                 BinOp::Div => "keal_div",
                 BinOp::Pow => "keal_int_pow",
                 BinOp::Root => "keal_int_root",
+                // The shifts take the same shape for the shift count, and
+                // because C leaves `<<` past the sign bit and `>>` on a
+                // negative value to the implementation. `band`, `bor` and
+                // `bxor` need none of that and stay operators.
+                BinOp::Shl => "keal_shl",
+                BinOp::Shr => "keal_shr",
+                BinOp::UShr => "keal_ushr",
                 _ => "keal_rem",
             };
             self.line(format!(
@@ -7800,6 +7810,15 @@ fn c_operator(op: BinOp) -> &'static str {
         BinOp::Le => "<=",
         BinOp::Gt => ">",
         BinOp::Ge => ">=",
+        BinOp::BAnd => "&",
+        BinOp::BOr => "|",
+        BinOp::BXor => "^",
+        // The shifts are runtime calls, for the shift count and because C
+        // leaves both `<<` past the sign bit and `>>` on a negative value to
+        // the implementation. `binary` spells those; these are never used.
+        BinOp::Shl => "<<",
+        BinOp::Shr => ">>",
+        BinOp::UShr => ">>",
     }
 }
 

@@ -2478,6 +2478,25 @@ impl Checker {
                         }
                         t
                     }
+                    // `bnot a` is `not` for the bits: an `Int` in, every
+                    // one of its 64 bits flipped, an `Int` out. No trait
+                    // stands behind it, because the bits of a class are not
+                    // a thing the language claims to know.
+                    UnOp::BNot => {
+                        if t != Type::Int && t != Type::Error {
+                            self.error_note(
+                                span,
+                                format!("`bnot` works on the bits of an `Int`, not on `{}`", t),
+                                if t == Type::Bool {
+                                    "for a `Bool`, the operator is `not`"
+                                } else {
+                                    "only an `Int` has bits the language can name"
+                                },
+                            );
+                            return Type::Error;
+                        }
+                        t
+                    }
                     UnOp::Not => {
                         // `!(a and b)` already has a name. Suggest it — and
                         // the way back, when someone negates a negated one.
@@ -3736,6 +3755,18 @@ impl Checker {
             _ => unreachable!(),
         };
 
+        // The bits of an `Int` are not a trait's business: no class carries
+        // them, and no numeric widening applies — `1.0 band 2` is a mistake,
+        // not a conversion. So this answers before any trait is consulted,
+        // and `operator_trait` never sees a bit operator.
+        if op.is_bitwise() {
+            let rt = match &mut e.kind {
+                ExprKind::Binary { rhs, .. } => self.check_expr(rhs, None),
+                _ => unreachable!(),
+            };
+            return self.binary_result(op, &lt, &rt, span);
+        }
+
         if overloadable(&lt) {
             let (trait_name, method) = operator_trait(op);
             let equality = matches!(op, BinOp::Eq | BinOp::Ne);
@@ -3979,6 +4010,35 @@ impl Checker {
                     self.error(span, "cannot append a value with no type to a String");
                 }
                 Type::Str
+            }
+            BAnd | BOr | BXor | Shl | Shr | UShr => {
+                if *lt == Type::Int && *rt == Type::Int {
+                    return Type::Int;
+                }
+                let mut d = Diag::new(
+                    span,
+                    format!(
+                        "`{}` works on the bits of an `Int`, not on `{}` and `{}`",
+                        op.symbol(),
+                        lt,
+                        rt
+                    ),
+                );
+                if *lt == Type::Bool && *rt == Type::Bool {
+                    d = d.with_note(match op {
+                        BAnd => "for two `Bool`s, the operator is `and`",
+                        BOr => "for two `Bool`s, the operator is `or`",
+                        BXor => "for two `Bool`s, the operator is `xor`",
+                        _ => "a `Bool` is one value, not a row of bits",
+                    });
+                } else if lt.is_numeric() || rt.is_numeric() {
+                    d = d.with_note(
+                        "a `Float` has no bits the language names; use `.toInt()` if that is \
+                         what the value is",
+                    );
+                }
+                self.errors.push(d);
+                Type::Error
             }
             Add | Sub | Mul | Div | Rem | Pow | Root => {
                 if lt == rt && lt.is_numeric() {
@@ -4648,6 +4708,11 @@ fn operator_trait(op: BinOp) -> (&'static str, &'static str) {
         BinOp::Root => ("Root", "root"),
         BinOp::Eq | BinOp::Ne => ("Eq", "equals"),
         BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => ("Ord", "compareTo"),
+        // Answered in `check_binary` before any trait is consulted: the bits
+        // of an `Int` belong to no trait, and a class has none to offer.
+        BinOp::BAnd | BinOp::BOr | BinOp::BXor | BinOp::Shl | BinOp::Shr | BinOp::UShr => {
+            ("Int", "band")
+        }
     }
 }
 

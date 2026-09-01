@@ -194,6 +194,59 @@ fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool, depth: usize
     })
 }
 
+/// How far an `Int` may be shifted: it has 64 bits, so 0 through 63 name a
+/// shift and everything else names a mistake.
+///
+/// A count outside that is a panic rather than a defined answer. C leaves it
+/// undefined, which is exactly the kind of thing Keal refuses everywhere
+/// else; and every reading a language could pick instead — clamp to 0, take
+/// the count modulo 64, saturate — is one that turns a bug into a number the
+/// program then carries.
+fn shift_count(n: i64, by: i64, op: &str, span: Span) -> R<()> {
+    if by < 0 {
+        return err(span, format!("`{}` needs a shift count of 0 or more, got {}", op, by));
+    }
+    if by > 63 {
+        // No note: the sentence carries the whole rule, and a note here
+        // would be lost anyway when a `constexpr` catches this message and
+        // reports it as a compile-time error.
+        return err(span, format!("`{}` cannot shift an Int by {}: it has 64 bits", op, by));
+    }
+    let _ = n;
+    Ok(())
+}
+
+/// `a shl n` — the bits moved up, the ones that leave the top discarded.
+///
+/// This is the one place in Keal where a value is truncated rather than
+/// checked. It is deliberate and it is documented: the bit operators are
+/// defined on the 64 bits of an `Int`, not on the number those bits happen
+/// to spell, and a `shl` that panicked on overflow would refuse exactly the
+/// use that asks for it — packing fields into a word.
+pub fn int_shl(a: i64, by: i64, span: Span) -> R<i64> {
+    shift_count(a, by, "shl", span)?;
+    Ok(((a as u64) << by) as i64)
+}
+
+/// `a shr n` — the bits moved down, the sign carried in at the top, so that
+/// `-8 shr 1` is `-4` the way `-8 / 2` is.
+pub fn int_shr(a: i64, by: i64, span: Span) -> R<i64> {
+    shift_count(a, by, "shr", span)?;
+    // Spelled through the unsigned type on purpose: C's `>>` on a negative
+    // signed value is implementation-defined, and the generated C says this
+    // same sentence for the same reason.
+    let r = if a < 0 { !((!(a as u64)) >> by) } else { (a as u64) >> by };
+    Ok(r as i64)
+}
+
+/// `a ushr n` — the bits moved down with zeros carried in, so a negative
+/// `Int` comes back positive. The shift that reads its operand as 64 bits
+/// and nothing else.
+pub fn int_ushr(a: i64, by: i64, span: Span) -> R<i64> {
+    shift_count(a, by, "ushr", span)?;
+    Ok(((a as u64) >> by) as i64)
+}
+
 /// `Int ** e`, checked: a negative exponent and an overflow both stop the
 /// program. One implementation, used by `**`, `**=`, and `Int.pow` on every
 /// engine.

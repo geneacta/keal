@@ -310,7 +310,19 @@ impl<'a> Folder<'a> {
                     },
                     (UnOp::Neg, CVal::Float(f)) => Ok(CVal::Float(-f)),
                     (UnOp::Not, CVal::Bool(b)) => Ok(CVal::Bool(!b)),
-                    _ => refuse(e.span, &format!("`{}` on a `{}`", if matches!(op, UnOp::Neg) { "-" } else { "not" }, v.type_name())),
+                    (UnOp::BNot, CVal::Int(n)) => Ok(CVal::Int(!n)),
+                    _ => refuse(
+                        e.span,
+                        &format!(
+                            "`{}` on a `{}`",
+                            match op {
+                                UnOp::Neg => "-",
+                                UnOp::Not => "not",
+                                UnOp::BNot => "bnot",
+                            },
+                            v.type_name()
+                        ),
+                    ),
                 }
             }
             ExprKind::Binary { op, lhs, rhs } => {
@@ -528,6 +540,12 @@ impl<'a> Folder<'a> {
                     // folds to what it would have computed.
                     Pow => crate::runtime::int_pow(x, y, span).map(CVal::Int).map_err(as_diag),
                     Root => crate::runtime::int_root(x, y, span).map(CVal::Int).map_err(as_diag),
+                    BAnd => Ok(CVal::Int(x & y)),
+                    BOr => Ok(CVal::Int(x | y)),
+                    BXor => Ok(CVal::Int(x ^ y)),
+                    Shl => crate::runtime::int_shl(x, y, span).map(CVal::Int).map_err(as_diag),
+                    Shr => crate::runtime::int_shr(x, y, span).map(CVal::Int).map_err(as_diag),
+                    UShr => crate::runtime::int_ushr(x, y, span).map(CVal::Int).map_err(as_diag),
                     Compare => refuse(span, "`<=>`, whose value is a `Comp`"),
                     Lt => Ok(CVal::Bool(x < y)),
                     Le => Ok(CVal::Bool(x <= y)),
@@ -546,6 +564,9 @@ impl<'a> Folder<'a> {
                     Rem => CVal::Float(x % y),
                     Pow => CVal::Float(x.powf(y)),
                     Root => CVal::Float(crate::runtime::float_root(x, y)),
+                    BAnd | BOr | BXor | Shl | Shr | UShr => {
+                        return refuse(span, "a bit operator on a `Float`")
+                    }
                     Compare => return refuse(span, "`<=>`, whose value is a `Comp`"),
                     Lt => CVal::Bool(x < y),
                     Le => CVal::Bool(x <= y),

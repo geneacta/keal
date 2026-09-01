@@ -3119,6 +3119,56 @@ KEAL_FN int64_t keal_div(int64_t a, int64_t b, int64_t line) {
     return a / b;
 }
 
+/* The shifts.
+ *
+ * An Int has 64 bits, so 0 through 63 name a shift and everything else names
+ * a mistake — which panics, rather than being left undefined the way C
+ * leaves it. Every alternative reading a language could pick instead (clamp,
+ * count modulo 64, saturate) turns a bug into a number the program carries.
+ *
+ * `shl` truncates: the bits that leave the top are gone. It is the one place
+ * in Keal where a value is not checked, and it is deliberate — these
+ * operators are defined on the 64 bits of an Int, not on the number those
+ * bits spell.
+ *
+ * All three go through uint64_t: shifting a signed value past its sign bit
+ * is undefined in C, and `>>` on a negative one is implementation-defined. */
+KEAL_FN bool keal_shift_ok(int64_t by, const char* op, int64_t line) {
+    if (by < 0) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "`%s` needs a shift count of 0 or more, got %" PRId64, op, by);
+        keal_panic(msg, line);
+        return false;
+    }
+    if (by > 63) {
+        char msg[96];
+        snprintf(msg, sizeof msg, "`%s` cannot shift an Int by %" PRId64 ": it has 64 bits", op, by);
+        keal_panic(msg, line);
+        return false;
+    }
+    return true;
+}
+
+KEAL_FN int64_t keal_shl(int64_t a, int64_t b, int64_t line) {
+    if (!keal_shift_ok(b, "shl", line)) { return 0; }
+    return (int64_t)((uint64_t)a << b);
+}
+
+KEAL_FN int64_t keal_shr(int64_t a, int64_t b, int64_t line) {
+    if (!keal_shift_ok(b, "shr", line)) { return 0; }
+    /* Arithmetic: the sign is carried in at the top, so `-8 shr 1` is `-4`
+     * the way `-8 / 2` is. */
+    if (a < 0) {
+        return (int64_t)~((~(uint64_t)a) >> b);
+    }
+    return (int64_t)((uint64_t)a >> b);
+}
+
+KEAL_FN int64_t keal_ushr(int64_t a, int64_t b, int64_t line) {
+    if (!keal_shift_ok(b, "ushr", line)) { return 0; }
+    return (int64_t)((uint64_t)a >> b);
+}
+
 KEAL_FN int64_t keal_rem(int64_t a, int64_t b, int64_t line) {
     if (b == 0) {
         keal_panic("remainder by zero", line);

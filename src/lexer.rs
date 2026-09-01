@@ -70,6 +70,17 @@ pub enum Tok {
     KwNor,
     KwImplies,
 
+    // The bit operators. Words, like the connectives: `and`, `or` and `xor`
+    // are the Bool ones and `^` is already `xor`, so the bits get names of
+    // their own rather than sigils that would have to be read twice.
+    KwBAnd,
+    KwBOr,
+    KwBXor,
+    KwBNot,
+    KwShl,
+    KwShr,
+    KwUShr,
+
     // operators & punctuation
     Plus,
     Minus,
@@ -215,6 +226,13 @@ impl Tok {
             Tok::KwNand => "nand",
             Tok::KwNor => "nor",
             Tok::KwImplies => "implies",
+            Tok::KwBAnd => "band",
+            Tok::KwBOr => "bor",
+            Tok::KwBXor => "bxor",
+            Tok::KwBNot => "bnot",
+            Tok::KwShl => "shl",
+            Tok::KwShr => "shr",
+            Tok::KwUShr => "ushr",
             Tok::Plus => "+",
             Tok::Minus => "-",
             Tok::Star => "*",
@@ -574,6 +592,34 @@ impl<'a> Lexer<'a> {
     }
 
     fn number(&mut self, span: Span) -> Result<(), Diag> {
+        // `0x` and `0b` write a bit pattern rather than a magnitude, which is
+        // why they are here at all: a mask is read by its digits, and
+        // `16711935` is not a thing anyone reads. Sixteen hex digits or
+        // sixty-four binary ones fit, and the top bit set means a negative
+        // `Int` — the same 64 bits the bit operators are defined on.
+        if self.peek() == b'0' && matches!(self.peek2(), b'x' | b'X' | b'b' | b'B') {
+            let base: u32 = if matches!(self.peek2(), b'x' | b'X') { 16 } else { 2 };
+            let prefix = self.peek2() as char;
+            self.bump();
+            self.bump();
+            let start = self.pos;
+            while (self.peek() as char).is_digit(base) || self.peek() == b'_' {
+                self.bump();
+            }
+            let text: String =
+                String::from_utf8_lossy(&self.src[start..self.pos]).replace('_', "");
+            if text.is_empty() {
+                return Err(self.err(
+                    span,
+                    format!("`0{}` needs at least one digit after it", prefix),
+                ));
+            }
+            let n = u64::from_str_radix(&text, base).map_err(|_| {
+                self.err(span, format!("integer literal `0{}{}` does not fit in Int", prefix, text))
+            })?;
+            self.push(Tok::Int(n as i64), span);
+            return Ok(());
+        }
         let start = self.pos;
         while self.peek().is_ascii_digit() || self.peek() == b'_' {
             self.bump();
@@ -677,6 +723,13 @@ impl<'a> Lexer<'a> {
             "nand" => Tok::KwNand,
             "nor" => Tok::KwNor,
             "implies" => Tok::KwImplies,
+            "band" => Tok::KwBAnd,
+            "bor" => Tok::KwBOr,
+            "bxor" => Tok::KwBXor,
+            "bnot" => Tok::KwBNot,
+            "shl" => Tok::KwShl,
+            "shr" => Tok::KwShr,
+            "ushr" => Tok::KwUShr,
             _ => Tok::Ident(text),
         };
         self.push(tok, span);

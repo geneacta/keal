@@ -2646,6 +2646,26 @@ package class Checker() {
                 }
                 return t
             }
+            // `bnot a` is `not` for the bits: an `Int` in, every one of its
+            // 64 bits flipped, an `Int` out. No trait stands behind it,
+            // because the bits of a class are not a thing the language
+            // claims to know.
+            if (e.text == "bnot") {
+                if (t.kind != "Int" and t.kind != "Error") {
+                    val note = if (t.kind == "Bool") {
+                        "for a `Bool`, the operator is `not`"
+                    } else {
+                        "only an `Int` has bits the language can name"
+                    }
+                    this.errorNote(
+                        e.file, e.line, e.col,
+                        "`bnot` works on the bits of an `Int`, not on `${tyShow(t)}`",
+                        note
+                    )
+                    return Ty("Error")
+                }
+                return t
+            }
             // `!(a and b)` already has a name. Suggest it — and the way
             // back, when someone negates a negated one.
             // A desugared `unless` negation reuses its condition's span;
@@ -3806,6 +3826,15 @@ package class Checker() {
         }
         val lt = this.checkExpr(e.kids[0], null)
 
+        // The bits of an `Int` are not a trait's business: no class carries
+        // them, and no numeric widening applies — `1.0 band 2` is a mistake,
+        // not a conversion. So this answers before any trait is consulted,
+        // and `operatorTrait` never sees a bit operator.
+        if (isBitOp(op)) {
+            val rtb = this.checkExpr(e.kids[1], null)
+            return this.binaryResult(op, lt, rtb, e.file, e.line, e.col)
+        }
+
         if (overloadable(lt)) {
             val (traitName, method) = operatorTrait(op)
             val equality = op == "==" or op == "!="
@@ -3951,6 +3980,25 @@ package class Checker() {
                 this.error(file, line, col, "cannot append a value with no type to a String")
             }
             return Ty("Str")
+        }
+        if (isBitOp(op)) {
+            if (lt.kind == "Int" and rt.kind == "Int") { return Ty("Int") }
+            val bd = DiagN(
+                file, line, col,
+                "`${op}` works on the bits of an `Int`, not on `${tyShow(lt)}` and `${tyShow(rt)}`"
+            )
+            if (lt.kind == "Bool" and rt.kind == "Bool") {
+                bd.note = when (op) {
+                    "band" -> "for two `Bool`s, the operator is `and`"
+                    "bor" -> "for two `Bool`s, the operator is `or`"
+                    "bxor" -> "for two `Bool`s, the operator is `xor`"
+                    else -> "a `Bool` is one value, not a row of bits"
+                }
+            } else if (tyIsNumeric(lt) or tyIsNumeric(rt)) {
+                bd.note = "a `Float` has no bits the language names; use `.toInt()` if that is what the value is"
+            }
+            this.errors.add(bd)
+            return Ty("Error")
         }
         // + - * / % ** ^/
         if (tyEq(lt, rt) and tyIsNumeric(lt)) { return lt }

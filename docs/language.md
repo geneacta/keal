@@ -103,6 +103,7 @@ Forty-five words are reserved: none of them can be the name of anything.
 | **Errors** | `try` `catch` `throw` |
 | **Values** | `true` `false` `null` `this` `is` |
 | **Connectives** | `not` `and` `or` `xor` `xnor` `nand` `nor` `implies` |
+| **Bit operators** | `band` `bor` `bxor` `bnot` `shl` `shr` `ushr` |
 | **Held** | `async` `await` `yield` `sealed` `super` `static` `typealias` |
 
 The **held** words name nothing today. They are reserved so that the day one
@@ -251,8 +252,15 @@ immutable, like `val`.
 
 ```
 not and or xor xnor nand nor implies
-==  !=   <  <=  >  >=   is   in   ?:   ..   +  -   *  /  %   unary -   . ?. [] ()
+==  !=   <  <=  >  >=   is   in   ?:   ..
+band bor bxor shl shr ushr
++  -   *  /  %   unary -   unary bnot   . ?. [] ()
 ```
+
+The bit operators are on a line of their own because their tier is the one
+place the table's "tightest binding last" is not the whole story: they bind
+tighter than comparison, and against arithmetic they do not bind at all —
+mixing the two needs parentheses. The section on them says why.
 
 `+` on a `String` appends the rendered form of whatever is on the right
 (`"n = " + 3`).
@@ -334,6 +342,93 @@ reached when the left one is true, a null check on the left carries across it:
 ```koda
 func nonEmpty(s: String?): Bool { s != null implies s.length > 0 }
 ```
+
+### The bit operators
+
+An `Int` is 64 bits, and seven operators read it as those bits rather than as
+the number they spell.
+
+| | Written | Answers |
+|---|---|---|
+| AND | `a band b` | the bits set in both |
+| OR | `a bor b` | the bits set in either |
+| XOR | `a bxor b` | the bits set in exactly one |
+| NOT | `bnot a` | every bit flipped |
+| shift left | `a shl n` | the bits moved up, the top ones discarded |
+| shift right | `a shr n` | the bits moved down, the sign carried in |
+| shift right, unsigned | `a ushr n` | the bits moved down, zeros carried in |
+
+Words, not sigils. `and`, `or` and `xor` already belong to `Bool` and `^` is
+already `xor`, so `&`, `|` and `^` here would each be a second spelling of
+something a reader has to look up anyway — and the two meanings of `&` are
+exactly what makes C's bit code hard to read. `bnot` is unary and binds where
+`not` does.
+
+Both operands are `Int` and so is the result. A `Float` has no bits the
+language names, and a `Bool` is one value rather than a row of them — for
+those the operator is `and`, `or` or `xor`.
+
+**They mix with nothing.** Two different bit operators side by side is a
+syntax error, and so is a bit operator beside an arithmetic one:
+
+```koda
+a band b bor c          // error: which applies first?
+(a band b) bor c        // fine
+a shl 2 + 1             // error
+(a shl 2) + 1           // fine — and a different value from a shl (2 + 1)
+a band b band c         // fine: the same operator may repeat
+```
+
+This is the rule the connectives already follow, for the same reason: where
+an order would have to be invented and then remembered, Keal asks. C invented
+one — `&` looser than `==`, shifts looser than `+` — and `flags & MASK == 0`
+has been quietly meaning `flags & (MASK == 0)` ever since.
+
+What Keal does settle is the case nobody disputes: **bit operators bind
+tighter than comparison**, so the test everyone writes needs no parentheses.
+
+```koda
+flag band 2 != 0        // (flag band 2) != 0
+```
+
+**`shl` truncates.** Bits shifted off the top are gone. This is the only
+place in the language where a value is not checked, and it is deliberate:
+these operators are defined on the 64 bits an `Int` holds, not on the
+magnitude those bits spell, and a `shl` that panicked on overflow would
+refuse the one thing it exists for — packing fields into a word.
+
+```koda
+1 shl 63                // -9223372036854775808: the top bit is the sign
+0xFFFFFFFFFFFFFFFF      // -1, written as the bits it is
+```
+
+**A shift count outside `0..63` panics.** It names no shift an `Int` has, so
+it is a bug in the program rather than an edge case — and the alternatives
+(clamp, count modulo 64, saturate) each turn that bug into a number the
+program carries on with. C leaves it undefined, which is the kind of thing
+Keal refuses everywhere else.
+
+`shr` carries the sign in, so `-8 shr 1` is `-4` the way `-8 / 2` is; `ushr`
+carries zeros in, so `-1 ushr 32` is `4294967295`. Two operators because
+there are two answers and neither is the other's default.
+
+Each has a compound form: `band=`, `bor=`, `bxor=`, `shl=`, `shr=`, `ushr=`.
+
+### Hexadecimal and binary literals
+
+`0x` and `0b` write a bit pattern rather than a magnitude, which is the only
+reason they exist: a mask is read by its digits, and `16711935` is not
+something anyone reads.
+
+```koda
+0xFF        // 255
+0x00FF_00FF // 16711935, and legible
+0b1010      // 10
+```
+
+`_` groups digits anywhere in either form, as it does in a decimal literal.
+Sixteen hex digits or sixty-four binary ones fit, and the top bit set is a
+negative `Int` — the same 64 bits the operators above are defined on.
 
 ### Blocks are expressions
 

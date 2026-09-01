@@ -38,13 +38,28 @@ fn binary_power(tok: &Tok) -> Option<(u8, BinOp)> {
         Tok::LtEq => (3, BinOp::Le),
         Tok::Gt => (3, BinOp::Gt),
         Tok::GtEq => (3, BinOp::Ge),
-        Tok::Plus => (6, BinOp::Add),
-        Tok::Minus => (6, BinOp::Sub),
-        Tok::Star => (7, BinOp::Mul),
-        Tok::Slash => (7, BinOp::Div),
-        Tok::Percent => (7, BinOp::Rem),
-        Tok::StarStar => (8, BinOp::Pow),
-        Tok::RootOp => (8, BinOp::Root),
+        Tok::Plus => (7, BinOp::Add),
+        Tok::Minus => (7, BinOp::Sub),
+        Tok::Star => (8, BinOp::Mul),
+        Tok::Slash => (8, BinOp::Div),
+        Tok::Percent => (8, BinOp::Rem),
+        Tok::StarStar => (9, BinOp::Pow),
+        Tok::RootOp => (9, BinOp::Root),
+        _ => return None,
+    })
+}
+
+/// Maps a token to the bit operator it writes. Words only: `and`, `or` and
+/// `xor` are the `Bool` ones and `^` is already `xor`, so a sigil here would
+/// be a second spelling of something the reader has to look up anyway.
+fn bit_op(tok: &Tok) -> Option<BinOp> {
+    Some(match tok {
+        Tok::KwBAnd => BinOp::BAnd,
+        Tok::KwBOr => BinOp::BOr,
+        Tok::KwBXor => BinOp::BXor,
+        Tok::KwShl => BinOp::Shl,
+        Tok::KwShr => BinOp::Shr,
+        Tok::KwUShr => BinOp::UShr,
         _ => return None,
     })
 }
@@ -70,7 +85,12 @@ const P_LOGIC: u8 = 1;
 const P_CMP: u8 = 3;
 const P_ELVIS: u8 = 4;
 const P_RANGE: u8 = 5;
-const P_UNARY: u8 = 8;
+/// Every bit operator shares one level, and it is tighter than comparison —
+/// so `flag band 2 != 0` reads as it looks, which is the one thing C got
+/// wrong here and nobody has defended since. Against arithmetic the level
+/// settles nothing: `mixing` refuses that pair outright.
+const P_BIT: u8 = 6;
+const P_UNARY: u8 = 9;
 
 /// How many values a tuple may hold. Past this, positions stop being
 /// memorable and a record's names earn their keep.
@@ -1080,19 +1100,13 @@ impl Parser {
                         }),
                     });
                 }
-                let op = match self.peek() {
-                    Tok::Assign => None,
-                    Tok::PlusEq => Some(BinOp::Add),
-                    Tok::MinusEq => Some(BinOp::Sub),
-                    Tok::StarEq => Some(BinOp::Mul),
-                    Tok::SlashEq => Some(BinOp::Div),
-                    Tok::PercentEq => Some(BinOp::Rem),
-                    Tok::StarStarEq => Some(BinOp::Pow),
-                    Tok::RootEq => Some(BinOp::Root),
-                    _ => return Ok(Stmt { kind: StmtKind::Expr(target), span }),
+                let Some((op, tokens)) = self.compound_op() else {
+                    return Ok(Stmt { kind: StmtKind::Expr(target), span });
                 };
                 let op_span = self.span();
-                self.advance();
+                for _ in 0..tokens {
+                    self.advance();
+                }
                 if !matches!(
                     target.kind,
                     ExprKind::Ident(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
@@ -1110,6 +1124,31 @@ impl Parser {
             }
         };
         Ok(Stmt { kind, span })
+    }
+
+    /// The operator an assignment carries, and how many tokens spell it.
+    /// `None` for a plain `=`; a word operator plus `=` is two tokens, since
+    /// `band=` is a keyword followed by the assignment and not a token of
+    /// its own.
+    fn compound_op(&self) -> Option<(Option<BinOp>, usize)> {
+        let one = |op: Option<BinOp>| Some((op, 1usize));
+        match self.peek() {
+            Tok::Assign => one(None),
+            Tok::PlusEq => one(Some(BinOp::Add)),
+            Tok::MinusEq => one(Some(BinOp::Sub)),
+            Tok::StarEq => one(Some(BinOp::Mul)),
+            Tok::SlashEq => one(Some(BinOp::Div)),
+            Tok::PercentEq => one(Some(BinOp::Rem)),
+            Tok::StarStarEq => one(Some(BinOp::Pow)),
+            Tok::RootEq => one(Some(BinOp::Root)),
+            other => {
+                let op = bit_op(other)?;
+                if !matches!(self.peek_at(1), Tok::Assign) {
+                    return None;
+                }
+                Some((Some(op), 2))
+            }
+        }
     }
 
     /// True when the tokens ahead read `if (cond) X` or `unless (cond) X`
@@ -1148,19 +1187,11 @@ impl Parser {
     fn macro_arg(&mut self) -> Result<Expr, Diag> {
         let span = self.span();
         let target = self.expr()?;
-        let op = match self.peek() {
-            Tok::Assign => None,
-            Tok::PlusEq => Some(BinOp::Add),
-            Tok::MinusEq => Some(BinOp::Sub),
-            Tok::StarEq => Some(BinOp::Mul),
-            Tok::SlashEq => Some(BinOp::Div),
-            Tok::PercentEq => Some(BinOp::Rem),
-            Tok::StarStarEq => Some(BinOp::Pow),
-            Tok::RootEq => Some(BinOp::Root),
-            _ => return Ok(target),
-        };
+        let Some((op, tokens)) = self.compound_op() else { return Ok(target) };
         let op_span = self.span();
-        self.advance();
+        for _ in 0..tokens {
+            self.advance();
+        }
         if !matches!(
             target.kind,
             ExprKind::Ident(_) | ExprKind::Field { .. } | ExprKind::Index { .. }
@@ -1204,8 +1235,56 @@ impl Parser {
         })
     }
 
+    /// Refuses two operators that have no relative precedence side by side.
+    ///
+    /// Keal already asks this of the logical connectives, for the reason
+    /// `docs/language.md` §4 gives: where an order would have to be invented
+    /// and then remembered, the language asks instead. The bits are the same
+    /// case twice over. `a band b bor c` has no reading anyone would bet on,
+    /// and `a shl 2 + 1` has two that differ — C picked one and has been
+    /// producing that bug ever since.
+    ///
+    /// Arithmetic among itself keeps its ordinary precedence: `a * b + c` is
+    /// not in question anywhere. Comparison binds looser than both and is
+    /// not in question either, which is what lets `flag band 2 != 0` stand
+    /// without parentheses.
+    fn mixing(&self, prev: Option<BinOp>, next: BinOp, span: Span) -> Result<(), Diag> {
+        let Some(prev) = prev else { return Ok(()) };
+        if !next.is_bitwise() && !next.is_arithmetic() {
+            return Ok(());
+        }
+        if prev.is_bitwise() == next.is_bitwise() && (!prev.is_bitwise() || prev == next) {
+            return Ok(());
+        }
+        let note = if prev.is_bitwise() && next.is_bitwise() {
+            "bit operators have no relative precedence in Keal"
+        } else {
+            "a bit operator and an arithmetic one have no relative precedence in Keal"
+        };
+        Err(Diag::new(
+            span,
+            format!(
+                "`{}` and `{}` need parentheses to say which applies first",
+                prev.symbol(),
+                next.symbol()
+            ),
+        )
+        .with_note(format!(
+            "{}; write `(a {} b) {} c` or `a {} (b {} c)`",
+            note,
+            prev.symbol(),
+            next.symbol(),
+            prev.symbol(),
+            next.symbol()
+        )))
+    }
+
     fn binary(&mut self, min_bp: u8) -> Result<Expr, Diag> {
         let mut lhs = self.unary()?;
+        // The last operator applied at this level, for the mixing rule. A
+        // comparison clears it: it answers a `Bool`, so nothing it produces
+        // can be an operand of either family.
+        let mut prev: Option<BinOp> = None;
         loop {
             let span = self.span();
             // Logical, elvis, range and `is`/`in` are infix operators that do
@@ -1245,6 +1324,28 @@ impl Parser {
                         )));
                     }
                 }
+                prev = None;
+                continue;
+            }
+
+            // A bit operator takes a *unary* right operand rather than a
+            // sub-expression: nothing may be absorbed on its right that the
+            // mixing rule would have refused on its left.
+            if let Some(op) = bit_op(self.peek()) {
+                // `x band= 3` is an assignment. Two tokens spell it, and the
+                // statement parser owns both.
+                if matches!(self.peek_at(1), Tok::Assign) {
+                    break;
+                }
+                if P_BIT < min_bp {
+                    break;
+                }
+                self.mixing(prev, op, span)?;
+                self.advance();
+                let rhs = self.unary()?;
+                lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Binary { op, lhs: Box::new(lhs), rhs: Box::new(rhs) },
+                };
+                prev = Some(op);
                 continue;
             }
 
@@ -1255,6 +1356,7 @@ impl Parser {
                     let rhs = self.binary(P_ELVIS)?;
                     lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Elvis { lhs: Box::new(lhs), rhs: Box::new(rhs) },
                     };
+                    prev = None;
                     continue;
                 }
                 Tok::DotDot if P_RANGE >= min_bp => {
@@ -1262,6 +1364,7 @@ impl Parser {
                     let rhs = self.binary(P_RANGE + 1)?;
                     lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Range { start: Box::new(lhs), end: Box::new(rhs) },
                     };
+                    prev = None;
                     continue;
                 }
                 Tok::Is if P_CMP >= min_bp => {
@@ -1269,6 +1372,7 @@ impl Parser {
                     let ty = self.type_expr()?;
                     lhs = Expr { ty: None, inst: None, span, kind: ExprKind::Is { value: Box::new(lhs), ty, negated: false },
                     };
+                    prev = None;
                     continue;
                 }
 
@@ -1293,6 +1397,7 @@ impl Parser {
                             },
                         };
                     }
+                    prev = None;
                     continue;
                 }
                 Tok::In if P_CMP >= min_bp => {
@@ -1306,6 +1411,7 @@ impl Parser {
                             safe: false,
                         },
                     };
+                    prev = None;
                     continue;
                 }
                 _ => {}
@@ -1315,6 +1421,8 @@ impl Parser {
             if bp < min_bp {
                 break;
             }
+            self.mixing(prev, op, span)?;
+            prev = if op.is_arithmetic() { Some(op) } else { None };
             self.advance();
             // `**` and `^/` associate to the right, as powers do everywhere:
             // `2 ** 3 ** 2` is `2 ** (3 ** 2)`.
@@ -1332,6 +1440,8 @@ impl Parser {
             Tok::Minus => UnOp::Neg,
             // `not` is the word form of `!` and binds exactly as tightly.
             Tok::Bang | Tok::KwNot => UnOp::Not,
+            // `bnot` is `not` for the bits, and binds where `not` does.
+            Tok::KwBNot => UnOp::BNot,
             _ => return self.postfix(),
         };
         self.advance();

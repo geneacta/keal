@@ -448,6 +448,21 @@ impl Vm {
                     let v = self.pop();
                     self.push(Value::Bool(!v.truthy()));
                 }
+                Op::BNot => {
+                    let v = self.pop();
+                    match v {
+                        Value::Int(n) => self.push(Value::Int(!n)),
+                        other => {
+                            return err(
+                                span,
+                                format!(
+                                    "`bnot` works on the bits of an `Int`, not on `{}`",
+                                    other.type_name()
+                                ),
+                            )
+                        }
+                    }
+                }
                 Op::LogicalCombine(kind) => {
                     let b = self.pop().truthy();
                     let a = self.pop().truthy();
@@ -848,6 +863,15 @@ impl Vm {
                     }
                     Arith::Pow => Some(runtime::int_pow(x, y, span)?),
                     Arith::Root => Some(runtime::int_root(x, y, span)?),
+                    // Bit operators never overflow: they answer 64 bits, and
+                    // 64 bits is what an `Int` is. Only the shift count can
+                    // be wrong, and the helpers say so.
+                    Arith::BAnd => Some(x & y),
+                    Arith::BOr => Some(x | y),
+                    Arith::BXor => Some(x ^ y),
+                    Arith::Shl => Some(runtime::int_shl(x, y, span)?),
+                    Arith::Shr => Some(runtime::int_shr(x, y, span)?),
+                    Arith::UShr => Some(runtime::int_ushr(x, y, span)?),
                 };
                 match r {
                     Some(v) => Ok(Value::Int(v)),
@@ -864,6 +888,22 @@ impl Vm {
                     Arith::Rem => x % y,
                     Arith::Pow => x.powf(y),
                     Arith::Root => runtime::float_root(x, y),
+                    // The checker refuses a `Float` here; the VM says the
+                    // same thing rather than inventing an answer.
+                    Arith::BAnd
+                    | Arith::BOr
+                    | Arith::BXor
+                    | Arith::Shl
+                    | Arith::Shr
+                    | Arith::UShr => {
+                        return err(
+                            span,
+                            format!(
+                                "`{}` works on the bits of an `Int`, not on `Float`",
+                                arith_symbol(kind)
+                            ),
+                        )
+                    }
                 }))
             }
             _ => err(
@@ -966,6 +1006,12 @@ fn arith_symbol(kind: Arith) -> &'static str {
         Arith::Rem => "%",
         Arith::Pow => "**",
         Arith::Root => "^/",
+        Arith::BAnd => "band",
+        Arith::BOr => "bor",
+        Arith::BXor => "bxor",
+        Arith::Shl => "shl",
+        Arith::Shr => "shr",
+        Arith::UShr => "ushr",
     }
 }
 

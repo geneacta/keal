@@ -72,6 +72,9 @@ LANGS = [
             ("Logic is spelled out", "La logique s'écrit en toutes lettres",
              "<code>and</code>, <code>or</code>, <code>not</code> — plus <code>xor</code>, <code>nand</code>, <code>nor</code>, <code>xnor</code> and <code>implies</code>, all at one precedence, so mixed expressions need parentheses.",
              "<code>and</code>, <code>or</code>, <code>not</code> — plus <code>xor</code>, <code>nand</code>, <code>nor</code>, <code>xnor</code> et <code>implies</code>, tous à une seule précédence : les expressions mixtes demandent des parenthèses."),
+            ("So are the bits", "Les bits aussi",
+             "<code>band</code>, <code>bor</code>, <code>bxor</code>, <code>bnot</code>, <code>shl</code>, <code>shr</code>, <code>ushr</code>. Kotlin spells them as infix words too; Keal adds that they mix with nothing without parentheses, and that they bind tighter than <code>==</code> — so <code>flag band 2 != 0</code> means what it looks like.",
+             "<code>band</code>, <code>bor</code>, <code>bxor</code>, <code>bnot</code>, <code>shl</code>, <code>shr</code>, <code>ushr</code>. Kotlin les écrit aussi en toutes lettres ; Keal ajoute qu'ils ne se mélangent à rien sans parenthèses, et qu'ils lient plus fort que <code>==</code> — donc <code>flag band 2 != 0</code> veut dire ce qu'il a l'air de vouloir dire."),
         ],
     },
     # ------------------------------------------------------------------ Go

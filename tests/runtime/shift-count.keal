@@ -1,0 +1,7 @@
+// A shift count outside 0..63 is a mistake, not a defined answer. C leaves
+// it undefined; Keal stops. The alternatives a language could pick instead —
+// clamp, count modulo 64, saturate — all turn a bug into a number the
+// program then carries.
+
+val by = 64
+println(1 shl by)

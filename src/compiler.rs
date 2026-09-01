@@ -919,6 +919,7 @@ impl Compiler {
                     match op {
                         UnOp::Neg => Op::Neg,
                         UnOp::Not => Op::Not,
+                        UnOp::BNot => Op::BNot,
                     },
                     span,
                 );
@@ -1394,6 +1395,12 @@ fn binary_op(op: BinOp) -> Op {
         BinOp::Rem => Op::Arith(Arith::Rem),
         BinOp::Pow => Op::Arith(Arith::Pow),
         BinOp::Root => Op::Arith(Arith::Root),
+        BinOp::BAnd => Op::Arith(Arith::BAnd),
+        BinOp::BOr => Op::Arith(Arith::BOr),
+        BinOp::BXor => Op::Arith(Arith::BXor),
+        BinOp::Shl => Op::Arith(Arith::Shl),
+        BinOp::Shr => Op::Arith(Arith::Shr),
+        BinOp::UShr => Op::Arith(Arith::UShr),
         BinOp::Compare => unreachable!("`<=>` is rewritten to `compare` by the checker"),
         BinOp::Eq => Op::Eq,
         BinOp::Ne => Op::Ne,

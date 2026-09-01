@@ -148,6 +148,12 @@ TOUR = [
      'val a = true\nval b = false\nprintln(a and b)\nprintln(a or b)\nprintln(a xor b)\nprintln(a nand b)\nprintln(a nor b)\nprintln(a xnor b)\nprintln(a implies b)\nprintln(not a)',
      "false\ntrue\ntrue\ntrue\nfalse\nfalse\nfalse\nfalse"),
 
+    ("Bits, in words", "Les bits, en toutes lettres",
+     "An <code>Int</code> is 64 bits, and seven operators read it as those. Words, because <code>and</code>, <code>or</code> and <code>xor</code> already belong to <code>Bool</code>. They mix with nothing without parentheses — but they bind tighter than comparison, so the test everybody writes needs none.",
+     "Un <code>Int</code>, c'est 64 bits, et sept opérateurs le lisent ainsi. En toutes lettres, parce que <code>and</code>, <code>or</code> et <code>xor</code> appartiennent déjà à <code>Bool</code>. Ils ne se mélangent à rien sans parenthèses — mais ils lient plus fort que la comparaison, si bien que le test que tout le monde écrit n'en demande aucune.",
+     'val argb = (255 shl 24) bor (16 shl 16) bor (32 shl 8) bor 64\nprintln((argb ushr 16) band 0xFF)\nprintln(argb band 0xFF)\nprintln(0xF0 bxor 0xFF)\nprintln(bnot 0)\nval flag = 0x22\nprintln(flag band 2 != 0)',
+     "16\n64\n15\n-1\ntrue"),
+
     ("deinit and weak", "deinit et weak",
      "<code>deinit</code> runs when the last reference dies, at the next statement boundary. <code>weak</code> writes the back edge of a cycle without holding it alive, so the cycle still dies.",
      "<code>deinit</code> s'exécute quand la dernière référence meurt, à la frontière d'instruction suivante. <code>weak</code> écrit l'arête arrière d'un cycle sans la maintenir en vie — le cycle meurt quand même.",

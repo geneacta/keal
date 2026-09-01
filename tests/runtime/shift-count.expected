@@ -1,0 +1,5 @@
+runtime error: `shl` cannot shift an Int by 64: it has 64 bits
+  --> tests/runtime/shift-count.keal:7:11
+  |
+7 | println(1 shl by)
+  |           ^

@@ -1,0 +1,3 @@
+val a = true
+val b = false
+val x = a band b

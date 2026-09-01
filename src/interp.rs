@@ -367,6 +367,7 @@ impl Interp {
                     },
                     (UnOp::Neg, Value::Float(n)) => Ok(Value::Float(-n)),
                     (UnOp::Not, Value::Bool(b)) => Ok(Value::Bool(!b)),
+                    (UnOp::BNot, Value::Int(n)) => Ok(Value::Int(!n)),
                     (_, v) => err(span, format!("cannot apply this operator to `{}`", v.type_name())),
                 }
             }
@@ -648,6 +649,15 @@ impl Interp {
                     }
                     Pow => Value::Int(runtime::int_pow(x, y, span)?),
                     Root => Value::Int(runtime::int_root(x, y, span)?),
+                    // No overflow is possible: these answer 64 bits, and 64
+                    // bits is what an `Int` holds. Only a shift count can be
+                    // wrong, and the helpers are where that is said.
+                    BAnd => Value::Int(x & y),
+                    BOr => Value::Int(x | y),
+                    BXor => Value::Int(x ^ y),
+                    Shl => Value::Int(runtime::int_shl(x, y, span)?),
+                    Shr => Value::Int(runtime::int_shr(x, y, span)?),
+                    UShr => Value::Int(runtime::int_ushr(x, y, span)?),
                     Lt => Value::Bool(x < y),
                     Le => Value::Bool(x <= y),
                     Gt => Value::Bool(x > y),
@@ -665,6 +675,17 @@ impl Interp {
                     Rem => Value::Float(x % y),
                     Pow => Value::Float(x.powf(y)),
                     Root => Value::Float(runtime::float_root(x, y)),
+                    // The checker refuses a `Float` here; this says the same
+                    // rather than inventing an answer for it.
+                    BAnd | BOr | BXor | Shl | Shr | UShr => {
+                        return err(
+                            span,
+                            format!(
+                                "`{}` works on the bits of an `Int`, not on `Float`",
+                                op.symbol()
+                            ),
+                        )
+                    }
                     Lt => Value::Bool(x < y),
                     Le => Value::Bool(x <= y),
                     Gt => Value::Bool(x > y),

@@ -1,0 +1,48 @@
+// The bit operators through the C backend, which is where they matter: the
+// three engines must agree on what `shl` truncates, on which way each right
+// shift carries, and on the two panics a bad shift count raises.
+
+val argb = (255 shl 24) bor (200 shl 16) bor (100 shl 8) bor 50
+println(argb)
+println((argb ushr 24) band 0xFF)
+println((argb ushr 16) band 0xFF)
+println((argb ushr 8) band 0xFF)
+println(argb band 0xFF)
+
+println(bnot 0)
+println(1 shl 63)
+println(-8 shr 1)
+println(-8 ushr 60)
+println(0xDEAD_BEEF)
+println(0b1111_0000)
+
+// Blending two packed colours, one channel at a time — the loop the whole
+// request came from.
+func blend(a: Int, b: Int, t: Int): Int {
+    val ar = (a ushr 16) band 0xFF
+    val br = (b ushr 16) band 0xFF
+    val r = ((ar * (256 - t)) + (br * t)) ushr 8
+    return r
+}
+println(blend(0x00FF0000, 0x00000000, 128))
+
+var acc = 0
+for (i in 0..8) {
+    acc bxor= 1 shl i
+}
+println(acc)
+
+// A shift count out of range stops the program, in every engine, with the
+// same sentence. `catch` proves the message rather than the exit code.
+try {
+    val n = 64
+    println(1 shl n)
+} catch (m: String) {
+    println("caught: " + m)
+}
+try {
+    val n = -1
+    println(1 ushr n)
+} catch (m: String) {
+    println("caught: " + m)
+}

@@ -1,0 +1,15 @@
+4291322930
+255
+200
+100
+50
+-1
+-9223372036854775808
+-4
+15
+3735928559
+240
+127
+255
+caught: `shl` cannot shift an Int by 64: it has 64 bits
+caught: `ushr` needs a shift count of 0 or more, got -1

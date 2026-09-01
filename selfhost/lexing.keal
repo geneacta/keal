@@ -60,7 +60,11 @@ func keywordOf(w: String): String {
         // room for it — and refused where written rather than quietly read
         // as a name, so nobody builds on one by accident.
         "async", "await", "yield", "sealed", "super", "static", "typealias",
-        "not", "and", "or", "xor", "xnor", "nand", "nor", "implies" -> w
+        "not", "and", "or", "xor", "xnor", "nand", "nor", "implies",
+        // The bit operators. Words, like the connectives: `and`, `or` and
+        // `xor` are the Bool ones and `^` is already `xor`, so the bits get
+        // names of their own rather than sigils read twice.
+        "band", "bor", "bxor", "bnot", "shl", "shr", "ushr" -> w
         else -> ""
     }
 }
@@ -336,6 +340,37 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
     }
 
     proc number(tokLine: Int, tokCol: Int) {
+        // `0x` and `0b` write a bit pattern rather than a magnitude, which is
+        // why they are here at all: a mask is read by its digits, and
+        // `16711935` is not a thing anyone reads.
+        val ahead = this.peekAt(1)
+        val isRadix = ahead == "x" or ahead == "X" or ahead == "b" or ahead == "B"
+        if (this.peek() == "0" and isRadix) {
+            val bits = if (ahead == "x" or ahead == "X") { 4 } else { 1 }
+            val base = 1 shl bits
+            this.bump()
+            val prefix = this.bump()
+            var raw = ""
+            while (digitInBase(this.peek(), base) or this.peek() == "_") {
+                raw += this.bump()
+            }
+            val digits = raw.replace("_", "")
+            if (digits == "") {
+                this.fail(tokLine, tokCol, "`0${prefix}` needs at least one digit after it")
+                return
+            }
+            val v = radixToInt(digits, bits)
+            if (v == null) {
+                this.fail(
+                    tokLine,
+                    tokCol,
+                    "integer literal `0${prefix}${digits}` does not fit in Int"
+                )
+                return
+            }
+            this.emit("int", "${v}", tokLine, tokCol)
+            return
+        }
         var text = ""
         while (isDigit(this.peek()) or this.peek() == "_") {
             text += this.bump()
@@ -539,16 +574,50 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
     }
 }
 
+/// The value of one digit in base 16 or below, or -1 for a character that
+/// is not one.
+func digitValue(c: String): Int {
+    return when {
+        isDigit(c) -> c.code() - 48
+        c >= "a" and c <= "f" -> c.code() - 87
+        c >= "A" and c <= "F" -> c.code() - 55
+        else -> -1
+    }
+}
+
+/// True when `c` is a digit of this base. What is not one ends the literal
+/// rather than spoiling it: `0b12` is `0b1` followed by `2`, which is what
+/// the oracle does and therefore what this must do.
+func digitInBase(c: String, base: Int): Bool {
+    val d = digitValue(c)
+    return d >= 0 and d < base
+}
+
+/// The value of a `0x` or `0b` literal's digits, or null when they name more
+/// bits than an Int holds. The digits are a bit pattern rather than a
+/// magnitude, so the top bit set is a negative Int — the same 64 bits the
+/// bit operators are defined on.
+func radixToInt(digits: String, bits: Int): Int? {
+    if (digits == "") { return null }
+    val base = 1 shl bits
+    val top = 64 - bits
+    var n = 0
+    for (c in digits) {
+        val d = digitValue(c)
+        if (d < 0 or d >= base) { return null }
+        // What is about to leave the top has to be nothing, or the digits
+        // name more than an Int holds.
+        if ((n ushr top) != 0) { return null }
+        n = (n shl bits) bor d
+    }
+    return n
+}
+
 func hexToInt(hex: String): Int? {
     if (hex == "") { return null }
     var n = 0
     for (c in hex) {
-        val d = when {
-            isDigit(c) -> c.code() - 48
-            c >= "a" and c <= "f" -> c.code() - 87
-            c >= "A" and c <= "F" -> c.code() - 55
-            else -> -1
-        }
+        val d = digitValue(c)
         if (d < 0) { return null }
         if (n > 268435455) { return null }   // would exceed 32 bits shifted
         n = n * 16 + d

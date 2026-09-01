@@ -180,6 +180,15 @@
     "numbers": {
       "patterns": [
         {
+          "comment": "Hexadecimal and binary, which write a bit pattern rather than a magnitude.",
+          "name": "constant.numeric.integer.keal",
+          "match": "\\b0[xX][0-9A-Fa-f][0-9A-Fa-f_]*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.keal",
+          "match": "\\b0[bB][01][01_]*\\b"
+        },
+        {
           "comment": "Floats, including an exponent, with `_` as a separator.",
           "name": "constant.numeric.float.keal",
           "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9]+)?\\b"
@@ -212,6 +221,11 @@
           "comment": "The logical connectives, which are words in Keal.",
           "name": "keyword.operator.logical.keal",
           "match": "\\b(not|and|or|xor|xnor|nand|nor|implies)\\b"
+        },
+        {
+          "comment": "The bit operators, words for the same reason the connectives are.",
+          "name": "keyword.operator.bitwise.keal",
+          "match": "\\b(band|bor|bxor|bnot|shl|shr|ushr)\\b"
         },
         {
           "name": "keyword.operator.word.keal",

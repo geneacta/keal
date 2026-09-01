@@ -223,6 +223,17 @@ func cString(s: String): String {
     return out
 }
 
+/// True for an `Int` operator the runtime performs rather than C: the
+/// arithmetic, because it is checked, and the shifts, because of the shift
+/// count and because C leaves `<<` past the sign bit and `>>` on a negative
+/// value to the implementation.
+func isCheckedIntOp(op: String): Bool {
+    return when (op) {
+        "+", "-", "*", "/", "%", "**", "^/", "shl", "shr", "ushr" -> true
+        else -> false
+    }
+}
+
 /// Drops the parentheses that wrap a whole C expression, as many pairs as
 /// wrap it. A string holding a `"` is left alone: the scan counts brackets
 /// and a literal may hold one that closes nothing.
@@ -3332,6 +3343,9 @@ class CBackend() {
         if (e.kind == "unary") {
             val r = this.expr(e.kids[0])
             if (e.text == "not") { return "(!${r})" }
+            // `~` on `int64_t` is total: it is `-x - 1`, and `~INT64_MIN` is
+            // `INT64_MAX`. Nothing to check.
+            if (e.text == "bnot") { return "(~${r})" }
             return "(-${r})"
         }
         if (e.kind == "binary") { return this.binary(e) }
@@ -5672,7 +5686,7 @@ class CBackend() {
         val a = this.expr(lhs)
         val b = this.expr(rhs)
         // Integer arithmetic is checked, matching the other two engines.
-        if (lty != null and lty.kind == "Int" and (op == "+" or op == "-" or op == "*" or op == "/" or op == "%" or op == "**" or op == "^/")) {
+        if (lty != null and lty.kind == "Int" and isCheckedIntOp(op)) {
             val t = this.temp()
             val helper = when (op) {
                 "+" -> "keal_add"
@@ -5681,6 +5695,13 @@ class CBackend() {
                 "/" -> "keal_div"
                 "**" -> "keal_int_pow"
                 "^/" -> "keal_int_root"
+                // The shifts take the same shape for the shift count, and
+                // because C leaves `<<` past the sign bit and `>>` on a
+                // negative value to the implementation. `band`, `bor` and
+                // `bxor` need none of that and stay operators.
+                "shl" -> "keal_shl"
+                "shr" -> "keal_shr"
+                "ushr" -> "keal_ushr"
                 else -> "keal_rem"
             }
             this.line("const int64_t ${t} = ${helper}(${a}, ${b}, ${e.line});")
@@ -5848,7 +5869,15 @@ class CBackend() {
         if (op == "^/" and lty != null and lty.kind == "Float") {
             return "keal_f_root(${a}, ${b})"
         }
-        return "(${a} ${op} ${b})"
+        // `band`, `bor` and `bxor` are C operators under other names; every
+        // other operator that reaches here spells itself.
+        val cOp = when (op) {
+            "band" -> "&"
+            "bor" -> "|"
+            "bxor" -> "^"
+            else -> op
+        }
+        return "(${a} ${cOp} ${b})"
     }
 
     /// Emits a value rendered as an owned string, for concatenation and

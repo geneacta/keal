@@ -7,6 +7,18 @@
 
 import "./types.keal"
 
+/// True for an operator that reads an `Int` as 64 bits rather than as a
+/// number. Every stage asks this — the parser to refuse mixing it with
+/// arithmetic, the checker to answer it without consulting a trait, the
+/// folder and the emitter to know what to do with it — so it lives here,
+/// beside the nodes that carry it.
+package func isBitOp(op: String): Bool {
+    return when (op) {
+        "band", "bor", "bxor", "shl", "shr", "ushr" -> true
+        else -> false
+    }
+}
+
 /// A type as written: kind is "named", "nullable" or "func".
 package class TypeEx(package val kind: String, package val line: Int, package val col: Int) {
     package var file: Int = 0

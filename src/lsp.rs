@@ -420,7 +420,7 @@ const KEYWORDS: &[&str] = &[
     "import", "public", "package", "private", "if", "unless", "else", "when", "while", "for",
     "in", "break", "continue", "return", "try", "catch", "throw", "true", "false", "null",
     "this", "is", "not", "and", "or", "xor", "xnor", "nand", "nor", "implies", "weak", "extern",
-    "native", "deinit",
+    "native", "deinit", "band", "bor", "bxor", "bnot", "shl", "shr", "ushr",
 ];
 
 struct Analysis {

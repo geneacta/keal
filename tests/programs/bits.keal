@@ -1,0 +1,100 @@
+// The bit operators, on the 64 bits of an Int.
+//
+// Words rather than sigils: `and`, `or` and `xor` are the Bool ones and `^`
+// is already `xor`, so a symbol here would have to be read twice. They form
+// one tier that mixes with nothing — not with each other, not with
+// arithmetic — which is the rule the connectives already follow, and which
+// is why `flag band 2 != 0` needs no parentheses while `a shl 2 + 1` is
+// refused rather than read one of the two ways it could be.
+
+// ---- the operators themselves -------------------------------------------
+
+assert(0xF0 band 0x0F == 0, "band")
+assert(0xF0 bor 0x0F == 0xFF, "bor")
+assert(0xF0 bxor 0xFF == 0x0F, "bxor")
+assert(bnot 0 == -1, "bnot flips every bit")
+assert(bnot(-1) == 0, "bnot is its own inverse")
+assert(bnot 5 == -6, "bnot n is -n - 1")
+
+assert(1 shl 8 == 256, "shl")
+assert(256 shr 8 == 1, "shr")
+assert(1 shl 0 == 1, "a shift of nothing is nothing")
+
+// ---- what `shl` truncates -----------------------------------------------
+//
+// This is the one place in Keal where a value is not checked. It is
+// deliberate: these operators are defined on the 64 bits an Int holds, not
+// on the number those bits spell, and a `shl` that panicked on overflow
+// would refuse the very thing it exists for.
+
+assert(1 shl 63 == -9223372036854775807 - 1, "the top bit is the sign")
+assert(1 shl 62 shl 1 == 1 shl 63, "shifting twice is shifting once")
+assert(-1 shl 1 == -2, "a negative shifts like its bits")
+
+// ---- the two right shifts differ, and that is why there are two ----------
+
+assert(-8 shr 1 == -4, "shr carries the sign in, like division")
+assert(-8 ushr 60 == 15, "ushr carries zeros in")
+assert(-1 ushr 32 == 4294967295, "ushr of -1 keeps the low bits")
+assert(-1 shr 32 == -1, "shr of -1 is -1 however far it goes")
+
+// ---- hex and binary literals --------------------------------------------
+
+assert(0xFF == 255, "hex")
+assert(0X1f == 31, "either case, for the prefix and the digits")
+assert(0b1010 == 10, "binary")
+assert(0xFF_FF == 65535, "underscores group digits")
+assert(0xFFFFFFFFFFFFFFFF == -1, "sixteen hex digits are 64 bits, sign included")
+assert(0x8000000000000000 == -9223372036854775807 - 1, "the top bit set is negative")
+
+// ---- what these are for --------------------------------------------------
+
+func pack(a: Int, r: Int, g: Int, b: Int): Int {
+    return (a shl 24) bor (r shl 16) bor (g shl 8) bor b
+}
+
+val argb = pack(255, 16, 32, 64)
+assert((argb ushr 24) band 0xFF == 255, "alpha out")
+assert((argb ushr 16) band 0xFF == 16, "red out")
+assert((argb ushr 8) band 0xFF == 32, "green out")
+assert(argb band 0xFF == 64, "blue out")
+
+// A bit test against zero, the thing C reads wrong: `band` binds tighter
+// than `==`, so this is `(flag band 2) != 0` and not `flag band (2 != 0)`.
+val flag = 0x22
+assert(flag band 2 != 0, "bit 1 is set")
+assert(not (flag band 4 != 0), "bit 2 is not")
+
+// Continuation bytes of UTF-8, the way a decoder actually asks.
+func isContinuation(b: Int): Bool { (b band 0xC0) == 0x80 }
+assert(isContinuation(0x80), "0x80 continues")
+assert(not isContinuation(0x41), "`A` does not")
+
+// ---- the compound forms --------------------------------------------------
+
+var m = 0b1111
+m band= 0b1010
+assert(m == 0b1010, "band=")
+m bor= 0b0001
+assert(m == 0b1011, "bor=")
+m bxor= 0b1111
+assert(m == 0b0100, "bxor=")
+m shl= 4
+assert(m == 0b1000000, "shl=")
+m shr= 2
+assert(m == 0b10000, "shr=")
+m ushr= 1
+assert(m == 0b1000, "ushr=")
+
+// ---- the same operator may repeat ---------------------------------------
+
+assert(1 band 3 band 5 == 1, "band chains")
+assert(1 bor 2 bor 4 == 7, "bor chains")
+assert(1 shl 2 shl 3 == 32, "shl chains, and is the sum of the counts")
+
+// ---- constexpr folds them ------------------------------------------------
+
+constexpr val MASK = (1 shl 12) - 1
+assert(MASK == 4095, "folded at compile time")
+constexpr val HIGH = bnot MASK
+assert(HIGH == -4096, "bnot folds too")

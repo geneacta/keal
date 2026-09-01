@@ -41,7 +41,7 @@
 </nav>
 
 <div class="tourgrid">
-  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Hello, world</a><a class="tch" href="#c2"><span class="n">2</span>Values and bindings</a><a class="tch" href="#c3"><span class="n">3</span>func and proc</a><a class="tch" href="#c4"><span class="n">4</span>Control flow</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Null safety</a><a class="tch" href="#c7"><span class="n">7</span>Collections and lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Records and classes</a><a class="tch" href="#c9"><span class="n">9</span>Generics and traits</a><a class="tch" href="#c10"><span class="n">10</span>The eight connectives</a><a class="tch" href="#c11"><span class="n">11</span>deinit and weak</a><a class="tch" href="#c12"><span class="n">12</span>Native code and C</a><a class="tch" href="#c13"><span class="n">13</span>constexpr</a><a class="tch" href="#c14"><span class="n">14</span>enum</a><a class="tch" href="#c15"><span class="n">15</span>Macros</a></aside>
+  <aside class="tournav"><a class="tch" href="#c1"><span class="n">1</span>Hello, world</a><a class="tch" href="#c2"><span class="n">2</span>Values and bindings</a><a class="tch" href="#c3"><span class="n">3</span>func and proc</a><a class="tch" href="#c4"><span class="n">4</span>Control flow</a><a class="tch" href="#c5"><span class="n">5</span>when</a><a class="tch" href="#c6"><span class="n">6</span>Null safety</a><a class="tch" href="#c7"><span class="n">7</span>Collections and lambdas</a><a class="tch" href="#c8"><span class="n">8</span>Records and classes</a><a class="tch" href="#c9"><span class="n">9</span>Generics and traits</a><a class="tch" href="#c10"><span class="n">10</span>The eight connectives</a><a class="tch" href="#c11"><span class="n">11</span>Bits, in words</a><a class="tch" href="#c12"><span class="n">12</span>deinit and weak</a><a class="tch" href="#c13"><span class="n">13</span>Native code and C</a><a class="tch" href="#c14"><span class="n">14</span>constexpr</a><a class="tch" href="#c15"><span class="n">15</span>enum</a><a class="tch" href="#c16"><span class="n">16</span>Macros</a></aside>
   <div class="tourmain prose">
     <h1>Tour of Keal</h1>
     <p class="lede">Half an hour, top to bottom. Every snippet below is a real program and every output is what it actually prints — the suite checks them.</p>
@@ -158,7 +158,17 @@ true
 false
 false
 false
-false</pre></div></div></section><section class="chapter" id="c11"><h2>11. deinit and weak</h2><p class="lede"><code>deinit</code> runs when the last reference dies, at the next statement boundary. <code>weak</code> writes the back edge of a cycle without holding it alive, so the cycle still dies.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter11.keal</span><span class="run">▶ Run</span></div><pre>var freed = 0
+false</pre></div></div></section><section class="chapter" id="c11"><h2>11. Bits, in words</h2><p class="lede">An <code>Int</code> is 64 bits, and seven operators read it as those. Words, because <code>and</code>, <code>or</code> and <code>xor</code> already belong to <code>Bool</code>. They mix with nothing without parentheses — but they bind tighter than comparison, so the test everybody writes needs none.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter11.keal</span><span class="run">▶ Run</span></div><pre>val argb = (255 shl 24) bor (16 shl 16) bor (32 shl 8) bor 64
+println((argb ushr 16) band 0xFF)
+println(argb band 0xFF)
+println(0xF0 bxor 0xFF)
+println(bnot 0)
+val flag = 0x22
+println(flag band 2 != 0)</pre><div class="cwin-out"><pre>16
+64
+15
+-1
+true</pre></div></div></section><section class="chapter" id="c12"><h2>12. deinit and weak</h2><p class="lede"><code>deinit</code> runs when the last reference dies, at the next statement boundary. <code>weak</code> writes the back edge of a cycle without holding it alive, so the cycle still dies.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter12.keal</span><span class="run">▶ Run</span></div><pre>var freed = 0
 class Item(val id: Int) {
     weak var owner: Owner? = null
     proc deinit() { freed += 1 }
@@ -174,14 +184,14 @@ proc pair() {
     it.owner = o
 }
 pair()
-println(&quot;freed ${freed}&quot;)</pre><div class="cwin-out"><pre>freed 2</pre></div></div></section><section class="chapter" id="c12"><h2>12. Native code and C</h2><p class="lede"><code>keal build</code> compiles through C11 to a real executable, and what it cannot compile it refuses by name — it never mis-compiles.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter12.keal</span><span class="run">▶ Run</span></div><pre>native &quot;&quot;&quot;
+println(&quot;freed ${freed}&quot;)</pre><div class="cwin-out"><pre>freed 2</pre></div></div></section><section class="chapter" id="c13"><h2>13. Native code and C</h2><p class="lede"><code>keal build</code> compiles through C11 to a real executable, and what it cannot compile it refuses by name — it never mis-compiles.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter13.keal</span><span class="run">▶ Run</span></div><pre>native &quot;&quot;&quot;
 #include &lt;math.h&gt;
 static double keal_hypot(double a, double b) { return hypot(a, b); }
 &quot;&quot;&quot;
 
 extern func hypot(a: Float, b: Float): Float = &quot;keal_hypot&quot;
 
-println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></section><section class="chapter" id="c13"><h2>13. constexpr</h2><p class="lede">A promise about <em>when</em> the work happens: the compiler runs it and writes the answer into the program as a literal. Where it cannot, it refuses by name rather than quietly leaving the work for run time — and it always finishes, because a compiler that never answers is not a tool.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter13.keal</span><span class="run">▶ Run</span></div><pre>constexpr func squares(n: Int): List&lt;Int&gt; {
+println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></section><section class="chapter" id="c14"><h2>14. constexpr</h2><p class="lede">A promise about <em>when</em> the work happens: the compiler runs it and writes the answer into the program as a literal. Where it cannot, it refuses by name rather than quietly leaving the work for run time — and it always finishes, because a compiler that never answers is not a tool.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter14.keal</span><span class="run">▶ Run</span></div><pre>constexpr func squares(n: Int): List&lt;Int&gt; {
     var out: List&lt;Int&gt; = []
     for (i in 1..n) { out.add(i * i) }
     return out
@@ -189,7 +199,7 @@ println(hypot(3.0, 4.0))</pre><div class="cwin-out"><pre>5.0</pre></div></div></
 
 constexpr val KB = 1024
 constexpr val TABLE: List&lt;Int&gt; = squares(8)
-println(&quot;${KB * KB} ${TABLE.size} ${TABLE[6]}&quot;)</pre><div class="cwin-out"><pre>1048576 7 49</pre></div></div></section><section class="chapter" id="c14"><h2>14. enum</h2><p class="lede">A closed set of names. The checker knows every value the type has, so a <code>when</code> over one needs no <code>else</code> — and the day somebody adds a variant, every <code>when</code> that forgot it is an error rather than a surprise at run time.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter14.keal</span><span class="run">▶ Run</span></div><pre>enum Suit { Hearts, Diamonds, Clubs, Spades }
+println(&quot;${KB * KB} ${TABLE.size} ${TABLE[6]}&quot;)</pre><div class="cwin-out"><pre>1048576 7 49</pre></div></div></section><section class="chapter" id="c15"><h2>15. enum</h2><p class="lede">A closed set of names. The checker knows every value the type has, so a <code>when</code> over one needs no <code>else</code> — and the day somebody adds a variant, every <code>when</code> that forgot it is an error rather than a surprise at run time.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter15.keal</span><span class="run">▶ Run</span></div><pre>enum Suit { Hearts, Diamonds, Clubs, Spades }
 
 func isRed(s: Suit): Bool {
     return when (s) {
@@ -197,7 +207,7 @@ func isRed(s: Suit): Bool {
         Suit.Clubs, Suit.Spades -&gt; false
     }
 }
-println(&quot;${Suit.Hearts} ${isRed(Suit.Hearts)} ${isRed(Suit.Spades)}&quot;)</pre><div class="cwin-out"><pre>Hearts true false</pre></div></div></section><section class="chapter" id="c15"><h2>15. Macros</h2><p class="lede">A named piece of syntax, spliced where it is written. The <code>!</code> is not decoration: a macro may assign to what it was given, run an argument twice or never, and let a <code>return</code> pass through to the function around it — three things a call cannot do.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter15.keal</span><span class="run">▶ Run</span></div><pre>macro swap(a, b) {
+println(&quot;${Suit.Hearts} ${isRed(Suit.Hearts)} ${isRed(Suit.Spades)}&quot;)</pre><div class="cwin-out"><pre>Hearts true false</pre></div></div></section><section class="chapter" id="c16"><h2>16. Macros</h2><p class="lede">A named piece of syntax, spliced where it is written. The <code>!</code> is not decoration: a macro may assign to what it was given, run an argument twice or never, and let a <code>return</code> pass through to the function around it — three things a call cannot do.</p><div class="cwin"><div class="cwin-bar"><span class="f">chapter16.keal</span><span class="run">▶ Run</span></div><pre>macro swap(a, b) {
     val held = a
     a = b
     b = held

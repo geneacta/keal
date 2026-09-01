@@ -39,10 +39,31 @@ func binaryPowerOf(kind: String): Int {
     return when (kind) {
         "==", "!=" -> 2
         "<", "<=", ">", ">=", "<=>" -> 3
-        "+", "-" -> 6
-        "*", "/", "%" -> 7
-        "**", "^/" -> 8
+        "+", "-" -> 7
+        "*", "/", "%" -> 8
+        "**", "^/" -> 9
         else -> 0
+    }
+}
+
+/// The bit operator a token spells. Words only: `and`, `or` and `xor` are
+/// the `Bool` ones and `^` is already `xor`, so a sigil here would be a
+/// second spelling of something the reader has to look up anyway.
+///
+/// They share one level — 6, tighter than comparison so that
+/// `flag band 2 != 0` reads as it looks, which is the one thing C got wrong
+/// here. Against arithmetic the level settles nothing: `mixing` refuses
+/// that pair outright.
+func bitOpOf(kind: String): String {
+    if (isBitOp(kind)) { return kind }
+    return ""
+}
+
+/// True for an operator that reads an `Int` as a number rather than as bits.
+func isArithOp(op: String): Bool {
+    return when (op) {
+        "+", "-", "*", "/", "%", "**", "^/" -> true
+        else -> false
     }
 }
 
@@ -78,6 +99,9 @@ func assignOpName(kind: String): String {
         "%=" -> "%"
         "**=" -> "**"
         "^/=" -> "^/"
+        // A word operator and `=` are two tokens, so the first one already
+        // carries the name: `x band= 3`.
+        "band", "bor", "bxor", "shl", "shr", "ushr" -> kind
         else -> "="
     }
 }
@@ -95,6 +119,45 @@ package class Parser(val toks: List<Token>) {
     func peek(): Token {
         val i = this.pos.min(this.toks.size - 1)
         return this.toks[i]
+    }
+
+    /// How many tokens the operator of an assignment ahead is spelled with:
+    /// 0 when what is ahead is not one, 1 for `=` and `+=`, 2 for a word
+    /// operator and `=` — `band=` is a keyword followed by the assignment
+    /// rather than a token of its own.
+    func assignTokens(): Int {
+        val k = this.peek().kind
+        if (isAssignOp(k)) { return 1 }
+        unless (bitOpOf(k) == "") {
+            if (this.peekAt(1).kind == "=") { return 2 }
+        }
+        return 0
+    }
+
+    /// Refuses two operators that have no relative precedence side by side.
+    ///
+    /// Keal already asks this of the logical connectives, for the reason
+    /// `docs/language.md` §4 gives: where an order would have to be invented
+    /// and then remembered, the language asks instead. The bits are the same
+    /// case twice over. `a band b bor c` has no reading anyone would bet on,
+    /// and `a shl 2 + 1` has two that differ — C picked one and has been
+    /// producing that bug ever since.
+    proc mixing(prev: String, next: String, line: Int, col: Int) {
+        if (prev == "") { return }
+        val nextBit = bitOpOf(next) != ""
+        unless (nextBit or isArithOp(next)) { return }
+        val prevBit = bitOpOf(prev) != ""
+        if (prevBit == nextBit and (not prevBit or prev == next)) { return }
+        val note = if (prevBit and nextBit) {
+            "bit operators have no relative precedence in Keal"
+        } else {
+            "a bit operator and an arithmetic one have no relative precedence in Keal"
+        }
+        this.failNote(
+            line, col,
+            "`${prev}` and `${next}` need parentheses to say which applies first",
+            "${note}; write `(a ${prev} b) ${next} c` or `a ${prev} (b ${next} c)`"
+        )
     }
 
     func peekAt(k: Int): Token {
@@ -509,8 +572,13 @@ package class Parser(val toks: List<Token>) {
         val start = this.peek()
         val target = this.expr()
         val opTok = this.peek()
-        unless (isAssignOp(opTok.kind)) { return target }
-        this.advance()
+        val opTokens = this.assignTokens()
+        if (opTokens == 0) { return target }
+        var consumed = 0
+        while (consumed < opTokens) {
+            this.advance()
+            consumed += 1
+        }
         unless (target.kind == "ident" or target.kind == "field" or target.kind == "index") {
             this.failNote(
                 opTok.line, opTok.col,
@@ -1027,12 +1095,17 @@ package class Parser(val toks: List<Token>) {
             return s
         }
         val opTok = this.peek()
-        unless (isAssignOp(opTok.kind)) {
+        val opTokens = this.assignTokens()
+        if (opTokens == 0) {
             val s = StmtN("expr", t.line, t.col)
             s.ex = target
             return s
         }
-        this.advance()
+        var consumed = 0
+        while (consumed < opTokens) {
+            this.advance()
+            consumed += 1
+        }
         unless (target.kind == "ident" or target.kind == "field" or target.kind == "index") {
             this.failNote(
                 opTok.line, opTok.col,
@@ -1127,6 +1200,10 @@ package class Parser(val toks: List<Token>) {
 
     func binary(minBp: Int): Ex {
         var lhs = this.unary()
+        // The last operator applied at this level, for the mixing rule. A
+        // comparison clears it: it answers a `Bool`, so nothing it produces
+        // can be an operand of either family.
+        var prev = ""
         while (true) {
             val t = this.peek()
 
@@ -1157,6 +1234,26 @@ package class Parser(val toks: List<Token>) {
                         )
                     }
                 }
+                prev = ""
+                continue
+            }
+
+            // A bit operator takes a *unary* right operand rather than a
+            // sub-expression: nothing may be absorbed on its right that the
+            // mixing rule would have refused on its left.
+            val bit = bitOpOf(t.kind)
+            unless (bit == "") {
+                // `x band= 3` is an assignment. Two tokens spell it, and the
+                // statement parser owns both.
+                if (this.peekAt(1).kind == "=") { return lhs }
+                if (6 < minBp) { return lhs }
+                this.mixing(prev, bit, t.line, t.col)
+                this.advance()
+                val node = Ex("binary", t.line, t.col)
+                node.text = bit
+                node.kids = [lhs, this.unary()]
+                lhs = node
+                prev = bit
                 continue
             }
 
@@ -1165,6 +1262,7 @@ package class Parser(val toks: List<Token>) {
                 val node = Ex("elvis", t.line, t.col)
                 node.kids = [lhs, this.binary(4)]
                 lhs = node
+                prev = ""
                 continue
             }
             if (t.kind == ".." and 5 >= minBp) {
@@ -1172,6 +1270,7 @@ package class Parser(val toks: List<Token>) {
                 val node = Ex("range", t.line, t.col)
                 node.kids = [lhs, this.binary(6)]
                 lhs = node
+                prev = ""
                 continue
             }
             if (t.kind == "is" and 3 >= minBp) {
@@ -1180,6 +1279,7 @@ package class Parser(val toks: List<Token>) {
                 node.tyEx = this.typeExpr()
                 node.kids = [lhs]
                 lhs = node
+                prev = ""
                 continue
             }
             if (t.kind == "!" and 3 >= minBp and (this.peekAt(1).kind == "is" or this.peekAt(1).kind == "in")) {
@@ -1203,6 +1303,7 @@ package class Parser(val toks: List<Token>) {
                     neg.kids = [call]
                     lhs = neg
                 }
+                prev = ""
                 continue
             }
             if (t.kind == "in" and 3 >= minBp) {
@@ -1214,6 +1315,7 @@ package class Parser(val toks: List<Token>) {
                 call.kids = [rhs]
                 call.args = [ArgN("", lhs)]
                 lhs = call
+                prev = ""
                 continue
             }
 
@@ -1221,6 +1323,8 @@ package class Parser(val toks: List<Token>) {
             if (op == "") { return lhs }
             val bp = binaryPowerOf(t.kind)
             if (bp < minBp) { return lhs }
+            this.mixing(prev, op, t.line, t.col)
+            prev = if (isArithOp(op)) { op } else { "" }
             this.advance()
             // `**` and `^/` associate to the right, as powers do everywhere:
             // `2 ** 3 ** 2` is `2 ** (3 ** 2)`.
@@ -1238,13 +1342,15 @@ package class Parser(val toks: List<Token>) {
         val op = when (t.kind) {
             "-" -> "neg"
             "!", "not" -> "not"
+            // `bnot` is `not` for the bits, and binds where `not` does.
+            "bnot" -> "bnot"
             else -> ""
         }
         if (op == "") { return this.postfix() }
         this.advance()
         val node = Ex("unary", t.line, t.col)
         node.text = op
-        node.kids = [this.binary(8)]
+        node.kids = [this.binary(9)]
         return node
     }
 

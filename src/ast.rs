@@ -498,6 +498,9 @@ impl LogicalOp {
 pub enum UnOp {
     Neg,
     Not,
+    /// `bnot a` — every bit of an `Int` flipped. The bit counterpart of
+    /// `not`, and unary for the same reason.
+    BNot,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -522,6 +525,19 @@ pub enum BinOp {
     Le,
     Gt,
     Ge,
+    /// The bit operators, on the 64 bits of an `Int`. Words rather than
+    /// sigils: `and`, `or` and `xor` already belong to `Bool` and `^` is
+    /// already `xor`, so a symbol here would have to be read twice.
+    ///
+    /// They form one tier with no relative precedence, in and against
+    /// arithmetic both — `a band b bor c` and `a shl 2 + 1` are syntax
+    /// errors, not silent readings. `docs/language.md` §4 has the rule.
+    BAnd,
+    BOr,
+    BXor,
+    Shl,
+    Shr,
+    UShr,
 }
 
 impl BinOp {
@@ -541,11 +557,43 @@ impl BinOp {
             BinOp::Le => "<=",
             BinOp::Gt => ">",
             BinOp::Ge => ">=",
+            BinOp::BAnd => "band",
+            BinOp::BOr => "bor",
+            BinOp::BXor => "bxor",
+            BinOp::Shl => "shl",
+            BinOp::Shr => "shr",
+            BinOp::UShr => "ushr",
         }
     }
 
     pub fn is_comparison(self) -> bool {
         matches!(self, BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge)
+    }
+
+    /// True for the operators that read an `Int` as 64 bits rather than as a
+    /// number. They mix with nothing without parentheses, which is the one
+    /// thing the parser needs to ask about them.
+    pub fn is_bitwise(self) -> bool {
+        matches!(
+            self,
+            BinOp::BAnd | BinOp::BOr | BinOp::BXor | BinOp::Shl | BinOp::Shr | BinOp::UShr
+        )
+    }
+
+    /// True for the operators that read an `Int` as a number. `<=>` and the
+    /// comparisons are neither: they answer a `Bool` or a `Comp`, they bind
+    /// loosest of the three, and nobody has ever misread where they go.
+    pub fn is_arithmetic(self) -> bool {
+        matches!(
+            self,
+            BinOp::Add
+                | BinOp::Sub
+                | BinOp::Mul
+                | BinOp::Div
+                | BinOp::Rem
+                | BinOp::Pow
+                | BinOp::Root
+        )
     }
 }
 

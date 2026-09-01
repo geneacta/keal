@@ -535,7 +535,8 @@ package class Folder(package val funs: Map<String, FunN>) {
             if (v.kind == "Float") { return cvFloat(0.0 - v.f) }
         }
         if (e.text == "not" and v.kind == "Bool") { return cvBool(not v.b) }
-        val sym = if (e.text == "neg") { "-" } else { "not" }
+        if (e.text == "bnot" and v.kind == "Int") { return cvInt(bnot v.i) }
+        val sym = if (e.text == "neg") { "-" } else { e.text }
         return this.refuse(e.file, e.line, e.col, "`${sym}` on a `${cvTypeName(v)}`")
     }
 
@@ -682,6 +683,15 @@ package class Folder(package val funs: Map<String, FunN>) {
             if (op == "%") { return cvInt(x % y) }
             if (op == "**") { return cvInt(x ** y) }
             if (op == "^/") { return cvInt(x ^/ y) }
+            // No overflow is possible here: these answer 64 bits, and 64
+            // bits is what an Int holds. A shift count can still be wrong,
+            // and the engine says so through the same `catch`.
+            if (op == "band") { return cvInt(x band y) }
+            if (op == "bor") { return cvInt(x bor y) }
+            if (op == "bxor") { return cvInt(x bxor y) }
+            if (op == "shl") { return cvInt(x shl y) }
+            if (op == "shr") { return cvInt(x shr y) }
+            if (op == "ushr") { return cvInt(x ushr y) }
         } catch (m: String) {
             return this.plain(file, atLine, atCol, m)
         }
@@ -696,6 +706,9 @@ package class Folder(package val funs: Map<String, FunN>) {
         if (op == "%") { return cvFloat(x % y) }
         if (op == "**") { return cvFloat(x ** y) }
         if (op == "^/") { return cvFloat(x ^/ y) }
+        if (isBitOp(op)) {
+            return this.refuse(file, atLine, atCol, "a bit operator on a `Float`")
+        }
         if (op == "<") { return cvBool(x < y) }
         if (op == "<=") { return cvBool(x <= y) }
         if (op == ">") { return cvBool(x > y) }

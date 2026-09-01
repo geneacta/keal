@@ -435,6 +435,7 @@ fn expr_node_inner(e: &Expr) -> String {
             let name = match op {
                 UnOp::Neg => "neg",
                 UnOp::Not => "not",
+                UnOp::BNot => "bnot",
             };
             format!("unary {} {}\n{}", name, sp, indent(&expr_node(rhs)))
         }
