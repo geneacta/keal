@@ -22,6 +22,45 @@ greet()                       // fine: `greet` is declared below
 func greet() { println("hi") }
 ```
 
+### `main`
+
+A program is its top-level statements, and a file needs nothing else to be
+one. If it also declares a `main`, that runs last, after the statements
+above it:
+
+```keal
+println("first")
+
+proc main() {
+    println("then main")
+}
+```
+
+The exit code is `main`'s, when it has one to give:
+
+```keal
+func main(): Int {
+    return 3                  // the process exits 3
+}
+```
+
+Either form may take the arguments, which are also reachable from anywhere
+with `args()`:
+
+```keal
+proc main(argv: List<String>) { println(argv.size) }
+```
+
+Those four shapes are all of them. A `main` that is neither is a mistake and
+is said so, rather than sitting in the file and never running — which is
+what it used to do. Only the entry file's `main` runs: a module that
+declares one is a library that can also be run on its own, and importing it
+does not start a second program.
+
+The call is appended by the module loader, not by an engine, so what runs is
+an ordinary program with one more statement at the end. Nothing below the
+loader — neither interpreter, nor the C backend — knows the name `main`.
+
 Semicolons are optional. A newline ends a statement whenever the line so far
 could be a complete statement, so this works as written:
 

@@ -6,7 +6,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::ast::{ImportEdge, Item, Program};
+use crate::ast::{
+    Arg, Expr, ExprKind, ImportEdge, Item, Param, Program, Stmt, StmtKind, TypeExpr,
+    TypeExprKind,
+};
 use crate::lexer;
 use crate::parser;
 use crate::span::{shown, Diag, Sources, Span};
@@ -76,8 +79,103 @@ fn load_inner(entry: &str, sources: &mut Sources, generate: bool) -> Result<Prog
     let mut items = prelude(sources)?;
     let mut imports = Vec::new();
     let path = normalise(Path::new(entry));
-    load_file(&path, None, sources, &mut seen, &mut items, &mut imports, generate)?;
+    let entry_file =
+        load_file(&path, None, sources, &mut seen, &mut items, &mut imports, generate)?;
+    call_main(&mut items, entry_file)?;
     Ok(Program { items, imports })
+}
+
+/// Appends the call to `main`, if the entry file declared one.
+///
+/// A program is its top-level statements, and that is still true: this adds
+/// one more, as if the last line of the entry file had written the call. It
+/// is done here rather than in an engine so that the three engines inherit
+/// the same program — the tree-walker, the bytecode VM and the C backend all
+/// receive a call that is already in the item list, and none of them has to
+/// know the name `main` at all.
+///
+/// Only the entry file's `main` runs. A module that declares one is a
+/// library that can also be run on its own, which is a useful thing to be
+/// and not a reason to run two programs at once.
+fn call_main(items: &mut Vec<Item>, entry: u32) -> Result<(), Diag> {
+    let Some(decl) = items.iter().find_map(|it| match it {
+        Item::Fun(f) if f.name == "main" && f.span.file == entry => Some(f),
+        _ => None,
+    }) else {
+        return Ok(());
+    };
+
+    // What a `main` may look like. Anything else is a mistake worth a
+    // message: a `main` that does not match used to sit there and never
+    // run, which is the silence this exists to end.
+    let takes_args = match decl.params.len() {
+        0 => false,
+        1 if is_string_list(&decl.params[0]) => true,
+        _ => {
+            return Err(Diag::new(decl.span, "`main` takes no parameters, or one `List<String>`")
+                .with_note(
+                    "the arguments are also reachable from anywhere with `args()`",
+                ))
+        }
+    };
+    match &decl.ret {
+        // `proc main()` — the program ends when it returns.
+        None => {}
+        // `func main(): Int` — and the Int is the exit code, as in C.
+        Some(t) if names(t, "Int") => {}
+        Some(_) => {
+            return Err(Diag::new(
+                decl.span,
+                "`func main` must return `Int`, which becomes the exit code",
+            )
+            .with_note("declare it `proc main` if it returns nothing"))
+        }
+    }
+
+    let span = decl.span;
+    let returns_code = decl.ret.is_some();
+    let args = if takes_args { vec![arg(call("args", vec![], span))] } else { vec![] };
+    let mut expr = call("main", args, span);
+    if returns_code {
+        expr = call("exit", vec![arg(expr)], span);
+    }
+    items.push(Item::Stmt(Stmt { kind: StmtKind::Expr(expr), span }));
+    Ok(())
+}
+
+fn is_string_list(p: &Param) -> bool {
+    match &p.ty {
+        Some(t) => match &t.kind {
+            TypeExprKind::Named { name, args } => {
+                name == "List" && args.len() == 1 && names(&args[0], "String")
+            }
+            _ => false,
+        },
+        None => false,
+    }
+}
+
+fn names(t: &TypeExpr, want: &str) -> bool {
+    matches!(&t.kind, TypeExprKind::Named { name, args } if name == want && args.is_empty())
+}
+
+fn call(name: &str, args: Vec<Arg>, span: Span) -> Expr {
+    let callee = Expr {
+        kind: ExprKind::Ident(name.to_string()),
+        span,
+        ty: None,
+        inst: None,
+    };
+    Expr {
+        kind: ExprKind::Call { callee: Box::new(callee), args },
+        span,
+        ty: None,
+        inst: None,
+    }
+}
+
+fn arg(value: Expr) -> Arg {
+    Arg { name: None, value }
 }
 
 /// Parses the prelude and registers it with `sources`, so a diagnostic that

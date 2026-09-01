@@ -166,6 +166,38 @@ greet("Ada", greeting = "hi")      // "hi, Ada!"
 greet(greeting = "hi", name = "Ada")
 ```
 
+### Where a program starts
+
+Nowhere special: the statements at the top of the file are the program, and
+they run in order. That is why every example so far could be pasted into a
+file and run.
+
+If you would rather write a `main`, you can, and it runs after those
+statements:
+
+```keal
+proc main() {
+    println("this runs last")
+}
+```
+
+By the rule above it is a `proc`, because it returns nothing. Make it a
+`func` when you want to choose the exit code:
+
+```keal
+func main(): Int {
+    if (args().size == 0) {
+        println("usage: report <file>")
+        return 1
+    }
+    return 0
+}
+```
+
+Either form may take `argv: List<String>` if you prefer it to `args()`.
+Those four shapes are all of them; anything else is refused, so a `main`
+never sits in a file quietly not running.
+
 ---
 
 ## 3. Control flow, and blocks as values

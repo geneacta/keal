@@ -48,6 +48,21 @@
 <pre class="lang-keal"><code>greet()                       // fine: `greet` is declared below
 
 func greet() { println(&quot;hi&quot;) }</code></pre>
+<h3 id="main"><code>main</code></h3>
+<p>A program is its top-level statements, and a file needs nothing else to be one. If it also declares a <code>main</code>, that runs last, after the statements above it:</p>
+<pre class="lang-keal"><code>println(&quot;first&quot;)
+
+proc main() {
+    println(&quot;then main&quot;)
+}</code></pre>
+<p>The exit code is <code>main</code>'s, when it has one to give:</p>
+<pre class="lang-keal"><code>func main(): Int {
+    return 3                  // the process exits 3
+}</code></pre>
+<p>Either form may take the arguments, which are also reachable from anywhere with <code>args()</code>:</p>
+<pre class="lang-keal"><code>proc main(argv: List&lt;String&gt;) { println(argv.size) }</code></pre>
+<p>Those four shapes are all of them. A <code>main</code> that is neither is a mistake and is said so, rather than sitting in the file and never running — which is what it used to do. Only the entry file's <code>main</code> runs: a module that declares one is a library that can also be run on its own, and importing it does not start a second program.</p>
+<p>The call is appended by the module loader, not by an engine, so what runs is an ordinary program with one more statement at the end. Nothing below the loader — neither interpreter, nor the C backend — knows the name <code>main</code>.</p>
 <p>Semicolons are optional. A newline ends a statement whenever the line so far could be a complete statement, so this works as written:</p>
 <pre class="lang-keal"><code>val a = 1
 val b = 2

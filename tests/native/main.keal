@@ -1,0 +1,5 @@
+// `main`, natively: the same call, appended by the same loader.
+func main(argv: List<String>): Int {
+    println("argv: ${argv.size}")
+    return 0
+}

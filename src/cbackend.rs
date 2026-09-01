@@ -306,6 +306,30 @@ impl CBackend {
         e.ty().map(|t| t.substitute(&self.tsubst))
     }
 
+    /// The audit's verdict: register the pairs, mark from the roots, report.
+    ///
+    /// Emitted at the end of the top-level statements, and again before any
+    /// `exit` written among them — because `exit` leaves through the C
+    /// library and never comes back, and an audit that a program can silence
+    /// by ending the ordinary way is not a verdict. The roots are `main`'s
+    /// own locals, which is why this can only be emitted where they are in
+    /// scope, and why `exit` inside a function is refused under the audit
+    /// rather than quietly excused.
+    fn audit_tail(&mut self) {
+        self.line("keal_audit_pair_runtime();");
+        self.line("keal_audit_pairs_program();");
+        // Cloned rather than taken: an `exit` under an `if` emits this once
+        // here and once at the natural end, and both need the same roots.
+        let roots = self.audit_roots.clone();
+        for (var, ty) in &roots {
+            if let Some(line) = Self::mark_line(ty, var) {
+                self.line(line);
+            }
+        }
+        self.line("keal_audit_report();");
+        self.line("keal_audit_done();");
+    }
+
     fn unsupported(&mut self, span: Span, what: &str) {
         self.refuse(
             span,
@@ -1252,16 +1276,7 @@ impl CBackend {
             // written after everything is emitted: a thunk can be made
             // while a function far below this one is compiled, and a pair
             // list read here would be the list as it stood too early.
-            self.line("keal_audit_pair_runtime();");
-            self.line("keal_audit_pairs_program();");
-            let roots = std::mem::take(&mut self.audit_roots);
-            for (var, ty) in &roots {
-                if let Some(line) = Self::mark_line(ty, var) {
-                    self.line(line);
-                }
-            }
-            self.line("keal_audit_report();");
-            self.line("keal_audit_done();");
+            self.audit_tail();
         }
         self.line("return 0;");
         self.end_function_unwind();
@@ -5662,6 +5677,19 @@ impl CBackend {
         }
         if name == "exit" && args.len() == 1 {
             let c = self.expr(&args[0].value);
+            if self.audit_mode {
+                if self.at_top_level {
+                    self.audit_tail();
+                } else {
+                    self.refuse(
+                        e.span,
+                        "`exit` inside a function under `--audit`",
+                        "the audit marks from the program's top-level bindings, which \
+                         only exist while the top level runs: call `exit` there, or \
+                         return the code from `func main(): Int`",
+                    );
+                }
+            }
             // Skipping the releases is fine: the operating system reclaims
             // the whole process at once.
             self.line(format!("exit((int)({}));", c));

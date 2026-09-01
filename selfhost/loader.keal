@@ -112,12 +112,84 @@ package class Loader() {
         for (i in prelude.items) { stampItem(i, 0) }
         this.items.addAll(prelude.items)
 
-        this.loadFile(normalisePath(entry), "", 0, 0)
+        val entryFile = this.loadFile(normalisePath(entry), "", 0, 0)
+        this.callMain(entryFile)
 
         val program = ProgramN()
         program.items = this.items
         program.imports = this.imports
         return Loaded(program, this.paths)
+    }
+
+    /// Appends the call to `main`, if the entry file declared one.
+    ///
+    /// A program is its top-level statements, and that is still true: this
+    /// adds one more, as if the last line of the entry file had written the
+    /// call. It is done here rather than in an engine so that the three
+    /// engines inherit the same program, and none of them has to know the
+    /// name `main` at all.
+    ///
+    /// Only the entry file's `main` runs. A module that declares one is a
+    /// library that can also be run on its own, which is a useful thing to
+    /// be and not a reason to run two programs at once.
+    proc callMain(entry: Int) {
+        var decl: FunN? = null
+        for (it in this.items) {
+            if (it.kind == "func") {
+                val f = it.funDecl
+                if (f != null and f.name == "main" and f.file == entry and decl == null) {
+                    decl = f
+                }
+            }
+        }
+        val d = decl
+        if (d == null) { return }
+
+        // What a `main` may look like. Anything else is a mistake worth a
+        // message: a `main` that does not match used to sit there and never
+        // run, which is the silence this exists to end.
+        var takesArgs = false
+        if (d.params.size == 1 and isStringList(d.params[0])) {
+            takesArgs = true
+        } else if (d.params.size != 0) {
+            this.mainError(d, "`main` takes no parameters, or one `List<String>`",
+                "the arguments are also reachable from anywhere with `args()`")
+        }
+        val ret = d.ret
+        if (ret != null and !namesType(ret, "Int")) {
+            this.mainError(d, "`func main` must return `Int`, which becomes the exit code",
+                "declare it `proc main` if it returns nothing")
+        }
+
+        var args: List<ArgN> = []
+        if (takesArgs) { args = [ArgN("", this.callEx("args", [], d))] }
+        var ex = this.callEx("main", args, d)
+        if (ret != null) { ex = this.callEx("exit", [ArgN("", ex)], d) }
+
+        val s = StmtN("expr", d.line, d.col)
+        s.file = d.file
+        s.ex = ex
+        val i = ItemN("stmt", d.line, d.col)
+        i.file = d.file
+        i.stmt = s
+        this.items.add(i)
+    }
+
+    proc mainError(d: FunN, msg: String, note: String) {
+        println("error ${this.paths[d.file]}:${d.line}:${d.col} ${msg}")
+        println("note ${note}")
+        exit(1)
+    }
+
+    func callEx(name: String, args: List<ArgN>, at: FunN): Ex {
+        val callee = Ex("ident", at.line, at.col)
+        callee.file = at.file
+        callee.text = name
+        val e = Ex("call", at.line, at.col)
+        e.file = at.file
+        e.kids = [callee]
+        e.args = args
+        return e
     }
 
     func loadFile(path: String, fromPath: String, fromLine: Int, fromCol: Int): Int {
@@ -333,4 +405,16 @@ proc stampTypeEx(var t: TypeEx, f: Int) {
     if (inner != null) { stampTypeEx(inner, f) }
     val r = t.ret
     if (r != null) { stampTypeEx(r, f) }
+}
+
+/// `List<String>`, written exactly, is the one parameter a `main` may take.
+func isStringList(p: ParamN): Bool {
+    val t = p.tyEx
+    if (t == null) { return false }
+    if (t.kind != "named" or t.name != "List" or t.args.size != 1) { return false }
+    return namesType(t.args[0], "String")
+}
+
+func namesType(t: TypeEx, want: String): Bool {
+    return t.kind == "named" and t.name == want and t.args.size == 0
 }

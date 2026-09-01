@@ -820,6 +820,30 @@ class CBackend() {
         return substitute(t, this.tsubst)
     }
 
+    /// The audit's verdict: register the pairs, mark from the roots, report.
+    ///
+    /// Emitted at the end of the top-level statements, and again before any
+    /// `exit` written among them — because `exit` leaves through the C
+    /// library and never comes back, and an audit that a program can silence
+    /// by ending the ordinary way is not a verdict. The roots are `main`'s
+    /// own locals, which is why this can only be emitted where they are in
+    /// scope, and why `exit` inside a function is refused under the audit
+    /// rather than quietly excused.
+    proc auditTail() {
+        this.line("keal_audit_pair_runtime();")
+        this.line("keal_audit_pairs_program();")
+        // Read rather than taken: an `exit` under an `if` emits this once
+        // here and once at the natural end, and both need the same roots.
+        var ri = 0
+        while (ri < this.auditRootNames.size) {
+            val ml = markLine(this.auditRootTypes[ri], this.auditRootNames[ri])
+            if (ml != null) { this.line(ml) }
+            ri += 1
+        }
+        this.line("keal_audit_report();")
+        this.line("keal_audit_done();")
+    }
+
     proc unsupported(file: Int, line: Int, col: Int, what: String) {
         this.refuse(
             file, line, col, what,
@@ -1886,16 +1910,7 @@ class CBackend() {
             // written after everything is emitted: a thunk can be made
             // while a function far below this one is compiled, and a pair
             // list read here would be the list as it stood too early.
-            this.line("keal_audit_pair_runtime();")
-            this.line("keal_audit_pairs_program();")
-            var ri = 0
-            while (ri < this.auditRootNames.size) {
-                val ml = markLine(this.auditRootTypes[ri], this.auditRootNames[ri])
-                if (ml != null) { this.line(ml) }
-                ri += 1
-            }
-            this.line("keal_audit_report();")
-            this.line("keal_audit_done();")
+            this.auditTail()
         }
         this.line("return 0;")
         this.endFunctionUnwind()
@@ -5721,6 +5736,17 @@ class CBackend() {
         }
         if (name == "exit" and args.size == 1) {
             val c = this.expr(args[0].value)
+            if (this.auditMode) {
+                if (this.atTopLevel) {
+                    this.auditTail()
+                } else {
+                    this.refuse(
+                        e.file, e.line, e.col,
+                        "`exit` inside a function under `--audit`",
+                        "the audit marks from the program's top-level bindings, which only exist while the top level runs: call `exit` there, or return the code from `func main(): Int`"
+                    )
+                }
+            }
             // Skipping the releases is fine: the operating system reclaims
             // the whole process at once.
             this.line("exit((int)(${c}));")

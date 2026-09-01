@@ -1,0 +1,20 @@
+// `main` — where a program starts, for anyone arriving from a language that
+// has one. It is not a rule the engines learned: the loader appends the call
+// as if the last line of the file had written it, so the tree-walker, the
+// bytecode VM and the C backend all receive a program that already calls it.
+//
+// A file without a `main` is still a program: the top-level statements are,
+// and they always were. A file with one runs those first, then `main`.
+
+var order: List<String> = []
+
+proc note(what: String) { order.add(what) }
+
+note("top level")
+
+proc main() {
+    note("main")
+    assert(order.size == 2, "both ran, in the order written")
+    assert(order[0] == "top level", "the top level runs before `main`")
+    assert(order[1] == "main", "and `main` runs last")
+}

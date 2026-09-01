@@ -423,6 +423,129 @@ fn the_audit_names_what_outlived_the_program() {
     }
 }
 
+/// `main` runs, and a `main` that cannot be run is said so rather than left
+/// sitting there.
+///
+/// The silence this ends was real: before this, a file whose whole program
+/// was inside `proc main()` compiled cleanly, printed nothing and exited 0 —
+/// which is what anyone arriving from C, Java, Rust or Go writes first.
+#[test]
+fn a_main_runs_and_a_malformed_one_is_refused() {
+    // The call is appended by the loader, so every engine inherits it. The
+    // program's own assertions pin the order — top level first, `main` last
+    // — but they cannot prove `main` ran at all, since a `main` that never
+    // runs never asserts. The exit code below is what proves that.
+    for engine in ENGINES {
+        let out = keal(&[engine, "tests/programs/main.keal"]);
+        assert!(out.success, "`main` did not run under {}:\n{}", engine, out.stderr);
+    }
+
+    // `func main(): Int` — the Int is the exit code, as in C, and a code the
+    // top level cannot produce is the proof that `main` itself ran.
+    let dir = std::env::temp_dir().join("keal-main-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a directory");
+    std::fs::write(dir.join("code.keal"), "func main(): Int { return 7 }\n").unwrap();
+    for engine in ENGINES {
+        let out = Command::new(BIN)
+            .args([engine, "code.keal"])
+            .current_dir(&dir)
+            .output()
+            .expect("cannot run keal");
+        assert_eq!(out.status.code(), Some(7), "the exit code is not `main`'s under {}", engine);
+    }
+
+    // A shape that cannot be a `main` is a message, not a silent no-op.
+    for (src, wanted) in [
+        ("func main(): String { return \"x\" }\n", "must return `Int`"),
+        ("proc main(a: Int) {}\n", "takes no parameters"),
+    ] {
+        std::fs::write(dir.join("bad.keal"), src).unwrap();
+        let out = Command::new(BIN)
+            .args(["run", "bad.keal"])
+            .current_dir(&dir)
+            .output()
+            .expect("cannot run keal");
+        assert!(!out.status.success(), "`{}` was accepted", src.trim());
+        let said = String::from_utf8_lossy(&out.stderr);
+        assert!(said.contains(wanted), "wrong message for `{}`:\n{}", src.trim(), said);
+    }
+
+    // A module's `main` is not the program's: only the entry file's runs.
+    std::fs::write(dir.join("lib.keal"), "public proc main() { println(\"library\") }\n").unwrap();
+    std::fs::write(dir.join("app.keal"), "import \"./lib.keal\"\nprintln(\"app\")\n").unwrap();
+    let out = Command::new(BIN)
+        .args(["run", "app.keal"])
+        .current_dir(&dir)
+        .output()
+        .expect("cannot run keal");
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "app\n", "an imported `main` ran");
+}
+
+/// The audit is a verdict, and a program must not be able to silence it by
+/// ending the ordinary way.
+///
+/// `exit` leaves through the C library and never comes back, so everything
+/// the audit would have said at the end of `main` went unsaid — including
+/// for the call the loader now appends for `func main(): Int`. The verdict
+/// is emitted before any `exit` written among the top-level statements,
+/// where the roots it marks from are still in scope; below that, `exit` is
+/// refused under the audit rather than quietly excused.
+#[test]
+fn no_exit_can_silence_the_audit() {
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-audit-exit");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a directory");
+
+    let cycle = "class Node { var next: Node? = null }\nval a = Node()\nval b = Node()\n";
+    for (name, src) in [
+        // The exit the loader appends for a `func main(): Int`.
+        ("viamain", format!("{}proc tie() {{ a.next = b; b.next = a }}\nfunc main(): Int {{ tie()\n return 0 }}\n", cycle)),
+        // And one written by hand among the top-level statements.
+        ("byhand", format!("{}a.next = b\nb.next = a\nexit(0)\n", cycle)),
+    ] {
+        let file = dir.join(format!("{}.keal", name));
+        std::fs::write(&file, src).unwrap();
+        let built = Command::new(BIN)
+            .current_dir(&dir)
+            .args(["--audit", "build"])
+            .arg(&file)
+            .output()
+            .expect("cannot run keal build");
+        assert!(built.status.success(), "{} did not build:\n{}", name,
+                String::from_utf8_lossy(&built.stderr));
+        let ran = Command::new(dir.join(name)).output().expect("cannot run the binary");
+        let said = String::from_utf8_lossy(&ran.stderr);
+        assert!(said.contains("audit:"), "`exit` silenced the audit in {}:\n{}", name, said);
+    }
+
+    // Below the top level the roots are out of scope, so the audit says so
+    // rather than reporting a verdict it cannot stand behind.
+    let file = dir.join("deep.keal");
+    std::fs::write(&file, "proc bail() { exit(2) }\nval x = [1, 2]\nbail()\n").unwrap();
+    let built = Command::new(BIN)
+        .current_dir(&dir)
+        .args(["--audit", "build"])
+        .arg(&file)
+        .output()
+        .expect("cannot run keal build");
+    assert!(!built.status.success(), "`exit` inside a function was audited anyway");
+    let said = String::from_utf8_lossy(&built.stderr);
+    assert!(said.contains("`exit` inside a function under `--audit`"), "wrong refusal:\n{}", said);
+
+    // And without the audit it is an ordinary program.
+    let built = Command::new(BIN).current_dir(&dir).arg("build").arg(&file).output().unwrap();
+    assert!(built.status.success(), "`exit` in a function stopped compiling:\n{}",
+            String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(dir.join("deep")).output().unwrap();
+    assert_eq!(ran.status.code(), Some(2));
+}
+
 /// The audit under `keal build --audit`: the same question the interpreters
 /// answer from the environment, answered by a compiled binary in the same
 /// words. A binary cannot grow counters after it is compiled, which is why
