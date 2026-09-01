@@ -1,0 +1,32 @@
+// The generated C must compile without warnings, and two of the constructs
+// here used to produce some.
+//
+// A string literal is echoed into a comment beside its declaration, so a
+// literal holding a comment delimiter writes one into the output. The
+// closing half was escaped from the start; the opening half was not, and a
+// nested `/*` is a warning on every C compiler there is.
+//
+// A short-circuiting connective emits its left operand straight into an
+// `if`, and `binary` already parenthesises what it builds — so a comparison
+// arrived wrapped twice, which is exactly how C spells "yes, I meant to
+// assign here", and which every compiler asks about.
+
+val opener = "/* not a comment"
+val closer = "not a comment */"
+val both = "/* neither */ and /* nor */ this"
+
+println(opener)
+println(closer)
+println(both)
+println(opener.length)
+
+func check(n: Int, s: String?): String {
+    // Each of these hands a comparison to a branch, unparenthesised.
+    if (n == 0 or s == null) { return "empty" }
+    if (n > 0 and s.length == 4) { return s }
+    return "?"
+}
+
+println(check(0, "a"))
+println(check(1, null))
+println(check(2, "kept"))

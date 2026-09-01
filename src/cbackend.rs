@@ -5651,7 +5651,14 @@ impl CBackend {
                     .short_circuit(op.short_circuit(true).is_some())
                     .expect("the connective settles on that value");
                 self.line(format!("bool {};", t));
-                self.line(format!("if ({}({})) {{", settles_on, a));
+                // The operand already carries the parentheses `binary` puts
+                // around what it builds; a second pair here is what a C
+                // compiler reads as "yes, this assignment was deliberate",
+                // and it says so about every comparison that lands in one.
+                let bare = strip_outer_parens(&a);
+                let cond =
+                    if settles_on.is_empty() { bare } else { format!("!({})", bare) };
+                self.line(format!("if ({}) {{", cond));
                 self.indent += 1;
                 self.line(format!("{} = {};", t, settled));
                 self.indent -= 1;
@@ -7835,9 +7842,46 @@ fn c_string(s: &str) -> String {
 }
 
 /// A one-line, comment-safe rendering, for the literal table.
+/// Drops the parentheses that wrap a whole C expression, as many pairs as
+/// wrap it. A string holding a `"` is left alone: the scan counts brackets
+/// and a literal may hold one that closes nothing.
+fn strip_outer_parens(s: &str) -> String {
+    let mut cur = s.to_string();
+    if cur.contains('"') {
+        return cur;
+    }
+    loop {
+        let cs: Vec<char> = cur.chars().collect();
+        if cs.len() < 2 || cs[0] != '(' || cs[cs.len() - 1] != ')' {
+            break;
+        }
+        let mut depth: i64 = 0;
+        let mut wraps = true;
+        for (i, c) in cs.iter().enumerate() {
+            if *c == '(' {
+                depth += 1;
+            } else if *c == ')' {
+                depth -= 1;
+                if depth == 0 && i + 1 != cs.len() {
+                    wraps = false;
+                    break;
+                }
+            }
+        }
+        if !wraps {
+            break;
+        }
+        cur = cs[1..cs.len() - 1].iter().collect();
+    }
+    cur
+}
+
 fn c_comment(s: &str) -> String {
     let flat: String = s.chars().map(|c| if c.is_control() { ' ' } else { c }).collect();
-    let flat = flat.replace("*/", "* /");
+    // Both halves of the delimiter, not just the closing one: a nested `/*`
+    // is not an error but a warning every C compiler emits, and a file that
+    // warns is a file whose real warnings are read past.
+    let flat = flat.replace("*/", "* /").replace("/*", "/ *");
     if flat.chars().count() > 40 {
         format!("{}…", flat.chars().take(40).collect::<String>())
     } else {

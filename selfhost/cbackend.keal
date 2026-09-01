@@ -223,6 +223,38 @@ func cString(s: String): String {
     return out
 }
 
+/// Drops the parentheses that wrap a whole C expression, as many pairs as
+/// wrap it. A string holding a `"` is left alone: the scan counts brackets
+/// and a literal may hold one that closes nothing.
+func stripOuterParens(s: String): String {
+    if (s.contains("\"")) { return s }
+    var cur = s
+    while (true) {
+        val cs = cur.chars()
+        if (cs.size < 2 or cs[0] != "(" or cs[cs.size - 1] != ")") { break }
+        var depth = 0
+        var wraps = true
+        var i = 0
+        while (i < cs.size) {
+            if (cs[i] == "(") {
+                depth += 1
+            } else {
+                if (cs[i] == ")") {
+                    depth -= 1
+                    if (depth == 0 and i + 1 != cs.size) {
+                        wraps = false
+                        break
+                    }
+                }
+            }
+            i += 1
+        }
+        if (not wraps) { break }
+        cur = cur.substring(1, cur.length - 1)
+    }
+    return cur
+}
+
 /// A one-line, comment-safe rendering, for the literal table.
 func cComment(s: String): String {
     var flat = ""
@@ -231,7 +263,10 @@ func cComment(s: String): String {
         val control = cp < 32 or (cp >= 127 and cp <= 159)
         if (control) { flat += " " } else { flat += c }
     }
-    flat = flat.replace("*/", "* /")
+    // Both halves of the delimiter, not just the closing one: a nested `/*`
+    // is not an error but a warning every C compiler emits, and a file that
+    // warns is a file whose real warnings are read past.
+    flat = flat.replace("*/", "* /").replace("/*", "/ *")
     if (flat.length > 40) {
         return flat.take(40) + "…"
     }
@@ -5966,7 +6001,13 @@ class CBackend() {
             val settlesOn = if (onTrue != null) { "" } else { "!" }
             val settled = if (onTrue != null) { onTrue } else { onFalse!! }
             this.line("bool ${t};")
-            this.line("if (${settlesOn}(${a})) {")
+            // The operand already carries the parentheses `binary` puts
+            // around what it builds; a second pair here is what a C
+            // compiler reads as "yes, this assignment was deliberate",
+            // and it says so about every comparison that lands in one.
+            val bare = stripOuterParens(a)
+            val cond = if (settlesOn == "") { bare } else { "!(${bare})" }
+            this.line("if (${cond}) {")
             this.indent += 1
             this.line("${t} = ${settled};")
             this.indent -= 1

@@ -1391,6 +1391,51 @@ fn native_agrees_with_the_interpreters() {
     }
 }
 
+/// The generated C must compile *quietly*, not merely compile.
+///
+/// A warning is what the C compiler says when it can build the file and
+/// suspects the file is not what was meant, and the two this pins down were
+/// both of that kind: a string literal holding `/*` opened a comment inside
+/// the comment it is echoed into, and a comparison handed to a short-circuit
+/// branch arrived wrapped in the second pair of parentheses that C reads as
+/// "this assignment is deliberate". Neither stopped the build; both printed
+/// on every bootstrap, which is how a real warning would have gone unread.
+///
+/// `-Werror=` on the two names, rather than `-Wall`: this asks the compiler
+/// about the thing that went wrong and does not make the suite hostage to
+/// every opinion a future version of it acquires.
+#[test]
+fn the_generated_c_compiles_without_warnings() {
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+
+    let path = "tests/native/c-warnings.keal";
+    let emitted = keal(&["emit-c", path]);
+    assert!(emitted.success, "{} did not emit C:\n{}", path, emitted.stderr);
+
+    let dir = std::env::temp_dir().join("keal-c-warnings");
+    std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+    let csrc = dir.join("out.c");
+    std::fs::write(&csrc, &emitted.stdout).expect("cannot write the generated C");
+
+    let built = Command::new(&cc)
+        .args(["-std=c11", "-fsyntax-only", "-Werror=comment", "-Werror=parentheses"])
+        .arg(&csrc)
+        .output()
+        .expect("cannot run the C compiler");
+    assert!(
+        built.status.success(),
+        "the C generated for {} does not compile cleanly:\n{}",
+        path,
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The threaded scheduler under ThreadSanitizer: the mesh program — eight
 /// actors fanning echoes at each other while posting into one outbox —
 /// builds with `-fsanitize=thread` and must come back clean, five runs in
