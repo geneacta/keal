@@ -297,6 +297,51 @@ pub fn call_global(it: &mut dyn Runtime, name: &str, args: Vec<Value>, span: Spa
             let content = text(&args[1], span)?;
             Ok(Value::Bool(std::fs::write(&*path, &*content).is_ok()))
         }
+        "listDir" => {
+            let path = text(&args[0], span)?;
+            match std::fs::read_dir(&*path) {
+                Ok(entries) => {
+                    let mut names: Vec<String> = entries
+                        .flatten()
+                        .map(|e| e.file_name().to_string_lossy().into_owned())
+                        .collect();
+                    // Sorted, because a directory hands its entries out in
+                    // whatever order its file system pleases and the three
+                    // engines have to print one order.
+                    names.sort();
+                    Ok(Value::list(names.into_iter().map(Value::str).collect()))
+                }
+                Err(_) => Ok(Value::Null),
+            }
+        }
+        "pathKind" => {
+            let path = text(&args[0], span)?;
+            Ok(Value::Int(match std::fs::metadata(&*path) {
+                Ok(m) if m.is_dir() => 2,
+                Ok(_) => 1,
+                Err(_) => 0,
+            }))
+        }
+        "makeDir" => {
+            let path = text(&args[0], span)?;
+            let _ = std::fs::create_dir_all(&*path);
+            // True when the directory is there afterwards, so making one
+            // twice is not a failure.
+            Ok(Value::Bool(std::path::Path::new(&*path).is_dir()))
+        }
+        "removePath" => {
+            let path = text(&args[0], span)?;
+            let p = std::path::Path::new(&*path);
+            // One file, or one empty directory. Not a tree: a recursive
+            // delete behind a one-word name is how a program loses what it
+            // did not mean to.
+            let gone = if p.is_dir() {
+                std::fs::remove_dir(p).is_ok()
+            } else {
+                std::fs::remove_file(p).is_ok()
+            };
+            Ok(Value::Bool(gone))
+        }
         "exit" => {
             let code = int(&args[0], span)?;
             // Skipping destructors is fine here: the process is over, and

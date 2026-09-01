@@ -1,0 +1,48 @@
+// The file system: four primitives, and the four functions written over
+// them in the prelude.
+//
+// The test makes its own tree and takes it away again, so it says the same
+// thing wherever it runs and leaves nothing behind.
+
+val root = "target/keal-fs-test"
+
+// A directory and every parent it needs, and making one twice is not a
+// failure — the question `makeDir` answers is whether it is there.
+assert(makeDir("${root}/inner"), "the tree was made")
+assert(makeDir("${root}/inner"), "making it again is not a failure")
+assert(isDir(root) and isDir("${root}/inner"), "both levels are directories")
+assert(exists(root) and !isFile(root), "a directory exists but is not a file")
+
+assert(writeFile("${root}/b.txt", "beta"), "wrote b")
+assert(writeFile("${root}/a.txt", "alpha"), "wrote a")
+assert(writeFile("${root}/inner/deep.txt", "down here"), "wrote the deep one")
+
+assert(isFile("${root}/a.txt"), "a file is a file")
+assert(!isDir("${root}/a.txt"), "and not a directory")
+assert(!exists("${root}/nothing"), "what was never written is not there")
+
+// Sorted, always: a directory hands its entries out in whatever order its
+// file system pleases, and the three engines have to print one order.
+val here = listDir(root) ?: []
+assert(here == ["a.txt", "b.txt", "inner"], "listed in one order: ${here}")
+
+// Not a directory is absence, not a failure, so `?:` decides what it means.
+assert(listDir("${root}/a.txt") == null, "a file is not a directory")
+assert(listDir("${root}/nothing") == null, "and neither is nothing at all")
+
+// The walk goes down, and yields paths that can be read.
+val all = walkDir(root)
+assert(all.size == 3, "three files under the tree: ${all}")
+assert(all.contains("${root}/inner/deep.txt"), "including the deep one")
+assert(readFile(all[0]) == "alpha", "and what it yields can be read")
+assert(walkDir("${root}/a.txt").size == 0, "walking a file yields nothing")
+
+// One file, or one empty directory. Never a tree.
+assert(!removePath("${root}/inner"), "a directory with something in it stays")
+assert(removePath("${root}/inner/deep.txt"), "the file goes")
+assert(removePath("${root}/inner"), "and then the directory can go")
+assert(!exists("${root}/inner"), "gone")
+
+assert(removePath("${root}/a.txt") and removePath("${root}/b.txt"), "both files go")
+assert(removePath(root), "and the root with them")
+assert(!exists(root), "nothing left behind")

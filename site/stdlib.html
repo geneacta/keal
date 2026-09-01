@@ -72,6 +72,10 @@
 <a href="#the-standard-library-padStart"><span class="k k-func">func</span>padStart</a>
 <a href="#the-standard-library-padEnd"><span class="k k-func">func</span>padEnd</a>
 <a href="#the-standard-library-lines"><span class="k k-func">func</span>lines</a>
+<a href="#the-standard-library-exists"><span class="k k-func">func</span>exists</a>
+<a href="#the-standard-library-isFile"><span class="k k-func">func</span>isFile</a>
+<a href="#the-standard-library-isDir"><span class="k k-func">func</span>isDir</a>
+<a href="#the-standard-library-walkDir"><span class="k k-func">func</span>walkDir</a>
 <a href="#the-standard-library-seq"><span class="k k-func">func</span>seq</a>
 <a href="#the-standard-library-iterate"><span class="k k-func">func</span>iterate</a>
 <a href="#the-standard-library-ActorRef"><span class="k k-class">class</span>ActorRef</a>
@@ -353,6 +357,28 @@ already that wide comes back unchanged — padding never truncates.</p>
 <p>The lines of <code>s</code>, without their newlines. A trailing newline does not
 make a last empty line — a file ending in one has as many lines as it
 looks like it has.</p>
+</section>
+<section id="the-standard-library-exists">
+<pre class="sig">func exists(path: String): Bool</pre>
+<p>Whether anything is at <code>path</code> at all.</p>
+</section>
+<section id="the-standard-library-isFile">
+<pre class="sig">func isFile(path: String): Bool</pre>
+<p>Whether <code>path</code> names something that can be read with <code>readFile</code>.</p>
+</section>
+<section id="the-standard-library-isDir">
+<pre class="sig">func isDir(path: String): Bool</pre>
+<p>Whether <code>path</code> names a directory, which is what <code>listDir</code> will open.</p>
+</section>
+<section id="the-standard-library-walkDir">
+<pre class="sig">func walkDir(path: String): List&lt;String&gt;</pre>
+<p>Every file under <code>path</code>, depth first, each as a path that can be read.
+Directories are walked rather than listed, so what comes back is what
+<code>readFile</code> will open; the order is <code>listDir</code>'s, which is sorted, so two
+runs over the same tree agree.</p>
+<p>A path that is not a directory yields nothing rather than failing: a
+walk over what is not there is empty, which is what the caller would
+have written anyway.</p>
 </section>
 <section id="the-standard-library-seq">
 <pre class="sig">func seq&lt;T&gt;(xs: List&lt;T&gt;): Sequence&lt;T&gt;</pre>

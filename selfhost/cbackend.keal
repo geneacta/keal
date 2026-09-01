@@ -5727,6 +5727,21 @@ class CBackend() {
             val p = this.expr(args[0].value)
             return this.ownTempOf(tyNullable(Ty("Str")), "keal_read_file(${p})")
         }
+        if (name == "listDir" and args.size == 1) {
+            val p = this.expr(args[0].value)
+            return this.ownTempOf(tyNullable(tyList(Ty("Str"))), "keal_list_dir(${p})")
+        }
+        val prims = [["pathKind", "keal_path_kind", "int64_t"],
+                     ["makeDir", "keal_make_dir", "bool"],
+                     ["removePath", "keal_remove_path", "bool"]]
+        for (pr in prims) {
+            if (name == pr[0] and args.size == 1) {
+                val p = this.expr(args[0].value)
+                val t = this.temp()
+                this.line("const ${pr[2]} ${t} = ${pr[1]}(${p});")
+                return t
+            }
+        }
         if (name == "writeFile" and args.size == 2) {
             val p = this.expr(args[0].value)
             val c = this.expr(args[1].value)

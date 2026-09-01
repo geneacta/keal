@@ -24,6 +24,18 @@ package func runtimeSource(): String {
 #include <stdlib.h>
 #include <string.h>
 
+/* What the file-system primitives need, on both sides of the platform line.
+ * Unconditional: a program reads a directory whether or not it has actors,
+ * and `windows.h` guards itself against the copy the actor block includes. */
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+
 /* Windows opens stdout in text mode, and text mode turns every `\n` this
  * runtime writes into `\r\n`. The three engines must print the same bytes —
  * that is the invariant the whole test suite rests on — so the native one
@@ -2098,6 +2110,176 @@ KEAL_FN bool keal_write_file(KealStr* path, KealStr* content) {
     size_t wrote = fwrite(content->bytes, 1, (size_t)content->len, f);
     int closed = fclose(f);
     return wrote == (size_t)content->len && closed == 0;
+}
+
+/* ---- the file system --------------------------------------------------- */
+
+/* Four primitives, and no more: a name in the global namespace is reserved
+ * for good and cannot ever be redefined, so only a system call earns one.
+ * `exists`, `isFile`, `isDir` and `walkDir` are written over these in the
+ * prelude, where a program that wants its own may shadow them. */
+
+/* A path, as C wants it. False when it will not fit, which every caller
+ * turns into the same absence a missing file gives. */
+static bool keal_cpath(KealStr* path, char* out, size_t cap) {
+    if (path->len < 0 || (size_t)path->len >= cap) {
+        return false;
+    }
+    memcpy(out, path->bytes, (size_t)path->len);
+    out[path->len] = '\0';
+    return true;
+}
+
+/* Byte-lexicographic, which is what Rust's `sort` on a `String` is: the
+ * three engines have to print one order, and a directory hands its entries
+ * out in whatever order its file system pleases. */
+static int keal_name_cmp(const void* a, const void* b) {
+    KealStr* x = *(KealStr* const*)a;
+    KealStr* y = *(KealStr* const*)b;
+    int64_t n = x->len < y->len ? x->len : y->len;
+    int c = n > 0 ? memcmp(x->bytes, y->bytes, (size_t)n) : 0;
+    if (c != 0) {
+        return c;
+    }
+    return x->len < y->len ? -1 : (x->len > y->len ? 1 : 0);
+}
+
+/* 0 nothing, 1 a file, 2 a directory. Deliberately an integer: the prelude
+ * gives this three names, and this one stays the primitive. */
+KEAL_FN int64_t keal_path_kind(KealStr* path) {
+    char cpath[4096];
+    if (!keal_cpath(path, cpath, sizeof cpath)) {
+        return 0;
+    }
+#ifdef _WIN32
+    DWORD attr = GetFileAttributesA(cpath);
+    if (attr == INVALID_FILE_ATTRIBUTES) {
+        return 0;
+    }
+    return (attr & FILE_ATTRIBUTE_DIRECTORY) ? 2 : 1;
+#else
+    struct stat st;
+    if (stat(cpath, &st) != 0) {
+        return 0;
+    }
+    return S_ISDIR(st.st_mode) ? 2 : 1;
+#endif
+}
+
+/* The entry names, sorted, without `.` and `..`. NULL when the path is not
+ * a directory — the caller's `?:` decides what that means. */
+KEAL_FN KealList* keal_list_dir(KealStr* path) {
+    char cpath[4096];
+    if (!keal_cpath(path, cpath, sizeof cpath)) {
+        return NULL;
+    }
+
+    KealStr** names = NULL;
+    int64_t count = 0;
+    int64_t cap = 0;
+
+#ifdef _WIN32
+    char pattern[4200];
+    int written = snprintf(pattern, sizeof pattern, "%s\\*", cpath);
+    if (written < 0 || (size_t)written >= sizeof pattern) {
+        return NULL;
+    }
+    WIN32_FIND_DATAA found;
+    HANDLE h = FindFirstFileA(pattern, &found);
+    if (h == INVALID_HANDLE_VALUE) {
+        return NULL;
+    }
+    do {
+        const char* name = found.cFileName;
+#else
+    DIR* d = opendir(cpath);
+    if (d == NULL) {
+        return NULL;
+    }
+    struct dirent* entry;
+    while ((entry = readdir(d)) != NULL) {
+        const char* name = entry->d_name;
+#endif
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+            continue;
+        }
+        if (count == cap) {
+            int64_t grown = cap == 0 ? 8 : cap * 2;
+            KealStr** bigger = (KealStr**)realloc(names, (size_t)grown * sizeof *names);
+            if (bigger == NULL) {
+                break;
+            }
+            names = bigger;
+            cap = grown;
+        }
+        names[count++] = keal_str_from_bytes(name, (int64_t)strlen(name));
+#ifdef _WIN32
+    } while (FindNextFileA(h, &found));
+    FindClose(h);
+#else
+    }
+    closedir(d);
+#endif
+
+    if (count > 1) {
+        qsort(names, (size_t)count, sizeof *names, keal_name_cmp);
+    }
+    KealList* l = keal_list_new(rel_keal_str_thunk);
+    for (int64_t i = 0; i < count; i++) {
+        keal_list_push(l, (KealWord){ .p = names[i] });
+    }
+    free(names);
+    return l;
+}
+
+/* Makes the directory and every parent it needs, and says true when the
+ * directory is there afterwards — so making one twice is not a failure. */
+KEAL_FN bool keal_make_dir(KealStr* path) {
+    char cpath[4096];
+    if (!keal_cpath(path, cpath, sizeof cpath)) {
+        return false;
+    }
+    for (char* at = cpath; *at != '\0'; at++) {
+        bool sep = *at == '/';
+#ifdef _WIN32
+        sep = sep || *at == '\\';
+#endif
+        /* A leading separator is the root, and a repeated one is nothing. */
+        if (!sep || at == cpath || at[-1] == '\0') {
+            continue;
+        }
+        char was = *at;
+        *at = '\0';
+#ifdef _WIN32
+        CreateDirectoryA(cpath, NULL);
+#else
+        mkdir(cpath, 0777);
+#endif
+        *at = was;
+    }
+#ifdef _WIN32
+    CreateDirectoryA(cpath, NULL);
+#else
+    mkdir(cpath, 0777);
+#endif
+    return keal_path_kind(path) == 2;
+}
+
+/* One file, or one empty directory. Not a tree: a recursive delete behind a
+ * one-word name is how a program loses what it did not mean to. */
+KEAL_FN bool keal_remove_path(KealStr* path) {
+    char cpath[4096];
+    if (!keal_cpath(path, cpath, sizeof cpath)) {
+        return false;
+    }
+    if (keal_path_kind(path) == 2) {
+#ifdef _WIN32
+        return RemoveDirectoryA(cpath) != 0;
+#else
+        return rmdir(cpath) == 0;
+#endif
+    }
+    return remove(cpath) == 0;
 }
 
 /* ---- checked integer arithmetic --------------------------------------- */

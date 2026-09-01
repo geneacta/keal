@@ -618,6 +618,53 @@ public func lines(s: String): List<String> {
     return text.split("\n")
 }
 
+// ---- the file system ---------------------------------------------------
+//
+// Written over the four primitives — `listDir`, `pathKind`, `makeDir` and
+// `removePath` — rather than beside them. A built-in name is reserved for
+// good and a program can never declare its own; these are ordinary
+// functions, so a program that wants its own `exists` may simply write one.
+
+/// Whether anything is at `path` at all.
+public func exists(path: String): Bool {
+    return pathKind(path) != 0
+}
+
+/// Whether `path` names something that can be read with `readFile`.
+public func isFile(path: String): Bool {
+    return pathKind(path) == 1
+}
+
+/// Whether `path` names a directory, which is what `listDir` will open.
+public func isDir(path: String): Bool {
+    return pathKind(path) == 2
+}
+
+/// Every file under `path`, depth first, each as a path that can be read.
+/// Directories are walked rather than listed, so what comes back is what
+/// `readFile` will open; the order is `listDir`'s, which is sorted, so two
+/// runs over the same tree agree.
+///
+/// A path that is not a directory yields nothing rather than failing: a
+/// walk over what is not there is empty, which is what the caller would
+/// have written anyway.
+public func walkDir(path: String): List<String> {
+    var out: List<String> = []
+    val here = listDir(path)
+    if (here == null) { return out }
+    var base = path
+    if (base.endsWith("/")) { base = base.substring(0, base.length - 1) }
+    for (name in here) {
+        val child = "${base}/${name}"
+        if (isDir(child)) {
+            out.addAll(walkDir(child))
+        } else {
+            out.add(child)
+        }
+    }
+    return out
+}
+
 /// A sequence over a list. The list is read as the sequence is pulled, one
 /// index at a time.
 public func seq<T>(xs: List<T>): Sequence<T> {

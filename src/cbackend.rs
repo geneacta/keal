@@ -5668,6 +5668,25 @@ impl CBackend {
                 format!("keal_read_file({})", p),
             );
         }
+        if name == "listDir" && args.len() == 1 {
+            let p = self.expr(&args[0].value);
+            return self.own_temp_of(
+                &Type::list(Type::Str).nullable(),
+                format!("keal_list_dir({})", p),
+            );
+        }
+        for (fname, cname, ty) in [
+            ("pathKind", "keal_path_kind", "int64_t"),
+            ("makeDir", "keal_make_dir", "bool"),
+            ("removePath", "keal_remove_path", "bool"),
+        ] {
+            if name == fname && args.len() == 1 {
+                let p = self.expr(&args[0].value);
+                let t = self.temp();
+                self.line(format!("const {} {} = {}({});", ty, t, cname, p));
+                return t;
+            }
+        }
         if name == "writeFile" && args.len() == 2 {
             let p = self.expr(&args[0].value);
             let c = self.expr(&args[1].value);

@@ -804,6 +804,22 @@ fn the_language_server_answers() {
         "the outline is missing:\n{}",
         out
     );
+    // `here` is deliberately a name the prelude also binds, inside
+    // `walkDir`. Names are not unique across a program, and resolving one
+    // by taking the first match in the declaration list answers with the
+    // prelude's — so hovering this ordinary local reported a type from a
+    // file the program never opened, and going to its definition offered a
+    // pseudo-file. Both must land in the buffer the cursor is in.
+    assert!(
+        !out.contains("%3Cprelude%3E"),
+        "a name the prelude also binds resolved to the prelude:\n{}",
+        out
+    );
+    assert!(
+        out.contains("main.keal\"}") || out.contains("main.keal\","),
+        "the definition did not land in the open file:\n{}",
+        out
+    );
 
     // A URI has an authority before its first slash and it is dropped —
     // except that a Windows drive letter looks exactly like one. Dropping

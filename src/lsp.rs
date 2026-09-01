@@ -272,7 +272,7 @@ impl Server {
         let mut text = a
             .index
             .name_at(file, line, col)
-            .and_then(|n| a.index.decl_of(&n).and_then(|d| d.detail.clone()));
+            .and_then(|n| a.index.decl_near(&n, file, line).and_then(|d| d.detail.clone()));
         if text.is_none() {
             text = a.index.innermost(file, line, col).and_then(|e| e.detail.clone());
         }
@@ -289,7 +289,7 @@ impl Server {
     fn definition(&self, msg: &Json) -> Json {
         let Some((_, a, file, line, col)) = self.at_cursor(msg) else { return Json::Null };
         let Some(name) = a.index.name_at(file, line, col) else { return Json::Null };
-        let Some(decl) = a.index.decl_of(&name) else { return Json::Null };
+        let Some(decl) = a.index.decl_near(&name, file, line) else { return Json::Null };
         let Some(f) = a.sources.get(decl.span.file) else { return Json::Null };
         Json::obj(vec![
             ("uri", Json::str(path_to_uri(&f.path))),
@@ -336,8 +336,16 @@ impl Server {
         // protocol wants and what makes the change one undo step.
         let mut by_uri: HashMap<String, Vec<Json>> = HashMap::new();
         for loc in self.locations_of(&a, &name) {
-            let Some(uri) = loc.get("uri").and_then(|u| u.as_str()) else { continue };
+            let Some(uri_json) = loc.get("uri") else { continue };
+            let Some(uri) = uri_json.as_str() else { continue };
             let Some(range) = loc.get("range") else { continue };
+            // Uses are gathered by name, and the prelude binds ordinary
+            // names — `out`, `text`, `here` — inside its own functions. It
+            // is not a file on disk, so an edit against it is one an editor
+            // cannot apply and must not be asked to.
+            if !uri_to_path(uri_json).map(|p| p.exists()).unwrap_or(false) {
+                continue;
+            }
             by_uri.entry(uri.to_string()).or_default().push(Json::obj(vec![
                 ("range", range.clone()),
                 ("newText", Json::str(new)),
@@ -462,6 +470,30 @@ struct Index {
 impl Index {
     fn decl_of(&self, name: &str) -> Option<&Decl> {
         self.decls.iter().find(|d| d.name == name)
+    }
+
+    /// The declaration a cursor means by a name.
+    ///
+    /// Names are not unique across a program: the prelude alone binds
+    /// `out`, `text`, `base` and `here` inside its own functions, and a
+    /// program is free to bind them too. Taking the first match in the
+    /// declaration list answers with the prelude's — which is how hovering
+    /// an ordinary local came to report a type from a file the program
+    /// never opened.
+    ///
+    /// So: the same file wins over any other, and within it the nearest
+    /// declaration at or above the cursor, which is the one a reader means.
+    /// A declaration below the cursor is next, because a function may be
+    /// called before the line that declares it. Only then does the search
+    /// widen to the rest of the program, which is where an imported name
+    /// and everything in the prelude live.
+    fn decl_near(&self, name: &str, file: u32, line: u32) -> Option<&Decl> {
+        let mine = || self.decls.iter().filter(|d| d.name == name && d.span.file == file);
+        mine()
+            .filter(|d| d.span.line <= line)
+            .max_by_key(|d| d.span.line)
+            .or_else(|| mine().min_by_key(|d| d.span.line))
+            .or_else(|| self.decl_of(name))
     }
 
     /// The name written at a position, whether it is a use or the

@@ -1222,6 +1222,47 @@ everything, because a standard library is nothing but its public surface.
 | `lines(s): List<String>` | the lines, without their newlines |
 | `setOf(xs)` `dequeOf(xs)` | the two collections below, from a list |
 
+### Files and directories
+
+Reading and writing a whole file are `readFile(path): String?` — `null` when
+it cannot be read — and `writeFile(path, content): Bool`.
+
+Four more primitives reach the file system, and no more. A built-in name is
+reserved for good, so only a system call earns one:
+
+| | |
+|---|---|
+| `listDir(path): List<String>?` | the entry names, **sorted**; `null` if `path` is not a directory |
+| `pathKind(path): Int` | `0` nothing, `1` a file, `2` a directory |
+| `makeDir(path): Bool` | the directory and every parent it needs; true if it is there afterwards, so making one twice is not a failure |
+| `removePath(path): Bool` | one file, or one *empty* directory — never a tree |
+
+The names a program actually writes are ordinary functions in the prelude,
+which means a program that wants its own may simply declare one:
+
+| | |
+|---|---|
+| `exists(path): Bool` | anything at all is there |
+| `isFile(path)` `isDir(path)` | which of the two it is |
+| `walkDir(path): List<String>` | every file underneath, depth first, each readable |
+
+`listDir` sorts because a directory hands its entries out in whatever order
+its file system pleases, and the three engines have to print one order — a
+program that lists a directory has to say the same thing on every machine it
+runs on.
+
+`removePath` stops at one entry on purpose. A recursive delete behind a
+one-word name is how a program loses what it did not mean to; a program that
+wants a tree gone can walk it and say so.
+
+```keal
+for (f in walkDir("src")) {
+    if (f.endsWith(".keal")) {
+        println("${f}: ${lines(readFile(f) ?: "").size} lines")
+    }
+}
+```
+
 ### `Set<T>` and `Deque<T>`
 
 Neither is built into the compiler. Both are ordinary Keal, in the prelude,

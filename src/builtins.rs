@@ -255,6 +255,15 @@ pub fn global_sig(name: &str, args: &[Option<Type>]) -> Option<FunType> {
             sig(vec![p("path", Type::Str), p("content", Type::Str)], Type::Bool)
         }
         "exit" => sig(vec![p("code", Type::Int)], Type::Never),
+        // The file system, in four primitives and no more. A name here is
+        // reserved for good — a program can never declare its own — so only
+        // a system call earns one. `exists`, `isFile`, `isDir` and `walkDir`
+        // are written over these in the prelude, where a program that wants
+        // its own may shadow them.
+        "listDir" => sig(vec![p("path", Type::Str)], Type::list(Type::Str).nullable()),
+        "pathKind" => sig(vec![p("path", Type::Str)], Type::Int),
+        "makeDir" => sig(vec![p("path", Type::Str)], Type::Bool),
+        "removePath" => sig(vec![p("path", Type::Str)], Type::Bool),
         // `abs`, `min` and `max` accept Int or Float and return that type.
         "abs" => {
             let t = numeric_of(&[known(args, 0)]);
