@@ -1,0 +1,111 @@
+// The regular expression library. Nothing here is a built-in: `lib/regex.keal`
+// is Keal, so the tree-walker, the bytecode VM and the C backend run the same
+// source and cannot disagree about it the way they could about anything
+// written twice.
+import "../../lib/regex.keal"
+
+proc same(pattern: String, text: String, want: String) {
+    val m = Regex(pattern).find(text)
+    var got = "<none>"
+    if (m != null) { got = "${m.start}..${m.end}:${m.text}" }
+    assert(got == want, "/${pattern}/ on '${text}' gave ${got}, wanted ${want}")
+}
+
+// Literals, and where a match begins.
+same("abc", "xxabcyy", "2..5:abc")
+same("abc", "xxabxy", "<none>")
+
+// Greedy and lazy, which differ only in which way the split leans.
+same("a+", "aaab", "0..3:aaa")
+same("a+?", "aaab", "0..1:a")
+same("a*", "bbb", "0..0:")
+same("ab?c", "ac", "0..2:ac")
+same("a??b", "ab", "0..2:ab")
+
+// Counted repetition, both ways round.
+same("\\d{3}", "12345", "0..3:123")
+same("\\d{2,4}", "x12345", "1..5:1234")
+same("\\d{2,4}?", "x12345", "1..3:12")
+same("\\d{2,}", "x12345", "1..6:12345")
+
+// Anchors.
+same("^abc$", "abc", "0..3:abc")
+same("^abc$", "xabc", "<none>")
+same("^", "abc", "0..0:")
+
+// THE CASE A TREE-WALKING MATCHER GETS WRONG. `(a|ab)c` on "abc" has to try
+// "a", fail on `c`, come back into the group and try "ab". A matcher that
+// returns one end position per node cannot do that; one built from `split`
+// instructions does it without being told.
+same("(a|ab)c", "abc", "0..3:abc")
+same("(ab|a)c", "abc", "0..3:abc")
+
+// Classes, ranges, negation, and a shorthand inside one.
+same("[a-z]+", "12abc34", "2..5:abc")
+same("[^0-9]+", "12ab34", "2..4:ab")
+same("[-a]+", "x-a-", "1..4:-a-")
+same("[\\d.]+", "x1.2y", "1..4:1.2")
+
+// `.` is one CHARACTER, not one byte, and never a newline.
+same("a.c", "abc", "0..3:abc")
+same("a.c", "a\nc", "<none>")
+same(".", "日本", "0..1:日")
+same("日+", "あ日日本", "1..3:日日")
+same("[^ ]+", "héllo wörld", "0..5:héllo")
+
+// `\d`, `\w` and `\s` are ASCII, as they are nearly everywhere. This is the
+// one place a pattern means less than a Keal string does, and the test says
+// so rather than leaving it to be discovered.
+same("\\w+", "  héllo  ", "2..3:h")
+same("\\s+", "a  b", "1..3:  ")
+
+// Groups, and the difference between catching nothing and catching "".
+val m = Regex("([0-9]+)-([0-9]+)").find("order 12-345 shipped")
+assert(m != null, "the pattern matched")
+val got = m ?: Match("", 0, 0, [])
+assert(got.groups.size == 2, "two groups")
+assert(got.groups[0] == "12" and got.groups[1] == "345", "both caught: ${got.groups}")
+
+val opt = Regex("(a)?(b)").find("b") ?: Match("", 0, 0, [])
+assert(opt.groups[0] == null, "a group that did not take part is null")
+assert(opt.groups[1] == "b", "and one that did holds what it caught")
+
+// A non-capturing group groups without counting.
+val plain = Regex("(?:ab)+(c)").find("ababc") ?: Match("", 0, 0, [])
+assert(plain.groups.size == 1, "only the capturing group counts: ${plain.groups.size}")
+
+// findAll, including empty matches, which must still advance or the walk
+// would not end. The answer is the one Python gives for the same input.
+val all = Regex("a*").findAll("bab")
+assert(all.map({ x: Match -> x.text }) == ["", "a", "", ""], "empty matches advance: ${all.size}")
+
+// replace, with `$0`, `$1` and `$$`.
+assert(Regex("[0-9]+").replace("a1b22", "<$0>") == "a<1>b<22>", "the whole match")
+assert(Regex("([a-z])([0-9])").replace("a1 b2", "$2$1") == "1a 2b", "groups, reordered")
+assert(Regex("x").replace("x", "$$") == "$", "a literal dollar")
+assert(Regex("z").replace("abc", "!") == "abc", "no match changes nothing")
+
+// split
+assert(Regex(",\\s*").split("a, b,c ,  d") == ["a", "b", "c ", "d"], "split on a pattern")
+assert(Regex("z").split("abc") == ["abc"], "a pattern that never matches gives one piece")
+
+// matches() is the whole text or nothing.
+assert(Regex("[a-z]+").matches("abc"), "the whole text")
+assert(!Regex("[a-z]+").matches("abc1"), "and not merely a prefix")
+
+// A pattern that cannot be read is refused with a message, not accepted and
+// then surprising.
+for (bad in ["(", "[a", "a{2,1}", "*a", "a\\", "(?=x)", ")", "[z-a]"]) {
+    var refused = false
+    try { val r = Regex(bad) } catch (e) { refused = true }
+    assert(refused, "`${bad}` was accepted")
+}
+
+// AND THE ONE THAT MATTERS MOST. A backtracking matcher can be made to take
+// exponential time by a pattern this short. A program that hangs cannot be
+// told from a program that is working, so the budget is finite and running
+// out is an error with a name.
+var gaveUp = false
+try { val boom = Regex("(a+)+b").matches("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") }
+catch (e) { gaveUp = true }
+assert(gaveUp, "a pathological pattern gives up rather than hanging")

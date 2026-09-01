@@ -3110,6 +3110,12 @@ impl CBackend {
                     kk.word(&key)
                 ));
                 self.line(format!("{} {};", vc, t));
+                // Owned here rather than after the branch below: `own` in
+                // catch mode rewrites the declaration it was just handed, and
+                // it can only rewrite the line immediately behind it. Doing
+                // it at the end made `m.remove(k)` inside a `try` an internal
+                // error about a temporary nobody could see.
+                self.own(&t, &vt.clone().nullable());
                 self.line(format!("if ({} >= 0) {{", at));
                 self.indent += 1;
                 let held = self.temp();
@@ -3126,7 +3132,6 @@ impl CBackend {
                 self.indent -= 1;
                 self.line("}");
                 self.line(format!("keal_map_remove({}, {});", m, kk.word(&key)));
-                self.own(&t, &vt.clone().nullable());
                 Some(t)
             }
             // `m.get(k)` is `m[k]`, and `m.set(k, v)` is `m[k] = v` — the
@@ -4402,6 +4407,19 @@ impl CBackend {
                 let f = self.map_show(k, v, span)?;
                 format!("{}({})", f, expr)
             }
+            // A `T?` inside a container. The statement form of this lives in
+            // `to_string_value`, which can open a branch; here the answer has
+            // to be one expression, so it is a conditional. `expr` is read
+            // twice, which is safe because every caller passes an element
+            // access rather than a call.
+            Type::Nullable(inner) => {
+                let shown = self.repr_call(inner, &opt_get(inner, expr), span)?;
+                format!(
+                    "({} ? {} : keal_str_static(\"null\", 4))",
+                    opt_has(inner, expr),
+                    shown
+                )
+            }
             other => {
                 self.unsupported(span, &format!("rendering a value of type `{}`", other));
                 return None;
@@ -4418,10 +4436,17 @@ impl CBackend {
         let kk = self.key_kind(kt, span)?;
         let vk = self.elem_kind(vt, span)?;
         let name = format!("show_map_{}", self.list_shows.len());
-        self.list_shows.insert(key, name.clone());
+        self.list_shows.insert(key.clone(), name.clone());
 
-        let key_r = self.repr_call(kt, &kk.unword("m->data[2 * i]"), span)?;
-        let val_r = self.repr_call(vt, &vk.unword("m->data[2 * i + 1]"), span)?;
+        // As in `list_show`: a reservation the body never earns has to come
+        // back out, or the second caller gets a name with no function.
+        let (Some(key_r), Some(val_r)) = (
+            self.repr_call(kt, &kk.unword("m->data[2 * i]"), span),
+            self.repr_call(vt, &vk.unword("m->data[2 * i + 1]"), span),
+        ) else {
+            self.list_shows.remove(&key);
+            return None;
+        };
         let _ = write!(
             self.helpers,
             "static KealStr* {name}(KealMap* m) {{\n    KealBuf b;\n    keal_buf_init(&b);\n    keal_buf_lit(&b, \"{{\");\n    for (int64_t i = 0; i < m->len; i++) {{\n        if (i > 0) {{ keal_buf_lit(&b, \", \"); }}\n        keal_buf_str(&b, {key_r});\n        keal_buf_lit(&b, \": \");\n        keal_buf_str(&b, {val_r});\n    }}\n    keal_buf_lit(&b, \"}}\");\n    return keal_buf_finish(&b);\n}}\n",
@@ -4498,10 +4523,19 @@ impl CBackend {
         }
         let elem = self.elem_kind(elem_ty, span)?;
         let name = format!("show_list_{}", self.list_shows.len());
-        self.list_shows.insert(key, name.clone());
+        self.list_shows.insert(key.clone(), name.clone());
 
         let item = elem.unword("l->data[i]");
-        let rendered = self.repr_call(elem_ty, &item, span)?;
+        // The name is reserved before the body is written, and the body can
+        // still be refused — a list whose elements cannot be rendered. The
+        // reservation has to come back out when that happens: a cached name
+        // with no definition is worse than the refusal, because the SECOND
+        // caller finds the name, reports nothing, and the C fails to compile
+        // on a function that was never written.
+        let Some(rendered) = self.repr_call(elem_ty, &item, span) else {
+            self.list_shows.remove(&key);
+            return None;
+        };
         let _ = write!(
             self.helpers,
             "static KealStr* {name}(KealList* l) {{\n    KealBuf b;\n    keal_buf_init(&b);\n    keal_buf_lit(&b, \"[\");\n    for (int64_t i = 0; i < l->len; i++) {{\n        if (i > 0) {{ keal_buf_lit(&b, \", \"); }}\n        keal_buf_str(&b, {rendered});\n    }}\n    keal_buf_lit(&b, \"]\");\n    return keal_buf_finish(&b);\n}}\n",

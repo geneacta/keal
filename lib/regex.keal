@@ -1,0 +1,681 @@
+// Regular expressions, written in Keal.
+//
+//     import "lib/regex.keal"
+//
+//     val r = Regex("([0-9]+)-([0-9]+)")
+//     val m = r.find("order 12-34 shipped")
+//     if (m != null) { println("${m.text} ${m.groups[0]} ${m.groups[1]}") }
+//
+// Why this is a library and not a built-in: nothing here is a system call.
+// A matcher is arithmetic over a string, and Keal indexes a string by
+// CHARACTER rather than by byte — `"日本語".length` is 3 — so a matcher
+// written this way is correct over UTF-8 without knowing that it is. Written
+// in Keal it also needs no second implementation: the tree-walker, the
+// bytecode VM and the C backend run the same source, so the three cannot
+// disagree about it the way they could about anything written twice.
+//
+// Why a library rather than the prelude: the C backend emits the whole
+// prelude into every generated program, reachable or not. A program that
+// wants no regular expressions should pay for none.
+//
+// The syntax is the common core, and deliberately not more:
+//
+//     .           any character except a newline
+//     [abc] [^a-z0-9_]        a class, with ranges and negation
+//     \d \D \w \W \s \S       digit, word, space, and their negations
+//     \n \t \r \\ \. ...      escapes
+//     ^ $         the start and the end of the text
+//     * + ?       repetition, greedy — `*?` `+?` `??` for lazy
+//     {n} {n,} {n,m}          counted repetition, greedy or lazy
+//     ( ) (?: )   a group, capturing or not
+//     |           alternation
+//
+// What is absent is absent on purpose: no backreferences, no lookaround, no
+// named groups. Each of those changes what the matcher is rather than what
+// it knows, and a smaller thing that is right is worth more here than a
+// larger one that is nearly right.
+//
+// ONE SURPRISE, SAID OUT LOUD BECAUSE IT WILL BITE SOMEBODY. `\d`, `\w` and
+// `\s` are ASCII, as they are in nearly every engine: `\w+` against "héllo"
+// matches "h" and stops. Everything else here is fully Unicode — `.` matches
+// one character however many bytes it takes, `[^ ]+` matches "héllo" whole,
+// and a literal `日` matches `日` — so the ASCII shorthands are the one place
+// where a pattern means less than a Keal string does. Deciding otherwise
+// would mean carrying a Unicode character table, and a table that is nearly
+// right is worse than a rule that is exactly stated.
+
+// ---- the pattern, parsed -------------------------------------------------
+
+/// One node of the parsed pattern. A tag and a bag of fields, the way the
+/// compiler's own trees are written, because an enum in Keal carries nothing.
+class Node(package val kind: String) {
+    // "char"
+    package var ch: String = ""
+    // "class": each item is either one character or a two-character range
+    // written as its ends; `ranges` says which.
+    package var members: List<String> = []
+    package var ranges: List<Bool> = []
+    package var negated: Bool = false
+    // "seq", "alt", "group", "repeat"
+    package var kids: List<Node> = []
+    // "repeat"
+    package var min: Int = 0
+    package var max: Int = -1          // -1 is "no upper bound"
+    package var lazy: Bool = false
+    // "group": which capture slot, or -1 when the group captures nothing
+    package var group: Int = -1
+}
+
+class Parser(package val src: String) {
+    var at: Int = 0
+    var groups: Int = 0
+
+    func done(): Bool { return this.at >= this.src.length }
+
+    func peek(): String {
+        if (this.done()) { return "" }
+        return this.src.substring(this.at, this.at + 1)
+    }
+
+    func next(): String {
+        val c = this.peek()
+        this.at = this.at + 1
+        return c
+    }
+
+    func eat(c: String): Bool {
+        if (this.peek() == c) { this.at = this.at + 1; return true }
+        return false
+    }
+
+    /// `a|b|c` — the loosest binding, so it is parsed first.
+    func alternation(): Node {
+        var branches: List<Node> = [this.sequence()]
+        while (this.eat("|")) { branches.add(this.sequence()) }
+        if (branches.size == 1) { return branches[0] }
+        val n = Node("alt")
+        n.kids = branches
+        return n
+    }
+
+    func sequence(): Node {
+        val n = Node("seq")
+        while (!this.done() and this.peek() != "|" and this.peek() != ")") {
+            n.kids.add(this.repeated())
+        }
+        return n
+    }
+
+    /// An atom, and whatever repetition follows it.
+    func repeated(): Node {
+        var inner = this.atom()
+        while (true) {
+            val c = this.peek()
+            var min = 0
+            var max = -1
+            if (c == "*") { this.at = this.at + 1 }
+            else if (c == "+") { this.at = this.at + 1; min = 1 }
+            else if (c == "?") { this.at = this.at + 1; max = 1 }
+            else if (c == "{" and this.countedAhead()) {
+                this.at = this.at + 1
+                min = this.number()
+                max = min
+                if (this.eat(",")) {
+                    max = -1
+                    if (this.peek() != "}") { max = this.number() }
+                }
+                unless (this.eat("}")) { throw "unterminated `{` in a pattern" }
+                if (max >= 0 and max < min) { throw "`{${min},${max}}` counts backwards" }
+            } else {
+                return inner
+            }
+            val r = Node("repeat")
+            r.kids = [inner]
+            r.min = min
+            r.max = max
+            r.lazy = this.eat("?")
+            inner = r
+        }
+        return inner
+    }
+
+    /// `{` only begins a count when digits and a `}` follow it. Otherwise it
+    /// is an ordinary character, which is what a person writing `a{b` means.
+    func countedAhead(): Bool {
+        var i = this.at + 1
+        var digits = 0
+        while (i < this.src.length and isDigit(this.src.substring(i, i + 1))) {
+            i = i + 1
+            digits = digits + 1
+        }
+        if (digits == 0) { return false }
+        if (i < this.src.length and this.src.substring(i, i + 1) == ",") {
+            i = i + 1
+            while (i < this.src.length and isDigit(this.src.substring(i, i + 1))) { i = i + 1 }
+        }
+        return i < this.src.length and this.src.substring(i, i + 1) == "}"
+    }
+
+    func number(): Int {
+        var text = ""
+        while (!this.done() and isDigit(this.peek())) { text = text + this.next() }
+        if (text == "") { throw "expected a number in `{...}`" }
+        return text.toInt() ?: 0
+    }
+
+    func atom(): Node {
+        val c = this.next()
+        if (c == "") { throw "a pattern ended where a character was expected" }
+        if (c == "(") {
+            var capture = true
+            if (this.peek() == "?") {
+                // `(?:` — a group that groups without capturing.
+                if (this.at + 1 < this.src.length and this.src.substring(this.at + 1, this.at + 2) == ":") {
+                    this.at = this.at + 2
+                    capture = false
+                } else {
+                    throw "only `(?:` is understood after `(`"
+                }
+            }
+            var slot = -1
+            if (capture) {
+                slot = this.groups
+                this.groups = this.groups + 1
+            }
+            val body = this.alternation()
+            unless (this.eat(")")) { throw "unclosed `(` in a pattern" }
+            val g = Node("group")
+            g.kids = [body]
+            g.group = slot
+            return g
+        }
+        if (c == ")") { throw "unmatched `)` in a pattern" }
+        if (c == "[") { return this.characterClass() }
+        if (c == ".") { return Node("any") }
+        if (c == "^") { return Node("bol") }
+        if (c == "$") { return Node("eol") }
+        if (c == "*" or c == "+" or c == "?") { throw "`${c}` has nothing to repeat" }
+        if (c == "\\") { return this.escape() }
+        val n = Node("char")
+        n.ch = c
+        return n
+    }
+
+    /// `\d`, `\w`, `\s` and their negations become classes; everything else
+    /// escapes to itself, so `\.` is a full stop and `\\` a backslash.
+    func escape(): Node {
+        val c = this.next()
+        if (c == "") { throw "a pattern ended after `\\`" }
+        val shorthand = classFor(c)
+        if (shorthand != null) { return shorthand }
+        val n = Node("char")
+        n.ch = literalEscape(c)
+        return n
+    }
+
+    func characterClass(): Node {
+        val n = Node("class")
+        n.negated = this.eat("^")
+        var first = true
+        while (true) {
+            if (this.done()) { throw "unclosed `[` in a pattern" }
+            if (this.peek() == "]" and !first) { this.at = this.at + 1; return n }
+            first = false
+            var c = this.next()
+            if (c == "\\") {
+                val e = this.next()
+                if (e == "") { throw "a pattern ended after `\\`" }
+                val shorthand = classFor(e)
+                if (shorthand != null) {
+                    // `[\d.]` — a shorthand inside a class contributes its
+                    // members. A negated shorthand inside a class would need
+                    // set difference, which this syntax does not have.
+                    if (shorthand.negated) { throw "`\\${e}` cannot be used inside `[...]`" }
+                    for (i in 0..shorthand.members.size) {
+                        n.members.add(shorthand.members[i])
+                        n.ranges.add(shorthand.ranges[i])
+                    }
+                    continue
+                }
+                c = literalEscape(e)
+            }
+            // `a-z`, but a `-` at either end is just a hyphen.
+            if (this.peek() == "-" and this.at + 1 < this.src.length
+                and this.src.substring(this.at + 1, this.at + 2) != "]") {
+                this.at = this.at + 1
+                var hi = this.next()
+                if (hi == "\\") { hi = literalEscape(this.next()) }
+                if (hi.code() < c.code()) { throw "`${c}-${hi}` runs backwards" }
+                n.members.add(c + hi)
+                n.ranges.add(true)
+            } else {
+                n.members.add(c)
+                n.ranges.add(false)
+            }
+        }
+        return n
+    }
+}
+
+func isDigit(c: String): Bool {
+    if (c.length != 1) { return false }
+    val n = c.code()
+    return n >= 48 and n <= 57
+}
+
+func literalEscape(c: String): String {
+    if (c == "n") { return "\n" }
+    if (c == "t") { return "\t" }
+    if (c == "r") { return "\r" }
+    if (c == "0") { return "" }
+    return c
+}
+
+/// The class a shorthand stands for, or null when the character is not one.
+func classFor(c: String): Node? {
+    val n = Node("class")
+    if (c == "d" or c == "D") {
+        n.members = ["09"]
+        n.ranges = [true]
+        n.negated = c == "D"
+        return n
+    }
+    if (c == "w" or c == "W") {
+        n.members = ["az", "AZ", "09", "_"]
+        n.ranges = [true, true, true, false]
+        n.negated = c == "W"
+        return n
+    }
+    if (c == "s" or c == "S") {
+        n.members = [" ", "\t", "\n", "\r"]
+        n.ranges = [false, false, false, false]
+        n.negated = c == "S"
+        return n
+    }
+    return null
+}
+
+// ---- compiled to instructions -------------------------------------------
+//
+// The parsed tree becomes a small program, and matching is running it with
+// backtracking — Thompson's construction with a recursive interpreter. The
+// reason to compile rather than walk the tree is that `(a|ab)c` against
+// "abc" has to reject "a", come back, and try "ab": a matcher that returns
+// one end position per node cannot do that, and one built from `split`
+// instructions does it for free.
+
+class Inst(package val op: String) {
+    package var ch: String = ""       // "char"
+    package var set: Node? = null     // "class"
+    package var x: Int = 0            // "split", "jmp": the first target
+    package var y: Int = 0            // "split": the second
+    package var slot: Int = 0         // "save"
+}
+
+/// A program that would take more instructions than this is refused rather
+/// than built. `(a{100}){100}` is a short pattern and an enormous program,
+/// and a compiler that quietly allocated it would be answering a question
+/// nobody asked.
+val instructionLimit = 20000
+
+class Compiler() {
+    var code: List<Inst> = []
+
+    func emit(i: Inst): Int {
+        if (this.code.size >= instructionLimit) {
+            throw "this pattern compiles to more than ${instructionLimit} instructions"
+        }
+        this.code.add(i)
+        return this.code.size - 1
+    }
+
+    proc node(n: Node) {
+        if (n.kind == "char") {
+            val i = Inst("char")
+            i.ch = n.ch
+            this.emit(i)
+        } else if (n.kind == "any") {
+            this.emit(Inst("any"))
+        } else if (n.kind == "class") {
+            val i = Inst("class")
+            i.set = n
+            this.emit(i)
+        } else if (n.kind == "bol") {
+            this.emit(Inst("bol"))
+        } else if (n.kind == "eol") {
+            this.emit(Inst("eol"))
+        } else if (n.kind == "seq") {
+            for (k in n.kids) { this.node(k) }
+        } else if (n.kind == "group") {
+            if (n.group >= 0) {
+                val open = Inst("save")
+                open.slot = 2 * n.group
+                this.emit(open)
+            }
+            this.node(n.kids[0])
+            if (n.group >= 0) {
+                val close = Inst("save")
+                close.slot = 2 * n.group + 1
+                this.emit(close)
+            }
+        } else if (n.kind == "alt") {
+            this.alternation(n.kids, 0)
+        } else if (n.kind == "repeat") {
+            this.repeat(n)
+        }
+    }
+
+    /// `a|b|c` — each branch tries, and the last needs no split of its own.
+    proc alternation(kids: List<Node>, i: Int) {
+        if (i == kids.size - 1) { this.node(kids[i]); return }
+        val split = this.emit(Inst("split"))
+        this.code[split].x = this.code.size
+        this.node(kids[i])
+        val jump = this.emit(Inst("jmp"))
+        this.code[split].y = this.code.size
+        this.alternation(kids, i + 1)
+        this.code[jump].x = this.code.size
+    }
+
+    proc repeat(n: Node) {
+        val body = n.kids[0]
+        // The compulsory part is written out in full.
+        var made = 0
+        while (made < n.min) {
+            this.node(body)
+            made = made + 1
+        }
+        if (n.max < 0) {
+            if (n.min == 0) { this.star(body, n.lazy) } else { this.plusTail(body, n.lazy) }
+            return
+        }
+        // And the optional part, one guarded copy each.
+        var extra = n.max - n.min
+        var splits: List<Int> = []
+        while (extra > 0) {
+            val s = this.emit(Inst("split"))
+            splits.add(s)
+            this.code[s].x = this.code.size
+            this.node(body)
+            extra = extra - 1
+        }
+        for (s in splits) {
+            if (n.lazy) {
+                // Lazy: prefer the way out, which is where the split's
+                // second target already points.
+                val was = this.code[s].x
+                this.code[s].x = this.code.size
+                this.code[s].y = was
+            } else {
+                this.code[s].y = this.code.size
+            }
+        }
+    }
+
+    /// `e*`: split to the body or past it, and loop back.
+    proc star(body: Node, lazy: Bool) {
+        val top = this.code.size
+        val split = this.emit(Inst("split"))
+        val bodyAt = this.code.size
+        this.node(body)
+        val back = this.emit(Inst("jmp"))
+        this.code[back].x = top
+        val out = this.code.size
+        if (lazy) {
+            this.code[split].x = out
+            this.code[split].y = bodyAt
+        } else {
+            this.code[split].x = bodyAt
+            this.code[split].y = out
+        }
+    }
+
+    /// The tail of `e+` once the first copy is written: keep going, or stop.
+    proc plusTail(body: Node, lazy: Bool) {
+        val top = this.code.size
+        val split = this.emit(Inst("split"))
+        val bodyAt = this.code.size
+        this.node(body)
+        val back = this.emit(Inst("jmp"))
+        this.code[back].x = top
+        val out = this.code.size
+        if (lazy) {
+            this.code[split].x = out
+            this.code[split].y = bodyAt
+        } else {
+            this.code[split].x = bodyAt
+            this.code[split].y = out
+        }
+    }
+}
+
+// ---- what a match is -----------------------------------------------------
+
+/// Where a pattern matched, and what its groups caught. A group that did not
+/// take part is `null` rather than `""` — a pattern that matched nothing and
+/// one that matched the empty string are different answers.
+public record Match(
+    public val text: String,
+    public val start: Int,
+    public val end: Int,
+    public val groups: List<String?>
+)
+
+// ---- running the program -------------------------------------------------
+
+/// How many instructions one attempt may run before the matcher gives up.
+///
+/// A backtracking matcher can be made to take exponential time by a pattern
+/// as short as `(a+)+b`, and a program that hangs is worse than one that
+/// fails: it cannot be told from a program that is working. So the budget is
+/// finite and running out is an error with a name, the way `constexpr`
+/// refuses a compile-time loop that will not finish.
+val stepLimit = 1000000
+
+public class Regex(public val pattern: String) {
+    val code: List<Inst> = compilePattern(pattern)
+    val slots: Int = countGroups(pattern)
+    var steps: Int = 0
+    var saved: List<Int> = []
+
+    /// The whole text, or nothing.
+    public func matches(text: String): Bool {
+        val m = this.at(text, 0, true)
+        return m != null
+    }
+
+    /// The first match at or after `from`, or null.
+    public func find(text: String): Match? { return this.findFrom(text, 0) }
+
+    public func findFrom(text: String, from: Int): Match? {
+        var start = from
+        while (start <= text.length) {
+            val m = this.at(text, start, false)
+            if (m != null) { return m }
+            start = start + 1
+        }
+        return null
+    }
+
+    /// Every non-overlapping match, left to right. A match that consumed
+    /// nothing still advances by one, or the walk would not end.
+    public func findAll(text: String): List<Match> {
+        var out: List<Match> = []
+        var at = 0
+        while (at <= text.length) {
+            val m = this.findFrom(text, at)
+            if (m == null) { return out }
+            out.add(m)
+            if (m.end == m.start) { at = m.end + 1 } else { at = m.end }
+        }
+        return out
+    }
+
+    /// Every match replaced. `$1` in the replacement is the first group,
+    /// `$0` the whole match, and `$$` a literal dollar.
+    public func replace(text: String, with: String): String {
+        var out = ""
+        var at = 0
+        for (m in this.findAll(text)) {
+            out = out + text.substring(at, m.start) + expand(with, m)
+            at = m.end
+        }
+        return out + text.substring(at, text.length)
+    }
+
+    /// The pieces between the matches. A pattern that matches nothing gives
+    /// back the whole text as one piece.
+    public func split(text: String): List<String> {
+        var out: List<String> = []
+        var at = 0
+        for (m in this.findAll(text)) {
+            if (m.end == m.start and m.start == at) { continue }
+            out.add(text.substring(at, m.start))
+            at = m.end
+        }
+        out.add(text.substring(at, text.length))
+        return out
+    }
+
+    /// One attempt, anchored at `start`. `whole` demands that it reach the
+    /// end of the text as well.
+    func at(text: String, start: Int, whole: Bool): Match? {
+        this.steps = 0
+        this.saved = []
+        var i = 0
+        while (i < 2 * this.slots) { this.saved.add(-1); i = i + 1 }
+        val end = this.run(text, 0, start, whole)
+        if (end < 0) { return null }
+        var groups: List<String?> = []
+        var g = 0
+        while (g < this.slots) {
+            val from = this.saved[2 * g]
+            val to = this.saved[2 * g + 1]
+            if (from >= 0 and to >= from) { groups.add(text.substring(from, to)) } else { groups.add(null) }
+            g = g + 1
+        }
+        return Match(text.substring(start, end), start, end, groups)
+    }
+
+    /// The instruction at `pc`, against the character at `sp`. Returns where
+    /// the match ended, or -1. Backtracking is this function returning -1 and
+    /// the `split` above it trying its other branch.
+    func run(text: String, pc: Int, sp: Int, whole: Bool): Int {
+        this.steps = this.steps + 1
+        if (this.steps > stepLimit) {
+            throw "this pattern took more than ${stepLimit} steps against this text"
+        }
+        if (pc >= this.code.size) {
+            if (whole and sp != text.length) { return -1 }
+            return sp
+        }
+        val i = this.code[pc]
+        if (i.op == "char") {
+            if (sp < text.length and text.substring(sp, sp + 1) == i.ch) {
+                return this.run(text, pc + 1, sp + 1, whole)
+            }
+            return -1
+        }
+        if (i.op == "any") {
+            if (sp < text.length and text.substring(sp, sp + 1) != "\n") {
+                return this.run(text, pc + 1, sp + 1, whole)
+            }
+            return -1
+        }
+        if (i.op == "class") {
+            val set = i.set
+            if (set != null and sp < text.length and inClass(set, text.substring(sp, sp + 1))) {
+                return this.run(text, pc + 1, sp + 1, whole)
+            }
+            return -1
+        }
+        if (i.op == "bol") {
+            if (sp == 0) { return this.run(text, pc + 1, sp, whole) }
+            return -1
+        }
+        if (i.op == "eol") {
+            if (sp == text.length) { return this.run(text, pc + 1, sp, whole) }
+            return -1
+        }
+        if (i.op == "jmp") { return this.run(text, i.x, sp, whole) }
+        if (i.op == "split") {
+            val first = this.run(text, i.x, sp, whole)
+            if (first >= 0) { return first }
+            return this.run(text, i.y, sp, whole)
+        }
+        if (i.op == "save") {
+            // Restored on the way out, so a branch that fails leaves no
+            // trace of what it caught.
+            val was = this.saved[i.slot]
+            this.saved[i.slot] = sp
+            val got = this.run(text, pc + 1, sp, whole)
+            if (got < 0) { this.saved[i.slot] = was }
+            return got
+        }
+        return -1
+    }
+}
+
+func inClass(set: Node, c: String): Bool {
+    var hit = false
+    var i = 0
+    while (i < set.members.size) {
+        val m = set.members[i]
+        if (set.ranges[i]) {
+            val lo = m.substring(0, 1).code()
+            val hi = m.substring(1, 2).code()
+            val n = c.code()
+            if (n >= lo and n <= hi) { hit = true }
+        } else if (m == c) {
+            hit = true
+        }
+        i = i + 1
+    }
+    if (set.negated) { return !hit }
+    return hit
+}
+
+func compilePattern(pattern: String): List<Inst> {
+    val p = Parser(pattern)
+    val tree = p.alternation()
+    unless (p.done()) { throw "unexpected `${p.peek()}` in a pattern" }
+    val c = Compiler()
+    c.node(tree)
+    return c.code
+}
+
+func countGroups(pattern: String): Int {
+    val p = Parser(pattern)
+    p.alternation()
+    return p.groups
+}
+
+/// `$0` is the whole match, `$1` the first group, `$$` a dollar.
+func expand(template: String, m: Match): String {
+    var out = ""
+    var i = 0
+    while (i < template.length) {
+        val c = template.substring(i, i + 1)
+        if (c == "$" and i + 1 < template.length) {
+            val d = template.substring(i + 1, i + 2)
+            if (d == "$") { out = out + "$"; i = i + 2; continue }
+            if (isDigit(d)) {
+                var digits = ""
+                var j = i + 1
+                while (j < template.length and isDigit(template.substring(j, j + 1))) {
+                    digits = digits + template.substring(j, j + 1)
+                    j = j + 1
+                }
+                val n = digits.toInt() ?: 0
+                if (n == 0) { out = out + m.text } else if (n <= m.groups.size) {
+                    out = out + (m.groups[n - 1] ?: "")
+                }
+                i = j
+                continue
+            }
+        }
+        out = out + c
+        i = i + 1
+    }
+    return out
+}

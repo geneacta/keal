@@ -101,3 +101,23 @@ println("Map counted values: ${md.get("k")}")
 md.clear()
 mm.clear()
 println("Map cleared: ${md} ${mm} ${mm.isEmpty()}")
+
+// `m.remove(k)` inside a `try`, which is the shape that used to fail.
+//
+// `own` in catch mode rewrites the declaration it was just handed, and can
+// only rewrite the line immediately behind it — so calling it after the
+// branch that follows made this an internal error about a temporary nobody
+// could see. It surfaced only when the self-hosted compiler itself started
+// discarding a `Map.remove`, which is why it is pinned here rather than left
+// to the next person who writes one inside a `try`.
+var held: Map<String, List<String>> = {}
+held["a"] = ["x"]
+held["b"] = ["y"]
+try {
+    val gone = held.remove("a")
+    println("removed: ${gone} left: ${held}")
+    held.remove("b")
+    println("discarded too: ${held.isEmpty()}")
+} catch (e) {
+    println("caught: ${e}")
+}

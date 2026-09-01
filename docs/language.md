@@ -1222,6 +1222,54 @@ everything, because a standard library is nothing but its public surface.
 | `lines(s): List<String>` | the lines, without their newlines |
 | `setOf(xs)` `dequeOf(xs)` | the two collections below, from a list |
 
+### Regular expressions
+
+Not built in, and in `lib/regex.keal` rather than the prelude:
+
+```keal
+import "lib/regex.keal"
+
+val r = Regex("([0-9]+)-([0-9]+)")
+val m = r.find("order 12-345 shipped")
+if (m != null) { println("${m.text} ${m.groups[0]} ${m.groups[1]}") }
+```
+
+| | |
+|---|---|
+| `Regex(pattern)` | refuses a pattern it cannot read, with a message |
+| `matches(text)` | the whole text, or nothing |
+| `find(text): Match?` `findFrom(text, at)` | the first match |
+| `findAll(text): List<Match>` | every non-overlapping match |
+| `replace(text, with)` | `$0` the whole match, `$1` the first group, `$$` a dollar |
+| `split(text): List<String>` | the pieces between the matches |
+
+`Match` carries `text`, `start`, `end` and `groups: List<String?>` — a group
+that did not take part is `null`, which is not the same answer as one that
+matched the empty string.
+
+The syntax is the common core: `.`, `[abc]` with ranges and negation, `\d`
+`\w` `\s` and their negations, `^` `$`, `*` `+` `?` and `{n,m}` in greedy
+and lazy forms, `(` `)` and `(?:` `)`, and `|`. No backreferences, no
+lookaround, no named groups — each of those changes what the matcher is
+rather than what it knows.
+
+**It is written in Keal.** Nothing in a matcher is a system call, and a Keal
+string is indexed by character rather than byte, so `.` matches one character
+however many bytes it takes and `日+` matches `日日`. Written this way it also
+needs no second implementation: all three engines run the same source, so
+they cannot disagree about it the way they could about anything written
+twice. It is a library rather than the prelude because the C backend emits
+the whole prelude into every generated program, and a program that wants no
+regular expressions should pay for none.
+
+Two things to know before relying on it. `\d`, `\w` and `\s` are **ASCII**,
+as they are in nearly every engine: `\w+` against `"héllo"` matches `"h"` and
+stops. Everything else is fully Unicode, so this is the one place a pattern
+means less than a Keal string does. And matching is backtracking, which a
+pattern as short as `(a+)+b` can drive to exponential time — so an attempt
+that runs past a million steps **throws** rather than hanging, because a
+program that hangs cannot be told from one that is working.
+
 ### Running another program
 
 | | |
@@ -1778,8 +1826,8 @@ there is no cycle collector.
 
 Class inheritance (a non-goal) · associated types on traits · generic
 traits · enum variants that carry data · `?.` on a built-in receiver in the
-C backend (refused by name; the interpreters answer `null`) · regular
-expressions · a network stack
+C backend (refused by name; the interpreters answer `null`) · `List<Int?>`
+and the other lists of nullable value types · a network stack
 (HTTPS needs TLS, which belongs behind the interop boundary rather than
 hand-written in the runtime).
 
