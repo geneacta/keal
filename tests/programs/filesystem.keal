@@ -46,3 +46,39 @@ assert(!exists("${root}/inner"), "gone")
 assert(removePath("${root}/a.txt") and removePath("${root}/b.txt"), "both files go")
 assert(removePath(root), "and the root with them")
 assert(!exists(root), "nothing left behind")
+
+// ---- a name some other program wrote ------------------------------------
+//
+// Everything above makes its own tree and reads it back, which agrees with
+// itself whatever the encoding — a Windows build using the ANSI entry points
+// wrote `日本` as `æ—¥æœ¬` on disk and then listed `日本` back, and no test
+// written this way could tell. The only witness is a file created by
+// something that is not this program.
+//
+// That witness became reachable from inside the language when `runCommand`
+// landed: a shell makes the directory, and `listDir` has to see the name the
+// shell wrote, byte for byte.
+
+if (isFile("/bin/sh")) {
+    val outside = "target/keal-fs-outside"
+    val exotic = "日本"
+    // Made by the shell, not by us.
+    val made = runCommand(["/bin/sh", "-c", "rm -rf '${outside}' && mkdir -p '${outside}/${exotic}'"])
+    assert(made != null, "the shell ran")
+    assert((made ?: [])[0] == "0", "and succeeded: ${(made ?: [])[2]}")
+
+    val seen = listDir(outside) ?: []
+    assert(seen == [exotic], "the name another program wrote, byte for byte: ${seen}")
+    assert(isDir("${outside}/${exotic}"), "and it is a directory we can see")
+    assert(exists("${outside}/${exotic}"), "and that it exists")
+
+    // And the other direction: a name we write must be the name the shell
+    // finds, which is what fails when the two disagree about the encoding.
+    val ours = "${outside}/été"
+    assert(makeDir(ours), "we made an accented directory")
+    val found = runCommand(["/bin/sh", "-c", "ls '${outside}'"]) ?: []
+    assert(lines(found[1]).contains("été"), "the shell sees the name we wrote: ${found[1]}")
+
+    val cleaned = runCommand(["/bin/sh", "-c", "rm -rf '${outside}'"]) ?: []
+    assert(cleaned[0] == "0", "cleaned up")
+}

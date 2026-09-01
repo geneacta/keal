@@ -1332,6 +1332,16 @@ its file system pleases, and the three engines have to print one order — a
 program that lists a directory has to say the same thing on every machine it
 runs on.
 
+A path is UTF-8, and stays UTF-8 all the way to the operating system. On
+Windows that means the wide entry points rather than the ANSI ones, which
+read a name as the active code page: a program creating `日本` through those
+would put `æ—¥æœ¬` on disk and then list `日本` back — self-consistent, and a
+name no other tool on the machine can open. Worse, a file some other program
+created could not be seen at all. Nothing written in Keal could detect that,
+since a program that makes its own tree agrees with itself; the test that
+catches it makes the directory with `runCommand` and then asks `listDir` what
+it sees.
+
 `removePath` stops at one entry on purpose. A recursive delete behind a
 one-word name is how a program loses what it did not mean to; a program that
 wants a tree gone can walk it and say so.

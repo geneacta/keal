@@ -2167,6 +2167,82 @@ KEAL_FN KealList* keal_args(void) {
     return l;
 }
 
+#ifdef _WIN32
+/* A Keal string is UTF-8, and the ANSI entry points read it as the active
+ * code page. That is not merely lossy: it is SELF-CONSISTENT, because the
+ * same wrong conversion happens on the way out again — a program that makes
+ * a directory called `日本` and lists it back sees `日本`, while what is on
+ * disk is `æ—¥æœ¬` and no other tool on the machine can open it. Worse, a
+ * file some other program created cannot be seen at all: `isDir` answers
+ * false about a directory that exists, and `listDir` returns question marks
+ * where the code page has no room. Nothing written in Keal can detect any of
+ * this, because every test that makes its own tree agrees with itself.
+ *
+ * So the file system uses the wide entry points, and these two convert at
+ * the boundary. Free the result of `keal_widen_bytes` with `free`. */
+static wchar_t* keal_widen_bytes(const char* utf8, int64_t len) {
+    int n = MultiByteToWideChar(CP_UTF8, 0, utf8, (int)len, NULL, 0);
+    if (n < 0) {
+        return NULL;
+    }
+    wchar_t* w = (wchar_t*)malloc(((size_t)n + 1) * sizeof(wchar_t));
+    if (w == NULL) {
+        return NULL;
+    }
+    if (n > 0) {
+        MultiByteToWideChar(CP_UTF8, 0, utf8, (int)len, w, n);
+    }
+    w[n] = L'\0';
+    return w;
+}
+
+/* A path as the wide entry points want it. NULL on failure, which every
+ * caller turns into the same absence a missing file gives. */
+static wchar_t* keal_wpath(KealStr* path) {
+    if (path->len < 0) {
+        return NULL;
+    }
+    return keal_widen_bytes(path->bytes, path->len);
+}
+
+/* And back: a name the file system handed over, as the UTF-8 a Keal string
+ * is made of. */
+static KealStr* keal_narrow(const wchar_t* w) {
+    int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
+    if (n <= 0) {
+        return keal_str_from_bytes("", 0);
+    }
+    char* buf = (char*)malloc((size_t)n);
+    if (buf == NULL) {
+        return keal_str_from_bytes("", 0);
+    }
+    WideCharToMultiByte(CP_UTF8, 0, w, -1, buf, n, NULL, NULL);
+    KealStr* out = keal_str_from_bytes(buf, (int64_t)(n - 1));
+    free(buf);
+    return out;
+}
+#endif
+
+/* A file, opened by the name the program actually gave. On Windows that
+ * means the wide entry point: `fopen` reads the name as the active code
+ * page, so a file called `été` would be created under another name and a
+ * file some other program wrote could not be found at all. */
+static FILE* keal_open(KealStr* path, const char* cpath, bool writing) {
+#ifdef _WIN32
+    (void)cpath;
+    wchar_t* wp = keal_wpath(path);
+    if (wp == NULL) {
+        return NULL;
+    }
+    FILE* f = _wfopen(wp, writing ? L"wb" : L"rb");
+    free(wp);
+    return f;
+#else
+    (void)path;
+    return fopen(cpath, writing ? "wb" : "rb");
+#endif
+}
+
 /* NULL on any failure: the caller's `?:` decides what absence means. */
 KEAL_FN KealStr* keal_read_file(KealStr* path) {
     char cpath[4096];
@@ -2175,7 +2251,7 @@ KEAL_FN KealStr* keal_read_file(KealStr* path) {
     }
     memcpy(cpath, path->bytes, (size_t)path->len);
     cpath[path->len] = '\0';
-    FILE* f = fopen(cpath, "rb");
+    FILE* f = keal_open(path, cpath, false);
     if (f == NULL) {
         return NULL;
     }
@@ -2238,7 +2314,7 @@ KEAL_FN bool keal_write_file(KealStr* path, KealStr* content) {
     }
     memcpy(cpath, path->bytes, (size_t)path->len);
     cpath[path->len] = '\0';
-    FILE* f = fopen(cpath, "wb");
+    FILE* f = keal_open(path, cpath, true);
     if (f == NULL) {
         return false;
     }
@@ -2434,17 +2510,22 @@ static int keal_name_cmp(const void* a, const void* b) {
 /* 0 nothing, 1 a file, 2 a directory. Deliberately an integer: the prelude
  * gives this three names, and this one stays the primitive. */
 KEAL_FN int64_t keal_path_kind(KealStr* path) {
-    char cpath[4096];
-    if (!keal_cpath(path, cpath, sizeof cpath)) {
+#ifdef _WIN32
+    wchar_t* wp = keal_wpath(path);
+    if (wp == NULL) {
         return 0;
     }
-#ifdef _WIN32
-    DWORD attr = GetFileAttributesA(cpath);
+    DWORD attr = GetFileAttributesW(wp);
+    free(wp);
     if (attr == INVALID_FILE_ATTRIBUTES) {
         return 0;
     }
     return (attr & FILE_ATTRIBUTE_DIRECTORY) ? 2 : 1;
 #else
+    char cpath[4096];
+    if (!keal_cpath(path, cpath, sizeof cpath)) {
+        return 0;
+    }
     struct stat st;
     if (stat(cpath, &st) != 0) {
         return 0;
@@ -2456,52 +2537,69 @@ KEAL_FN int64_t keal_path_kind(KealStr* path) {
 /* The entry names, sorted, without `.` and `..`. NULL when the path is not
  * a directory — the caller's `?:` decides what that means. */
 KEAL_FN KealList* keal_list_dir(KealStr* path) {
-    char cpath[4096];
-    if (!keal_cpath(path, cpath, sizeof cpath)) {
-        return NULL;
-    }
-
     KealStr** names = NULL;
     int64_t count = 0;
     int64_t cap = 0;
 
 #ifdef _WIN32
-    char pattern[4200];
-    int written = snprintf(pattern, sizeof pattern, "%s\\*", cpath);
-    if (written < 0 || (size_t)written >= sizeof pattern) {
+    /* The pattern is built in wide characters too: a directory whose own
+     * name is not representable in the code page could not otherwise be
+     * opened at all. */
+    wchar_t* wp = keal_wpath(path);
+    if (wp == NULL) {
         return NULL;
     }
-    WIN32_FIND_DATAA found;
-    HANDLE h = FindFirstFileA(pattern, &found);
+    size_t wlen = wcslen(wp);
+    wchar_t* pattern = (wchar_t*)malloc((wlen + 3) * sizeof(wchar_t));
+    if (pattern == NULL) {
+        free(wp);
+        return NULL;
+    }
+    memcpy(pattern, wp, wlen * sizeof(wchar_t));
+    pattern[wlen] = L'\\';
+    pattern[wlen + 1] = L'*';
+    pattern[wlen + 2] = L'\0';
+    free(wp);
+    WIN32_FIND_DATAW found;
+    HANDLE h = FindFirstFileW(pattern, &found);
+    free(pattern);
     if (h == INVALID_HANDLE_VALUE) {
         return NULL;
     }
     do {
-        const char* name = found.cFileName;
+        if (wcscmp(found.cFileName, L".") == 0 || wcscmp(found.cFileName, L"..") == 0) {
+            continue;
+        }
+        KealStr* name = keal_narrow(found.cFileName);
 #else
+    char cpath[4096];
+    if (!keal_cpath(path, cpath, sizeof cpath)) {
+        return NULL;
+    }
     DIR* d = opendir(cpath);
     if (d == NULL) {
         return NULL;
     }
     struct dirent* entry;
     while ((entry = readdir(d)) != NULL) {
-        const char* name = entry->d_name;
-#endif
-        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
             continue;
         }
+        KealStr* name = keal_str_from_bytes(entry->d_name, (int64_t)strlen(entry->d_name));
+#endif
         if (count == cap) {
             int64_t grown = cap == 0 ? 8 : cap * 2;
             KealStr** bigger = (KealStr**)realloc(names, (size_t)grown * sizeof *names);
             if (bigger == NULL) {
+                keal_str_release(name);
                 break;
             }
             names = bigger;
             cap = grown;
         }
-        names[count++] = keal_str_from_bytes(name, (int64_t)strlen(name));
+        names[count++] = name;
 #ifdef _WIN32
-    } while (FindNextFileA(h, &found));
+    } while (FindNextFileW(h, &found));
     FindClose(h);
 #else
     }
@@ -2522,31 +2620,41 @@ KEAL_FN KealList* keal_list_dir(KealStr* path) {
 /* Makes the directory and every parent it needs, and says true when the
  * directory is there afterwards — so making one twice is not a failure. */
 KEAL_FN bool keal_make_dir(KealStr* path) {
+#ifdef _WIN32
+    /* Walked as wide characters. A separator is one code unit in UTF-16 and
+     * cannot appear inside another character, so cutting the string at one
+     * is safe in a way that cutting UTF-8 bytes would not be. */
+    wchar_t* wp = keal_wpath(path);
+    if (wp == NULL) {
+        return false;
+    }
+    for (wchar_t* at = wp; *at != L'\0'; at++) {
+        /* A leading separator is the root, and a repeated one is nothing. */
+        if ((*at != L'/' && *at != L'\\') || at == wp || at[-1] == L'\0') {
+            continue;
+        }
+        wchar_t was = *at;
+        *at = L'\0';
+        CreateDirectoryW(wp, NULL);
+        *at = was;
+    }
+    CreateDirectoryW(wp, NULL);
+    free(wp);
+#else
     char cpath[4096];
     if (!keal_cpath(path, cpath, sizeof cpath)) {
         return false;
     }
     for (char* at = cpath; *at != '\0'; at++) {
-        bool sep = *at == '/';
-#ifdef _WIN32
-        sep = sep || *at == '\\';
-#endif
         /* A leading separator is the root, and a repeated one is nothing. */
-        if (!sep || at == cpath || at[-1] == '\0') {
+        if (*at != '/' || at == cpath || at[-1] == '\0') {
             continue;
         }
         char was = *at;
         *at = '\0';
-#ifdef _WIN32
-        CreateDirectoryA(cpath, NULL);
-#else
         mkdir(cpath, 0777);
-#endif
         *at = was;
     }
-#ifdef _WIN32
-    CreateDirectoryA(cpath, NULL);
-#else
     mkdir(cpath, 0777);
 #endif
     return keal_path_kind(path) == 2;
@@ -2555,18 +2663,29 @@ KEAL_FN bool keal_make_dir(KealStr* path) {
 /* One file, or one empty directory. Not a tree: a recursive delete behind a
  * one-word name is how a program loses what it did not mean to. */
 KEAL_FN bool keal_remove_path(KealStr* path) {
+#ifdef _WIN32
+    wchar_t* wp = keal_wpath(path);
+    if (wp == NULL) {
+        return false;
+    }
+    bool gone;
+    if (keal_path_kind(path) == 2) {
+        gone = RemoveDirectoryW(wp) != 0;
+    } else {
+        gone = DeleteFileW(wp) != 0;
+    }
+    free(wp);
+    return gone;
+#else
     char cpath[4096];
     if (!keal_cpath(path, cpath, sizeof cpath)) {
         return false;
     }
     if (keal_path_kind(path) == 2) {
-#ifdef _WIN32
-        return RemoveDirectoryA(cpath) != 0;
-#else
         return rmdir(cpath) == 0;
-#endif
     }
     return remove(cpath) == 0;
+#endif
 }
 
 /* ---- running another program ------------------------------------------- */
