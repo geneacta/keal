@@ -1,88 +1,85 @@
 # Continuous integration
 
-Two workflows live here rather than in `.github/workflows/`, for one
-practical reason: GitHub refuses a push that creates or edits a workflow
-file unless the credentials carry the `workflow` scope, which the tooling
-used to write this repository does not have. Copying a file through the
-web UI takes a moment and needs no such token.
+The workflows themselves live in `.github/workflows/`, which is where
+GitHub reads them. This directory holds what they need and what a person
+needs to know about them.
 
-## Installing one
+Until 2026-09-01 the two workflows lived HERE as well, because the
+credentials used to write this repository lacked the `workflow` scope and
+GitHub refuses a push that creates or edits a workflow file without it. So
+`ci/` was a staging area and every fix had to be pasted through the web UI.
 
-1. Open <https://github.com/geneacta/keal/new/main>
-2. Name the file `.github/workflows/<name>.yml` — GitHub creates the
-   directories as you type
-3. Paste the contents of the file from this directory
-4. **Commit changes**
+That arrangement produced exactly the defect it was shaped to produce.
+`ci/release.yml` said `draft: false` from commit `d78bf7d`; the file GitHub
+actually ran still said `draft: true`, because the paste never happened. For
+weeks every release was opened by hand and nobody could see why — the fix was
+committed, reviewed and true, and it was not the file being executed.
 
-## What is here
+Two copies that must agree, and nothing checking that they do, is the shape
+this project has spent a week learning to recognise. The scope exists now, so
+there is one copy.
 
-| file | what it does | installed? |
+## What runs
+
+| workflow | when | what |
 |---|---|---|
-| `check.yml` | Runs the suite and the bootstrap on **Linux** on every push to `main` and every pull request | **no — paste it** |
-| `pages.yml` | Publishes `site/` to GitHub Pages on every push that touches it | yes |
-| `release.yml` | On a `v*` tag: builds the compiler for macOS (arm64, x86_64) and Linux, runs the suite and the bootstrap on each, and opens a **draft** release with the binaries attached | yes |
+| `check.yml` | every push to `main`, every pull request | the suite and the bootstrap, on **Linux** |
+| `pages.yml` | every push touching `site/` | publishes to GitHub Pages |
+| `release.yml` | a `v*` tag, or **Actions → release → Run workflow** with a tag | builds for macOS (arm64, x86_64), Linux and Windows, runs the suite and the bootstrap on each, and opens a release with the binaries attached |
 
 `pages.yml` also needs the repository setting **Settings → Pages →
 Source: GitHub Actions**, once.
 
-`check.yml` is the one that is missing, and it is worth pasting before
-anything else here. Until it exists, the suite runs on Linux only when a
-version tag is pushed — so a change that breaks Linux is not found by the
-build that broke it but by a release, days later, with twelve tests failing
-at once. That is what happened on 2026-09-01: `-std=c11` makes glibc
-withhold the POSIX half of `<time.h>`, Apple's headers declare it anyway,
-and `keal build` had been broken on Linux for a day. Linux is the right leg
-to run per push because it is the one nobody develops on, and the strictest
-of the three about what a header declares.
+### Why `check.yml` is Linux
 
-Nothing else about the project depends on these files: `cargo test
---release` and `./bootstrap.sh` are the same commands the workflows run,
-and they are what a contributor runs locally.
+The four-platform suite runs only on a tag, so between releases the only
+machines that ever ran it were the ones a person happened to be sitting at.
+On 2026-09-01 that meant `keal build` had been broken on Linux for a day —
+`-std=c11` makes glibc withhold the POSIX half of `<time.h>` while Apple's
+headers declare it regardless — and the release was the first thing to ask
+Linux anything. Twelve tests failed at once, on a tag.
 
-## What lives here, and what has to be pasted
-
-`release.yml` and `pages.yml` are copies of what GitHub runs; the Windows
-toolchain step is not. It calls `ci/windows-toolchain.sh`, which lives in
-the repository — so the thing most likely to need changing can change with
-an ordinary commit, and the workflow file only has to be pasted when the
-*shape* of the run changes.
-
-## Getting out of the copy-paste loop
-
-Every fix to a workflow has to be pasted through the web UI because the
-credentials used here lack the `workflow` scope. One command ends that:
-
-```sh
-gh auth refresh -s workflow
-```
-
-After it, `ci/*.yml` can be copied to `.github/workflows/` and pushed like
-any other file, and this directory becomes a mirror rather than a staging
-area.
+Linux is the leg to run per push because it is the one nobody develops on:
+macOS and Windows each have a person watching them. It is also the strictest
+of the three about what a header declares, which is the failure it just
+caught.
 
 ## When a runner label goes away
 
-GitHub retires runner images, and a job whose label no longer exists sits
-in the queue forever rather than failing — the release never opens. If a
-build leg is queued while the others have finished, that is the first thing
-to check, and the fix is a new label in the matrix here, re-copied through
-the web UI.
+GitHub retires runner images, and a job whose label no longer exists sits in
+the queue forever rather than failing — the release never opens. If a build
+leg is queued while the others have finished, that is the first thing to
+check.
 
-A workflow already installed does not have to be re-tagged to be re-run
-after such a fix: **Actions → release → Run workflow** takes the tag as an
-input, which is what that input is for.
+A workflow already installed does not have to be re-tagged to be re-run after
+such a fix: **Actions → release → Run workflow** takes the tag as an input,
+which is what that input is for.
 
 ## Windows, and where the time goes
 
-Installing a toolchain through `winget`'s portable-package path can crawl:
-on one machine, extraction ran at roughly nineteen files a minute with the
-process burning seven seconds of CPU in twelve minutes — Defender's
-real-time scanning, not the network. Extracting the same archive that
-winget had already downloaded and verified took 59 seconds for 11,875
-files. If a Windows setup step ever needs a toolchain, download and extract
-the archive rather than going through winget, and budget accordingly.
+`ci/windows-toolchain.sh` installs the compiler the Windows leg needs and
+asserts what it installed rather than trusting it. It lives here rather than
+inside the workflow so that the thing most likely to need changing can change
+without touching a workflow file.
 
-A Windows machine also needs a C compiler that is *not* MSVC, for the
-reason `docs/interop.md` gives, and a POSIX-threads MinGW-w64 if it is to
-build actor programs. `rustup-init --default-host x86_64-pc-windows-gnu`
-installs per-user with no administrator rights.
+A Windows runner has no `cc`, and the compiler this runtime needs is **not**
+MSVC: overflow is checked with GCC and Clang builtins. Nor is any compiler
+enough — an LLVM `clang` on a Windows runner targets MSVC, rejects
+`-pthread`, and would satisfy a naive "does a compiler answer" check while
+building nothing. Building actor programs also needs a **POSIX-threads**
+MinGW-w64; the `win32` and `mcf` flavours ship no `pthread.h`.
+
+Installing a toolchain through `winget`'s portable-package path can crawl: on
+one machine, extraction ran at roughly nineteen files a minute with the
+process burning seven seconds of CPU in twelve minutes — Defender's real-time
+scanning, not the network. Extracting the same archive winget had already
+downloaded took 59 seconds for 11,875 files. Download and extract rather than
+going through winget, and budget accordingly.
+
+`rustup-init --default-host x86_64-pc-windows-gnu` installs per-user with no
+administrator rights.
+
+## Nothing here is load-bearing for a contributor
+
+`cargo test --release` and `./bootstrap.sh` are the same commands these
+workflows run, and they are what to run locally.
