@@ -93,7 +93,24 @@ error, just a fact `cargo test --release` settles.
    `std::io::Error`'s text: it is the operating system's sentence, in the
    operating system's language.
 
-8. **Say it plainly.** Diagnostics explain and suggest (`-- note:` with
+8. **A symmetric error cancels, and the test reports success.** When the
+   same code both writes and reads, a mistake made in one direction is
+   undone in the other and the round trip agrees with itself — so the test
+   passes and says nothing. The file system primitives spent a release
+   writing UTF-8 path names through Windows' ANSI entry points: a program
+   that made a directory called `日本` listed `日本` back, while what sat on
+   disk was `æ—¥æœ¬` and no other tool on the machine could open it. Every
+   test written in Keal agreed with the bug. Reading the disk from outside
+   the program is what found it.
+   So a round trip is not evidence on its own. Where the same code is on
+   both ends, one end has to be something else: a file another program
+   wrote, a listing another tool produced, bytes read by something that
+   does not share the assumption. `runCommand` makes that reachable from
+   inside the corpus — `tests/programs/filesystem.keal` has a shell create
+   the directory and asks `listDir` what it sees. There are usually few
+   such places, and they are worth finding on purpose.
+
+9. **Say it plainly.** Diagnostics explain and suggest (`-- note:` with
    the fix). Comments state constraints, not narration. Costs and limits
    go in the docs, not under the rug: see `docs/types.md` (the type
    rules), `docs/memory.md` (the memory model), `docs/drop.md`
