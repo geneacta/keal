@@ -60,6 +60,33 @@ misnamed binary, a wrong architecture, a dynamic-link failure, a permission
 bit lost in the tarball. `ci/smoke.keal` is what it runs, and it asserts
 rather than prints, so a sound release produces `ok` and nothing else.
 
+### A prepared machine and a bare one are different claims
+
+Every Windows measurement this project had for its first two days on that
+platform came from a machine a person had equipped: a MinGW they chose, a JDK
+they chose, a `python3` shim they created. That is a real and useful thing to
+have, and it is not the same claim as "this works on Windows" — it is "this
+works on a Windows somebody set up for it".
+
+`smoke.yml` runs the published archive on a bare `windows-latest` that has
+none of that until the workflow puts it there. Both readings are worth
+having; the mistake is letting one stand in for the other, which is easy
+because both are green ticks on the same platform name.
+
+### What a check may cost
+
+A check that takes two minutes gets re-run when somebody is unsure. A check
+that takes twenty gets argued with, then skipped, then removed. That is a
+constraint on what these workflows may do, not a nicety: `check.yml` is
+Linux-only for that reason as much as for the coverage one.
+
+The Windows smoke leg costs about 125 seconds, essentially all of it the
+toolchain install — no other leg installs one. That is on the right side of
+the line, and it is worth glancing at again if the runner image changes,
+because the whole cost is one step and nothing else in that leg is slow. The
+same install through `winget`'s portable path took forty minutes on a real
+machine with Defender running, which is the wrong side of it.
+
 ## When a runner label goes away
 
 GitHub retires runner images, and a job whose label no longer exists sits in
