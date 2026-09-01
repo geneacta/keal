@@ -525,6 +525,18 @@ total([Vec2(1.0, 1.0)], Vec2(0.0, 0.0))  // Vec2(1.0, 1.0)</code></pre>
 package func parse(src: String): Ast { ... }  // the files beside it
 public class Ast(val root: Node) { ... }     // anyone who imports it</code></pre>
 <div class="tablewrap"><table><thead><tr><th>Written</th><th>Who may name it</th></tr></thead><tbody><tr><td>nothing, or <code>private</code></td><td>the file that declares it</td></tr><tr><td><code>package</code></td><td>every file in the same directory</td></tr><tr><td><code>public</code></td><td>every file that imports it</td></tr></tbody></table></div>
+<p>That table is the whole rule, and it applies to <strong>every</strong> top-level declaration in the same way: <code>func</code>, <code>proc</code>, <code>class</code>, <code>record</code>, <code>trait</code>, <code>enum</code>, <code>macro</code>, <code>extern</code>, and a top-level <code>val</code> or <code>var</code>. Reading a name and assigning to one are the same question — a file that may not read a <code>var</code> may not write it either.</p>
+<h3 id="inside-a-class-or-a-record">Inside a class or a record</h3>
+<p>A member may carry its own modifier, and what an unwritten one means is the one place the two differ:</p>
+<div class="tablewrap"><table><thead><tr><th></th><th>A member that says nothing</th></tr></thead><tbody><tr><td><code>class</code></td><td><strong>private</strong>, like a top-level declaration</td></tr><tr><td><code>record</code></td><td><strong>as visible as the record itself</strong></td></tr></tbody></table></div>
+<p>A record <em>is</em> its fields: a record whose data cannot be read is not the data case, so <code>public record Point(val x: Int)</code> exposes <code>x</code>. A class keeps its own counsel, so <code>public class Counter(val n: Int)</code> exposes the type and nothing else — <code>n</code> has to say <code>public</code> to be read from another file.</p>
+<pre class="lang-keal"><code>public class K(public val open: Int, val shut: Int) {
+    public func visible(): Int { return 1 }
+    func hidden(): Int { return 2 }        // private, though the class is public
+}
+public record R(val open: Int)             // `open` is public, because R is</code></pre>
+<p>Three details that follow from the rule rather than adding to it:</p>
+<ul><li><strong>A method that answers a trait is always reachable.</strong> <code>a + b</code> is <code>a.plus(b)</code>, so refusing it by its own modifier would make an operator depend on where it is written. A class that says it implements a trait has promised the trait's methods.</li><li><strong>A declaration always reaches its own file</strong>, whatever it says. <code>private</code> is about other files, not about the line below it.</li><li><strong>A trait is a bound, not a type.</strong> <code>func f&lt;A: Ord&gt;(a: A)</code> is how a trait is written; <code>func f(a: Ord)</code> is not a thing. So a trait's visibility governs who may bound a type parameter by it, and its methods are reached through whatever implements it.</li></ul>
 <p>A <strong>package is a directory</strong>. Nothing declares it and nothing names it: the files that sit together are the ones that can see each other's <code>package</code> declarations, which is what lets a group of files collaborate without promising anything to the outside.</p>
 <h3 id="naming-what-you-import">Naming what you import</h3>
 <p>Two files may declare <code>parse</code>. The file that imports them says which it means:</p>

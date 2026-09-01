@@ -1,0 +1,61 @@
+error: function `secretFun` is private to tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:16:9
+   |
+16 | val a = secretFun()
+   |         ^
+  = note: declare it `public` there, or `package` to share it with the files beside it
+error: function `packageFun` belongs to the package around tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:17:9
+   |
+17 | val b = packageFun()
+   |         ^
+  = note: declare it `public` there to let another package name it
+error: class `SecretClass` is private to tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:18:9
+   |
+18 | val c = SecretClass(1)
+   |         ^
+  = note: declare it `public` there, or `package` to share it with the files beside it
+error: class `packageRecord` belongs to the package around tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:19:9
+   |
+19 | val d = packageRecord(1)
+   |         ^
+  = note: declare it `public` there to let another package name it
+error: binding `secretBinding` is private to tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:20:9
+   |
+20 | val e = secretBinding
+   |         ^
+  = note: declare it `public` there, or `package` to share it with the files beside it
+error: binding `packageBinding` belongs to the package around tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:21:9
+   |
+21 | val f = packageBinding
+   |         ^
+  = note: declare it `public` there to let another package name it
+error: field `hiddenField` is private to tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:22:24
+   |
+22 | val g = PublicClass(1).hiddenField
+   |                        ^
+  = note: declare it `public` there, or `package` to share it with the files beside it
+error: method `hiddenMethod` is private to tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:23:24
+   |
+23 | val h = PublicClass(1).hiddenMethod()
+   |                        ^
+  = note: declare it `public` there, or `package` to share it with the files beside it
+error: enum `SecretEnum` is private to tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:24:20
+   |
+24 | val i = SecretEnum.One
+   |                    ^
+  = note: declare it `public` there, or `package` to share it with the files beside it
+error: binding `secretVar` is private to tests/errors/visibility/shared.keal
+  --> tests/errors/visibility.keal:25:1
+   |
+25 | secretVar = 2
+   | ^
+  = note: declare it `public` there, or `package` to share it with the files beside it
+10 errors found

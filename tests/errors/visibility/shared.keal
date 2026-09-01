@@ -1,0 +1,16 @@
+// The declarations the file beside this one is not allowed to name. This is
+// a directory of its own so that `package` means something here: the file
+// that tries to name these is in it, so `package` reaches and `private` does
+// not — which is the only pair of files in the corpus where that distinction
+// can be seen.
+func secretFun(): Int { return 1 }
+package func packageFun(): Int { return 1 }
+class SecretClass(val x: Int)
+package record packageRecord(val x: Int)
+enum SecretEnum { One, Two }
+val secretBinding: Int = 1
+package val packageBinding: Int = 1
+var secretVar: Int = 1
+public class PublicClass(val hiddenField: Int) {
+    func hiddenMethod(): Int { return 1 }
+}

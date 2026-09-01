@@ -2175,6 +2175,21 @@ package class Checker() {
                 this.error(s.file, s.line, s.col, "`${s.name}` is already declared in this scope")
             }
             this.declare(s.name, actual, kind)
+            // A top-level binding carries who may name it, exactly as a
+            // function does — the modifier was parsed and then dropped here,
+            // so `private val` compiled and meant nothing while every other
+            // kind of declaration enforced it. Inside a body there is nobody
+            // to hide from: scoping settles that, which is why `home` stays
+            // -1 there.
+            if (this.scopes.size == 1) {
+                val b = this.scopes[0][s.name]
+                if (b != null) {
+                    var v = s.vis
+                    if (v == "") { v = "private" }
+                    b.vis = v
+                    b.home = s.file
+                }
+            }
             return Ty("Unit")
         }
         if (s.kind == "destructure") {
@@ -3673,6 +3688,16 @@ package class Checker() {
             if (b == null) {
                 this.error(target.file, target.line, target.col, "cannot find `${name}` in this scope")
                 return Ty("Error"), "", ""
+            }
+            // The same check the reading path makes. Without it a binding
+            // another file is not allowed to READ could still be overwritten
+            // by that file, which is the wrong half of the pair to leave
+            // open. The `field` branch below has always checked; this one had
+            // not, and nothing noticed while the modifier meant nothing.
+            if (b.home >= 0) {
+                var what = "binding"
+                if (b.kind == "fun") { what = "function" }
+                this.checkVisible(target.file, target.line, target.col, what, name, b.vis, b.home)
             }
             if (b.kind == "var") { return b.ty, "", "" }
             return b.ty, "`${name}`", whyImmutable(b.kind)

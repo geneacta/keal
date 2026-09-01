@@ -1106,6 +1106,48 @@ public class Ast(val root: Node) { ... }     // anyone who imports it
 | `package` | every file in the same directory |
 | `public` | every file that imports it |
 
+That table is the whole rule, and it applies to **every** top-level
+declaration in the same way: `func`, `proc`, `class`, `record`, `trait`,
+`enum`, `macro`, `extern`, and a top-level `val` or `var`. Reading a name and
+assigning to one are the same question — a file that may not read a `var` may
+not write it either.
+
+### Inside a class or a record
+
+A member may carry its own modifier, and what an unwritten one means is the
+one place the two differ:
+
+| | A member that says nothing |
+|---|---|
+| `class` | **private**, like a top-level declaration |
+| `record` | **as visible as the record itself** |
+
+A record *is* its fields: a record whose data cannot be read is not the data
+case, so `public record Point(val x: Int)` exposes `x`. A class keeps its own
+counsel, so `public class Counter(val n: Int)` exposes the type and nothing
+else — `n` has to say `public` to be read from another file.
+
+```keal
+public class K(public val open: Int, val shut: Int) {
+    public func visible(): Int { return 1 }
+    func hidden(): Int { return 2 }        // private, though the class is public
+}
+public record R(val open: Int)             // `open` is public, because R is
+```
+
+Three details that follow from the rule rather than adding to it:
+
+* **A method that answers a trait is always reachable.** `a + b` is
+  `a.plus(b)`, so refusing it by its own modifier would make an operator
+  depend on where it is written. A class that says it implements a trait has
+  promised the trait's methods.
+* **A declaration always reaches its own file**, whatever it says. `private`
+  is about other files, not about the line below it.
+* **A trait is a bound, not a type.** `func f<A: Ord>(a: A)` is how a trait is
+  written; `func f(a: Ord)` is not a thing. So a trait's visibility governs
+  who may bound a type parameter by it, and its methods are reached through
+  whatever implements it.
+
 A **package is a directory**. Nothing declares it and nothing names it: the
 files that sit together are the ones that can see each other's `package`
 declarations, which is what lets a group of files collaborate without

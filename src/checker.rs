@@ -1934,7 +1934,7 @@ impl Checker {
                 self.check_block(b);
                 Type::Unit
             }
-            StmtKind::Let { name, ty, init, mutable, vis: _, constexpr } => {
+            StmtKind::Let { name, ty, init, mutable, vis, constexpr } => {
                 let declared = ty.as_ref().map(|t| self.resolve(t));
                 let actual = match &declared {
                     Some(d) => {
@@ -2000,6 +2000,18 @@ impl Checker {
                     self.error(span, format!("`{}` is already declared in this scope", name));
                 }
                 self.declare(&name, actual, kind);
+                // A top-level binding carries who may name it, exactly as a
+                // function does — the modifier was parsed and then dropped
+                // here, so `private val` compiled and meant nothing while
+                // every other kind of declaration enforced it. Inside a body
+                // there is nobody to hide from: scoping settles that, which
+                // is why `home` stays `None` there.
+                if self.scopes.len() == 1 {
+                    if let Some(b) = self.scopes.last_mut().unwrap().get_mut(&name) {
+                        b.vis = vis.or_private();
+                        b.home = Some(span.file);
+                    }
+                }
                 Type::Unit
             }
             StmtKind::Destructure { pattern, init, mutable } => {
@@ -3590,7 +3602,21 @@ impl Checker {
     ) -> (Type, Option<(String, String)>) {
         let span = target.span;
         match &mut target.kind {
-            ExprKind::Ident(name) => match self.lookup(name) {
+            ExprKind::Ident(name) => {
+            // The same check the reading path makes. Without it a binding
+            // another file is not allowed to READ could still be overwritten
+            // by that file, which is the wrong half of the pair to leave
+            // open. The `Field` arm below has always checked; this one had
+            // not, and nothing noticed while the modifier meant nothing.
+            let hidden = self
+                .lookup(name)
+                .and_then(|b| b.home.map(|h| (b.vis, h, b.kind == BindKind::Fun)));
+            if let Some((vis, home, is_fun)) = hidden {
+                let what = if is_fun { "function" } else { "binding" };
+                let name = name.clone();
+                self.check_visible(span, what, &name, vis, home);
+            }
+            match self.lookup(name) {
                 Some(b) if b.mutable() => (b.ty.clone(), None),
                 Some(b) => (
                     b.ty.clone(),
@@ -3601,7 +3627,8 @@ impl Checker {
                     self.error(span, format!("cannot find `{}` in this scope", name));
                     (Type::Error, None)
                 }
-            },
+            }
+            }
             ExprKind::Field { obj, name, safe } => {
                 let (name, safe) = (name.clone(), *safe);
                 if safe {

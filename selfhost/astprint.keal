@@ -8,7 +8,7 @@
 import "./lexing.keal"
 import "./ast.keal"
 
-var typedDump = false
+package var typedDump = false
 
 /// Two spaces per line, and — like the oracle's indent() — no trailing
 /// whitespace survives on the block's last line.

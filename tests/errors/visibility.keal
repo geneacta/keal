@@ -1,0 +1,25 @@
+// Every kind of declaration, named from outside what it allows.
+//
+// The module sits in a subdirectory so that `package` means something: it is
+// a different package from this file, so `package` is refused here as well as
+// `private`. The allowed side — a sibling naming a `package` declaration — is
+// what `tests/programs/modules` covers.
+//
+// The binding cases are here because they used to compile. The modifier on a
+// top-level `val` or `var` was parsed and then dropped, so `private val` said
+// nothing while every other kind of declaration enforced it, and a file could
+// not only read another file's private binding but ASSIGN to it. A modifier
+// that is accepted and ignored is worse than one that is refused, because the
+// file reads as though it were protected.
+import "./visibility/shared.keal"
+
+val a = secretFun()
+val b = packageFun()
+val c = SecretClass(1)
+val d = packageRecord(1)
+val e = secretBinding
+val f = packageBinding
+val g = PublicClass(1).hiddenField
+val h = PublicClass(1).hiddenMethod()
+val i = SecretEnum.One
+secretVar = 2

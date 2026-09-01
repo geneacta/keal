@@ -7,4 +7,4 @@ package class Vec2(package val x: Float, val y: Float) {
 
 package func dot(a: Vec2, b: Vec2): Float { a.x * b.x + a.y * b.y }
 
-val ORIGIN = Vec2(0.0, 0.0)
+package val ORIGIN = Vec2(0.0, 0.0)

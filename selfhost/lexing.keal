@@ -80,7 +80,7 @@ func endsStatement(kind: String): Bool {
 /// Prepended to the `L:C` of every lexing error. Empty for the single-file
 /// drivers; the checker's loader sets it to `path:` per file, and fragments
 /// lexed for interpolation holes inherit it automatically.
-var lexErrorPrefix = ""
+package var lexErrorPrefix = ""
 
 record Part(package val isLit: Bool, package val text: String, package val line: Int, package val col: Int)
 

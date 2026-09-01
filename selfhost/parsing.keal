@@ -84,7 +84,7 @@ func assignOpName(kind: String): String {
 
 /// Whether parse errors carry their notes (` -- note`). The `ast` dump
 /// oracle prints them bare; the checker and emitter oracles print the note.
-var parseNoteMode = false
+package var parseNoteMode = false
 
 package class Parser(val toks: List<Token>) {
     var pos: Int = 0
