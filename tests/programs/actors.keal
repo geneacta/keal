@@ -58,7 +58,19 @@ payload.add(3)
 echo.run()
 assert(got.drain() == [2], "the receiver saw the list as it was at send")
 
-// Round-robin is one message per actor per pass, in spawn order.
+// What `run` promises, and what it deliberately does not.
+//
+// The promise is delivery order WITHIN one actor's mailbox, and nothing
+// between actors — docs/threads.md decided that on purpose, so that running
+// every actor on its own OS thread would be a different legal schedule
+// rather than a change of meaning. The interpreters happen to run the
+// deterministic round-robin; a compiled program does not, and both are
+// right.
+//
+// So this asserts the promise and not the schedule. It used to assert the
+// exact interleaving `["a:1", "b:x", "a:2"]`, which held on the two
+// interpreters and failed about a third of the time natively — the test was
+// pinning something the language says is a bug to depend on.
 val order: ActorSystem<String> = ActorSystem()
 val log: Outbox<String> = outbox()
 val a = order.spawn({ self, m -> log.post("a:" + m) })
@@ -67,4 +79,9 @@ a.send("1")
 a.send("2")
 b.send("x")
 order.run()
-assert(log.drain() == ["a:1", "b:x", "a:2"], "one message per actor per pass")
+val seen = log.drain()
+assert(seen.size == 3, "every message was delivered exactly once: ${seen.size}")
+assert(seen.contains("a:1") and seen.contains("a:2") and seen.contains("b:x"),
+    "and each one arrived: ${seen}")
+assert(seen.indexOf("a:1") < seen.indexOf("a:2"),
+    "one mailbox keeps the order it was sent in: ${seen}")

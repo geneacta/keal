@@ -1084,6 +1084,18 @@ impl CBackend {
         }
         // The last reference to an object is also the last to each of the
         // references it held.
+        //
+        // Under `weak`, one of those releases can drop the last WEAK
+        // reference to THIS object — a node whose neighbour holds a weak
+        // edge back to it — and the header would be freed here, under the
+        // line below that reads `o->wc`. So the object holds a weak
+        // reference to itself across its own field releases, and lets it go
+        // afterwards. Without it, `tests/programs/weak.keal` was a
+        // heap-use-after-free that ran to completion on one platform and
+        // trapped on another.
+        if self.weak_mode {
+            let _ = writeln!(rel, "    KEAL_RC_BUMP(o->wc);");
+        }
         let bare = c.name.clone();
         for (fname, ty) in &fields {
             if self.weak_mode && self.field_is_weak(&bare, fname) {
@@ -1099,7 +1111,12 @@ impl CBackend {
         if self.weak_mode {
             // The fields are gone either way; the header waits for the last
             // weak reference, which is what makes a weak read a safe read.
-            let _ = write!(rel, "    if (o->wc == 0) {{ free(o); }}\n}}\n");
+            // The reference taken above comes back here: if it was not the
+            // last, somebody still holds a weak edge and the header stays.
+            let _ = write!(
+                rel,
+                "    if (KEAL_RC_DROP(o->wc)) {{ return; }}\n    if (o->rc == 0) {{ free(o); }}\n}}\n"
+            );
         } else {
             let _ = write!(rel, "    free(o);\n}}\n");
         }
@@ -1323,6 +1340,15 @@ impl CBackend {
         self.body.clear();
         self.indent = 1;
         self.next_temp = 0;
+        // A frame owns its celled variables. Without this, a `var` a closure
+        // captured inside one function stayed in the map after that function
+        // was emitted, and the next frame to use the same NAME read it as a
+        // cell: a `val c = true` at the top level compiled to `k_c->w.i`
+        // because a different `c`, three functions earlier, had been captured.
+        // The class and lambda paths already save this; only a plain function
+        // did not, and it is emitted before `main`, which is why the top level
+        // is where it showed.
+        let saved_celled = std::mem::take(&mut self.celled);
         self.begin_function_unwind(&ret);
         self.open_scope();
         for p in f.params.iter() {
@@ -1344,6 +1370,7 @@ impl CBackend {
             self.line("return;");
         }
         self.end_function_unwind();
+        self.celled = saved_celled;
         let body = std::mem::take(&mut self.body).join("\n");
         let _ = write!(self.defs, "\n{} {{\n{}\n}}\n", signature, body);
     }
@@ -2072,10 +2099,20 @@ impl CBackend {
 
     /// Hands a reference to whoever is receiving it, so this block no longer
     /// releases it. Used when returning: the caller becomes the owner.
-    fn disown(&mut self, name: &str) {
+    /// Hands ownership of `name` out of this frame, and says whether this
+    /// frame had any to hand.
+    ///
+    /// `false` means the value was BORROWED — `this`, a parameter, a field
+    /// read that took no reference — and a caller that becomes its owner has
+    /// to be given a reference of its own.
+    fn disown(&mut self, name: &str) -> bool {
+        let mut owned = false;
         for scope in self.scopes.iter_mut() {
+            let before = scope.len();
             scope.retain(|o| o.name != name);
+            owned |= scope.len() != before;
         }
+        owned
     }
 
     /// Binds a counted expression to a temp this block owns, which is the
@@ -2202,10 +2239,26 @@ impl CBackend {
                         // The caller becomes the owner, so this block must
                         // stop releasing it — but still release everything
                         // else it holds before leaving.
-                        self.disown(&v);
+                        //
+                        // If this frame owned no reference to it, the value
+                        // was borrowed: `return this`, or returning a
+                        // parameter. The caller will release what it is
+                        // given, so it has to be given a reference of its
+                        // own — without this, every `return this` in a
+                        // builder handed back one release more than it
+                        // handed out, and the object died while its bindings
+                        // still pointed at it.
+                        let owned = self.disown(&v);
+                        let out = if owned {
+                            v.clone()
+                        } else {
+                            let t = self.temp();
+                            self.line(format!("{} {} = {};", c, t, Self::retained(&ty, &v)));
+                            t
+                        };
                         let depth = self.scopes.len();
                         self.release_through(depth);
-                        self.line(format!("return {};", v));
+                        self.line(format!("return {};", out));
                     } else {
                         let t = self.temp();
                         self.line(format!("{} {} = {};", c, t, v));
@@ -2730,11 +2783,16 @@ impl CBackend {
                 captures.push((name, ty, true));
                 continue;
             }
-            // A top-level binding is a C global — read directly, whatever
-            // its mutability, exactly as the interpreters' global scope is.
-            if self.global_vars.contains(&name) {
-                continue;
-            }
+            // What is in scope wins over what is global — the local is
+            // looked up FIRST, and the global only answers for a name no
+            // local claims.
+            //
+            // The other order was a silent miscompile: `Sequence.take(n)`
+            // has a parameter `n`, and a program with a top-level `val n`
+            // made the lambda inside `take` read THAT one, so `take(2)`
+            // took as many as the program's own `n` happened to say. The
+            // capture was never made, because the name had already been
+            // answered as a global.
             let local = self
                 .locals
                 .iter()
@@ -2742,6 +2800,28 @@ impl CBackend {
                 .flat_map(|s| s.iter().rev())
                 .find(|(n, _, _)| *n == name)
                 .cloned();
+            // A top-level binding is a C global — read directly, whatever
+            // its mutability, exactly as the interpreters' global scope is.
+            //
+            // At the top level the "local" found above IS that global: the
+            // program's own bindings live in this frame's scope. Only inside
+            // a function or another lambda does a local of the same name mean
+            // a different binding, and only there does it win.
+            //
+            // A name the ENCLOSING lambda captured counts as in scope too.
+            // `Sequence.take` binds `val next = it.nextFn` and its inner
+            // lambda calls `next()`; a program with a top-level `next` made
+            // that call reach the program's, and the sequence yielded values
+            // from somewhere else entirely.
+            let from_env = self
+                .capture_env
+                .as_ref()
+                .map(|env| env.contains_key(&name))
+                .unwrap_or(false);
+            let in_scope = local.is_some() || from_env;
+            if (!in_scope || self.at_top_level) && self.global_vars.contains(&name) {
+                continue;
+            }
             match local {
                 Some((_, _, true)) => {
                     // A `var` no lambda was seen to capture cannot be here;
@@ -4725,6 +4805,27 @@ impl CBackend {
             }
             return access;
         }
+        // `c.bump` where `bump` is a METHOD, not a field: a bound method
+        // reference. The interpreters make a closure that remembers the
+        // receiver; nothing here does, and emitting the field access anyway
+        // produced C that names a struct member the struct has not got. A
+        // refusal by name is the answer the rest of this backend gives, and
+        // the one a reader can act on.
+        if let Some(Type::Class(cname, _)) = &receiver_ty {
+            let is_method = self
+                .class_decls
+                .get(&**cname)
+                .map(|c| {
+                    c.methods.iter().any(|m| m.name == name)
+                        && !c.fields.iter().any(|f| f.name == name)
+                        && !c.ctor.iter().any(|p| p.name == name)
+                })
+                .unwrap_or(false);
+            if is_method {
+                self.unsupported(e.span, "a method used as a value");
+                return "0".to_string();
+            }
+        }
         // A weak field is read by upgrading it: the target while it lives,
         // NULL from the moment its last strong reference went.
         if self.weak_mode {
@@ -5301,6 +5402,52 @@ impl CBackend {
                         }
                     }
                 }
+            }
+        }
+        // A tagged optional against a value, or against another optional.
+        //
+        // `m[k] == 2` asks "present, and equal"; two optionals are equal when
+        // both are absent, or both present with equal values. Nothing
+        // compared them before, because the only way to hold an `Int?` was
+        // `m[k]` and that was refused — so generalising the lookup made this
+        // path reachable and the emitted C compared a struct with an integer.
+        if matches!(op, BinOp::Eq | BinOp::Ne)
+            && !(matches!(lhs.kind, ExprKind::Null) || matches!(rhs.kind, ExprKind::Null))
+        {
+            let rty = self.ety(rhs);
+            let l_inner = match &lty {
+                Some(t) if is_value_opt(t) => match t {
+                    Type::Nullable(i) => Some((**i).clone()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let r_inner = match &rty {
+                Some(t) if is_value_opt(t) => match t {
+                    Type::Nullable(i) => Some((**i).clone()),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if l_inner.is_some() || r_inner.is_some() {
+                let test = match (&l_inner, &r_inner) {
+                    (Some(li), Some(ri)) => format!(
+                        "(({} == {}) && (!{} || {} == {}))",
+                        opt_has(li, &a),
+                        opt_has(ri, &b),
+                        opt_has(li, &a),
+                        opt_get(li, &a),
+                        opt_get(ri, &b)
+                    ),
+                    (Some(li), None) => {
+                        format!("({} && {} == {})", opt_has(li, &a), opt_get(li, &a), b)
+                    }
+                    (None, Some(ri)) => {
+                        format!("({} && {} == {})", opt_has(ri, &b), opt_get(ri, &b), a)
+                    }
+                    _ => unreachable!(),
+                };
+                return if op == BinOp::Ne { format!("(!{})", test) } else { test };
             }
         }
         // Lists compare structurally, as the interpreters compare them; a

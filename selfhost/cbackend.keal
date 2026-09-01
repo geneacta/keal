@@ -1757,6 +1757,15 @@ class CBackend() {
         }
         // The last reference to an object is also the last to each of the
         // references it held.
+        //
+        // Under `weak`, one of those releases can drop the last WEAK
+        // reference to THIS object — a node whose neighbour holds a weak edge
+        // back to it — and the header would be freed here, under the line
+        // below that reads `o->wc`. So the object holds a weak reference to
+        // itself across its own field releases, and lets it go afterwards.
+        if (this.weakMode) {
+            rel += "    KEAL_RC_BUMP(o->wc);\n"
+        }
         for (f in fields) {
             if (this.weakMode and classFieldIsWeak(c, f.name)) {
                 val target = this.weakTargetOf(f.ty, c.file, c.line, c.col)
@@ -1773,7 +1782,9 @@ class CBackend() {
         if (this.weakMode) {
             // The fields are gone either way; the header waits for the last
             // weak reference, which is what makes a weak read a safe read.
-            rel += "    if (o->wc == 0) { free(o); }\n}\n"
+            // The reference taken above comes back here: if it was not the
+            // last, somebody still holds a weak edge and the header stays.
+            rel += "    if (KEAL_RC_DROP(o->wc)) { return; }\n    if (o->rc == 0) { free(o); }\n}\n"
         } else {
             rel += "    free(o);\n}\n"
         }
@@ -1958,6 +1969,13 @@ class CBackend() {
         this.body = []
         this.indent = 1
         this.nextTemp = 0
+        // A frame owns its celled variables. Without this, a `var` a closure
+        // captured inside one function stayed in the map after that function
+        // was emitted, and the next frame to use the same NAME read it as a
+        // cell: a `val c = true` at the top level compiled to `k_c->w.i`
+        // because a different `c`, three functions earlier, had been captured.
+        val savedCelledFn = this.celled
+        this.celled = {}
         this.beginFunctionUnwind(ret)
         this.openScope()
         for (p in f.params) {
@@ -1977,6 +1995,7 @@ class CBackend() {
             this.line("return;")
         }
         this.endFunctionUnwind()
+        this.celled = savedCelledFn
         val joined = this.body.join("\n")
         this.body = []
         this.defs += "\n${signature} {\n${joined}\n}\n"
@@ -2652,16 +2671,25 @@ class CBackend() {
 
     /// Hands a reference to whoever is receiving it, so this block no
     /// longer releases it.
-    proc disown(name: String) {
+    /// Hands ownership of `name` out of this frame, and says whether this
+    /// frame had any to hand.
+    ///
+    /// `false` means the value was BORROWED — `this`, a parameter, a field
+    /// read that took no reference — and a caller that becomes its owner has
+    /// to be given a reference of its own.
+    func disown(name: String): Bool {
+        var owned = false
         var i = 0
         while (i < this.scopes.size) {
             val kept: List<OwnedC> = []
             for (o in this.scopes[i]) {
                 unless (o.name == name) { kept.add(o) }
             }
+            if (kept.size != this.scopes[i].size) { owned = true }
             this.scopes[i] = kept
             i += 1
         }
+        return owned
     }
 
     /// Binds a counted expression to a temp this block owns.
@@ -2842,10 +2870,24 @@ class CBackend() {
                 if (countedC(ty)) {
                     // The caller becomes the owner; stop releasing it, but
                     // still release everything else before leaving.
-                    this.disown(v)
+                    //
+                    // If this frame owned no reference to it, the value was
+                    // borrowed: `return this`, or returning a parameter. The
+                    // caller will release what it is given, so it has to be
+                    // given a reference of its own — without this, every
+                    // `return this` in a builder handed back one release more
+                    // than it handed out, and the object died while its
+                    // bindings still pointed at it.
+                    val owned = this.disown(v)
+                    var out = v
+                    unless (owned) {
+                        val t = this.temp()
+                        this.line("${c} ${t} = ${retained(ty, v)};")
+                        out = t
+                    }
                     val depth = this.scopes.size
                     this.releaseThrough(depth)
-                    this.line("return ${v};")
+                    this.line("return ${out};")
                 } else {
                     val t = this.temp()
                     this.line("${c} ${t} = ${v};")
@@ -3351,8 +3393,20 @@ class CBackend() {
                 captures.add(Capture(name, cell.ty, true))
                 continue
             }
-            // A top-level binding is a C global — read directly.
-            if (this.globalVars.contains(name)) { continue }
+            // What is in scope wins over what is global — the local and the
+            // enclosing lambda's environment are looked up FIRST, and the
+            // global only answers for a name neither claims.
+            //
+            // The other order was a silent miscompile. `Sequence.take(n)` has
+            // a parameter `n` and its inner lambda calls a captured `next`; a
+            // program with a top-level `n` or `next` made those reach the
+            // PROGRAM's, so `take(2)` took as many as the program's `n` said
+            // and the sequence yielded values from somewhere else entirely.
+            //
+            // At the top level the "local" found below IS the global: the
+            // program's own bindings live in that frame's scope. Only inside
+            // a function or another lambda does a local of the same name mean
+            // a different binding, and only there does it win.
             var local: LocalC? = null
             var si = this.locals.size - 1
             while (si >= 0 and local == null) {
@@ -3364,6 +3418,10 @@ class CBackend() {
                 }
                 si -= 1
             }
+            var inScope = local != null
+            val envNow = this.captureEnv
+            if (envNow != null and envNow[name] != null) { inScope = true }
+            if ((!inScope or this.atTopLevel) and this.globalVars.contains(name)) { continue }
             val loc = local
             if (loc != null) {
                 if (loc.mutable) {
@@ -5006,6 +5064,26 @@ class CBackend() {
                 return access
             }
         }
+        // `c.bump` where `bump` is a METHOD, not a field: a bound method
+        // reference. The interpreters make a closure that remembers the
+        // receiver; nothing here does, and emitting the field access anyway
+        // produced C that names a struct member the struct has not got. A
+        // refusal by name is the answer the rest of this backend gives, and
+        // the one a reader can act on.
+        val recvTy = if (ot != null and e.safe) { tyNonNull(ot) } else { ot }
+        if (recvTy != null and recvTy.kind == "Class") {
+            val cd = this.classDecls[recvTy.name]
+            if (cd != null) {
+                var isMethod = false
+                for (m in cd.methods) { if (m.name == name) { isMethod = true } }
+                for (fd in cd.fields) { if (fd.name == name) { isMethod = false } }
+                for (cp in cd.ctor) { if (cp.name == name) { isMethod = false } }
+                if (isMethod) {
+                    this.unsupported(e.file, e.line, e.col, "a method used as a value")
+                    return "0"
+                }
+            }
+        }
         // A weak field is read by upgrading it: the target while it lives,
         // NULL from the moment its last strong reference went.
         if (this.weakMode and ot != null) {
@@ -5618,6 +5696,34 @@ class CBackend() {
                         return has
                     }
                 }
+            }
+        }
+        // A tagged optional against a value, or against another optional.
+        //
+        // `m[k] == 2` asks "present, and equal"; two optionals are equal when
+        // both are absent, or both present with equal values. Nothing
+        // compared them before, because the only way to hold an `Int?` was
+        // `m[k]` and that was refused — so generalising the lookup made this
+        // path reachable and the emitted C compared a struct with an integer.
+        if ((op == "==" or op == "!=") and lhs.kind != "null" and rhs.kind != "null") {
+            val rtE = this.ety(rhs)
+            var lInner: Ty? = null
+            var rInner: Ty? = null
+            if (lty != null and isValueOpt(lty)) { lInner = lty.args[0] }
+            if (rtE != null and isValueOpt(rtE)) { rInner = rtE.args[0] }
+            val li = lInner
+            val ri = rInner
+            if (li != null or ri != null) {
+                var test = ""
+                if (li != null and ri != null) {
+                    test = "((${optHas(li, a)} == ${optHas(ri, b)}) && (!${optHas(li, a)} || ${optGet(li, a)} == ${optGet(ri, b)}))"
+                } else if (li != null) {
+                    test = "(${optHas(li, a)} && ${optGet(li, a)} == ${b})"
+                } else if (ri != null) {
+                    test = "(${optHas(ri, b)} && ${optGet(ri, b)} == ${a})"
+                }
+                if (op == "!=") { return "(!${test})" }
+                return test
             }
         }
         // Lists compare structurally, as the interpreters compare them; a

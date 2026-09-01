@@ -546,6 +546,89 @@ fn no_exit_can_silence_the_audit() {
     assert_eq!(ran.status.code(), Some(2));
 }
 
+/// Every program in the corpus, compiled — the third consumer.
+///
+/// `tests/programs` had two: the tree-walker and the bytecode VM. The C
+/// backend, which is where nearly every defect of the last week has been,
+/// never saw it — `tests/native` is a separate and much smaller corpus. So
+/// the corpus attested that two engines agreed with each other, which is a
+/// weaker thing than it reads as.
+///
+/// Asking the third engine about all 33 at once turned up nine defects in an
+/// afternoon: a nullable scalar compared against a plain one emitting a C
+/// struct comparison, a method used as a value emitting a field access, a
+/// `return this` handing back a reference it never took, a `weak` release
+/// freeing its own header underneath itself, a celled-variable map with no
+/// frame, a capture analysis that let a global outrank the local shadowing
+/// it — and one test that was asserting an interleaving the language says it
+/// does not promise.
+///
+/// A program the backend REFUSES is fine and is counted: refusing by name is
+/// the backend working. What must never happen is emitting C that does not
+/// compile, or a program that runs and disagrees with the interpreters.
+#[test]
+fn programs_compile_and_agree_natively() {
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-programs-native");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+
+    let mut refused = 0;
+    let mut agreed = 0;
+    for file in keal_files("tests/programs") {
+        let path = relative(&file);
+        let stem = Path::new(&path).file_stem().unwrap().to_string_lossy().into_owned();
+        let out_path = dir.join(&stem);
+        let built = Command::new(BIN)
+            .args(["build", &path])
+            .arg("-o")
+            .arg(&out_path)
+            .current_dir(root())
+            .output()
+            .expect("cannot run keal build");
+        if !built.status.success() {
+            let said = String::from_utf8_lossy(&built.stderr);
+            // The backend saying what it cannot do is correct behaviour.
+            assert!(
+                said.contains("cannot compile"),
+                "{} emitted C that does not compile:\n{}",
+                path,
+                said
+            );
+            refused += 1;
+            continue;
+        }
+        // Run it where the interpreters run it: some of these read and write
+        // files under `target/`.
+        let native = Command::new(&out_path)
+            .current_dir(root())
+            .output()
+            .expect("cannot run the compiled program");
+        let interpreted = keal(&["run", &path]);
+        assert_eq!(
+            String::from_utf8_lossy(&native.stdout),
+            interpreted.stdout,
+            "{} prints something different when compiled",
+            path
+        );
+        assert_eq!(
+            native.status.code(),
+            Some(if interpreted.success { 0 } else { 1 }),
+            "{} ends differently when compiled:\n{}",
+            path,
+            String::from_utf8_lossy(&native.stderr)
+        );
+        agreed += 1;
+    }
+    assert!(agreed > 20, "only {} programs compiled; the corpus should mostly build", agreed);
+    eprintln!("{} programs agree with the interpreters, {} refused by name", agreed, refused);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The audit under `keal build --audit`: the same question the interpreters
 /// answer from the environment, answered by a compiled binary in the same
 /// words. A binary cannot grow counters after it is compiled, which is why
