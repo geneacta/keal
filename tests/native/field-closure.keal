@@ -1,0 +1,56 @@
+// A field of function type, called: `b.f(21)`.
+//
+// The parser reads `x.name(...)` as a method call whatever `name` turns out
+// to be, so the C backend used to look up a method, find none, and carry on
+// with the empty parameter list that lookup returned — then index into a
+// zero-length table of argument slots and abort. With no arguments the loop
+// never ran and nothing showed, which is why the case that was already in
+// the corpus proved nothing: the bug needed an argument to appear.
+//
+// Both interpreters always ran this correctly. The native backend abandoned
+// the process instead of refusing by name, which it promises never to do.
+
+class Box {
+    var f: (Int) -> Int = { n -> n }
+    var g: (Int, Int) -> Int = { a, b -> a + b }
+    var none: () -> Int = { -> 7 }
+    var shout: (String) -> String = { s -> s + "!" }
+    var say: (Int) -> Unit = { n -> println("say ${n}") }
+    func m(n: Int): Int { n * 10 }
+}
+
+val b = Box()
+println(b.f(21))
+println(b.g(3, 4))
+println(b.none())
+println(b.shout("hi"))
+b.say(5)
+
+// A real method on the same class still goes the method way.
+println(b.m(4))
+
+// The field read as a value, which always worked, and must keep working.
+val k = b.f
+println(k(9))
+
+// Reassigned, then called again: the call reads the field each time.
+b.f = { n -> n + 100 }
+println(b.f(1))
+
+// `this.field(...)` from inside the class, which is the same call with a
+// different receiver.
+class Cell(val zero: Int) {
+    var combine: (Int, Int) -> Int = { a, b -> a }
+    var acc: Int = zero
+    proc feed(x: Int) { this.acc = this.combine(this.acc, x) }
+}
+val c = Cell(0)
+c.combine = { a, b -> a + b }
+c.feed(3)
+c.feed(4)
+println(c.acc)
+
+// A record's field, and one call nested inside another.
+record Handler(val run: (String) -> String)
+println(Handler({ s -> "<" + s + ">" }).run("x"))
+println(b.f(b.f(1)))

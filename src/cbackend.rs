@@ -3087,6 +3087,20 @@ impl CBackend {
 
     /// Calls a closure value with already-rendered arguments, through the
     /// cast its static type dictates.
+    /// The type of a class's field, with the class's own type arguments
+    /// substituted in. `None` when the class has no field by that name.
+    fn class_field_type(&self, class: &str, class_args: &[Type], name: &str) -> Option<Type> {
+        let decl = self.class_decls.get(class)?;
+        let subst: HashMap<std::rc::Rc<str>, Type> = decl
+            .type_params
+            .iter()
+            .zip(class_args.iter())
+            .map(|(p, a)| (std::rc::Rc::from(p.name.as_str()), a.clone()))
+            .collect();
+        let (_, ty) = self.shapes.get(class)?.iter().find(|(n, _)| n == name)?;
+        Some(ty.substitute(&subst))
+    }
+
     fn call_closure(
         &mut self,
         ft: &crate::types::FunType,
@@ -4971,6 +4985,43 @@ impl CBackend {
             );
             return "0".to_string();
         };
+
+        // `b.f(21)` where `f` is a FIELD holding a closure. The parser reads
+        // `x.name(...)` as a method call whatever `name` turns out to be, so
+        // the class deciding it has no such method does not end the matter:
+        // the checker already types this as calling the field's value, and
+        // the two interpreters already run it. Nothing a declaration carries
+        // applies — no named arguments, no defaults — so this leaves the
+        // method path rather than borrowing it with an empty parameter list,
+        // which is what indexed out of a zero-length slot table before.
+        let declares_method = self
+            .class_decls
+            .get(&*class)
+            .map(|c| c.methods.iter().any(|m| m.name == name))
+            .unwrap_or(false);
+        if !declares_method {
+            if let Some(Type::Fun(ft)) = self.class_field_type(&class, &class_args, name) {
+                let read = Expr {
+                    ty: Some(Type::Fun(ft.clone())),
+                    inst: None,
+                    span: e.span,
+                    kind: ExprKind::Field {
+                        obj: Box::new(obj.clone()),
+                        name: name.to_string(),
+                        safe,
+                    },
+                };
+                let c = self.expr(&read);
+                let mut rendered = Vec::new();
+                for a in args {
+                    rendered.push(self.expr(&a.value));
+                }
+                let Some(call) = self.call_closure(&ft, &c, &rendered, e.span) else {
+                    return "0".to_string();
+                };
+                return self.finish_call(e, call);
+            }
+        }
 
         if args.iter().any(|a| a.name.is_some()) {
             self.unsupported(e.span, "named arguments");

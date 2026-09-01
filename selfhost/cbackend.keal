@@ -3702,6 +3702,24 @@ class CBackend() {
 
     /// Calls a closure value with already-rendered arguments, through the
     /// cast its static type dictates.
+    /// The type of a class's field, with the class's own type arguments
+    /// substituted in. `null` when the class has no field by that name.
+    func classFieldType(class_: String, classArgs: List<Ty>, name: String): Ty? {
+        val decl = this.classDecls[class_]
+        if (decl == null) { return null }
+        unless (this.shapes.contains(class_)) { return null }
+        val subst: Map<String, Ty> = {}
+        var i = 0
+        while (i < decl.typeParams.size and i < classArgs.size) {
+            subst[decl.typeParams[i].name] = classArgs[i]
+            i += 1
+        }
+        for (f in this.shapes[class_]!!) {
+            if (f.name == name) { return substitute(f.ty, subst) }
+        }
+        return null
+    }
+
     func callClosure(ft: Ty, closure: String, args: List<String>, file: Int, atLine: Int, col: Int): String? {
         val fret = ft.ret!!
         var retC = "void"
@@ -5291,6 +5309,39 @@ class CBackend() {
         }
         val class_ = receiverTy.name
         val classArgs = receiverTy.args
+
+        // `b.f(21)` where `f` is a FIELD holding a closure. The parser reads
+        // `x.name(...)` as a method call whatever `name` turns out to be, so
+        // the class deciding it has no such method does not end the matter:
+        // the checker already types this as calling the field's value, and
+        // the two interpreters already run it. Nothing a declaration carries
+        // applies — no named arguments, no defaults — so this leaves the
+        // method path rather than borrowing it with an empty parameter list,
+        // which is what indexed out of a zero-length slot table before.
+        var declaresMethod = false
+        val cd0 = this.classDecls[class_]
+        if (cd0 != null) {
+            for (m in cd0.methods) {
+                if (m.name == name) { declaresMethod = true }
+            }
+        }
+        unless (declaresMethod) {
+            val fieldTy = this.classFieldType(class_, classArgs, name)
+            if (fieldTy != null and fieldTy.kind == "Fun") {
+                val read = Ex("field", e.line, e.col)
+                read.file = e.file
+                read.text = name
+                read.safe = e.safe
+                read.kids = [obj]
+                read.ty = fieldTy
+                val c = this.expr(read)
+                val rendered0: List<String> = []
+                for (a in e.args) { rendered0.add(this.expr(a.value)) }
+                val call0 = this.callClosure(fieldTy, c, rendered0, e.file, e.line, e.col)
+                if (call0 == null) { return "0" }
+                return this.finishCall(e, call0)
+            }
+        }
 
         for (a in e.args) {
             unless (a.name == "") {
