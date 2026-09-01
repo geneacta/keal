@@ -10,6 +10,22 @@
  * that the output of `keal emit-c` is one self-contained translation unit a
  * C compiler can take without any flags. */
 
+/* This file wants POSIX, and has to say so before the first include.
+ *
+ * `keal build` compiles with `-std=c11`, which defines `__STRICT_ANSI__`;
+ * glibc then withdraws the declarations that are not in ISO C. It does not
+ * withdraw all of them evenly — `opendir`, `fork`, `pipe` and `poll` stayed,
+ * while `clock_gettime`, `CLOCK_REALTIME` and `localtime_r` vanished from
+ * <time.h>, which is why this showed up as three names and not as a wall.
+ * Apple's headers declare all of them regardless, so a program that compiled
+ * here failed on the most ordinary machine there is.
+ *
+ * Not defined on Apple, where the same macro goes the other way and HIDES
+ * the BSD extensions its headers assume. */
+#if !defined(_WIN32) && !defined(__APPLE__)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <inttypes.h>
 #include <math.h>
 #include <stdbool.h>
