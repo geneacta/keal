@@ -78,3 +78,26 @@ val absent: List<String>? = null
 val present: List<String>? = ["x"]
 val noMap: Map<String, Int>? = null
 println("nullable: ${absent} ${present} ${noMap} ${nested.first()}")
+
+// The String and Map methods that were refused alongside the List ones, and
+// `m[k]` on a map whose values are not references — which used to need a `?:`
+// after it and now carries absence the way every other `T?` does.
+val text = "Hello"
+println("String: ${text.isEmpty()} ${"".isEmpty()} ${text.reversed()}")
+// By character, not by byte: reversing the bytes of a multi-byte character
+// produces something that is not text.
+println("String utf8: ${"héllo wörld".reversed()} ${"日本語".reversed()}")
+
+var mm: Map<String, Int> = {}
+mm["a"] = 1
+mm.set("b", 2)
+println("Map: ${mm.get("a")} ${mm.get("z")} ${mm.isEmpty()} ${mm}")
+var mf: Map<String, Float> = {}
+mf["x"] = 2.5
+println("Map values by value: ${mm["a"]} ${mm["z"]} ${mf["x"]} ${mf["z"]}")
+var md: Map<String, List<String>> = {}
+md.set("k", ["x", "y"])
+println("Map counted values: ${md.get("k")}")
+md.clear()
+mm.clear()
+println("Map cleared: ${md} ${mm} ${mm.isEmpty()}")

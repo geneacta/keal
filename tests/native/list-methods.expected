@@ -26,3 +26,9 @@ nested count: 1
 nested last: []
 nested reversed: [[], ["b", "c"], ["a"]]
 nullable: null ["x"] null ["a"]
+String: false true olleH
+String utf8: dlröw olléh 語本日
+Map: 1 null false {"a": 1, "b": 2}
+Map values by value: 1 null 2.5 null
+Map counted values: ["x", "y"]
+Map cleared: {} {} true

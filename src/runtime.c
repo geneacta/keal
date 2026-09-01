@@ -2734,7 +2734,7 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     si.hStdError = ew;
     PROCESS_INFORMATION pi;
     ZeroMemory(&pi, sizeof pi);
-    if (!CreateProcessW(app, (wchar_t*)line.bytes, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+    if (!CreateProcessW(app, (wchar_t*)line.data, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
         goto fail;
     }
     /* And the parent must drop the write ends, or end of file never comes. */

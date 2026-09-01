@@ -3636,7 +3636,7 @@ class CBackend() {
     }
 
     func mapMethod(e: Ex, obj: Ex, name: String): String? {
-        unless (name == "contains" or name == "containsKey" or name == "keys" or name == "values" or name == "remove") {
+        unless (name == "contains" or name == "containsKey" or name == "keys" or name == "values" or name == "remove" or name == "get" or name == "set" or name == "isEmpty" or name == "clear") {
             return null
         }
         val ot = this.ety(obj)
@@ -3648,6 +3648,31 @@ class CBackend() {
         val vk = this.elemKind(vt, e.file, e.line, e.col)
         if (vk == null) { return null }
         val m = this.expr(obj)
+        // `m.get(k)` is `m[k]`, and `m.set(k, v)` is `m[k] = v` — the
+        // interpreters route the method and the operator through one
+        // implementation, so these route through the one that emits it.
+        if (name == "get") {
+            return this.mapGet(e, obj, e.args[0].value, null)
+        }
+        if (name == "set") {
+            val key = this.expr(e.args[0].value)
+            val value = this.coercedTo(e.args[1].value, vt)
+            val sk = retained(kt, key)
+            val sv = retained(vt, value)
+            this.line("keal_map_set(${m}, ${elemWord(kk, sk)}, ${elemWord(vk, sv)});")
+            return "0"
+        }
+        if (name == "isEmpty") {
+            val t = this.temp()
+            this.line("const bool ${t} = ${m}->len == 0;")
+            return t
+        }
+        if (name == "clear") {
+            // The releasers the map was built with know what its keys and
+            // values are; the backend need not say it twice.
+            this.line("keal_map_clear(${m});")
+            return "0"
+        }
         if (name == "contains" or name == "containsKey") {
             val key = this.expr(e.args[0].value)
             val t = this.temp()
@@ -4019,6 +4044,16 @@ class CBackend() {
             val t = this.temp()
             this.line("const KealOptF64 ${t} = keal_str_to_float(${s});")
             return t
+        }
+        if (name == "isEmpty" and n == 0) {
+            val v = this.expr(obj)
+            val t = this.temp()
+            this.line("const bool ${t} = ${v}->len == 0;")
+            return t
+        }
+        if (name == "reversed" and n == 0) {
+            val v = this.expr(obj)
+            return this.ownTemp("keal_str_reversed(${v})")
         }
         if ((name == "toLower" or name == "toUpper" or name == "trim") and n == 0) {
             val s = this.expr(obj)
@@ -4815,21 +4850,21 @@ class CBackend() {
             this.line("}")
             return slot
         }
-        // Without a fallback the result is `V?`, which a reference carries
-        // as its null pointer and an `Any` as its null tag.
-        unless (isReference(vt) or vt.kind == "Any") {
-            this.unsupported(e.file, e.line, e.col, "`m[k]` where the values are `${tyShow(vt)}` and no `?:` follows")
-            return "0"
-        }
-        val ct = this.ctype(vt, e.file, e.line, e.col)
+        // Without a fallback the result is `V?`: a reference carries absence
+        // as its null pointer, an `Any` as its null tag, and an `Int` or a
+        // `Float` in the tagged form every other `T?` in the backend already
+        // uses.
+        val optTy = tyNullable(vt)
+        val ct = this.ctype(optTy, e.file, e.line, e.col)
         if (ct == null) { return "0" }
         val slot = this.temp()
-        val empty = if (vt.kind == "Any") { "keal_any_null()" } else { "NULL" }
+        var empty = optNull(vt)
+        if (vt.kind == "Any") { empty = "keal_any_null()" }
         this.line("${ct} ${slot} = ${empty};")
-        this.own(slot, vt)
+        this.own(slot, optTy)
         this.line("if (${at} >= 0) {")
         this.indent += 1
-        this.line("${slot} = ${retained(vt, hit)};")
+        this.line("${slot} = ${optWrap(vt, retained(vt, hit))};")
         this.indent -= 1
         this.line("}")
         return slot

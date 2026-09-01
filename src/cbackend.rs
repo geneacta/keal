@@ -3085,7 +3085,11 @@ impl CBackend {
 
     /// The map methods: membership, and the keys and values as lists.
     fn map_method(&mut self, e: &Expr, obj: &Expr, name: &str, args: &[Arg]) -> Option<String> {
-        if !matches!(name, "contains" | "containsKey" | "keys" | "values" | "remove") {
+        if !matches!(
+            name,
+            "contains" | "containsKey" | "keys" | "values" | "remove" | "get" | "set"
+                | "isEmpty" | "clear"
+        ) {
             return None;
         }
         let (kt, vt, kk, vk) = self.map_parts(obj, e.span)?;
@@ -3124,6 +3128,34 @@ impl CBackend {
                 self.line(format!("keal_map_remove({}, {});", m, kk.word(&key)));
                 self.own(&t, &vt.clone().nullable());
                 Some(t)
+            }
+            // `m.get(k)` is `m[k]`, and `m.set(k, v)` is `m[k] = v` — the
+            // interpreters route the method and the operator through one
+            // implementation, so these route through the one that emits it.
+            "get" => Some(self.map_get(e, obj, &args[0].value, None)),
+            "set" => {
+                let key = self.expr(&args[0].value);
+                let value = self.coerced_to(&args[1].value, &vt);
+                let sk = Self::retained(&kt, &key);
+                let sv = Self::retained(&vt, &value);
+                self.line(format!(
+                    "keal_map_set({}, {}, {});",
+                    m,
+                    kk.word(&sk),
+                    vk.word(&sv)
+                ));
+                Some("0".to_string())
+            }
+            "isEmpty" => {
+                let t = self.temp();
+                self.line(format!("const bool {} = {}->len == 0;", t, m));
+                Some(t)
+            }
+            "clear" => {
+                // The releasers the map was built with know what its keys and
+                // values are; the backend need not say it twice.
+                self.line(format!("keal_map_clear({});", m));
+                Some("0".to_string())
             }
             "contains" | "containsKey" => {
                 let key = self.expr(&args[0].value);
@@ -3570,6 +3602,16 @@ impl CBackend {
                 let t = self.temp();
                 self.line(format!("const KealOptF64 {} = keal_str_to_float({});", t, s));
                 Some(t)
+            }
+            ("isEmpty", 0) => {
+                let s = self.expr(obj);
+                let t = self.temp();
+                self.line(format!("const bool {} = {}->len == 0;", t, s));
+                Some(t)
+            }
+            ("reversed", 0) => {
+                let s = self.expr(obj);
+                Some(self.own_temp(format!("keal_str_reversed({})", s)))
             }
             ("toLower", 0) | ("toUpper", 0) | ("trim", 0) => {
                 let s = self.expr(obj);
@@ -4513,23 +4555,27 @@ impl CBackend {
                 slot
             }
             None => {
-                // Without a fallback the result is `V?`, which a reference
-                // carries as its null pointer and an `Any` as its null tag.
-                if !is_reference(&vt) && vt != Type::Any {
-                    self.unsupported(
-                        e.span,
-                        &format!("`m[k]` where the values are `{}` and no `?:` follows", vt),
-                    );
-                    return "0".to_string();
-                }
-                let Some(ct) = self.ctype(&vt, e.span) else { return "0".to_string() };
+                // Without a fallback the result is `V?`: a reference carries
+                // absence as its null pointer, an `Any` as its null tag, and
+                // an `Int` or a `Float` in the tagged form every other `T?`
+                // in the backend already uses.
+                let opt_ty = vt.clone().nullable();
+                let Some(ct) = self.ctype(&opt_ty, e.span) else { return "0".to_string() };
                 let slot = self.temp();
-                let empty = if vt == Type::Any { "keal_any_null()" } else { "NULL" };
+                let empty = if vt == Type::Any {
+                    "keal_any_null()".to_string()
+                } else {
+                    opt_null(&vt)
+                };
                 self.line(format!("{} {} = {};", ct, slot, empty));
-                self.own(&slot, &vt);
+                self.own(&slot, &opt_ty);
                 self.line(format!("if ({} >= 0) {{", at));
                 self.indent += 1;
-                self.line(format!("{} = {};", slot, Self::retained(&vt, &hit)));
+                self.line(format!(
+                    "{} = {};",
+                    slot,
+                    opt_wrap(&vt, &Self::retained(&vt, &hit))
+                ));
                 self.indent -= 1;
                 self.line("}");
                 slot
