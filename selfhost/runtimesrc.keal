@@ -1387,6 +1387,21 @@ KEAL_FN void keal_map_remove(KealMap* m, KealWord key) {
 /* Structural map equality, as the interpreters compare maps: same size, and
  * every entry of `a` present in `b` with an equal value — insertion order
  * does not matter. Keys compare by the map's own comparator. */
+/* `m.clear()` — every key and every value let go by the releasers fixed at
+ * construction, the way the map's own death lets them go. The buffer stays:
+ * capacity is not something a program can observe. */
+KEAL_FN void keal_map_clear(KealMap* m) {
+    for (int64_t i = 0; i < m->len; i++) {
+        if (m->release_key != NULL) {
+            m->release_key(m->data[2 * i].p);
+        }
+        if (m->release_val != NULL) {
+            m->release_val(m->data[2 * i + 1].p);
+        }
+    }
+    m->len = 0;
+}
+
 KEAL_FN bool keal_map_eq(KealMap* a, KealMap* b, bool (*val_eq)(KealWord, KealWord)) {
     if (a == NULL || b == NULL || a == b) {
         return a == b;
@@ -2191,6 +2206,37 @@ KEAL_FN KealStr* keal_read_file(KealStr* path) {
     return keal_str_owning(bytes, (int64_t)size);
 }
 
+/* `s.reversed()` — by CHARACTER, not by byte. Reversing the bytes of a
+ * multi-byte character produces something that is not text at all, and the
+ * interpreters reverse `chars()`, so this walks the UTF-8 lead bytes and
+ * copies each character whole. Malformed input is copied byte by byte rather
+ * than rejected: a Keal string is bytes, and refusing here would make
+ * `reversed` the only method that inspects them. */
+KEAL_FN KealStr* keal_str_reversed(KealStr* s) {
+    char* out = (char*)keal_alloc((size_t)s->len + 1);
+    int64_t at = s->len;
+    int64_t i = 0;
+    while (i < s->len) {
+        unsigned char lead = (unsigned char)s->bytes[i];
+        int64_t width = 1;
+        if (lead >= 0xF0) {
+            width = 4;
+        } else if (lead >= 0xE0) {
+            width = 3;
+        } else if (lead >= 0xC0) {
+            width = 2;
+        }
+        if (i + width > s->len) {
+            width = 1;
+        }
+        at -= width;
+        memcpy(out + at, s->bytes + i, (size_t)width);
+        i += width;
+    }
+    out[s->len] = '\0';
+    return keal_str_owning(out, s->len);
+}
+
 KEAL_FN bool keal_write_file(KealStr* path, KealStr* content) {
     char cpath[4096];
     if (path->len >= (int64_t)sizeof cpath) {
@@ -2726,6 +2772,29 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     }
     DWORD code = 0;
     GetExitCodeProcess(pi.hProcess, &code);
+    /* An image can RESOLVE and then fail to LOAD: CreateProcessW succeeds,
+     * the process object exists, and the child dies before its entry point
+     * runs. A missing DLL is the common way. On this side that is a nonzero
+     * exit code; on POSIX the very same failure — a missing shared object —
+     * makes `execve` fail, so the errno pipe above reports it as "could not
+     * be started" and the caller gets null. Mapping the two load-time
+     * statuses to null is not a heuristic, then: it is what makes the two
+     * platforms answer the same question the same way.
+     *
+     * A crash is NOT included. 0xC0000005 and its neighbours mean the program
+     * ran and then died, which is a failure and not an absence, and the
+     * caller is owed the difference. */
+    if (code == 0xC0000135u || code == 0xC0000142u) {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        CloseHandle(or_);
+        CloseHandle(er);
+        free(line.data);
+        free(app);
+        free(ro.buf.data);
+        free(re.buf.data);
+        return NULL;
+    }
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     CloseHandle(or_);
