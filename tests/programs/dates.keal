@@ -66,10 +66,23 @@ assert(utcAt(42) == utcAt(42), "records compare by value")
 
 // ---- local time ---------------------------------------------------------
 //
-// Nothing below names a zone. A test that expects `+02:00` passes in Paris
-// and fails in Tokyo, and the machines this runs on are not all in one
-// place — so these are properties that hold in every zone there is,
-// including the ones offset by 45 minutes.
+// Nothing below names a zone, and nothing sets `TZ`. A test that expects
+// `+02:00` passes in Paris and fails in Tokyo, and the machines this runs on
+// are not all in one place — so these are properties that hold in every zone
+// there is, including the ones offset by 45 minutes.
+//
+// Setting `TZ` would be worse than useless on Windows, where the measurement
+// is: an IANA name like `America/New_York` is SILENTLY IGNORED and the CRT
+// answers with the machine's own zone. A test that set `TZ` there would pass
+// while measuring nothing — a green leg that proves the platform agrees with
+// itself.
+//
+// So what this can prove is the arithmetic: that an offset, whatever it is,
+// is applied consistently and comes off again exactly. What it cannot prove
+// is the platform's own zone database, because a machine genuinely in UTC and
+// a broken `localOffset` that always answers zero are indistinguishable from
+// inside a program. That half is verified by reading a known zone on each
+// platform by hand.
 
 for (k in known) {
     val t = k[0]
@@ -80,7 +93,11 @@ for (k in known) {
     assert(l.offset == localOffset(t), "the moment carries its own offset")
     // The offset is asked for that instant, not for now — which is what
     // makes a January moment and a July moment able to differ.
+    // -12:00 to +14:00 is every offset the world uses, and every one of them
+    // is a whole number of minutes — so a garbled parse shows up here even
+    // though a plausible-but-wrong zone could not.
     assert(l.offset > -50400 and l.offset < 50400, "a real offset: ${l.offset}")
+    assert(l.offset % 60 == 0, "an offset is whole minutes: ${l.offset}")
     assert(utcAt(t).offset == 0, "a UTC moment is offset by nothing")
     assert(l.inLocalTime() == l, "reading local time again changes nothing")
 }

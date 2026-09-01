@@ -947,8 +947,20 @@ extern "C" {
     fn strftime(out: *mut u8, max: usize, format: *const u8, tm: *const u8) -> usize;
 }
 
+// `_localtime64_s`, and not `localtime_s`, which does not exist to link
+// against. Windows declares the friendly spelling as a header-level assembly
+// alias — `localtime_s(...) __MINGW_ASM_CALL(_localtime64_s)` — so C compiles
+// it and the linker never sees it, on both the MinGW and the MSVC toolchains.
+// Naming the export directly also pins the 64-bit `time_t` rather than
+// inheriting whatever `_USE_32BIT_TIME_T` a build might carry, which is what
+// the alias would have resolved against.
+//
+// The argument order really is the reverse of POSIX's: Windows takes the
+// output `struct tm` first, and MinGW's own header defines `localtime_r` as a
+// wrapper that swaps them back.
 #[cfg(windows)]
 extern "C" {
+    #[link_name = "_localtime64_s"]
     fn localtime_s(result: *mut u8, time: *const i64) -> i32;
     fn strftime(out: *mut u8, max: usize, format: *const u8, tm: *const u8) -> usize;
 }
