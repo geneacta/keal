@@ -1,0 +1,56 @@
+// A local binding hides a global function of the same name.
+//
+// The checker has always resolved this correctly, and both interpreters run
+// it. The C backend did not: it asked only whether the name was a global
+// function, and if it was, emitted a direct call to it — past the binding
+// actually in scope. C caught it, because a Keal local and a Keal global
+// mangle to the same C name and the local is a closure pointer rather than
+// a function, so the program failed with a `cc` error on generated code
+// instead of running. That is not a refusal by name, which is what this
+// backend promises when it cannot do something.
+//
+// A short word is exactly what a local is called and exactly what a library
+// exports, so the collision is not exotic: this was found in a UI loop where
+// `val over = app.overlay` sat under an imported `over(dst, src, cov)`.
+
+func over(n: Int): Int { return n + 1000 }
+func each(a: Int, b: Int): Int { return a * b }
+
+class H {
+    var f: (Int) -> Int = { n -> n }
+    var g: (Int, Int) -> Int = { a, b -> a - b }
+}
+
+proc inAFunction(h: H) {
+    val over = h.f
+    println(over(5))
+    val each = h.g
+    println(each(9, 4))
+}
+
+inAFunction(H())
+
+// The same at file scope, which already worked and must keep working. A
+// different name, since a file's own scope will not take `over` twice.
+val h = H()
+val plus = h.f
+println(plus(5))
+
+// Captured by a lambda: the closure's environment is another way a name is
+// in scope, and it hides the global too.
+proc captured(h: H) {
+    val over = h.f
+    val twice = { n: Int -> over(over(n)) }
+    println(twice(3))
+}
+captured(H())
+
+// A loop variable and a parameter are bindings like any other.
+proc asAParameter(each: (Int, Int) -> Int) {
+    println(each(6, 2))
+}
+asAParameter({ a, b -> a + b })
+
+// Unshadowed, the global is still the global.
+println(over(1))
+println(each(3, 3))

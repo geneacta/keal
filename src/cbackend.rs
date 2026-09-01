@@ -2051,6 +2051,24 @@ impl CBackend {
     }
 
     /// Records a name of the frame being emitted.
+    /// True when a name is bound where the code being emitted stands: a
+    /// local, a parameter, an alias standing in for one while a default
+    /// argument is emitted, or something a lambda captured. Such a binding
+    /// hides anything global of the same name.
+    fn in_scope(&self, name: &str) -> bool {
+        if let Some(aliases) = &self.param_alias {
+            if aliases.contains_key(name) {
+                return true;
+            }
+        }
+        if let Some(env) = &self.capture_env {
+            if env.contains_key(name) {
+                return true;
+            }
+        }
+        self.locals.iter().any(|scope| scope.iter().any(|(n, _, _)| n == name))
+    }
+
     fn declare_local(&mut self, name: &str, ty: &Type, mutable: bool) {
         if let Some(scope) = self.locals.last_mut() {
             scope.push((name.to_string(), ty.clone(), mutable));
@@ -6283,10 +6301,19 @@ impl CBackend {
         // Anything of function type is callable through its closure — a
         // local, a parameter, or the result of another call. A name that is
         // a program function, class or built-in dispatches directly instead.
+        // A local of the same name wins, exactly as it does for the checker
+        // and for both interpreters. Without this the backend read past the
+        // binding in scope to the global function behind it and emitted a
+        // direct call to the wrong thing — which C then refused, because a
+        // Keal local and a Keal global mangle to the same C name and the
+        // local is a closure pointer rather than a function. A `cc` error is
+        // not a refusal by name, and one shape of this is a program the
+        // checker accepted and the backend would not build.
         let named = matches!(&callee.kind, ExprKind::Ident(n)
-            if self.global_funs.contains(n)
-                || self.shapes.contains_key(n)
-                || crate::builtins::global_sig(n, &[None, None]).is_some());
+            if !self.in_scope(n)
+                && (self.global_funs.contains(n)
+                    || self.shapes.contains_key(n)
+                    || crate::builtins::global_sig(n, &[None, None]).is_some()));
         if !named {
             if let Some(Type::Fun(ft)) = self.ety(callee) {
                 let c = self.expr(callee);

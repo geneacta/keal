@@ -2677,6 +2677,27 @@ class CBackend() {
 
     /// Resolves a name: an alias set up for a default argument wins, then a
     /// capture reads through the environment, then the C variable itself.
+    /// True when a name is bound where the code being emitted stands: a
+    /// local, a parameter, an alias standing in for one while a default
+    /// argument is emitted, or something a lambda captured. Such a binding
+    /// hides anything global of the same name.
+    func inScope(name: String): Bool {
+        val aliases = this.paramAlias
+        if (aliases != null) {
+            if (aliases.contains(name)) { return true }
+        }
+        val env = this.captureEnv
+        if (env != null) {
+            if (env.contains(name)) { return true }
+        }
+        for (scope in this.locals) {
+            for (l in scope) {
+                if (l.name == name) { return true }
+            }
+        }
+        return false
+    }
+
     func varRef(name: String): String {
         val aliases = this.paramAlias
         if (aliases != null) {
@@ -6273,11 +6294,21 @@ class CBackend() {
         val args = e.args
         // Anything of function type is callable through its closure; a name
         // that is a program function, class or built-in dispatches directly.
+        // A local of the same name wins, exactly as it does for the checker
+        // and for both interpreters. Without this the backend read past the
+        // binding in scope to the global function behind it and emitted a
+        // direct call to the wrong thing — which C then refused, because a
+        // Keal local and a Keal global mangle to the same C name and the
+        // local is a closure pointer rather than a function. A `cc` error is
+        // not a refusal by name, and one shape of this is a program the
+        // checker accepted and the backend would not build.
         var named = false
         if (callee.kind == "ident") {
             val n = callee.text
             val two: List<Ty?> = [null, null]
-            named = this.globalFuns.contains(n) or this.shapes.contains(n) or globalSig(n, two) != null
+            unless (this.inScope(n)) {
+                named = this.globalFuns.contains(n) or this.shapes.contains(n) or globalSig(n, two) != null
+            }
         }
         unless (named) {
             val ct = this.ety(callee)
