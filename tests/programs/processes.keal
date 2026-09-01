@@ -1,0 +1,31 @@
+// One program running another.
+//
+// No shell is involved: the list is the argument vector, so a path with a
+// space in it stays one argument and nothing is ever re-parsed. That is the
+// part worth testing, and the part a shell string gets wrong.
+
+// Null is "could not be started at all", which is not the same as a command
+// that ran and failed — a program that confuses the two retries the wrong
+// thing. These two hold on every platform.
+assert(runCommand([]) == null, "an empty vector names no program")
+assert(runCommand(["keal-no-such-program-1234"]) == null, "nor does a missing one")
+
+// The rest needs a program that is there. `/bin/sh` is not on Windows, and
+// `echo` is not a program there at all, so this asks before it assumes.
+if (isFile("/bin/sh")) {
+    val ok = runCommand(["/bin/sh", "-c", "echo out; echo err 1>&2; exit 3"])
+    assert(ok != null, "a shell that exists starts")
+    val r = ok ?: []
+    assert(r.size == 3, "three parts: code, output, error")
+    assert(r[0] == "3", "the exit code is the child's: ${r[0]}")
+    assert(lines(r[1]) == ["out"], "standard output: ${r[1]}")
+    assert(lines(r[2]) == ["err"], "standard error, kept apart: ${r[2]}")
+
+    // A command that ran and failed is not absence: it has an exit code.
+    val failed = runCommand(["/bin/sh", "-c", "exit 42"]) ?: []
+    assert(failed.size == 3 and failed[0] == "42", "a failure still reports")
+
+    // And the argument vector is a vector. A shell would split this.
+    val spaced = runCommand(["/bin/sh", "-c", "printf %s \"$1\"", "sh", "a b c"]) ?: []
+    assert(spaced[1] == "a b c", "one argument stayed one argument: ${spaced[1]}")
+}

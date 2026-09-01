@@ -342,6 +342,37 @@ pub fn call_global(it: &mut dyn Runtime, name: &str, args: Vec<Value>, span: Spa
             };
             Ok(Value::Bool(gone))
         }
+        "runCommand" => {
+            let Value::List(argv) = &args[0] else {
+                return err(span, "`runCommand` wants a list of strings".to_string());
+            };
+            let argv = argv.borrow();
+            let mut words = Vec::with_capacity(argv.len());
+            for v in argv.iter() {
+                match v {
+                    Value::Str(s) => words.push(s.to_string()),
+                    other => {
+                        return err(
+                            span,
+                            format!("`runCommand` wants strings, not `{}`", other.type_name()),
+                        )
+                    }
+                }
+            }
+            let Some((program, rest)) = words.split_first() else {
+                // An empty vector names no program, which is the same
+                // absence as a program that is not there.
+                return Ok(Value::Null);
+            };
+            match std::process::Command::new(program).args(rest).output() {
+                Ok(out) => Ok(Value::list(vec![
+                    Value::str(out.status.code().unwrap_or(-1).to_string()),
+                    Value::str(String::from_utf8_lossy(&out.stdout).into_owned()),
+                    Value::str(String::from_utf8_lossy(&out.stderr).into_owned()),
+                ])),
+                Err(_) => Ok(Value::Null),
+            }
+        }
         "exit" => {
             let code = int(&args[0], span)?;
             // Skipping destructors is fine here: the process is over, and

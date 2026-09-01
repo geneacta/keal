@@ -264,6 +264,14 @@ pub fn global_sig(name: &str, args: &[Option<Type>]) -> Option<FunType> {
         "pathKind" => sig(vec![p("path", Type::Str)], Type::Int),
         "makeDir" => sig(vec![p("path", Type::Str)], Type::Bool),
         "removePath" => sig(vec![p("path", Type::Str)], Type::Bool),
+        // One program running another. `[exit code, standard output,
+        // standard error]`, or null when it could not be started at all —
+        // which is a different thing from a command that ran and failed.
+        // No shell is involved: the list is the argument vector, so a path
+        // with a space in it is one argument and nothing is ever re-parsed.
+        "runCommand" => {
+            sig(vec![p("argv", Type::list(Type::Str))], Type::list(Type::Str).nullable())
+        }
         // `abs`, `min` and `max` accept Int or Float and return that type.
         "abs" => {
             let t = numeric_of(&[known(args, 0)]);

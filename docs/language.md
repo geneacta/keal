@@ -1222,6 +1222,32 @@ everything, because a standard library is nothing but its public surface.
 | `lines(s): List<String>` | the lines, without their newlines |
 | `setOf(xs)` `dequeOf(xs)` | the two collections below, from a list |
 
+### Running another program
+
+| | |
+|---|---|
+| `runCommand(argv: List<String>): List<String>?` | `[exit code, standard output, standard error]`, or `null` if it could not be started |
+
+No shell is involved. The list *is* the argument vector, so a path with a
+space in it stays one argument and nothing is ever re-parsed — which is the
+difference between running a program and handing a string to `sh` and hoping.
+
+```keal
+val r = runCommand(["git", "rev-parse", "HEAD"]) ?: []
+if (r.size == 3 and r[0] == "0") { println(r[1]) }
+```
+
+`null` means the program could not be started; a program that ran and
+failed comes back with its exit code. Confusing the two is how a script
+retries the wrong thing.
+
+**The C backend refuses this one by name**, so it runs on the two
+interpreters and a compiled program is told to use them. Capturing two
+pipes without deadlocking is a hundred lines of C on each side of the
+platform line, and this project has been bitten twice by platform code that
+held on one machine; it will arrive when it can be verified on all three
+rather than asserted on one.
+
 ### Dates and times
 
 `time(): Float` is seconds since the Unix epoch, and a calendar is written

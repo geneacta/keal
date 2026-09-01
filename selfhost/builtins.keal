@@ -224,6 +224,12 @@ package func globalSig(name: String, args: List<Ty?>): Ty? {
         "pathKind" -> tyFun([bp("path", Ty("Str"))], Ty("Int"))
         "makeDir" -> tyFun([bp("path", Ty("Str"))], Ty("Bool"))
         "removePath" -> tyFun([bp("path", Ty("Str"))], Ty("Bool"))
+        // One program running another. `[exit code, standard output,
+        // standard error]`, or null when it could not be started at all —
+        // which is a different thing from a command that ran and failed.
+        // No shell is involved: the list is the argument vector, so a path
+        // with a space in it is one argument and nothing is ever re-parsed.
+        "runCommand" -> tyFun([bp("argv", tyList(Ty("Str")))], tyNullable(tyList(Ty("Str"))))
         "abs" -> {
             val t = numericOf([knownArg(args, 0)])
             tyFun([bp("x", t)], t)
