@@ -2275,6 +2275,86 @@ KEAL_FN int64_t keal_local_offset(int64_t at) {
     return sign * (hours * 3600 + minutes * 60);
 }
 
+/* ---- numbers, randomness, and a line of input --------------------------- */
+
+/* `abs` on an `Int`. Wraps at INT64_MIN exactly as Rust's `i64::abs` does in
+ * a release build, through unsigned arithmetic — signed negation there is
+ * undefined in C, and undefined is not a behaviour the three engines can
+ * agree on. */
+KEAL_FN int64_t keal_abs_i64(int64_t n) {
+    return n < 0 ? (int64_t)(0u - (uint64_t)n) : n;
+}
+
+/* The interpreters' generator, algorithm for algorithm: xorshift64 with a
+ * multiply, seeded from the clock on first use. The numbers differ from run
+ * to run because the seed does; the shape of them does not differ between
+ * engines, and a fixed seed would give the same sequence on all three. */
+static uint64_t keal_rng_state = 0;
+
+KEAL_FN double keal_random(void) {
+    if (keal_rng_state == 0) {
+        keal_rng_state = (uint64_t)(keal_time() * 1000000000.0) | 1u;
+        if (keal_rng_state == 0) {
+            keal_rng_state = 0x2545F4914F6CDD1DULL;
+        }
+    }
+    keal_rng_state ^= keal_rng_state >> 12;
+    keal_rng_state ^= keal_rng_state << 25;
+    keal_rng_state ^= keal_rng_state >> 27;
+    uint64_t scaled = (keal_rng_state * 0x2545F4914F6CDD1DULL) >> 11;
+    return (double)scaled / (double)(1ULL << 53);
+}
+
+/* `randomInt(lo, hi)` — `lo` included, `hi` excluded, and an empty range is
+ * the interpreters' error in the interpreters' words. */
+KEAL_FN int64_t keal_random_int(int64_t lo, int64_t hi, int64_t line) {
+    if (hi <= lo) {
+        char msg[96];
+        snprintf(msg, sizeof msg,
+                 "randomInt(%" PRId64 ", %" PRId64 ") has an empty range", lo, hi);
+        keal_panic(msg, line);
+        return lo;
+    }
+    return lo + (int64_t)(keal_random() * (double)(hi - lo));
+}
+
+/* One line of standard input, without its ending, and NULL at end of file —
+ * so `readLine() ?: ""` is how a program says it does not mind. Both a bare
+ * newline and a carriage return before it are stripped, because a file
+ * written on one platform is read on another. */
+KEAL_FN KealStr* keal_read_line(void) {
+    size_t cap = 128;
+    size_t len = 0;
+    char* buf = (char*)malloc(cap);
+    if (buf == NULL) {
+        return NULL;
+    }
+    int c;
+    while ((c = fgetc(stdin)) != EOF && c != '\n') {
+        if (len + 1 >= cap) {
+            size_t grown = cap * 2;
+            char* bigger = (char*)realloc(buf, grown);
+            if (bigger == NULL) {
+                free(buf);
+                return NULL;
+            }
+            buf = bigger;
+            cap = grown;
+        }
+        buf[len++] = (char)c;
+    }
+    if (c == EOF && len == 0) {
+        free(buf);
+        return NULL;
+    }
+    while (len > 0 && buf[len - 1] == '\r') {
+        len--;
+    }
+    KealStr* out = keal_str_from_bytes(buf, (int64_t)len);
+    free(buf);
+    return out;
+}
+
 /* ---- the file system --------------------------------------------------- */
 
 /* Four primitives, and no more: a name in the global namespace is reserved

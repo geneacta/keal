@@ -6040,6 +6040,63 @@ class CBackend() {
             this.line("const bool ${t} = keal_write_file(${p}, ${c});")
             return t
         }
+        if (name == "readLine" and args.size == 0) {
+            return this.ownTempOf(tyNullable(Ty("Str")), "keal_read_line()")
+        }
+        if (name == "random" and args.size == 0) {
+            val t = this.temp()
+            this.line("const double ${t} = keal_random();")
+            return t
+        }
+        if (name == "randomInt" and args.size == 2) {
+            val lo = this.expr(args[0].value)
+            val hi = this.expr(args[1].value)
+            val t = this.temp()
+            this.line("const int64_t ${t} = keal_random_int(${lo}, ${hi}, ${e.line});")
+            this.checkUnwind()
+            return t
+        }
+        // `abs`, `min` and `max` take Ints or Floats and give back that type,
+        // which the checker has already settled — so the emitted C only has
+        // to pick the arithmetic that matches it.
+        if ((name == "abs" or name == "min" or name == "max") and args.size > 0) {
+            val et = this.ety(e)
+            val isFloat = et != null and et.kind == "Float"
+            var ct = "int64_t"
+            if (isFloat) { ct = "double" }
+            val a = this.expr(args[0].value)
+            val t = this.temp()
+            if (name == "abs") {
+                var call = "keal_abs_i64(${a})"
+                if (isFloat) { call = "fabs(${a})" }
+                this.line("const ${ct} ${t} = ${call};")
+            } else {
+                val b = this.expr(args[1].value)
+                var call = ""
+                if (isFloat) {
+                    var fn = "fmax"
+                    if (name == "min") { fn = "fmin" }
+                    call = "${fn}(${a}, ${b})"
+                } else {
+                    var op = ">"
+                    if (name == "min") { op = "<" }
+                    call = "(${a} ${op} ${b} ? ${a} : ${b})"
+                }
+                this.line("const ${ct} ${t} = ${call};")
+            }
+            return t
+        }
+        if (name == "panic" and args.size == 1) {
+            // `panic` never returns, so nothing after it is reachable and
+            // there is no value to hand back — the same shape as `exit`,
+            // except that the audit still gets to speak, because `keal_panic`
+            // unwinds through the program rather than leaving through the C
+            // library.
+            val m = this.expr(args[0].value)
+            this.line("keal_panic(${m}->bytes, ${e.line});")
+            this.checkUnwind()
+            return "0"
+        }
         if (name == "exit" and args.size == 1) {
             val c = this.expr(args[0].value)
             if (this.auditMode) {

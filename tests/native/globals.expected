@@ -1,0 +1,8 @@
+abs: 7 7 0 2.5 2.5
+min int: 3 -9 4
+max int: 5 -1 4
+min/max float: 1.5 2.5
+outside the range: 0
+both ends drawn: true
+readLine at end of file: <null>
+caught: said so

@@ -6046,6 +6046,60 @@ impl CBackend {
             self.line(format!("const bool {} = keal_write_file({}, {});", t, p, c));
             return t;
         }
+        if name == "readLine" && args.is_empty() {
+            return self.own_temp_of(&Type::Str.nullable(), "keal_read_line()".to_string());
+        }
+        if name == "random" && args.is_empty() {
+            let t = self.temp();
+            self.line(format!("const double {} = keal_random();", t));
+            return t;
+        }
+        if name == "randomInt" && args.len() == 2 {
+            let lo = self.expr(&args[0].value);
+            let hi = self.expr(&args[1].value);
+            let t = self.temp();
+            self.line(format!(
+                "const int64_t {} = keal_random_int({}, {}, {});",
+                t, lo, hi, e.span.line
+            ));
+            self.check_unwind();
+            return t;
+        }
+        // `abs`, `min` and `max` take Ints or Floats and give back that type,
+        // which the checker has already settled — so the emitted C only has
+        // to pick the arithmetic that matches it.
+        if matches!(name.as_str(), "abs" | "min" | "max") && !args.is_empty() {
+            let float = self.ety(e).map(|t| t == Type::Float).unwrap_or(false);
+            let ct = if float { "double" } else { "int64_t" };
+            let a = self.expr(&args[0].value);
+            let t = self.temp();
+            if name == "abs" {
+                let call =
+                    if float { format!("fabs({})", a) } else { format!("keal_abs_i64({})", a) };
+                self.line(format!("const {} {} = {};", ct, t, call));
+            } else {
+                let b = self.expr(&args[1].value);
+                let call = if float {
+                    format!("{}({}, {})", if name == "min" { "fmin" } else { "fmax" }, a, b)
+                } else {
+                    let op = if name == "min" { "<" } else { ">" };
+                    format!("({a} {op} {b} ? {a} : {b})", a = a, op = op, b = b)
+                };
+                self.line(format!("const {} {} = {};", ct, t, call));
+            }
+            return t;
+        }
+        if name == "panic" && args.len() == 1 {
+            // `panic` never returns, so nothing after it is reachable and
+            // there is no value to hand back — the same shape as `exit`,
+            // except that the audit still gets to speak, because `keal_panic`
+            // unwinds through the program rather than leaving through the C
+            // library.
+            let m = self.expr(&args[0].value);
+            self.line(format!("keal_panic({}->bytes, {});", m, e.span.line));
+            self.check_unwind();
+            return "0".to_string();
+        }
         if name == "exit" && args.len() == 1 {
             let c = self.expr(&args[0].value);
             if self.audit_mode {

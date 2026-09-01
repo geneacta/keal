@@ -1,0 +1,29 @@
+// The globals the C backend used to refuse. `random` and `readLine` are here
+// too, tested by what must be true of them rather than by their value —
+// output that differs from run to run cannot be compared, but a range can.
+println("abs: ${abs(-7)} ${abs(7)} ${abs(0)} ${abs(-2.5)} ${abs(2.5)}")
+println("min int: ${min(3, 5)} ${min(-1, -9)} ${min(4, 4)}")
+println("max int: ${max(3, 5)} ${max(-1, -9)} ${max(4, 4)}")
+println("min/max float: ${min(1.5, 2.5)} ${max(1.5, 2.5)}")
+
+// A thousand draws, and every one of them inside the half-open range.
+var outside = 0
+var low = 0
+var high = 0
+for (i in 0..1000) {
+    val r = randomInt(3, 7)
+    if (r < 3 or r >= 7) { outside = outside + 1 }
+    if (r == 3) { low = low + 1 }
+    if (r == 6) { high = high + 1 }
+    val f = random()
+    if (f < 0.0 or f >= 1.0) { outside = outside + 1 }
+}
+println("outside the range: ${outside}")
+// Both ends are reachable, which a generator that quietly clamped would fail.
+println("both ends drawn: ${low > 0 and high > 0}")
+
+// Standard input, which is empty when this runs: end of file is null, not "".
+println("readLine at end of file: ${readLine() ?: "<null>"}")
+
+// `panic` is catchable, and says what it was given.
+try { panic("said so") } catch (m) { println("caught: ${m}") }
