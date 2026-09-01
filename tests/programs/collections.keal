@@ -79,3 +79,20 @@ assert(grid.map({ row -> row.sum() }) == [3, 7], "map over nested lists")
 // Equality is structural for lists and maps.
 assert([1, [2]] == [1, [2]], "structural list equality")
 assert({"a": 1} == {"a": 1}, "structural map equality")
+
+// `sum()` on an empty list, where the element type is the only thing that
+// can answer.
+//
+// An empty list is vacuously all-`Int`, so `sum` used to answer `Int(0)` for
+// a `List<Float>` — and `xs.sum() + 1.0` then failed at run time in a program
+// the checker had accepted, which is a hole in the type system rather than a
+// question about rounding. The receiver's static type is where the answer
+// lives, and both engines now consult it at the call.
+val noFloats: List<Float> = []
+val noInts: List<Int> = []
+assert(typeOf(noFloats.sum()) == "Float", "an empty List<Float> sums to a Float")
+assert(typeOf(noInts.sum()) == "Int", "and an empty List<Int> to an Int")
+assert(noFloats.sum() + 1.0 == 1.0, "so the sum can be used as what it says it is")
+assert(noInts.sum() + 1 == 1, "both ways")
+assert([1.5, 2.25].sum() == 3.75, "a non-empty float sum is unchanged")
+assert([1, 2, 3].sum() == 6, "and a non-empty int sum")

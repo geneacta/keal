@@ -1,0 +1,75 @@
+// The fourteen List methods the C backend used to refuse by name.
+//
+// Every one is exercised on the shapes that separate a working
+// implementation from a plausible one: an empty list, a single element, a
+// value that is not there, the first and last index, and an element type
+// that is reference counted, because that is where a native backend leaks
+// or double-frees while an interpreter cannot.
+
+val empty: List<Int> = []
+val one = [7]
+val many = [3, 1, 4, 1, 5]
+val words = ["beta", "alpha", "gamma"]
+// A typed empty list: a bare `[]` inside a lambda is `List<Nothing>`, and
+// rendering `Nothing` is a separate thing the backend refuses.
+val noInts: List<Int> = []
+
+// ---- isEmpty ----
+println("isEmpty: ${empty.isEmpty()} ${one.isEmpty()} ${many.isEmpty()}")
+
+// ---- get ----
+println("get: ${many.get(0)} ${many.get(4)} ${words.get(1)}")
+
+// ---- first / last: null on an empty list, not a panic ----
+println("first: ${empty.first()} ${one.first()} ${many.first()} ${words.first()}")
+println("last: ${empty.last()} ${one.last()} ${many.last()} ${words.last()}")
+
+// ---- indexOf: the first match, and what absence looks like ----
+println("indexOf: ${many.indexOf(1)} ${many.indexOf(5)} ${many.indexOf(9)} ${empty.indexOf(1)}")
+println("indexOf str: ${words.indexOf("beta")} ${words.indexOf("gamma")}")
+
+// ---- reversed: a new list, the receiver untouched ----
+val rev = many.reversed()
+println("reversed: ${rev} and the original is ${many}")
+println("reversed edges: ${empty.reversed()} ${one.reversed()} ${words.reversed()}")
+
+// ---- sum: Int and Float, and empty is zero not a panic ----
+println("sum: ${many.sum()} ${empty.sum()} ${one.sum()}")
+println("sum float: ${[1.5, 2.25].sum()} ${[0.0].sum()}")
+
+// ---- all / none: the empty list is the interesting case ----
+println("all: ${many.all({ n: Int -> n > 0 })} ${many.all({ n: Int -> n > 3 })} ${empty.all({ n: Int -> false })}")
+println("none: ${many.none({ n: Int -> n > 9 })} ${many.none({ n: Int -> n > 3 })} ${empty.none({ n: Int -> true })}")
+
+// ---- find: the first match, null when there is none ----
+println("find: ${many.find({ n: Int -> n > 3 })} ${many.find({ n: Int -> n > 9 })} ${empty.find({ n: Int -> true })}")
+println("find str: ${words.find({ s: String -> s.startsWith("a") })}")
+
+// ---- count ----
+println("count: ${many.count({ n: Int -> n == 1 })} ${many.count({ n: Int -> n > 9 })} ${empty.count({ n: Int -> true })}")
+
+// ---- flatMap: including a lambda that returns nothing at all ----
+println("flatMap: ${many.flatMap({ n: Int -> [n, n] })}")
+println("flatMap empty: ${many.flatMap({ n: Int -> noInts })} ${empty.flatMap({ n: Int -> [n] })}")
+println("flatMap str: ${words.flatMap({ s: String -> s.split("t") })}")
+
+// ---- set / clear: they change the list in place ----
+var mutable = [1, 2, 3]
+mutable.set(1, 20)
+println("set: ${mutable}")
+var strs = ["a", "b"]
+strs.set(0, "z")
+println("set str: ${strs}")
+mutable.clear()
+println("clear: ${mutable} ${mutable.size} ${mutable.isEmpty()}")
+strs.clear()
+println("clear str: ${strs}")
+
+// ---- and all of it over a counted element type, nested ----
+val nested = [["a"], ["b", "c"], []]
+println("nested: ${nested.flatMap({ xs: List<String> -> xs })}")
+// `?:` because rendering a nullable list is a separate refusal.
+println("nested find: ${nested.find({ xs: List<String> -> xs.size == 2 }) ?: ["none"]}")
+println("nested count: ${nested.count({ xs: List<String> -> xs.isEmpty() })}")
+println("nested last: ${nested.last() ?: ["none"]}")
+println("nested reversed: ${nested.reversed()}")

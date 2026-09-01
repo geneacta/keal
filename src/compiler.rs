@@ -1045,7 +1045,9 @@ impl Compiler {
                     None
                 };
                 let names = self.args(args)?;
-                let n = self.fs().chunk.name(name);
+                // The same `sum` / `sumFloat` choice the tree-walker makes,
+                // made here because this is where a name becomes a constant.
+                let n = self.fs().chunk.name(crate::interp::sum_name(name, obj));
                 self.emit(Op::CallMethod { name: n, argc: args.len() as u16, names }, span);
                 if let Some(at) = skip {
                     self.fs().chunk.patch(at);

@@ -818,9 +818,16 @@ fn list_method(
             }
             Value::str(parts.join(&sep))
         }
-        "sum" => {
+        // `sumFloat` is `sum` on a list the checker typed `List<Float>`. The
+        // two engines pass that name instead when they know it, because an
+        // empty list is vacuously all-`Int` and would otherwise answer
+        // `Int(0)` where the program's type says `Float` — after which
+        // `xs.sum() + 1.0` fails at run time in a program the checker
+        // accepted. The name never reaches the tree: it is chosen at the
+        // call, so no diagnostic and no backend ever sees it.
+        "sum" | "sumFloat" => {
             let items = cell.borrow();
-            if items.iter().all(|v| matches!(v, Value::Int(_))) {
+            if name == "sum" && items.iter().all(|v| matches!(v, Value::Int(_))) {
                 let mut total: i64 = 0;
                 for v in items.iter() {
                     total = match total.checked_add(int(v, span)?) {

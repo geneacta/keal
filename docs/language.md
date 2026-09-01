@@ -1759,7 +1759,9 @@ there is no cycle collector.
 ## 20. What is not here yet
 
 Class inheritance (a non-goal) · associated types on traits · generic
-traits · enum variants that carry data · regular expressions · a network stack
+traits · enum variants that carry data · `?.` on a built-in receiver in the
+C backend (refused by name; the interpreters answer `null`) · regular
+expressions · a network stack
 (HTTPS needs TLS, which belongs behind the interop boundary rather than
 hand-written in the runtime).
 

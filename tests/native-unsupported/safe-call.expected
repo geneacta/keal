@@ -1,0 +1,13 @@
+error: the C backend cannot compile `?.` on a built-in type yet
+  --> tests/native-unsupported/safe-call.keal:12:13
+   |
+12 | println(xs?.contains("a"))
+   |             ^
+  = note: run it on the bytecode VM instead, which supports the whole language
+error: the C backend cannot compile `?.` on a built-in type yet
+  --> tests/native-unsupported/safe-call.keal:15:12
+   |
+15 | println(m?.containsKey("a"))
+   |            ^
+  = note: run it on the bytecode VM instead, which supports the whole language
+2 constructs the C backend does not cover yet

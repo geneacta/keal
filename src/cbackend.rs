@@ -3760,6 +3760,66 @@ impl CBackend {
                 }
                 Some("0".to_string())
             }
+            ("set", 2) => {
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let l = self.expr(obj);
+                let i = self.expr(&args[0].value);
+                let v = self.coerced_to(&args[1].value, elem_ty);
+                let stored = if self.catch_mode && Self::counted(elem_ty) {
+                    // The set can panic before it takes the reference;
+                    // owning it in a temp keeps the unwind path exact, and
+                    // a clean call transfers it by NULLing the temp.
+                    self.own_temp_of(elem_ty, Self::retained(elem_ty, &v))
+                } else {
+                    Self::retained(elem_ty, &v)
+                };
+                match Self::release_fn(elem_ty) {
+                    Some(release) => {
+                        let old = self.temp();
+                        self.line(format!(
+                            "const KealWord {} = keal_list_set_at({}, {}, {}, {});",
+                            old,
+                            l,
+                            i,
+                            elem.word(&stored),
+                            e.span.line
+                        ));
+                        self.check_unwind();
+                        if self.catch_mode {
+                            if *elem_ty == Type::Any {
+                                self.line(format!("{} = keal_any_null();", stored));
+                            } else {
+                                self.line(format!("{} = NULL;", stored));
+                            }
+                        }
+                        // A boxed element's displaced word is the box itself.
+                        if matches!(elem, Elem::Any) {
+                            self.line(format!("keal_any_box_release({}.p);", old));
+                        } else {
+                            self.line(format!("{}({});", release, elem.unword(&old)));
+                        }
+                    }
+                    None => {
+                        // Nothing to release, so the displaced word is discarded.
+                        self.line(format!(
+                            "(void)keal_list_set_at({}, {}, {}, {});",
+                            l,
+                            i,
+                            elem.word(&stored),
+                            e.span.line
+                        ));
+                        self.check_unwind();
+                    }
+                }
+                Some("0".to_string())
+            }
+            ("clear", 0) => {
+                // The releaser the list was built with knows what its
+                // elements are; the backend need not say it twice.
+                let l = self.expr(obj);
+                self.line(format!("keal_list_clear({});", l));
+                Some("0".to_string())
+            }
             ("contains", 1) => {
                 let elem = self.elem_kind(elem_ty, e.span)?;
                 let eq = self.elem_eq_fn(elem_ty, e.span, "`contains` on a list of")?;
@@ -3773,6 +3833,63 @@ impl CBackend {
                     elem.word(&v),
                     eq
                 ));
+                Some(t)
+            }
+            ("indexOf", 1) => {
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let eq = self.elem_eq_fn(elem_ty, e.span, "`indexOf` on a list of")?;
+                let l = self.expr(obj);
+                let v = self.expr(&args[0].value);
+                let t = self.temp();
+                self.line(format!(
+                    "const int64_t {} = keal_list_index_of({}, {}, {});",
+                    t,
+                    l,
+                    elem.word(&v),
+                    eq
+                ));
+                Some(t)
+            }
+            ("isEmpty", 0) => {
+                let l = self.expr(obj);
+                let t = self.temp();
+                self.line(format!("const bool {} = {}->len == 0;", t, l));
+                Some(t)
+            }
+            // `xs.get(i)` is `xs[i]`, down to the bounds message — the
+            // interpreters route both through the one `index_get`, so this
+            // routes through the one that emits it.
+            ("get", 1) => Some(self.index_get(e, obj, &args[0].value)),
+            ("first", 0) | ("last", 0) => {
+                // `T?` over an element the list may not have: an empty list
+                // answers null, exactly as the interpreters do.
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let opt_ty = elem_ty.clone().nullable();
+                let ct = self.ctype(&opt_ty, e.span)?;
+                let l = self.expr(obj);
+                let empty = if *elem_ty == Type::Any {
+                    "keal_any_null()".to_string()
+                } else {
+                    opt_null(elem_ty)
+                };
+                let t = self.temp();
+                self.line(format!("{} {} = {};", ct, t, empty));
+                self.own(&t, &opt_ty);
+                self.line(format!("if ({}->len > 0) {{", l));
+                self.indent += 1;
+                let at = if name == "first" {
+                    "0".to_string()
+                } else {
+                    format!("{}->len - 1", l)
+                };
+                let item = elem.unword(&format!("{}->data[{}]", l, at));
+                self.line(format!(
+                    "{} = {};",
+                    t,
+                    opt_wrap(elem_ty, &Self::retained(elem_ty, &item))
+                ));
+                self.indent -= 1;
+                self.line("}");
                 Some(t)
             }
             ("join", 0) | ("join", 1) => {
@@ -3849,6 +3966,197 @@ impl CBackend {
                 self.line("}");
                 Some(t)
             }
+            ("all", 1) | ("none", 1) => {
+                use crate::types::FunType;
+                // The walk `any` makes, with the sense the name asks for:
+                // `all` stops at the first element that fails, `none` at the
+                // first that passes, and an empty list answers true to both —
+                // which is what the interpreters answer.
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let l = self.expr(obj);
+                let snap = self.temp();
+                self.line(format!("KealList* {} = keal_list_snapshot({});", snap, l));
+                self.own(&snap, &Type::list(elem_ty.clone()));
+                let f = self.expr(&args[0].value);
+                let ft = FunType {
+                    params: vec![crate::types::ParamType::positional(elem_ty.clone())],
+                    ret: Type::Bool,
+                };
+                let t = self.temp();
+                self.line(format!("bool {} = true;", t));
+                let i = self.temp();
+                self.line(format!(
+                    "for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{",
+                    i = i,
+                    s = snap
+                ));
+                self.indent += 1;
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                let call = self.call_closure(&ft, &f, &[item], e.span)?;
+                let test = if name == "all" { format!("!({})", call) } else { call };
+                self.line(format!("if ({}) {{", test));
+                self.indent += 1;
+                self.line(format!("{} = false;", t));
+                self.line("break;");
+                self.indent -= 1;
+                self.line("}");
+                self.indent -= 1;
+                self.line("}");
+                Some(t)
+            }
+            ("find", 1) => {
+                use crate::types::FunType;
+                // The first element the predicate accepts, or null — and the
+                // scan stops there, so a predicate with an effect runs exactly
+                // as often as it does in the interpreters.
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let l = self.expr(obj);
+                let snap = self.temp();
+                self.line(format!("KealList* {} = keal_list_snapshot({});", snap, l));
+                self.own(&snap, &Type::list(elem_ty.clone()));
+                let f = self.expr(&args[0].value);
+                let ft = FunType {
+                    params: vec![crate::types::ParamType::positional(elem_ty.clone())],
+                    ret: Type::Bool,
+                };
+                let Some(res_ty) = self.ety(e) else { return Some("0".to_string()) };
+                let rc = self.ctype(&res_ty, e.span)?;
+                let inner = res_ty.non_null();
+                let t = self.temp();
+                // Nothing found is `T?`'s absent value: a reference's null
+                // pointer, a value's tagged empty, an `Any`'s null tag.
+                let empty = if res_ty == Type::Any {
+                    "keal_any_null()".to_string()
+                } else {
+                    opt_null(&inner)
+                };
+                self.line(format!("{} {} = {};", rc, t, empty));
+                if Self::counted(&res_ty) {
+                    self.own(&t, &res_ty);
+                }
+                let i = self.temp();
+                self.line(format!(
+                    "for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{",
+                    i = i,
+                    s = snap
+                ));
+                self.indent += 1;
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                let call = self.call_closure(&ft, &f, &[item.clone()], e.span)?;
+                self.line(format!("if ({}) {{", call));
+                self.indent += 1;
+                let hit = opt_wrap(&inner, &Self::retained(&inner, &item));
+                self.line(format!("{} = {};", t, hit));
+                self.line("break;");
+                self.indent -= 1;
+                self.line("}");
+                self.indent -= 1;
+                self.line("}");
+                Some(t)
+            }
+            ("count", 1) => {
+                use crate::types::FunType;
+                // Every element is asked; the answer is how many said yes.
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let l = self.expr(obj);
+                let snap = self.temp();
+                self.line(format!("KealList* {} = keal_list_snapshot({});", snap, l));
+                self.own(&snap, &Type::list(elem_ty.clone()));
+                let f = self.expr(&args[0].value);
+                let ft = FunType {
+                    params: vec![crate::types::ParamType::positional(elem_ty.clone())],
+                    ret: Type::Bool,
+                };
+                let t = self.temp();
+                self.line(format!("int64_t {} = 0;", t));
+                let i = self.temp();
+                self.line(format!(
+                    "for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{",
+                    i = i,
+                    s = snap
+                ));
+                self.indent += 1;
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                let call = self.call_closure(&ft, &f, &[item], e.span)?;
+                self.line(format!("if ({}) {{", call));
+                self.indent += 1;
+                self.line(format!("{}++;", t));
+                self.indent -= 1;
+                self.line("}");
+                self.indent -= 1;
+                self.line("}");
+                Some(t)
+            }
+            ("flatMap", 1) => {
+                use crate::types::FunType;
+                // The transform's own return type decides the shape: a list is
+                // concatenated, anything else is appended as one element. The
+                // interpreters decide that per value; here it is decided once,
+                // from the type — so a transform typed `Any`, whose answer
+                // could be either, is refused rather than guessed.
+                let elem = self.elem_kind(elem_ty, e.span)?;
+                let Some(Type::List(out_ty)) = self.ety(e) else {
+                    return Some("0".to_string());
+                };
+                let out_ty = (*out_ty).clone();
+                let out_elem = self.elem_kind(&out_ty, e.span)?;
+                let Some(Type::Fun(lam)) = self.ety(&args[0].value) else {
+                    return Some("0".to_string());
+                };
+                let ret_ty = lam.ret.clone();
+                if ret_ty == Type::Any {
+                    self.unsupported(
+                        e.span,
+                        "`flatMap` with a transform whose return type is `Any`",
+                    );
+                    return Some("0".to_string());
+                }
+                let l = self.expr(obj);
+                let snap = self.temp();
+                self.line(format!("KealList* {} = keal_list_snapshot({});", snap, l));
+                self.own(&snap, &Type::list(elem_ty.clone()));
+                let thunk = self.releaser_thunk(&out_elem);
+                let f = self.expr(&args[0].value);
+                let out = self.temp();
+                self.line(format!("KealList* {} = keal_list_new({});", out, thunk));
+                self.own(&out, &Type::list(out_ty.clone()));
+
+                let ft = FunType {
+                    params: vec![crate::types::ParamType::positional(elem_ty.clone())],
+                    ret: ret_ty.clone(),
+                };
+                let i = self.temp();
+                self.line(format!(
+                    "for (int64_t {i} = 0; {i} < {s}->len; {i}++) {{",
+                    i = i,
+                    s = snap
+                ));
+                self.indent += 1;
+                self.open_scope();
+                let item = elem.unword(&format!("{}->data[{}]", snap, i));
+                let call = self.call_closure(&ft, &f, &[item], e.span)?;
+                if matches!(ret_ty, Type::List(_)) {
+                    // Each element carried over takes a reference of its own;
+                    // the piece itself dies at the iteration's end.
+                    let piece = self.own_temp_of(&ret_ty, call);
+                    self.line(format!("keal_list_add_all({}, {});", out, piece));
+                } else {
+                    let v = if Self::counted(&ret_ty) {
+                        self.own_temp_of(&ret_ty, call)
+                    } else {
+                        let t = self.temp();
+                        let ct = self.ctype(&ret_ty, e.span)?;
+                        self.line(format!("const {} {} = {};", ct, t, call));
+                        t
+                    };
+                    let stored = Self::retained(&ret_ty, &v);
+                    self.line(format!("keal_list_push({}, {});", out, out_elem.word(&stored)));
+                }
+                self.close_scope();
+                self.indent -= 1;
+                self.line("}");
+                Some(out)
+            }
             ("take", 1) | ("drop", 1) => {
                 let l = self.expr(obj);
                 let n = self.expr(&args[0].value);
@@ -3865,6 +4173,13 @@ impl CBackend {
                 Some(self.own_temp_of(
                     &Type::list(elem_ty.clone()),
                     format!("keal_list_slice({}, {}, {})", l, a, b),
+                ))
+            }
+            ("reversed", 0) => {
+                let l = self.expr(obj);
+                Some(self.own_temp_of(
+                    &Type::list(elem_ty.clone()),
+                    format!("keal_list_reversed({})", l),
                 ))
             }
             ("sorted", 0) => {
@@ -3902,6 +4217,23 @@ impl CBackend {
                 self.indent -= 1;
                 self.line("}");
                 Some(out)
+            }
+            ("sum", 0) => {
+                // `sum` exists only on `List<Int>` and `List<Float>` —
+                // `list_sig` gives no signature for anything else — so
+                // the two shapes here are the whole surface.
+                let l = self.expr(obj);
+                let t = self.temp();
+                if matches!(elem_ty, Type::Float) {
+                    self.line(format!("const double {} = keal_list_sum_f64({});", t, l));
+                } else {
+                    self.line(format!(
+                        "const int64_t {} = keal_list_sum_i64({}, {});",
+                        t, l, e.span.line
+                    ));
+                    self.check_unwind();
+                }
+                Some(t)
             }
             ("sortedBy", 1) => {
                 use crate::types::FunType;
@@ -4404,6 +4736,15 @@ impl CBackend {
         // guarded `?.` machinery is pointer-shaped, so it is refused here.
         if receiver_ty == Some(Type::Any) && safe {
             self.unsupported(e.span, "`?.` on an `Any`");
+            return "0".to_string();
+        }
+        // `?.` on any other built-in receiver. The built-in paths below are
+        // all unguarded: they emit a dereference of the receiver, so a null
+        // one is read rather than answered with null. Refused by name until
+        // they are guarded, because a crash is the one answer a backend must
+        // never give — the interpreters print `null` here.
+        if safe && !matches!(receiver_ty, Some(Type::Class(_, _)) | None) {
+            self.unsupported(e.span, "`?.` on a built-in type");
             return "0".to_string();
         }
         // The map methods the subset covers.

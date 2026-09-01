@@ -3302,7 +3302,7 @@ class CBackend() {
         if (e.kind == "lambda") { return this.lambda(e) }
         if (e.kind == "list") { return this.listLiteral(e) }
         if (e.kind == "map") { return this.mapLiteral(e) }
-        if (e.kind == "index") { return this.indexGet(e) }
+        if (e.kind == "index") { return this.indexGet(e, e.kids[0], e.kids[1]) }
         if (e.kind == "field") { return this.field(e) }
         if (e.kind == "method") { return this.methodCall(e) }
         if (e.kind == "when") { return this.whenExpr(e) }
@@ -4187,6 +4187,52 @@ class CBackend() {
             }
             return "0"
         }
+        if (name == "set" and n == 2) {
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val l = this.expr(obj)
+            val i = this.expr(e.args[0].value)
+            val v = this.coercedTo(e.args[1].value, elemTy)
+            val stored = if (this.catchMode and countedC(elemTy)) {
+                // The set can panic before it takes the reference; owning
+                // it in a temp keeps the unwind path exact, and a clean
+                // call transfers it by NULLing the temp.
+                this.ownTempOf(elemTy, retained(elemTy, v))
+            } else {
+                retained(elemTy, v)
+            }
+            val release = releaseFn(elemTy)
+            if (release != null) {
+                val old = this.temp()
+                this.line("const KealWord ${old} = keal_list_set_at(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+                this.checkUnwind()
+                if (this.catchMode) {
+                    if (elemTy.kind == "Any") {
+                        this.line("${stored} = keal_any_null();")
+                    } else {
+                        this.line("${stored} = NULL;")
+                    }
+                }
+                // A boxed element's displaced word is the box itself.
+                if (elem.kind == "any") {
+                    this.line("keal_any_box_release(${old}.p);")
+                } else {
+                    this.line("${release}(${elemUnword(elem, old)});")
+                }
+            } else {
+                // Nothing to release, so the displaced word is discarded.
+                this.line("(void)keal_list_set_at(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+                this.checkUnwind()
+            }
+            return "0"
+        }
+        if (name == "clear" and n == 0) {
+            // The releaser the list was built with knows what its elements
+            // are; the backend need not say it twice.
+            val l = this.expr(obj)
+            this.line("keal_list_clear(${l});")
+            return "0"
+        }
         if (name == "contains" and n == 1) {
             val elem = this.elemKind(elemTy, e.file, e.line, e.col)
             if (elem == null) { return null }
@@ -4196,6 +4242,53 @@ class CBackend() {
             val v = this.expr(e.args[0].value)
             val t = this.temp()
             this.line("const bool ${t} = keal_list_contains(${l}, ${elemWord(elem, v)}, ${eq});")
+            return t
+        }
+        if (name == "indexOf" and n == 1) {
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val eq = this.elemEqFn(elemTy, e.file, e.line, e.col, "`indexOf` on a list of")
+            if (eq == null) { return null }
+            val l = this.expr(obj)
+            val v = this.expr(e.args[0].value)
+            val t = this.temp()
+            this.line("const int64_t ${t} = keal_list_index_of(${l}, ${elemWord(elem, v)}, ${eq});")
+            return t
+        }
+        if (name == "isEmpty" and n == 0) {
+            val l = this.expr(obj)
+            val t = this.temp()
+            this.line("const bool ${t} = ${l}->len == 0;")
+            return t
+        }
+        // `xs.get(i)` is `xs[i]`, down to the bounds message — the
+        // interpreters route both through the one `indexGet`, so this
+        // routes through the one that emits it.
+        if (name == "get" and n == 1) {
+            return this.indexGet(e, obj, e.args[0].value)
+        }
+        if ((name == "first" or name == "last") and n == 0) {
+            // `T?` over an element the list may not have: an empty list
+            // answers null, exactly as the interpreters do.
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val optTy = tyNullable(elemTy)
+            val ct = this.ctype(optTy, e.file, e.line, e.col)
+            if (ct == null) { return null }
+            val l = this.expr(obj)
+            var empty = optNull(elemTy)
+            if (elemTy.kind == "Any") { empty = "keal_any_null()" }
+            val t = this.temp()
+            this.line("${ct} ${t} = ${empty};")
+            this.own(t, optTy)
+            this.line("if (${l}->len > 0) {")
+            this.indent += 1
+            var at = "0"
+            if (name == "last") { at = "${l}->len - 1" }
+            val item = elemUnword(elem, "${l}->data[${at}]")
+            this.line("${t} = ${optWrap(elemTy, retained(elemTy, item))};")
+            this.indent -= 1
+            this.line("}")
             return t
         }
         if (name == "join" and n <= 1) {
@@ -4258,6 +4351,168 @@ class CBackend() {
             this.line("}")
             return t
         }
+        if ((name == "all" or name == "none") and n == 1) {
+            // The walk `any` makes, with the sense the name asks for:
+            // `all` stops at the first element that fails, `none` at the
+            // first that passes, and an empty list answers true to both —
+            // which is what the interpreters answer.
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val l = this.expr(obj)
+            val snap = this.temp()
+            this.line("KealList* ${snap} = keal_list_snapshot(${l});")
+            this.own(snap, tyList(elemTy))
+            val f = this.expr(e.args[0].value)
+            val ft = tyFunOf([elemTy], Ty("Bool"))
+            val t = this.temp()
+            this.line("bool ${t} = true;")
+            val i = this.temp()
+            this.line("for (int64_t ${i} = 0; ${i} < ${snap}->len; ${i}++) {")
+            this.indent += 1
+            val item = elemUnword(elem, "${snap}->data[${i}]")
+            val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
+            if (call == null) { return null }
+            val test = if (name == "all") { "!(${call})" } else { call }
+            this.line("if (${test}) {")
+            this.indent += 1
+            this.line("${t} = false;")
+            this.line("break;")
+            this.indent -= 1
+            this.line("}")
+            this.indent -= 1
+            this.line("}")
+            return t
+        }
+        if (name == "find" and n == 1) {
+            // The first element the predicate accepts, or null — and the
+            // scan stops there, so a predicate with an effect runs exactly
+            // as often as it does in the interpreters.
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val l = this.expr(obj)
+            val snap = this.temp()
+            this.line("KealList* ${snap} = keal_list_snapshot(${l});")
+            this.own(snap, tyList(elemTy))
+            val f = this.expr(e.args[0].value)
+            val ft = tyFunOf([elemTy], Ty("Bool"))
+            val resTy = this.ety(e)
+            if (resTy == null) { return "0" }
+            val rc = this.ctype(resTy, e.file, e.line, e.col)
+            if (rc == null) { return null }
+            val inner = tyNonNull(resTy)
+            val t = this.temp()
+            // Nothing found is `T?`'s absent value: a reference's null
+            // pointer, a value's tagged empty, an `Any`'s null tag.
+            val empty = if (resTy.kind == "Any") { "keal_any_null()" } else { optNull(inner) }
+            this.line("${rc} ${t} = ${empty};")
+            if (countedC(resTy)) { this.own(t, resTy) }
+            val i = this.temp()
+            this.line("for (int64_t ${i} = 0; ${i} < ${snap}->len; ${i}++) {")
+            this.indent += 1
+            val item = elemUnword(elem, "${snap}->data[${i}]")
+            val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
+            if (call == null) { return null }
+            this.line("if (${call}) {")
+            this.indent += 1
+            this.line("${t} = ${optWrap(inner, retained(inner, item))};")
+            this.line("break;")
+            this.indent -= 1
+            this.line("}")
+            this.indent -= 1
+            this.line("}")
+            return t
+        }
+        if (name == "count" and n == 1) {
+            // Every element is asked; the answer is how many said yes.
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val l = this.expr(obj)
+            val snap = this.temp()
+            this.line("KealList* ${snap} = keal_list_snapshot(${l});")
+            this.own(snap, tyList(elemTy))
+            val f = this.expr(e.args[0].value)
+            val ft = tyFunOf([elemTy], Ty("Bool"))
+            val t = this.temp()
+            this.line("int64_t ${t} = 0;")
+            val i = this.temp()
+            this.line("for (int64_t ${i} = 0; ${i} < ${snap}->len; ${i}++) {")
+            this.indent += 1
+            val item = elemUnword(elem, "${snap}->data[${i}]")
+            val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
+            if (call == null) { return null }
+            this.line("if (${call}) {")
+            this.indent += 1
+            this.line("${t}++;")
+            this.indent -= 1
+            this.line("}")
+            this.indent -= 1
+            this.line("}")
+            return t
+        }
+        if (name == "flatMap" and n == 1) {
+            // The transform's own return type decides the shape: a list is
+            // concatenated, anything else is appended as one element. The
+            // interpreters decide that per value; here it is decided once,
+            // from the type — so a transform typed `Any`, whose answer
+            // could be either, is refused rather than guessed.
+            val elem = this.elemKind(elemTy, e.file, e.line, e.col)
+            if (elem == null) { return null }
+            val rty = this.ety(e)
+            if (rty == null or rty.kind != "List") { return "0" }
+            val outTy = rty.args[0]
+            val outElem = this.elemKind(outTy, e.file, e.line, e.col)
+            if (outElem == null) { return null }
+            val lam = this.ety(e.args[0].value)
+            if (lam == null or lam.kind != "Fun") { return "0" }
+            val retTy = lam.ret!!
+            if (retTy.kind == "Any") {
+                this.unsupported(
+                    e.file, e.line, e.col,
+                    "`flatMap` with a transform whose return type is `Any`"
+                )
+                return "0"
+            }
+            val l = this.expr(obj)
+            val snap = this.temp()
+            this.line("KealList* ${snap} = keal_list_snapshot(${l});")
+            this.own(snap, tyList(elemTy))
+            val thunk = this.releaserThunk(outElem)
+            val f = this.expr(e.args[0].value)
+            val out = this.temp()
+            this.line("KealList* ${out} = keal_list_new(${thunk});")
+            this.own(out, tyList(outTy))
+
+            val ft = tyFunOf([elemTy], retTy)
+            val i = this.temp()
+            this.line("for (int64_t ${i} = 0; ${i} < ${snap}->len; ${i}++) {")
+            this.indent += 1
+            this.openScope()
+            val item = elemUnword(elem, "${snap}->data[${i}]")
+            val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
+            if (call == null) { return null }
+            if (retTy.kind == "List") {
+                // Each element carried over takes a reference of its own;
+                // the piece itself dies at the iteration's end.
+                val piece = this.ownTempOf(retTy, call)
+                this.line("keal_list_add_all(${out}, ${piece});")
+            } else {
+                val v = if (countedC(retTy)) {
+                    this.ownTempOf(retTy, call)
+                } else {
+                    val t = this.temp()
+                    val ct = this.ctype(retTy, e.file, e.line, e.col)
+                    if (ct == null) { return null }
+                    this.line("const ${ct} ${t} = ${call};")
+                    t
+                }
+                val stored = retained(retTy, v)
+                this.line("keal_list_push(${out}, ${elemWord(outElem, stored)});")
+            }
+            this.closeScope()
+            this.indent -= 1
+            this.line("}")
+            return out
+        }
         if ((name == "take" or name == "drop") and n == 1) {
             val l = this.expr(obj)
             val cnt = this.expr(e.args[0].value)
@@ -4269,6 +4524,10 @@ class CBackend() {
             val a = this.expr(e.args[0].value)
             val b = this.expr(e.args[1].value)
             return this.ownTempOf(tyList(elemTy), "keal_list_slice(${l}, ${a}, ${b})")
+        }
+        if (name == "reversed" and n == 0) {
+            val l = this.expr(obj)
+            return this.ownTempOf(tyList(elemTy), "keal_list_reversed(${l})")
         }
         if (name == "sorted" and n == 0) {
             var cmp = ""
@@ -4300,6 +4559,20 @@ class CBackend() {
             this.indent -= 1
             this.line("}")
             return out
+        }
+        if (name == "sum" and n == 0) {
+            // `sum` exists only on `List<Int>` and `List<Float>` —
+            // `listSig` gives no signature for anything else — so the
+            // two shapes here are the whole surface.
+            val l = this.expr(obj)
+            val t = this.temp()
+            if (elemTy.kind == "Float") {
+                this.line("const double ${t} = keal_list_sum_f64(${l});")
+            } else {
+                this.line("const int64_t ${t} = keal_list_sum_i64(${l}, ${e.line});")
+                this.checkUnwind()
+            }
+            return t
         }
         if (name == "sortedBy" and n == 1) {
             // The key's type is whatever the lambda actually returns; only
@@ -4455,9 +4728,7 @@ class CBackend() {
         return t
     }
 
-    func indexGet(e: Ex): String {
-        val obj = e.kids[0]
-        val index = e.kids[1]
+    func indexGet(e: Ex, obj: Ex, index: Ex): String {
         val ot = this.ety(obj)
         if (ot != null and ot.kind == "Map") {
             return this.mapGet(e, obj, index, null)
@@ -4766,6 +5037,15 @@ class CBackend() {
         // guarded `?.` machinery is pointer-shaped, so it is refused here.
         if (receiverTy != null and receiverTy.kind == "Any" and safe) {
             this.unsupported(e.file, e.line, e.col, "`?.` on an `Any`")
+            return "0"
+        }
+        // `?.` on any other built-in receiver. The built-in paths below are
+        // all unguarded: they emit a dereference of the receiver, so a null
+        // one is read rather than answered with null. Refused by name until
+        // they are guarded, because a crash is the one answer a backend must
+        // never give — the interpreters print `null` here.
+        if (safe and receiverTy != null and receiverTy.kind != "Class") {
+            this.unsupported(e.file, e.line, e.col, "`?.` on a built-in type")
             return "0"
         }
         // The map methods the subset covers.

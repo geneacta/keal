@@ -1,0 +1,24 @@
+// `?.` on a built-in receiver: refused by name rather than compiled.
+//
+// It used to compile, and the compiled program segfaulted. The built-in
+// method paths all dereference the receiver, and `safe` only ever stripped
+// the `?` from the receiver's TYPE — so a null list reached a `->len` and
+// the process died where the interpreters print `null`.
+//
+// A crash is the one answer a backend must never give. Until these paths
+// are guarded, this is a refusal, which is what the rest of the backend
+// does with everything it has not learned.
+val xs: List<String>? = null
+println(xs?.contains("a"))
+
+val m: Map<String, Int>? = null
+println(m?.containsKey("a"))
+
+// The PROPERTY path was never broken: these three compile and answer null on
+// all three engines. They are here to mark the boundary — the hole was in the
+// method path alone, and a test that did not say so would leave the next
+// reader guessing how wide it was.
+println(xs?.size)
+println(m?.size)
+val s: String? = null
+println(s?.length)

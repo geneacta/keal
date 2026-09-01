@@ -14,6 +14,7 @@ use crate::runtime::{
     self, err, err_note, index_get, index_set, Flow, R, RtError, Runtime,
 };
 use crate::span::{Diag, Span};
+use crate::types::Type;
 use crate::value::*;
 
 /// How many nested Keal calls are allowed before we report runaway recursion.
@@ -523,7 +524,7 @@ impl Interp {
                 if *safe && matches!(target, Value::Null) {
                     return Ok(Value::Null);
                 }
-                self.invoke_method(target, name, args, env, span)
+                self.invoke_method(target, sum_name(name, obj), args, env, span)
             }
 
             ExprKind::Call { callee, args } => self.eval_call(callee, args, env, span),
@@ -1102,5 +1103,23 @@ fn checked(v: Option<i64>, span: Span, op: &str) -> R<i64> {
         // reference implementation must say exactly what they say —
         // the differential fuzzer found the three disagreeing here.
         None => err(span, "integer overflow"),
+    }
+}
+
+/// `sum` on a list the checker typed `List<Float>` dispatches as `sumFloat`.
+///
+/// An empty list is vacuously all-`Int`, so `sum` alone would answer `Int(0)`
+/// for a `List<Float>` — and `xs.sum() + 1.0` would then fail at run time in a
+/// program the checker accepted, which is a type hole rather than a rounding
+/// question. The receiver's static type is the only place the answer exists,
+/// and both engines have it at the call. The tree is not rewritten: the name
+/// is chosen here, so nothing downstream ever sees it.
+pub fn sum_name<'a>(name: &'a str, obj: &Expr) -> &'a str {
+    if name != "sum" {
+        return name;
+    }
+    match obj.ty() {
+        Some(Type::List(elem)) if **elem == Type::Float => "sumFloat",
+        _ => name,
     }
 }

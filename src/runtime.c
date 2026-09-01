@@ -1019,6 +1019,41 @@ KEAL_FN void keal_list_insert_at(KealList* l, int64_t i, KealWord w, int64_t lin
     l->data[i] = w;
 }
 
+/* `xs.set(i, v)` — the method, not the indexing form. It counts a negative
+ * index from the end like everything else, but its out-of-range message is
+ * the method's own: the shorter one `removeAt` gives, not the "element(s)"
+ * one `keal_list_index` gives for `xs[i]`. The interpreters draw the same
+ * line, so the runtime does too. The displaced element is handed back to
+ * the caller, which knows its type and releases it. */
+KEAL_FN KealWord keal_list_set_at(KealList* l, int64_t i, KealWord w, int64_t line) {
+    int64_t idx = i < 0 ? i + l->len : i;
+    if (idx < 0 || idx >= l->len) {
+        char msg[96];
+        snprintf(msg, sizeof msg,
+                 "index %" PRId64 " is out of bounds for a list of %" PRId64, i, l->len);
+        keal_panic(msg, line);
+        KealWord none = {0};
+        return none;
+    }
+    KealWord old = l->data[idx];
+    l->data[idx] = w;
+    return old;
+}
+
+/* `xs.clear()` — every element let go, front to back, by the releaser fixed
+ * at construction, exactly as the list's own death lets them go. The buffer
+ * is kept: capacity is not something a program can observe. Nothing user
+ * code wrote can run inside the loop, because a `deinit` is queued rather
+ * than called from a release. */
+KEAL_FN void keal_list_clear(KealList* l) {
+    if (l->release_elem != NULL) {
+        for (int64_t i = 0; i < l->len; i++) {
+            l->release_elem(l->data[i].p);
+        }
+    }
+    l->len = 0;
+}
+
 /* Every counted object leads with its count — the memory model's promise —
  * so one raw bump serves whatever a pointer element points at. */
 KEAL_FN void keal_word_retain_raw(void* p) {
@@ -1081,6 +1116,20 @@ KEAL_FN KealList* keal_list_drop(KealList* l, int64_t n) {
     return out;
 }
 
+/* `xs.reversed()` — a new list, back to front, the receiver untouched;
+ * each element carried over gets a reference of its own, the same way
+ * `take` and `drop` take theirs. */
+KEAL_FN KealList* keal_list_reversed(KealList* l) {
+    KealList* out = keal_list_new(l->release_elem);
+    for (int64_t i = l->len - 1; i >= 0; i--) {
+        if (out->release_elem != NULL) {
+            keal_word_retain_raw(l->data[i].p);
+        }
+        keal_list_push(out, l->data[i]);
+    }
+    return out;
+}
+
 KEAL_FN int keal_cmp_i64(KealWord a, KealWord b) {
     return a.i < b.i ? -1 : (a.i > b.i ? 1 : 0);
 }
@@ -1124,6 +1173,18 @@ KEAL_FN bool keal_list_contains(KealList* l, KealWord w, bool (*eq)(KealWord, Ke
     return false;
 }
 
+/* `xs.indexOf(v)` — the first index whose element compares equal, and -1
+ * when none does, which is the answer both interpreters give. The same
+ * equality `contains` scans with, so the two never disagree. */
+KEAL_FN int64_t keal_list_index_of(KealList* l, KealWord w, bool (*eq)(KealWord, KealWord)) {
+    for (int64_t i = 0; i < l->len; i++) {
+        if (eq(l->data[i], w)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 /* Structural equality, as the interpreters compare lists: same length,
  * elements equal pairwise. Null equals only null. */
 KEAL_FN bool keal_list_eq(KealList* a, KealList* b, bool (*eq)(KealWord, KealWord)) {
@@ -1160,6 +1221,34 @@ KEAL_FN void keal_list_sort_by_i64(KealList* items, KealList* keys) {
         items->data[j + 1] = it;
         keys->data[j + 1] = k;
     }
+}
+
+/* `xs.sum()` over Ints, checked: the language refuses to wrap, so a total
+ * that will not fit fails here rather than quietly turning negative — and
+ * with the interpreters' wording, so a `catch` reads the same message on
+ * all three engines. */
+KEAL_FN int64_t keal_list_sum_i64(KealList* l, int64_t line) {
+    int64_t total = 0;
+    for (int64_t i = 0; i < l->len; i++) {
+        int64_t r;
+        if (__builtin_add_overflow(total, l->data[i].i, &r)) {
+            keal_panic("integer overflow in `sum`", line);
+            return 0;
+        }
+        total = r;
+    }
+    return total;
+}
+
+/* And over Floats, which cannot overflow: a running total added front to
+ * back, so the rounding is the interpreters' rounding, element for
+ * element. */
+KEAL_FN double keal_list_sum_f64(KealList* l) {
+    double total = 0.0;
+    for (int64_t i = 0; i < l->len; i++) {
+        total += l->data[i].d;
+    }
+    return total;
 }
 
 /* ---- maps ------------------------------------------------------------- */
