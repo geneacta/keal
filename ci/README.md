@@ -18,11 +18,22 @@ web UI takes a moment and needs no such token.
 
 | file | what it does | installed? |
 |---|---|---|
+| `check.yml` | Runs the suite and the bootstrap on **Linux** on every push to `main` and every pull request | **no — paste it** |
 | `pages.yml` | Publishes `site/` to GitHub Pages on every push that touches it | yes |
 | `release.yml` | On a `v*` tag: builds the compiler for macOS (arm64, x86_64) and Linux, runs the suite and the bootstrap on each, and opens a **draft** release with the binaries attached | yes |
 
 `pages.yml` also needs the repository setting **Settings → Pages →
 Source: GitHub Actions**, once.
+
+`check.yml` is the one that is missing, and it is worth pasting before
+anything else here. Until it exists, the suite runs on Linux only when a
+version tag is pushed — so a change that breaks Linux is not found by the
+build that broke it but by a release, days later, with twelve tests failing
+at once. That is what happened on 2026-09-01: `-std=c11` makes glibc
+withhold the POSIX half of `<time.h>`, Apple's headers declare it anyway,
+and `keal build` had been broken on Linux for a day. Linux is the right leg
+to run per push because it is the one nobody develops on, and the strictest
+of the three about what a header declares.
 
 Nothing else about the project depends on these files: `cargo test
 --release` and `./bootstrap.sh` are the same commands the workflows run,

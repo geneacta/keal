@@ -1,0 +1,43 @@
+# Runs the suite on Linux on every push. Nothing else does.
+#
+# Why Linux, and why this file exists at all: the four-platform suite runs
+# only when a version tag is pushed, so between releases the only machines
+# that ever ran it were the ones a person happened to be sitting at. On
+# 2026-09-01 that turned out to mean `keal build` had been broken on Linux
+# for a whole day — `-std=c11` makes glibc withhold the POSIX half of
+# <time.h>, Apple's headers declare it anyway, and the release was the first
+# thing to ask Linux anything. Twelve tests failed at once on a tag.
+#
+# Linux is the leg to run per push because it is the one nobody develops on:
+# macOS and Windows each have a person. It is also the strictest of the
+# three about what a C header declares, which is exactly the failure it
+# just caught.
+name: check
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      # Says which toolchains this runner has, so a skipped test below reads
+      # as a fact about the machine rather than a mystery.
+      - name: What this machine has
+        run: ./target/release/keal doctor || true
+
+      # The same criterion as a release: three engines agreeing, the
+      # self-hosted twins byte-identical, every corpus program compiled by
+      # the C backend and compared against the interpreters.
+      - name: Test
+        run: cargo test --release
+
+      - name: Bootstrap to its fixed point
+        run: ./bootstrap.sh
