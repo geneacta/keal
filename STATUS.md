@@ -4,6 +4,42 @@
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
+## Working with a second machine (2026-08-31 / 09-01)
+
+A second Claude session on Tony's Windows box ran alongside this one for two
+days, reachable with `SendMessage`. It is worth recording HOW that worked,
+because the shape did the work rather than either side.
+
+It ran things; this session read the emitter and fixed them. Neither half
+would have produced the result alone. Fourteen Windows defects and twelve
+Linux ones surfaced because somebody asked a platform a question; the causes
+— a poisoned name cache, a capture analysis where a global outranked the
+local shadowing it, `return this` handing back a reference it never took,
+`_localtime64_s`, a feature-test macro — were found by reading the emitter
+with a symptom in hand. A measurement without that is a complaint; a reading
+without the measurement never starts.
+
+Three habits from the other side are worth copying, and they are all about
+subtraction:
+
+* It threw out its own results when they proved nothing — a swapped-argument
+  test that was undefined behaviour and happened to return 0, an unexplained
+  exit code it refused to invent a cause for, and a finding it retracted
+  after measuring that a fix it had itself asked for was behaviour-neutral.
+  Its own framing is the right one: a report is worth what its worst item is
+  worth, and an unflagged guess sits next to twenty facts with nothing to
+  tell them apart later.
+* It answered questions by construction where a run would have measured
+  nothing — two ABIs emitting byte-identical C, so running the second set
+  would have said nothing about the backend.
+* It said which machine a measurement came from. Every Windows result for
+  two days came from a box it had equipped by hand, which is a different
+  claim from "works on Windows", and it named that about its own evidence at
+  the point that evidence was strongest.
+
+What made all of that cheap was the setup, not virtue: one machine, one
+command, seconds to re-derive. That is the thing to defend.
+
 ## The iron rules (never break these)
 
 1. **Author**: commits are authored `Tony Renard <contact@geneacta.com>`
