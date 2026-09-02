@@ -1425,7 +1425,14 @@ fn native_agrees_with_the_interpreters() {
 /// flag that rejects nothing lets everything through.
 const FAULTS: [(&str, &str); 5] = [
     ("comment", "/* a /* b */\nint main(void){return 0;}\n"),
-    ("parentheses", "int main(void){int a=1,b=1; if ((a==b)) return 1; return 0;}\n"),
+    // An assignment used as a condition, which GCC and clang both reject
+    // under this name. The doubled-equality form `if ((a==b))` was the
+    // original probe and was a compiler assumption: it is clang's
+    // `-Wparentheses-equality`, and GCC accepts the name, says nothing, and
+    // exits 0 — so on GCC the check proved a flag that was not looking at
+    // anything. The two compilers put opposite mistakes under one flag name;
+    // this is the one they agree on.
+    ("parentheses", "int main(void){int a=1,b=2; if (a=b) return 1; return 0;}\n"),
     (
         "incompatible-pointer-types",
         "void f(char* p); int main(void){ f((int*)0); return 0; }\n",
@@ -1460,6 +1467,14 @@ const FAULTS: [(&str, &str); 5] = [
 /// those classes — "call to undeclared function `K_App_m_build`" and
 /// "incompatible integer to pointer conversion" — and built the same barrier
 /// on their side before suggesting it here.
+///
+/// What each name covers is not identical across compilers, and `parentheses`
+/// is the one where it matters: clang's catches the doubled `if ((a == b))`
+/// this emitter twice produced, and GCC's does not catch it at all. So the
+/// flag is a second net, finer on clang than on GCC, and the thing that
+/// actually guarantees the emitter no longer writes that shape is `open_if` —
+/// one place, structural, the same on every platform. A barrier whose reach
+/// varies by toolchain is worth having and worth not relying on.
 #[test]
 fn the_generated_c_compiles_without_warnings() {
     let cc = c_driver();
@@ -1625,7 +1640,27 @@ fn actors_are_clean_under_thread_sanitizer() {
             "the thread sanitizer reported a race:\n{}",
             stderr
         );
-        assert!(out.status.success(), "the sanitized binary failed:\n{}", stderr);
+        // How it failed, not that it did. A process killed by a signal
+        // writes nothing, so echoing its stderr reports a colon and an empty
+        // line — and the exit status, which is the whole story, goes unsaid.
+        // On Linux aarch64 this test dies with 132, and the reader had to
+        // work out that 132 is 128 + SIGILL before they could start.
+        assert!(
+            out.status.success(),
+            "the sanitized binary failed: {status}.\n  it said: {said}",
+            status = match out.status.code() {
+                Some(c) if c > 128 => format!("exit {} — killed by signal {}", c, c - 128),
+                Some(c) => format!("exit {}", c),
+                None => "killed by a signal".to_string(),
+            },
+            said = if stderr.trim().is_empty() {
+                "nothing at all, so this is not a race the sanitizer found — \
+                 the process died before it could report one"
+                    .to_string()
+            } else {
+                format!("\n{}", stderr)
+            }
+        );
         assert_eq!(
             String::from_utf8_lossy(&out.stdout),
             "total 1117\n",
