@@ -36,6 +36,30 @@ usable. The consumer proposed the names and the truncation rule and was right
 about both; what it left to this side — how the operators rank — is where the
 work was.
 
+**Three defects of one family, in two days, each found by rereading one's
+own rule in somebody else's file.** They are worth listing together because
+they are rungs of the same ladder, and each was invisible from inside the
+project that had it:
+
+1. Nothing consumes the output. A snapshot nobody reads back.
+2. Something consumes it and attests nothing — it checked that the audit had
+   *spoken*, not what it said. `tests/audit/closure-cycle.keal` had this on
+   the day it was written, here.
+3. Something consumes the content and the content is a negative. A check
+   that no warning came back, or that nothing outlived the program, passes
+   the instant the instrument stops working. So: **a test that only ever
+   verifies the absence of a thing needs something that verifies it can
+   still find one.** `the_generated_c_compiles_without_warnings` now gives
+   each `-Werror` name a fault of its own and requires it to be rejected,
+   and the flags the corpus is compiled under are exactly the ones proven —
+   not a second list that could drift from the first.
+
+Rung 3 is the kealeb session's sentence. Rung 2 was found here after reading
+its rung 1. None of the three was found by the person who wrote the test.
+That is the part worth keeping: a rule about tests verifies better in pairs,
+not because two sessions are cleverer, but because nobody rereads their own
+test with the eyes they bring to someone else's.
+
 **The lesson to carry:** a refusal is a claim about the language, and a
 backend that refuses in the words of its own internals is making a claim it
 has not checked. Two of the three defects were invisible to the whole suite

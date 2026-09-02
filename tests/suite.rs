@@ -1418,6 +1418,20 @@ fn native_agrees_with_the_interpreters() {
     }
 }
 
+/// One fault per `-Werror` name the check below relies on: the smallest C
+/// that commits exactly that mistake. Their only job is to be rejected — a
+/// flag that rejects nothing lets everything through.
+const FAULTS: [(&str, &str); 5] = [
+    ("comment", "/* a /* b */\nint main(void){return 0;}\n"),
+    ("parentheses", "int main(void){int a=1,b=1; if ((a==b)) return 1; return 0;}\n"),
+    (
+        "incompatible-pointer-types",
+        "void f(char* p); int main(void){ f((int*)0); return 0; }\n",
+    ),
+    ("implicit-function-declaration", "int main(void){ return nowhere_declared(); }\n"),
+    ("int-conversion", "int main(void){ char* p = 5; (void)p; return 0; }\n"),
+];
+
 /// The generated C must compile *quietly*, not merely compile.
 ///
 /// A warning is what the C compiler says when it can build the file and
@@ -1456,6 +1470,53 @@ fn the_generated_c_compiles_without_warnings() {
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
     let csrc = dir.join("out.c");
 
+    // First, that the instrument works.
+    //
+    // Everything below asserts an ABSENCE — that no warning came back — and
+    // a check of that shape passes the moment the thing doing the checking
+    // stops working. `cc` accepts an unknown `-Werror=` name with a warning
+    // and exit 0, so a misspelling, a dropped flag, or a compiler that never
+    // had one of these would leave this test green while it verified
+    // nothing. So each name is given a fault of its own and must reject it.
+    // A name this compiler does not know is a check that cannot run, and
+    // says so, rather than one that quietly passes.
+    let mut proven: Vec<&str> = Vec::new();
+    for (name, fault) in FAULTS {
+        let fsrc = dir.join(format!("fault-{}.c", name));
+        std::fs::write(&fsrc, fault).expect("cannot write the fault");
+        let out = Command::new(&cc)
+            .args(["-std=c11", "-fsyntax-only", &format!("-Werror={}", name)])
+            .arg(&fsrc)
+            .output()
+            .expect("cannot run the C compiler");
+        let said = String::from_utf8_lossy(&out.stderr).into_owned();
+        if said.contains("unknown warning option") || said.contains("no option") {
+            // Says so out loud: a name this compiler lacks and a name
+            // misspelled here look identical from the outside, and a silent
+            // skip is how the second one would survive.
+            println!("skipping -Werror={}: this compiler does not have it", name);
+            continue;
+        }
+        assert!(
+            !out.status.success() && said.contains(name),
+            "-Werror={} did not reject the fault written for it, so the \
+             absence it asserts below means nothing:\n{}",
+            name,
+            said
+        );
+        proven.push(name);
+    }
+    assert!(
+        !proven.is_empty(),
+        "no `-Werror` name this compiler has was proven to bite, so the rest \
+         of this test asserts an absence nothing is looking for"
+    );
+
+    // The flags the corpus is compiled under are exactly the ones just
+    // proven, and not a second list that could drift from this one.
+    let mut flags: Vec<String> = vec!["-std=c11".to_string(), "-fsyntax-only".to_string()];
+    flags.extend(proven.iter().map(|n| format!("-Werror={}", n)));
+
     // Every program the native corpus has, not just the one written for
     // this: a warning names a shape, and the shape can arrive from anywhere.
     for file in keal_files("tests/native") {
@@ -1465,15 +1526,7 @@ fn the_generated_c_compiles_without_warnings() {
         std::fs::write(&csrc, &emitted.stdout).expect("cannot write the generated C");
 
         let built = Command::new(&cc)
-            .args([
-                "-std=c11",
-                "-fsyntax-only",
-                "-Werror=comment",
-                "-Werror=parentheses",
-                "-Werror=incompatible-pointer-types",
-                "-Werror=implicit-function-declaration",
-                "-Werror=int-conversion",
-            ])
+            .args(&flags)
             .arg(&csrc)
             .output()
             .expect("cannot run the C compiler");
