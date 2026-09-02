@@ -1622,12 +1622,41 @@ fn the_generated_c_compiles_without_warnings() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Fifteen lines with a condition variable in them, which the sanitizer must
+/// survive before anything it says about a real program can be believed.
+///
+/// This is the `-Werror` self-check again, one floor down: prove the
+/// instrument works, then trust its measurement. On Ubuntu 26.04 aarch64
+/// this program dies with SIGILL thirty times out of thirty under
+/// ThreadSanitizer — a BTI landing-pad fault in glibc's `__sigsetjmp`,
+/// reached from TSan's own `pthread_cond_wait` interceptor. Both libraries
+/// are built with branch protection by the distribution, so no flag we pass
+/// to `cc` touches either one. It is clean on macOS ARM, so it is the
+/// GNU/Linux toolchain and not the ISA.
+const TSAN_PROBE: &str = "\
+#include <pthread.h>\n\
+#include <stdio.h>\n\
+static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;\n\
+static pthread_cond_t cv = PTHREAD_COND_INITIALIZER;\n\
+static int ready;\n\
+static void *worker(void *p){ (void)p;\n\
+  pthread_mutex_lock(&mu);\n\
+  while(!ready) pthread_cond_wait(&cv, &mu);\n\
+  pthread_mutex_unlock(&mu); return 0; }\n\
+int main(void){ pthread_t t[6];\n\
+  for(int i=0;i<6;i++) pthread_create(&t[i],0,worker,0);\n\
+  pthread_mutex_lock(&mu); ready=1; pthread_cond_broadcast(&cv);\n\
+  pthread_mutex_unlock(&mu);\n\
+  for(int i=0;i<6;i++) pthread_join(t[i],0);\n\
+  printf(\"done\\n\"); return 0; }\n";
+
 /// The threaded scheduler under ThreadSanitizer: the mesh program — eight
 /// actors fanning echoes at each other while posting into one outbox —
 /// builds with `-fsanitize=thread` and must come back clean, five runs in
-/// a row. Skipped when no C compiler is installed, and when this compiler
-/// cannot link the sanitizer runtime, so the suite stays green on machines
-/// that cannot run the check rather than pretending they did.
+/// a row. Skipped when no C compiler is installed, when this compiler
+/// cannot link the sanitizer runtime, and when the sanitizer's own runtime
+/// cannot survive a condition variable — so the suite stays green on
+/// machines that cannot run the check rather than pretending they did.
 #[test]
 fn actors_are_clean_under_thread_sanitizer() {
     let cc = c_driver();
@@ -1635,6 +1664,46 @@ fn actors_are_clean_under_thread_sanitizer() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
     }
+    // Calibrate before measuring. The old guard asked only whether `cc`
+    // could LINK the sanitizer, which is not the same question as whether
+    // the sanitizer runs — and on a platform where it cannot, the verdict
+    // below is about the toolchain while reading like a verdict about Keal.
+    {
+        let probe_dir = std::env::temp_dir().join("keal-tsan-probe");
+        let _ = std::fs::remove_dir_all(&probe_dir);
+        std::fs::create_dir_all(&probe_dir).expect("cannot make a build directory");
+        let src = probe_dir.join("probe.c");
+        let bin = probe_dir.join("probe");
+        std::fs::write(&src, TSAN_PROBE).expect("cannot write the probe");
+        let built = Command::new(&cc)
+            .args(["-O2", "-std=c11", "-pthread", "-fsanitize=thread", "-o"])
+            .arg(&bin)
+            .arg(&src)
+            .output()
+            .expect("cannot run the C compiler");
+        if built.status.success() {
+            // Five runs, because the failure it looks for is not
+            // deterministic: one clean run proves nothing about a crash that
+            // happens six times in ten.
+            for _ in 0..5 {
+                let run = Command::new(&bin).output().expect("cannot run the probe");
+                if !run.status.success() {
+                    println!(
+                        "skipping: ThreadSanitizer cannot survive a condition \
+                         variable on this machine — fifteen lines of plain \
+                         pthread code, no Keal in them, came back {status}. \
+                         Whatever it would say about the actor mesh would be \
+                         about the toolchain, not about the program.",
+                        status = run.status
+                    );
+                    let _ = std::fs::remove_dir_all(&probe_dir);
+                    return;
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(&probe_dir);
+    }
+
     let path = "tests/native/actor-mesh.keal";
     let emitted = keal(&["emit-c", path]);
     assert!(emitted.success, "{} did not emit C:\n{}", path, emitted.stderr);

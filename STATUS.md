@@ -138,6 +138,52 @@ subtraction:
 What made all of that cheap was the setup, not virtue: one machine, one
 command, seconds to re-derive. That is the thing to defend.
 
+## Linux aarch64, and a crash that was not ours (2026-09-02)
+
+A third session, on an Ubuntu 26.04 aarch64 VM, ran the suite on the
+platform `release.yml` has no leg for. **Keal is attested there**: bootstrap
+green, fixed point reproduced, the four dumps byte-identical, `format_float`
+and the shift helpers agreeing with the oracle, valgrind clean on the actor
+mesh, and — once a JDK was installed — the JNI interop passing too.
+
+Two of its findings were defects in this repository's tests, and both were
+of one kind: **written on one machine, asserted about all of them.**
+
+* `-Werror=parentheses` proved nothing under GCC. The fault written for it,
+  `if ((a == b))`, is clang's `-Wparentheses-equality`; GCC accepts the flag
+  name, says nothing, exits 0. The self-check that exists to catch a flag
+  that has stopped biting was itself a compiler assumption. The probe is now
+  an assignment used as a condition, which both reject — they file opposite
+  mistakes under one flag name.
+* `java_home` read `JAVA_HOME`, then `/usr/libexec/java_home`, which is
+  macOS's. On Linux there was no third answer, so every Linux machine that
+  ever ran this suite skipped four interop tests while printing `ok`.
+
+The third finding was not ours at all, and the way it was reached is worth
+keeping. An actor program died with SIGILL under ThreadSanitizer, six times
+in ten, never under `gdb`. It is a BTI landing-pad fault in glibc's
+`__sigsetjmp`, reached from TSan's own `pthread_cond_wait` interceptor —
+fifteen lines of plain pthread code reproduce it with no Keal in them, and
+removing `PROT_BTI` from either library at run time makes it go away. Both
+libraries are built with branch protection by the distribution, so nothing
+passed to `cc` touches them: the first hypothesis, that Keal's cast function
+pointers were BTI-hostile, was refuted on a measurement that could not have
+shown it either way. The same program is clean thirty times out of thirty on
+macOS ARM, where the instrument was calibrated in both directions — the
+sanitizer's symbols are in the binary, and it still finds a real race. So
+the ISA is not the cause; the GNU/Linux toolchain is.
+
+What that changed here is the guard. It asked whether `cc` could *link* the
+sanitizer, which is not whether the sanitizer *runs*; on a platform where it
+cannot, the verdict is about the toolchain and reads like a verdict about
+Keal. It now runs those fifteen lines first, five times, and skips with the
+reason if they die. Prove the instrument, then trust the measurement — the
+same rule as the `-Werror` faults, one floor down.
+
+**Two machines separate the ISA from the OS.** That is the whole value of
+the arrangement, and it is what turned "SIGILL on ARM" into "not ARM, and
+not ours".
+
 ## The iron rules (never break these)
 
 1. **Author**: commits are authored `Tony Renard <contact@geneacta.com>`
