@@ -180,6 +180,15 @@ Keal. It now runs those fifteen lines first, five times, and skips with the
 reason if they die. Prove the instrument, then trust the measurement — the
 same rule as the `-Werror` faults, one floor down.
 
+And the guard was calibrated in both directions, which is the half that is
+easy to skip: a guard that always skips and a guard that decides correctly
+look identical on a machine where the tool is broken. With `PROT_BTI`
+removed from the two libraries at run time — a working sanitizer on the same
+machine — **the guard does not skip, the test runs, and it passes.** So the
+mesh being sound is no longer an inference from manual runs and valgrind: it
+is this test saying so, on the platform where it had been red. The suite is
+46 of 46 there, with nothing standing down that has not been named.
+
 **Two machines separate the ISA from the OS.** That is the whole value of
 the arrangement, and it is what turned "SIGILL on ARM" into "not ARM, and
 not ours".
