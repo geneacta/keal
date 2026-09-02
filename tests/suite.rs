@@ -360,6 +360,30 @@ fn the_audit_names_what_outlived_the_program() {
         }
         assert_eq!(reports[0], reports[1], "the engines disagree about {}", path);
         assert!(reports[0].contains("audit:"), "no audit for {}", path);
+        // That the audit spoke is not that it said the right thing. This one
+        // exists to tell two `Holder`s apart — the closure that captured
+        // `this` and the one that read the field into a local first — so the
+        // assertion has to name the answer, not the fact of an answer. A
+        // check that passes whatever the audit concludes is green forever
+        // and attests nothing.
+        if path == "tests/audit/closure-cycle.keal" {
+            assert!(
+                reports[0].contains("1 object(s) outlived the program")
+                    && reports[0].contains("— a cycle"),
+                "the closure that captured `this` is a cycle and the audit \
+                 must say so:\n{}",
+                reports[0]
+            );
+            // One, not two: the other holder does the same work and reads
+            // the field into a local first, so its closure holds an `Int`
+            // and it dies on schedule. If that ever stops being true this
+            // says `2 Holder`, which is the whole point of the pair.
+            assert!(
+                reports[0].contains("1 Holder") && !reports[0].contains("2 Holder"),
+                "exactly one of the two holders is a cycle:\n{}",
+                reports[0]
+            );
+        }
     }
 
     let path = "tests/audit/cycle.keal";

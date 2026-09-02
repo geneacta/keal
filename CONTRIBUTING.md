@@ -118,6 +118,20 @@ error, just a fact `cargo test --release` settles.
    the bindings are compiled and run, the layouts are used by native
    programs that would crash on a wrong one. Look for the ones that are not.
 
+   The other half of the same rule: **a test must assert the answer, not
+   the fact of an answer.** `tests/audit/closure-cycle.keal` exists to tell
+   two objects apart — one whose closure captured `this` and one whose
+   closure captured a value — and the harness checked only that the audit
+   had spoken. It would have stayed green if the audit stopped finding
+   cycles altogether. It now names which of the two is one.
+
+   Watch for this hardest where a program cannot check itself. The audit
+   reports after the last statement, so no assertion inside the program can
+   ever read it: by the time the answer exists there is no program left to
+   do anything with it. A version of such a file ending in
+   `assert(true, "no leaks")` looks like a test, passes forever, and
+   verifies nothing. Something outside has to read what it printed.
+
 9. **Say it plainly.** Diagnostics explain and suggest (`-- note:` with
    the fix). Comments state constraints, not narration. Costs and limits
    go in the docs, not under the rug: see `docs/types.md` (the type
