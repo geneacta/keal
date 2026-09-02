@@ -73,6 +73,19 @@ error, just a fact `cargo test --release` settles.
      fuzzer; run a few thousand programs when you touch the checker.
    * `UPDATE_EXPECT=1 cargo test --release` rewrites snapshots.
 
+   **Removing a refusal is new behavior, and the easiest kind to ship
+   untested** — nothing was added, so nothing looks like it needs proving.
+   But a refusal is load-bearing while it stands: it was keeping programs
+   out, and some of those programs were being kept out of trouble. Letting a
+   lambda capture `this` was right and is not in question; it also made the
+   reference cycle in `tests/audit/closure-cycle.keal` writable in one line,
+   in the exact shape the feature exists for. Nobody could have written that
+   cycle the day before.
+
+   So: a refusal removed is a burden of proof moved, not lifted. Ask what
+   the refusal was preventing besides the thing you wanted, and write the
+   test for that before the one for the feature.
+
 6. **A test may skip because it cannot run, never because it would rather
    not.** Plenty of tests here stand down when a machine has no C
    compiler, no JDK, no git, no Python — the check genuinely cannot
