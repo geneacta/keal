@@ -82,7 +82,17 @@ command, seconds to re-derive. That is the thing to defend.
 ## The iron rules (never break these)
 
 1. **Author**: commits are authored `Tony Renard <contact@geneacta.com>`
-   only — never add a co-author line.
+   only — never add a co-author line, and never a session or tool trailer
+   either.
+
+   That address is registered to the `geneacta` GitHub account, which is why
+   every commit shows as **geneacta** there. It is worth knowing that this is
+   what carries the name, because the credential that *pushes* is a different
+   thing entirely — on this machine it is a `gh` token for `sophia-tonya`,
+   which holds write on the repository. Authorship is what a reader sees;
+   the token is only what the transport needed. Confusing the two sends you
+   looking for the wrong fix the day a push is refused: the answer is a
+   repository permission, never a change of author.
 2. **Oracle + twin, byte for byte.** Every compiler-stage change lands in
    the Rust oracle first (`src/`), is mirrored in the self-hosted twin
    (`selfhost/`), and the four dump commands must agree byte-for-byte over
