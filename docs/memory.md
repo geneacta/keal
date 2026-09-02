@@ -159,9 +159,12 @@ a.next = a          // a cycle; its memory is never returned
 ```
 
 The other way, and the one that is easy to write without meaning to, is a
-closure. A lambda inside a method that names `this` **holds the receiver**,
-for as long as the closure lives; store that closure back into the object
-and the object holds itself:
+closure. **A closure stored in an object must not hold that object.** A
+lambda holds everything it names for as long as it lives, so a lambda in a
+method that names `this` holds the receiver — and a lambda anywhere that
+names a variable holding the object holds it just the same. `this` is the
+version a framework author meets; the variable is the version everyone
+else meets, and it is the same reference:
 
 ```keal
 class Holder(var handlers: List<(Int) -> Int>, var factor: Int) {
@@ -176,11 +179,31 @@ class Holder(var handlers: List<(Int) -> Int>, var factor: Int) {
 }
 ```
 
+No `this` is needed for it, which is why stating the rule in terms of `this`
+would state it too narrowly:
+
+```keal
+proc build() {
+    val t = Table({ n -> n }, 3)
+    t.handler = { n -> n * t.factor }   // a cycle: `t` holds the closure,
+    println(t.handler(14))              // the closure holds `t`
+}
+```
+
 The difference is one line, and it is worth knowing which one you wrote,
 because it can be the whole program: a web framework whose route handlers
-read `this` from the application object put ten objects — the app, its
+read a field from the application object put ten objects — the app, its
 router, all seven routes and the session hub — into one cycle by changing a
 single field read.
+
+**At the top level it costs nothing.** An object a top-level binding holds
+lives until the process ends whether or not it is in a cycle, so a handler
+that holds the application it was registered with has taken nothing that was
+going to be given back. It begins to matter when such an object is built and
+then let go — a test, or a program that serves several of them in turn — and
+that is also the only case where the audit can see it, since it reports what
+outlived its last reference and a top-level binding is a reference to the
+end.
 
 Note what `weak` does *not* solve here. Making the back edge weak would mean
 making the application weak from inside its own routes, which is not what the

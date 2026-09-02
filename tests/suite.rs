@@ -368,19 +368,21 @@ fn the_audit_names_what_outlived_the_program() {
         // and attests nothing.
         if path == "tests/audit/closure-cycle.keal" {
             assert!(
-                reports[0].contains("1 object(s) outlived the program")
+                reports[0].contains("2 object(s) outlived the program")
                     && reports[0].contains("— a cycle"),
-                "the closure that captured `this` is a cycle and the audit \
-                 must say so:\n{}",
+                "two of the three holders make a cycle and the audit must \
+                 say so:\n{}",
                 reports[0]
             );
-            // One, not two: the other holder does the same work and reads
-            // the field into a local first, so its closure holds an `Int`
-            // and it dies on schedule. If that ever stops being true this
-            // says `2 Holder`, which is the whole point of the pair.
+            // Two, not three: the file builds three holders the same way,
+            // and they differ only in what their closure holds. One names
+            // `this`, one names a local that IS the object, and one reads
+            // the field into a local first — so `3 Holder` would mean the
+            // audit had stopped telling them apart, and `1 Holder` would
+            // mean the rule had been read as being about `this` alone.
             assert!(
-                reports[0].contains("1 Holder") && !reports[0].contains("2 Holder"),
-                "exactly one of the two holders is a cycle:\n{}",
+                reports[0].contains("2 Holder") && !reports[0].contains("3 Holder"),
+                "exactly two of the three holders are cycles:\n{}",
                 reports[0]
             );
         }
@@ -1491,10 +1493,21 @@ fn the_generated_c_compiles_without_warnings() {
             .expect("cannot run the C compiler");
         let said = String::from_utf8_lossy(&out.stderr).into_owned();
         if said.contains("unknown warning option") || said.contains("no option") {
-            // Says so out loud: a name this compiler lacks and a name
-            // misspelled here look identical from the outside, and a silent
-            // skip is how the second one would survive.
-            println!("skipping -Werror={}: this compiler does not have it", name);
+            // Out loud, and without naming a cause it cannot know. Two
+            // things produce this and they are indistinguishable from here:
+            // a compiler that never had the name, and a name misspelled in
+            // the table above. Guessing the first would send a reader to
+            // check their toolchain over a typo three lines away.
+            println!(
+                "skipping -Werror={name}: `{cc}` says it has no such warning. \
+                 Either this compiler does not have it — then nothing is \
+                 wrong and one check fewer runs — or the name is misspelled \
+                 in FAULTS, which the compiler cannot tell apart. Its words: \
+                 {said}",
+                name = name,
+                cc = cc,
+                said = said.trim()
+            );
             continue;
         }
         // The message has to stand on its own, because the interesting case
@@ -1543,11 +1556,25 @@ fn the_generated_c_compiles_without_warnings() {
             .arg(&csrc)
             .output()
             .expect("cannot run the C compiler");
+        // The step this whole test exists for, so its report has to carry
+        // the program that failed and what came back. A compiler that
+        // refuses and says nothing is a second thing wrong on top of the
+        // first, and the report says which one it is looking at.
+        let complaint = String::from_utf8_lossy(&built.stderr).into_owned();
         assert!(
             built.status.success(),
-            "the C generated for {} does not compile cleanly:\n{}",
-            path,
-            String::from_utf8_lossy(&built.stderr)
+            "the C generated for {path} does not compile cleanly under \
+             {flags}.\n  `{cc}` said: {said}",
+            path = path,
+            flags = flags[2..].join(" "),
+            cc = cc,
+            said = if complaint.trim().is_empty() {
+                "nothing at all, which is a second thing wrong: it refused \
+                 the file without a diagnostic"
+                    .to_string()
+            } else {
+                format!("\n{}", complaint)
+            }
         );
     }
 

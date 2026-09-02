@@ -13,6 +13,12 @@
 // binding still holds lives to the end by design, and the audit says so —
 // which would hide the cycle rather than show it.
 
+// The third holder makes the same cycle without naming `this` at all: the
+// lambda captures a local, and the local is the object it is stored into.
+// Stating the rule in terms of `this` would state it too narrowly — that is
+// the version a class's own code meets, and this is the version everybody
+// else meets. It is the same reference.
+
 class Holder(var handlers: List<(Int) -> Int>, var factor: Int) {
     proc addHolding() { this.handlers.add({ n -> n * this.factor }) }
     proc addValue() {
@@ -34,5 +40,12 @@ proc acyclic() {
     println(h.handlers[0](14))
 }
 
+proc cyclicWithoutThis() {
+    val h = Holder([], 7)
+    h.handlers.add({ n -> n * h.factor })
+    println(h.handlers[0](14))
+}
+
 cyclic()
 acyclic()
+cyclicWithoutThis()

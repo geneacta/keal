@@ -85,7 +85,7 @@
 <pre class="lang-keal"><code>class Node(var next: Node?)
 val a = Node(null)
 a.next = a          // a cycle; its memory is never returned</code></pre>
-<p>The other way, and the one that is easy to write without meaning to, is a closure. A lambda inside a method that names <code>this</code> <strong>holds the receiver</strong>, for as long as the closure lives; store that closure back into the object and the object holds itself:</p>
+<p>The other way, and the one that is easy to write without meaning to, is a closure. <strong>A closure stored in an object must not hold that object.</strong> A lambda holds everything it names for as long as it lives, so a lambda in a method that names <code>this</code> holds the receiver — and a lambda anywhere that names a variable holding the object holds it just the same. <code>this</code> is the version a framework author meets; the variable is the version everyone else meets, and it is the same reference:</p>
 <pre class="lang-keal"><code>class Holder(var handlers: List&lt;(Int) -&gt; Int&gt;, var factor: Int) {
     // A cycle: the closure holds the Holder, the Holder holds the closure.
     proc addHolding() { this.handlers.add({ n -&gt; n * this.factor }) }
@@ -96,7 +96,14 @@ a.next = a          // a cycle; its memory is never returned</code></pre>
         this.handlers.add({ n -&gt; n * f })
     }
 }</code></pre>
-<p>The difference is one line, and it is worth knowing which one you wrote, because it can be the whole program: a web framework whose route handlers read <code>this</code> from the application object put ten objects — the app, its router, all seven routes and the session hub — into one cycle by changing a single field read.</p>
+<p>No <code>this</code> is needed for it, which is why stating the rule in terms of <code>this</code> would state it too narrowly:</p>
+<pre class="lang-keal"><code>proc build() {
+    val t = Table({ n -&gt; n }, 3)
+    t.handler = { n -&gt; n * t.factor }   // a cycle: `t` holds the closure,
+    println(t.handler(14))              // the closure holds `t`
+}</code></pre>
+<p>The difference is one line, and it is worth knowing which one you wrote, because it can be the whole program: a web framework whose route handlers read a field from the application object put ten objects — the app, its router, all seven routes and the session hub — into one cycle by changing a single field read.</p>
+<p><strong>At the top level it costs nothing.</strong> An object a top-level binding holds lives until the process ends whether or not it is in a cycle, so a handler that holds the application it was registered with has taken nothing that was going to be given back. It begins to matter when such an object is built and then let go — a test, or a program that serves several of them in turn — and that is also the only case where the audit can see it, since it reports what outlived its last reference and a top-level binding is a reference to the end.</p>
 <p>Note what <code>weak</code> does <em>not</em> solve here. Making the back edge weak would mean making the application weak from inside its own routes, which is not what the program means. <strong>When a closure only needs a value, read it into a local before the lambda</strong> — the closure then holds the value rather than the object that had it. <code>weak</code> is for a back edge that genuinely is one, such as a child pointing at its parent.</p>
 <p>The interpreter has the same behaviour, since it is built on Rust's <code>Rc</code>, so this is not a regression — but it is a gap, and since <code>deinit</code> shipped the gap grew teeth. <strong>A cycle does not merely leak memory; its <code>deinit</code> never runs.</strong> Both engines and the native backend agree on that today, silently:</p>
 <pre><code>built            # the cycle: no deinit, ever
