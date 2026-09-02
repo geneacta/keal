@@ -64,8 +64,18 @@ project that had it:
    exit status, `nothing at all` where the compiler was silent, and what to
    do about either case.
 
+5. Something attests correctly, says correctly what it attests, and does
+   not attest what anyone thinks. The kealeb session's test spoke to a
+   hard-coded port, so a survivor of its own previous run answered instead
+   and it would have passed against the wrong server. **This repository has
+   no instance, and that was checked rather than assumed:** no test binds a
+   port or touches the network, no two tests share a temporary directory,
+   and every binary that gets run is built by an asserted step into a
+   directory named for the test that made it. It is listed anyway, because
+   the shape is what to look for the day one of those stops being true.
+
 Rungs 1 and 4 are the kealeb session's, rungs 2 and 3 were found here from
-reading its files. Three of the four were found by someone other than the
+reading its files, and rung 5 has not happened here yet. Three of the four were found by someone other than the
 author of the test — and the fourth is the exception that makes the rule
 worth stating rather than weaker: it was caught by measuring the failure
 instead of trusting that a failing test explains itself. A rule about tests
