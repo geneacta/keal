@@ -11,6 +11,17 @@
 // arrived wrapped twice, which is exactly how C spells "yes, I meant to
 // assign here", and which every compiler asks about.
 
+// A named `func` used as a value. This one was not a warning that could be
+// read past: the C compiler said "incompatible pointer types passing
+// 'int64_t (int64_t)' to parameter of type 'KealClosure *'", the build went
+// ahead anyway, and the program took a bus error the first time it called
+// the value. A backend that emits code its own C compiler objects to has
+// mis-compiled, whatever the exit status of `cc` says.
+
+func twice(n: Int): Int { return n * 2 }
+class Holder(var f: (Int) -> Int)
+println(Holder(twice).f(21))
+
 val opener = "/* not a comment"
 val closer = "not a comment */"
 val both = "/* neither */ and /* nor */ this"

@@ -2697,6 +2697,20 @@ impl CBackend {
                     }
                     return access;
                 }
+                // A named `func` used as a value. `k_twice` is a function,
+                // not a `KealClosure*`, and everything downstream — the
+                // retain, the release, the call through `fn` — treats a
+                // function value as the latter. Emitting the symbol handed
+                // the runtime the address of code to increment a reference
+                // count at, which the C compiler warned about and the
+                // processor refused. An adapter closure is what a function
+                // becomes when it is used as a value, which is what both
+                // interpreters have always built here.
+                if !self.in_scope(name) && self.global_funs.contains(name) {
+                    if let Some(Type::Fun(ft)) = self.ety(e) {
+                        return self.fn_adapter(name, &ft, e);
+                    }
+                }
                 let v = self.var_ref(name);
                 match self.ety(e) {
                     Some(ty) if Self::counted(&ty) => {
@@ -3137,6 +3151,89 @@ impl CBackend {
             .collect();
         let (_, ty) = self.shapes.get(class)?.iter().find(|(n, _)| n == name)?;
         Some(ty.substitute(&subst))
+    }
+
+    /// The closure a named `func` becomes when it is used as a value.
+    ///
+    /// A function is code; a function value is a counted object whose `fn`
+    /// field is cast to the signature the static type promises. Nothing
+    /// bridges the two on its own, so this emits the bridge: an environment
+    /// with no captures, and a call function that forwards to the real one.
+    /// Its arguments are borrowed and its result is passed straight back,
+    /// which is the discipline an ordinary call already follows — the
+    /// adapter owns nothing and therefore frees nothing but itself.
+    ///
+    /// One adapter per function, memoized: the same `func` named twice is
+    /// the same code, and only the closure object is made afresh.
+    fn fn_adapter(&mut self, name: &str, ft: &crate::types::FunType, e: &Expr) -> String {
+        let span = e.span;
+        // A generic function has no single body to point at, and the value
+        // would have to carry the instantiation with it. Refused by name
+        // rather than guessed at.
+        if self.fun_decls.get(name).map(|f| !f.type_params.is_empty()).unwrap_or(false) {
+            self.unsupported(span, &format!("a generic function used as a value, `{}`", name));
+            return "0".to_string();
+        }
+        let ret_c = if ft.ret == Type::Unit {
+            "void".to_string()
+        } else {
+            match self.ctype(&ft.ret, span) {
+                Some(c) => c,
+                None => return "0".to_string(),
+            }
+        };
+        let mut params = Vec::new();
+        let mut forwarded = Vec::new();
+        for (i, p) in ft.params.iter().enumerate() {
+            let Some(c) = self.ctype(&p.ty, span) else { return "0".to_string() };
+            params.push(format!("{} a{}", c, i));
+            forwarded.push(format!("a{}", i));
+        }
+        let env_name = format!("K_FnVal_{}", mangle(name));
+        if self.thunks.insert(env_name.clone()) {
+            let sig_params = if params.is_empty() {
+                format!("{}* self", env_name)
+            } else {
+                format!("{}* self, {}", env_name, params.join(", "))
+            };
+            let body = if ft.ret == Type::Unit {
+                format!("    {}({});\n", mangle(name), forwarded.join(", "))
+            } else {
+                format!("    return {}({});\n", mangle(name), forwarded.join(", "))
+            };
+            let _ = write!(
+                self.lambda_defs,
+                "\ntypedef struct {n} {{\n    KealClosure head;\n}} {n};\n\
+                 static void {n}_drop(KealClosure* c) {{ free(c); }}\n\
+                 static {ret} {n}_call({sig});\n\
+                 static KealClosure* {n}_copy(KealClosure* c) {{\n\
+                 \x20   (void)c;\n\
+                 \x20   {n}* out = ({n}*)keal_alloc(sizeof({n}));\n\
+                 \x20   out->head.rc = 1;\n\
+                 \x20   out->head.fn = (KealCode){n}_call;\n\
+                 \x20   out->head.drop = {n}_drop;\n\
+                 \x20   out->head.copy = {n}_copy;\n\
+                 \x20   return &out->head;\n}}\n\
+                 static {ret} {n}_call({sig}) {{\n    (void)self;\n{body}}}\n",
+                n = env_name,
+                ret = ret_c,
+                sig = sig_params,
+                body = body
+            );
+        }
+        let t = self.temp();
+        self.line(format!("{n}* {t}_env = ({n}*)keal_alloc(sizeof({n}));", n = env_name, t = t));
+        self.line(format!("{t}_env->head.rc = 1;", t = t));
+        self.line(format!("{t}_env->head.fn = (KealCode){n}_call;", t = t, n = env_name));
+        self.line(format!("{t}_env->head.drop = {n}_drop;", t = t, n = env_name));
+        // Nothing is captured, so there is nothing to deep-copy: an actor
+        // handed this handler shares no state with anyone, which is the one
+        // thing `copy` exists to guarantee.
+        self.line(format!("{t}_env->head.copy = {n}_copy;", t = t, n = env_name));
+        self.line(format!("KealClosure* {t} = (KealClosure*)&{t}_env->head;", t = t));
+        let fun_ty = Type::Fun(std::rc::Rc::new(ft.clone()));
+        self.own(&t, &fun_ty);
+        t
     }
 
     fn call_closure(

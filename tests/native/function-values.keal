@@ -1,0 +1,58 @@
+// A named `func` used as a value.
+//
+// A function is code; a function value is a counted object whose `fn` field
+// is cast to the signature the static type promises. Nothing bridges the two
+// on its own, and the C backend used to emit the function symbol where the
+// closure was wanted. The C compiler said so on every build —
+//
+//     warning: incompatible pointer types passing 'int64_t (int64_t)'
+//     to parameter of type 'KealClosure *'
+//
+// — the build went ahead, and `keal_fn_retain` then incremented a reference
+// count at the address of the code. Bus error, on the first call.
+//
+// Lambdas were always right, which is why nothing here caught it: no program
+// in this corpus passed a named function anywhere. The shape is the obvious
+// one for a route handler, which is where it was found.
+
+func twice(n: Int): Int { return n * 2 }
+func shout(s: String): String { return s + "!" }
+proc note(n: Int) { println("note ${n}") }
+func nothing(): Int { return 7 }
+
+class Box(var f: (Int) -> Int)
+record Route(val path: String, val handler: (String) -> String)
+
+// As a constructor argument, through a field.
+val b = Box(twice)
+println(b.f(21))
+
+// Reassigned to a lambda, then back to a named function.
+b.f = { n -> n + 1 }
+println(b.f(21))
+b.f = twice
+println(b.f(21))
+
+// As a plain argument to a function taking a function type.
+func apply(f: (Int) -> Int, n: Int): Int { return f(n) }
+println(apply(twice, 5))
+
+// A String one, and one that returns nothing, and one with no parameters.
+val r = Route("/health", shout)
+println(r.handler("ok"))
+val p: (Int) -> Unit = note
+p(3)
+val z: () -> Int = nothing
+println(z())
+
+// In a list and in a map, which is how a router holds them.
+val fs: List<(Int) -> Int> = [twice, { n -> n * 3 }]
+println(fs[0](10))
+println(fs[1](10))
+val routes: Map<String, (String) -> String> = {"a": shout}
+println(routes["a"]!!("hi"))
+
+// Captured by a lambda, and passed through a higher-order builtin.
+val g = twice
+println([1, 2, 3].map(twice))
+println(g(50))

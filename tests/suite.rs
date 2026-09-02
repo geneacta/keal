@@ -1401,9 +1401,17 @@ fn native_agrees_with_the_interpreters() {
 /// "this assignment is deliberate". Neither stopped the build; both printed
 /// on every bootstrap, which is how a real warning would have gone unread.
 ///
-/// `-Werror=` on the two names, rather than `-Wall`: this asks the compiler
-/// about the thing that went wrong and does not make the suite hostage to
+/// `-Werror=` on the three names, rather than `-Wall`: this asks the compiler
+/// about the things that went wrong and does not make the suite hostage to
 /// every opinion a future version of it acquires.
+///
+/// `incompatible-pointer-types` is the one that matters most. The other two
+/// are cosmetic; that one means the backend emitted code the C compiler can
+/// see is wrong, which is a mis-compilation whatever `cc` decides to do
+/// about it. It shipped once — a named `func` used as a value became a bare
+/// function pointer where a counted closure was expected, and the program
+/// took a bus error on the first call. The compiler had said so, in one
+/// line, on every build.
 #[test]
 fn the_generated_c_compiles_without_warnings() {
     let cc = c_driver();
@@ -1422,7 +1430,13 @@ fn the_generated_c_compiles_without_warnings() {
     std::fs::write(&csrc, &emitted.stdout).expect("cannot write the generated C");
 
     let built = Command::new(&cc)
-        .args(["-std=c11", "-fsyntax-only", "-Werror=comment", "-Werror=parentheses"])
+        .args([
+            "-std=c11",
+            "-fsyntax-only",
+            "-Werror=comment",
+            "-Werror=parentheses",
+            "-Werror=incompatible-pointer-types",
+        ])
         .arg(&csrc)
         .output()
         .expect("cannot run the C compiler");

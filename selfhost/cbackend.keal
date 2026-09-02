@@ -3384,8 +3384,24 @@ class CBackend() {
                 }
                 return access
             }
+            // A named `func` used as a value. `k_twice` is a function, not
+            // a `KealClosure*`, and everything downstream — the retain, the
+            // release, the call through `fn` — treats a function value as
+            // the latter. Emitting the symbol handed the runtime the address
+            // of code to increment a reference count at, which the C
+            // compiler warned about and the processor refused. An adapter
+            // closure is what a function becomes when it is used as a value,
+            // which is what both interpreters have always built here.
+            val identTy = this.ety(e)
+            unless (this.inScope(name)) {
+                if (this.globalFuns.contains(name) and identTy != null) {
+                    if (identTy.kind == "Fun") {
+                        return this.fnAdapter(name, identTy, e)
+                    }
+                }
+            }
             val v = this.varRef(name)
-            val ty = this.ety(e)
+            val ty = identTy
             if (ty != null and countedC(ty)) {
                 val call = retained(ty, v)
                 return this.ownTempOf(ty, call)
@@ -3770,6 +3786,82 @@ class CBackend() {
             if (f.name == name) { return substitute(f.ty, subst) }
         }
         return null
+    }
+
+    /// The closure a named `func` becomes when it is used as a value.
+    ///
+    /// A function is code; a function value is a counted object whose `fn`
+    /// field is cast to the signature the static type promises. Nothing
+    /// bridges the two on its own, so this emits the bridge: an environment
+    /// with no captures, and a call function that forwards to the real one.
+    /// Its arguments are borrowed and its result is passed straight back,
+    /// which is the discipline an ordinary call already follows — the
+    /// adapter owns nothing and therefore frees nothing but itself.
+    ///
+    /// One adapter per function, memoized: the same `func` named twice is
+    /// the same code, and only the closure object is made afresh.
+    func fnAdapter(name: String, ft: Ty, e: Ex): String {
+        // A generic function has no single body to point at, and the value
+        // would have to carry the instantiation with it. Refused by name
+        // rather than guessed at.
+        val decl = this.funDecls[name]
+        if (decl != null) {
+            if (decl.typeParams.size > 0) {
+                this.unsupported(e.file, e.line, e.col, "a generic function used as a value, `${name}`")
+                return "0"
+            }
+        }
+        val fret = ft.ret!!
+        var retC = "void"
+        unless (fret.kind == "Unit") {
+            val c = this.ctype(fret, e.file, e.line, e.col)
+            if (c == null) { return "0" }
+            retC = c
+        }
+        val params: List<String> = []
+        val forwarded: List<String> = []
+        var i = 0
+        for (p in ft.params) {
+            val c = this.ctype(p.ty, e.file, e.line, e.col)
+            if (c == null) { return "0" }
+            params.add("${c} a${i}")
+            forwarded.add("a${i}")
+            i += 1
+        }
+        val envName = "K_FnVal_" + mangle(name)
+        unless (this.thunks.contains(envName)) {
+            this.thunks[envName] = true
+            var sigParams = "${envName}* self"
+            if (params.size > 0) { sigParams = "${envName}* self, " + params.join(", ") }
+            val callArgs = forwarded.join(", ")
+            var body = "    return ${mangle(name)}(${callArgs});\n"
+            if (fret.kind == "Unit") { body = "    ${mangle(name)}(${callArgs});\n" }
+            var d = "\ntypedef struct ${envName} {\n    KealClosure head;\n} ${envName};\n"
+            d += "static void ${envName}_drop(KealClosure* c) { free(c); }\n"
+            d += "static ${retC} ${envName}_call(${sigParams});\n"
+            d += "static KealClosure* ${envName}_copy(KealClosure* c) {\n"
+            d += "    (void)c;\n"
+            d += "    ${envName}* out = (${envName}*)keal_alloc(sizeof(${envName}));\n"
+            d += "    out->head.rc = 1;\n"
+            d += "    out->head.fn = (KealCode)${envName}_call;\n"
+            d += "    out->head.drop = ${envName}_drop;\n"
+            d += "    out->head.copy = ${envName}_copy;\n"
+            d += "    return &out->head;\n}\n"
+            d += "static ${retC} ${envName}_call(${sigParams}) {\n    (void)self;\n${body}}\n"
+            this.lambdaDefs += d
+        }
+        val t = this.temp()
+        this.line("${envName}* ${t}_env = (${envName}*)keal_alloc(sizeof(${envName}));")
+        this.line("${t}_env->head.rc = 1;")
+        this.line("${t}_env->head.fn = (KealCode)${envName}_call;")
+        this.line("${t}_env->head.drop = ${envName}_drop;")
+        // Nothing is captured, so there is nothing to deep-copy: an actor
+        // handed this handler shares no state with anyone, which is the one
+        // thing `copy` exists to guarantee.
+        this.line("${t}_env->head.copy = ${envName}_copy;")
+        this.line("KealClosure* ${t} = (KealClosure*)&${t}_env->head;")
+        this.own(t, ft)
+        return t
     }
 
     func callClosure(ft: Ty, closure: String, args: List<String>, file: Int, atLine: Int, col: Int): String? {
