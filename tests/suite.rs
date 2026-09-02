@@ -1405,13 +1405,18 @@ fn native_agrees_with_the_interpreters() {
 /// about the things that went wrong and does not make the suite hostage to
 /// every opinion a future version of it acquires.
 ///
-/// `incompatible-pointer-types` is the one that matters most. The other two
-/// are cosmetic; that one means the backend emitted code the C compiler can
-/// see is wrong, which is a mis-compilation whatever `cc` decides to do
-/// about it. It shipped once — a named `func` used as a value became a bare
-/// function pointer where a counted closure was expected, and the program
-/// took a bus error on the first call. The compiler had said so, in one
-/// line, on every build.
+/// Two of them are cosmetic. The other three — `incompatible-pointer-types`,
+/// `implicit-function-declaration`, `int-conversion` — each mean the backend
+/// emitted code the C compiler can see is wrong, which is a mis-compilation
+/// whatever `cc` decides to do about it. One shipped: a named `func` used as
+/// a value became a bare function pointer where a counted closure was
+/// expected, and the program took a bus error on the first call. The
+/// compiler had said so, in one line, on every build.
+///
+/// The other two names come from the two consumer sessions, who hit exactly
+/// those classes — "call to undeclared function `K_App_m_build`" and
+/// "incompatible integer to pointer conversion" — and built the same barrier
+/// on their side before suggesting it here.
 #[test]
 fn the_generated_c_compiles_without_warnings() {
     let cc = c_driver();
@@ -1420,32 +1425,38 @@ fn the_generated_c_compiles_without_warnings() {
         return;
     }
 
-    let path = "tests/native/c-warnings.keal";
-    let emitted = keal(&["emit-c", path]);
-    assert!(emitted.success, "{} did not emit C:\n{}", path, emitted.stderr);
-
     let dir = std::env::temp_dir().join("keal-c-warnings");
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
     let csrc = dir.join("out.c");
-    std::fs::write(&csrc, &emitted.stdout).expect("cannot write the generated C");
 
-    let built = Command::new(&cc)
-        .args([
-            "-std=c11",
-            "-fsyntax-only",
-            "-Werror=comment",
-            "-Werror=parentheses",
-            "-Werror=incompatible-pointer-types",
-        ])
-        .arg(&csrc)
-        .output()
-        .expect("cannot run the C compiler");
-    assert!(
-        built.status.success(),
-        "the C generated for {} does not compile cleanly:\n{}",
-        path,
-        String::from_utf8_lossy(&built.stderr)
-    );
+    // Every program the native corpus has, not just the one written for
+    // this: a warning names a shape, and the shape can arrive from anywhere.
+    for file in keal_files("tests/native") {
+        let path = relative(&file);
+        let emitted = keal(&["emit-c", &path]);
+        assert!(emitted.success, "{} did not emit C:\n{}", path, emitted.stderr);
+        std::fs::write(&csrc, &emitted.stdout).expect("cannot write the generated C");
+
+        let built = Command::new(&cc)
+            .args([
+                "-std=c11",
+                "-fsyntax-only",
+                "-Werror=comment",
+                "-Werror=parentheses",
+                "-Werror=incompatible-pointer-types",
+                "-Werror=implicit-function-declaration",
+                "-Werror=int-conversion",
+            ])
+            .arg(&csrc)
+            .output()
+            .expect("cannot run the C compiler");
+        assert!(
+            built.status.success(),
+            "the C generated for {} does not compile cleanly:\n{}",
+            path,
+            String::from_utf8_lossy(&built.stderr)
+        );
+    }
 
     let _ = std::fs::remove_dir_all(&dir);
 }

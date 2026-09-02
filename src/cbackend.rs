@@ -168,6 +168,10 @@ struct CBackend {
     generic_classes: Vec<String>,
     /// What `this` is called in the function being emitted.
     this_name: Option<String>,
+    /// The type of the object `this_name` points at, so a lambda that
+    /// captures `this` knows what it is holding: what to retain, what to
+    /// release, and what to write in the environment struct.
+    this_ty: Option<Type>,
     /// The locals of the frame being emitted, innermost scope last, each
     /// with its type and whether it is a `var`. This exists for lambdas: a
     /// free name in a body is a capture when it is a local here, and how it
@@ -270,6 +274,7 @@ impl CBackend {
             shapes: HashMap::new(),
             generic_classes: Vec::new(),
             this_name: None,
+            this_ty: None,
             locals: Vec::new(),
             global_funs: std::collections::HashSet::new(),
             global_vars: std::collections::HashSet::new(),
@@ -881,6 +886,7 @@ impl CBackend {
         let saved_indent = self.indent;
         let saved_temp = self.next_temp;
         let saved_this = self.this_name.take();
+        let saved_this_ty = self.this_ty.take();
         let saved_env = self.capture_env.take();
         let saved_celled = std::mem::take(&mut self.celled);
         let saved_cells = std::mem::take(&mut self.frame_cells);
@@ -902,6 +908,7 @@ impl CBackend {
         self.indent = saved_indent;
         self.next_temp = saved_temp;
         self.this_name = saved_this;
+        self.this_ty = saved_this_ty;
         self.capture_env = saved_env;
         self.tsubst = saved;
         Some(sn)
@@ -956,6 +963,7 @@ impl CBackend {
         let saved_indent = self.indent;
         let saved_temp = self.next_temp;
         let saved_this = self.this_name.take();
+        let saved_this_ty = self.this_ty.take();
         let saved_env = self.capture_env.take();
         let saved_celled = std::mem::take(&mut self.celled);
         let saved_cells = std::mem::take(&mut self.frame_cells);
@@ -976,6 +984,7 @@ impl CBackend {
         self.indent = saved_indent;
         self.next_temp = saved_temp;
         self.this_name = saved_this;
+        self.this_ty = saved_this_ty;
         self.capture_env = saved_env;
         self.tsubst = saved;
         Some(fn_name)
@@ -1015,6 +1024,7 @@ impl CBackend {
         let saved_indent = self.indent;
         let saved_temp = self.next_temp;
         let saved_this = self.this_name.take();
+        let saved_this_ty = self.this_ty.take();
         let saved_env = self.capture_env.take();
         let saved_celled = std::mem::take(&mut self.celled);
         let saved_cells = std::mem::take(&mut self.frame_cells);
@@ -1028,6 +1038,7 @@ impl CBackend {
         self.celled = saved_celled;
         self.frame_cells = saved_cells;
         self.this_name = saved_this;
+        self.this_ty = saved_this_ty;
         self.capture_env = saved_env;
         self.body = saved_body;
         self.scopes = saved_scopes;
@@ -1461,6 +1472,7 @@ impl CBackend {
         // A field declared in the body may read `this` and the fields above
         // it, so those are already in place.
         self.this_name = Some("self".to_string());
+        self.this_ty = Some(Self::declared_self_ty(c));
         for f in &c.fields {
             let Some((_, ty)) = fields.iter().find(|(n, _)| *n == f.name).cloned() else { continue };
             match &f.init {
@@ -1476,6 +1488,7 @@ impl CBackend {
             }
         }
         self.this_name = None;
+        self.this_ty = None;
         self.close_scope();
         self.line("return self;");
         self.end_function_unwind();
@@ -1491,6 +1504,17 @@ impl CBackend {
         }
         let fn_name = format!("{}_{}", name, mangle_method(&m.name));
         self.method_named(c, m, name, &fn_name);
+    }
+
+    /// The type `this` has inside a class's own code, written in terms of
+    /// the class's own type parameters. `tsubst` turns those into whatever
+    /// the instantiation being emitted uses, the same way every other type
+    /// in a generic body is resolved.
+    fn declared_self_ty(c: &ClassDecl) -> Type {
+        Type::class(
+            c.name.as_str(),
+            c.type_params.iter().map(|p| Type::param(p.name.as_str())).collect(),
+        )
     }
 
     fn method_named(&mut self, c: &ClassDecl, m: &FunDecl, name: &str, fn_name: &str) {
@@ -1541,8 +1565,10 @@ impl CBackend {
             }
         }
         self.this_name = Some("self".to_string());
+        self.this_ty = Some(Self::declared_self_ty(c));
         self.emit_body(&m.body.stmts, &ret);
         self.this_name = None;
+        self.this_ty = None;
         self.close_scope();
         if ret == "void" {
             self.line("return;");
@@ -2090,10 +2116,38 @@ impl CBackend {
         self.locals.iter().any(|scope| scope.iter().any(|(n, _, _)| n == name))
     }
 
+    /// Opens an `if` on a condition the emitter built.
+    ///
+    /// Every path that produces one already parenthesises what it builds, so
+    /// the `if`'s own parentheses make a second pair — which C reads as the
+    /// idiom for "yes, this assignment was deliberate" and asks about, for
+    /// every comparison that lands in one. This is the single place that
+    /// takes the redundant pair back off, so the question cannot come back
+    /// one call site at a time: it was fixed once for the short-circuit
+    /// connectives, and turned up again on `is` against an `Any`.
+    fn open_if(&mut self, cond: &str) {
+        let bare = strip_outer_parens(cond);
+        self.line(format!("if ({}) {{", bare));
+    }
+
     fn declare_local(&mut self, name: &str, ty: &Type, mutable: bool) {
         if let Some(scope) = self.locals.last_mut() {
             scope.push((name.to_string(), ty.clone(), mutable));
         }
+    }
+
+    /// Where `this` is to be found in the code being emitted: a field of the
+    /// closure environment inside a lambda that captured it, and the
+    /// enclosing method's own receiver otherwise. `None` outside a method.
+    ///
+    /// This is `var_ref` for the one name a program cannot bind.
+    fn this_ref(&self) -> Option<String> {
+        if let Some(env) = &self.capture_env {
+            if let Some((field, _)) = env.get("this") {
+                return Some(format!("env->{}", field));
+            }
+        }
+        self.this_name.clone()
     }
 
     /// Resolves a name: an alias set up for a default argument wins, then a
@@ -2388,7 +2442,7 @@ impl CBackend {
                         Some(te) => {
                             let Some(t) = self.is_target(te, c.span) else { return };
                             let test = self.unwind_test(&t, c.span);
-                            self.line(format!("if ({}) {{", test));
+                            self.open_if(&test);
                             Some(t)
                         }
                         None => {
@@ -2775,8 +2829,8 @@ impl CBackend {
                 self.check_unwind();
                 v
             }
-            ExprKind::This => match &self.this_name {
-                Some(n) => n.clone(),
+            ExprKind::This => match self.this_ref() {
+                Some(v) => v,
                 None => {
                     self.unsupported(e.span, "`this` outside a method");
                     "0".to_string()
@@ -2900,6 +2954,18 @@ impl CBackend {
                 {
                     let (_, ty) = self.capture_env.as_ref().unwrap()[&name].clone();
                     captures.push((name, ty, false));
+                }
+                // `this` is a capture like any other: the receiver the
+                // enclosing method was called on, retained for as long as
+                // the closure lives and released with it. What made it look
+                // different is that it is not a local — it is the method's
+                // own parameter, and it has no name a program can bind.
+                None if name == "this" && self.this_name.is_some() => {
+                    let Some(ty) = self.this_ty.clone() else {
+                        self.unsupported(e.span, "capturing `this` here");
+                        return "0".to_string();
+                    };
+                    captures.push((name, ty.substitute(&self.tsubst), false));
                 }
                 None => {
                     let global = self.global_funs.contains(&name)
@@ -3124,7 +3190,17 @@ impl CBackend {
             None => self.line(format!("{t}_env->head.copy = NULL;", t = t)),
         }
         for (name, ty, is_cell) in &captures {
-            let source = self.var_ref(name);
+            // `this` has no name a program can bind, so `var_ref` cannot
+            // find it: its source is whatever the enclosing method calls
+            // its receiver.
+            let source = if name == "this" {
+                // In a lambda nested inside one that already captured it,
+                // the receiver is the outer environment's field, not the
+                // method's parameter — which is no longer in scope there.
+                self.this_ref().unwrap_or_else(|| "self".to_string())
+            } else {
+                self.var_ref(name)
+            };
             let v = if *is_cell {
                 format!("keal_cell_retain({})", source)
             } else {
@@ -3509,7 +3585,7 @@ impl CBackend {
                 self.indent += 1;
                 let item = elem.unword(&format!("{}->data[{}]", snap, i));
                 let call = self.call_closure(&ft, &f, &[item.clone()], e.span)?;
-                self.line(format!("if ({}) {{", call));
+                self.open_if(&call);
                 self.indent += 1;
                 let stored = Self::retained(elem_ty, &item);
                 self.line(format!("keal_list_push({}, {});", out, elem.word(&stored)));
@@ -4236,7 +4312,7 @@ impl CBackend {
                 self.indent += 1;
                 let item = elem.unword(&format!("{}->data[{}]", snap, i));
                 let call = self.call_closure(&ft, &f, &[item], e.span)?;
-                self.line(format!("if ({}) {{", call));
+                self.open_if(&call);
                 self.indent += 1;
                 self.line(format!("{} = true;", t));
                 self.line("break;");
@@ -4274,7 +4350,7 @@ impl CBackend {
                 let item = elem.unword(&format!("{}->data[{}]", snap, i));
                 let call = self.call_closure(&ft, &f, &[item], e.span)?;
                 let test = if name == "all" { format!("!({})", call) } else { call };
-                self.line(format!("if ({}) {{", test));
+                self.open_if(&test);
                 self.indent += 1;
                 self.line(format!("{} = false;", t));
                 self.line("break;");
@@ -4323,7 +4399,7 @@ impl CBackend {
                 self.indent += 1;
                 let item = elem.unword(&format!("{}->data[{}]", snap, i));
                 let call = self.call_closure(&ft, &f, &[item.clone()], e.span)?;
-                self.line(format!("if ({}) {{", call));
+                self.open_if(&call);
                 self.indent += 1;
                 let hit = opt_wrap(&inner, &Self::retained(&inner, &item));
                 self.line(format!("{} = {};", t, hit));
@@ -4358,7 +4434,7 @@ impl CBackend {
                 self.indent += 1;
                 let item = elem.unword(&format!("{}->data[{}]", snap, i));
                 let call = self.call_closure(&ft, &f, &[item], e.span)?;
-                self.line(format!("if ({}) {{", call));
+                self.open_if(&call);
                 self.indent += 1;
                 self.line(format!("{}++;", t));
                 self.indent -= 1;
@@ -4889,7 +4965,7 @@ impl CBackend {
                 let v = self.expr(lhs);
                 let slot = self.temp();
                 self.line(format!("{} {};", ct, slot));
-                self.line(format!("if ({}) {{", opt_has(&inner, &v)));
+                self.open_if(&opt_has(&inner, &v));
                 self.indent += 1;
                 let taken = opt_get(&inner, &v);
                 let taken = if is_value_opt(&result_ty) {
@@ -5289,7 +5365,7 @@ impl CBackend {
                 bound
             };
             if let Some(c) = &cond {
-                self.line(format!("if ({}) {{", c));
+                self.open_if(&c);
                 self.indent += 1;
             }
             // The body's scope closes before the `break`, so its releases sit
@@ -5358,7 +5434,7 @@ impl CBackend {
             }
         };
         let test = self.any_is_test(&target, sslot, te.span);
-        self.line(format!("if ({}) {{", test));
+        self.open_if(&test);
         self.indent += 1;
         self.open_scope();
         let p = self.temp();
@@ -5378,7 +5454,7 @@ impl CBackend {
             t
         });
         if let Some(g) = &guard {
-            self.line(format!("if ({}) {{", g));
+            self.open_if(&g);
             self.indent += 1;
         }
         self.open_scope();
@@ -5855,7 +5931,7 @@ impl CBackend {
                 let bare = strip_outer_parens(&a);
                 let cond =
                     if settles_on.is_empty() { bare } else { format!("!({})", bare) };
-                self.line(format!("if ({}) {{", cond));
+                self.open_if(&cond);
                 self.indent += 1;
                 self.line(format!("{} = {};", t, settled));
                 self.indent -= 1;
@@ -5911,7 +5987,7 @@ impl CBackend {
             .unwrap_or(false);
         if !comp {
             let c = self.condition(cond);
-            self.line(format!("if ({}) {{", c));
+            self.open_if(&c);
             self.indent += 1;
             self.expr_branch(&branches[0], filled);
             self.indent -= 1;
@@ -5980,7 +6056,7 @@ impl CBackend {
         let slot_ty = if slot.is_some() { self.ety(e) } else { None };
         let filled = slot.as_deref().zip(slot_ty.as_ref());
         let c = self.condition(cond);
-        self.line(format!("if ({}) {{", c));
+        self.open_if(&c);
         self.indent += 1;
         self.branch(&then.stmts, filled);
         self.indent -= 1;

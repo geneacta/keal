@@ -1,0 +1,52 @@
+// A lambda inside a method captures `this`.
+//
+// It was refused by name — "capturing `this`, which this backend cannot see
+// yet" — and that refusal was a claim about the language that turned out not
+// to hold. `this` is the method's own first parameter in the generated C,
+// and a lambda capturing a parameter has always worked; what made this one
+// look different is only that `this` is the one name a program cannot bind,
+// so the lookup that finds every other capture found nothing and gave up.
+//
+// It is now a capture like any other: the receiver is retained into the
+// closure's environment and released with it, which is why the closure below
+// that outlives the call that made it still has its object.
+//
+// This is the shape an application takes the moment someone puts state in a
+// class and asks it to draw itself, so it is met on the first screen written
+// rather than the twentieth — reported from both a GUI framework and a web
+// framework on the same day.
+
+class Page(val title: String) {
+    var hits: Int = 0
+    func build(): (Int) -> String { return { n -> "${this.title} ${n}" } }
+    func counter(): () -> Int { return { -> this.hits } }
+    proc bump() { this.hits = this.hits + 1 }
+    func nested(): () -> String { return { -> { -> this.title }() } }
+    func withLocal(): (Int) -> String {
+        val sep = "-"
+        return { n -> this.title + sep + "${n}" }
+    }
+}
+
+val p = Page("home")
+println(p.build()(3))
+p.bump()
+p.bump()
+println(p.counter()())
+println(p.nested()())
+println(p.withLocal()(9))
+
+// The closure outlives the call that made it, so it must hold the object.
+func makeOne(): (Int) -> String {
+    val q = Page("gone")
+    return q.build()
+}
+val held = makeOne()
+println(held(1))
+
+// A generic class.
+class Cell<T>(val v: T) {
+    func get(): () -> T { return { -> this.v } }
+}
+println(Cell(42).get()())
+println(Cell("s").get()())

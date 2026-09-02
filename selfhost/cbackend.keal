@@ -223,6 +223,16 @@ func cString(s: String): String {
     return out
 }
 
+/// The type `this` has inside a class's own code, written in terms of the
+/// class's own type parameters. `tsubst` turns those into whatever the
+/// instantiation being emitted uses, the same way every other type in a
+/// generic body is resolved.
+func declaredSelfTy(c: ClassN): Ty {
+    val args: List<Ty> = []
+    for (tp in c.typeParams) { args.add(tyParam(tp.name)) }
+    return tyClass(c.name, args)
+}
+
 /// True for an `Int` operator the runtime performs rather than C: the
 /// arithmetic, because it is checked, and the shifts, because of the shift
 /// count and because C leaves `<<` past the sign bit and `>>` on a negative
@@ -708,6 +718,14 @@ proc collectFreeExpr(e: Ex, var bound: List<String>, var free: List<String>) {
     if (e.kind == "assign") {
         collectFreeExpr(e.kids[0], bound, free)
         collectFreeExpr(e.kids[1], bound, free)
+        return
+    }
+    // `this` is a capture like any other: a lambda that names it holds the
+    // receiver, and one that does not must not.
+    if (e.kind == "this") {
+        if (not bound.contains("this") and not free.contains("this")) {
+            free.add("this")
+        }
     }
 }
 
@@ -812,6 +830,10 @@ class CBackend() {
     var shapes: Map<String, List<SField>> = {}
     var genericClasses: List<String> = []
     var thisName: String = ""
+    /// The type of the object `thisName` points at, so a lambda that captures
+    /// `this` knows what it is holding: what to retain, what to release, and
+    /// what to write in the environment struct.
+    var thisTy: Ty? = null
     var locals: List<List<LocalC>> = []
     var globalFuns: Map<String, Bool> = {}
     var globalVars: Map<String, Bool> = {}
@@ -1593,7 +1615,9 @@ class CBackend() {
         val savedIndent = this.indent
         val savedTemp = this.nextTemp
         val savedThis = this.thisName
+        val savedThisTy = this.thisTy
         this.thisName = ""
+        this.thisTy = null
         val savedEnv = this.captureEnv
         this.captureEnv = null
         val savedCelled = this.celled
@@ -1620,6 +1644,7 @@ class CBackend() {
         this.indent = savedIndent
         this.nextTemp = savedTemp
         this.thisName = savedThis
+        this.thisTy = savedThisTy
         this.captureEnv = savedEnv
         this.tsubst = saved
         return sn
@@ -1684,7 +1709,9 @@ class CBackend() {
         val savedIndent = this.indent
         val savedTemp = this.nextTemp
         val savedThis = this.thisName
+        val savedThisTy = this.thisTy
         this.thisName = ""
+        this.thisTy = null
         val savedEnv = this.captureEnv
         this.captureEnv = null
         val savedCelled = this.celled
@@ -1710,6 +1737,7 @@ class CBackend() {
         this.indent = savedIndent
         this.nextTemp = savedTemp
         this.thisName = savedThis
+        this.thisTy = savedThisTy
         this.captureEnv = savedEnv
         this.tsubst = saved
         return fnName
@@ -1761,7 +1789,9 @@ class CBackend() {
         val savedIndent = this.indent
         val savedTemp = this.nextTemp
         val savedThis = this.thisName
+        val savedThisTy = this.thisTy
         this.thisName = ""
+        this.thisTy = null
         val savedEnv = this.captureEnv
         this.captureEnv = null
         val savedCelled = this.celled
@@ -1780,6 +1810,7 @@ class CBackend() {
         this.celled = savedCelled
         this.frameCells = savedCells
         this.thisName = savedThis
+        this.thisTy = savedThisTy
         this.captureEnv = savedEnv
         this.body = savedBody
         this.scopes = savedScopes
@@ -2151,6 +2182,7 @@ class CBackend() {
 
         // A field declared in the body may read `this` and the fields above.
         this.thisName = "self"
+        this.thisTy = declaredSelfTy(c)
         for (fd in c.fields) {
             var fty: Ty? = null
             for (f in fields) {
@@ -2169,6 +2201,7 @@ class CBackend() {
             }
         }
         this.thisName = ""
+        this.thisTy = null
         this.closeScope()
         this.line("return self;")
         this.endFunctionUnwind()
@@ -2242,8 +2275,10 @@ class CBackend() {
             }
         }
         this.thisName = "self"
+        this.thisTy = declaredSelfTy(c)
         this.emitBody(m.body.stmts, ret)
         this.thisName = ""
+        this.thisTy = null
         this.closeScope()
         if (ret == "void") {
             this.line("return;")
@@ -2701,6 +2736,20 @@ class CBackend() {
     }
 
     /// Records a name of the frame being emitted.
+    /// Opens an `if` on a condition the emitter built.
+    ///
+    /// Every path that produces one already parenthesises what it builds, so
+    /// the `if`'s own parentheses make a second pair — which C reads as the
+    /// idiom for "yes, this assignment was deliberate" and asks about, for
+    /// every comparison that lands in one. This is the single place that
+    /// takes the redundant pair back off, so the question cannot come back
+    /// one call site at a time: it was fixed once for the short-circuit
+    /// connectives, and turned up again on `is` against an `Any`.
+    proc openIf(cond: String) {
+        val bare = stripOuterParens(cond)
+        this.line("if (" + bare + ") {")
+    }
+
     proc declareLocal(name: String, t: Ty, mutable: Bool) {
         if (this.locals.size > 0) {
             this.locals[this.locals.size - 1].add(LocalC(name, t, mutable))
@@ -2728,6 +2777,20 @@ class CBackend() {
             }
         }
         return false
+    }
+
+    /// Where `this` is to be found in the code being emitted: a field of the
+    /// closure environment inside a lambda that captured it, and the
+    /// enclosing method's own receiver otherwise. `""` outside a method.
+    ///
+    /// This is `varRef` for the one name a program cannot bind.
+    func thisRef(): String {
+        val env = this.captureEnv
+        if (env != null) {
+            val cap = env["this"]
+            if (cap != null) { return "env->${cap.field}" }
+        }
+        return this.thisName
     }
 
     func varRef(name: String): String {
@@ -3084,7 +3147,7 @@ class CBackend() {
                     target = this.isTarget(c.tyEx!!, s.file, c.line, c.col)
                     if (target == null) { return }
                     val test = this.unwindTest(target!!, s.file, c.line, c.col)
-                    this.line("if (${test}) {")
+                    this.openIf(test)
                 } else {
                     this.line("{")
                 }
@@ -3455,7 +3518,8 @@ class CBackend() {
             return v
         }
         if (e.kind == "this") {
-            unless (this.thisName == "") { return this.thisName }
+            val here = this.thisRef()
+            unless (here == "") { return here }
             this.unsupported(e.file, e.line, e.col, "`this` outside a method")
             return "0"
         }
@@ -3557,6 +3621,20 @@ class CBackend() {
             val fe = fromEnv
             if (fe != null) {
                 captures.add(Capture(name, fe.ty, false))
+                continue
+            }
+            // `this` is a capture like any other: the receiver the enclosing
+            // method was called on, retained for as long as the closure lives
+            // and released with it. What made it look different is that it is
+            // not a local — it is the method's own parameter, and it has no
+            // name a program can bind.
+            if (name == "this" and this.thisName != "") {
+                val tt = this.thisTy
+                if (tt == null) {
+                    this.unsupported(e.file, e.line, e.col, "capturing `this` here")
+                    return "0"
+                }
+                captures.add(Capture(name, substitute(tt, this.tsubst), false))
                 continue
             }
             val two: List<Ty?> = [null, null]
@@ -3756,7 +3834,15 @@ class CBackend() {
             this.line("${t}_env->head.copy = NULL;")
         }
         for (cap in captures) {
-            val source = this.varRef(cap.name)
+            // `this` has no name a program can bind, so `varRef` cannot find
+            // it. In a lambda nested inside one that already captured it, the
+            // receiver is the outer environment's field, not the method's
+            // parameter — which is no longer in scope there.
+            var source = this.varRef(cap.name)
+            if (cap.name == "this") {
+                source = this.thisRef()
+                if (source == "") { source = "self" }
+            }
             val v = if (cap.isCell) {
                 "keal_cell_retain(${source})"
             } else {
@@ -4065,7 +4151,7 @@ class CBackend() {
             val item = elemUnword(elem, "${snap}->data[${i}]")
             val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
             if (call == null) { return null }
-            this.line("if (${call}) {")
+            this.openIf(call)
             this.indent += 1
             val stored = retained(elemTy, item)
             this.line("keal_list_push(${out}, ${elemWord(elem, stored)});")
@@ -4651,7 +4737,7 @@ class CBackend() {
             val item = elemUnword(elem, "${snap}->data[${i}]")
             val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
             if (call == null) { return null }
-            this.line("if (${call}) {")
+            this.openIf(call)
             this.indent += 1
             this.line("${t} = true;")
             this.line("break;")
@@ -4683,7 +4769,7 @@ class CBackend() {
             val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
             if (call == null) { return null }
             val test = if (name == "all") { "!(${call})" } else { call }
-            this.line("if (${test}) {")
+            this.openIf(test)
             this.indent += 1
             this.line("${t} = false;")
             this.line("break;")
@@ -4722,7 +4808,7 @@ class CBackend() {
             val item = elemUnword(elem, "${snap}->data[${i}]")
             val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
             if (call == null) { return null }
-            this.line("if (${call}) {")
+            this.openIf(call)
             this.indent += 1
             this.line("${t} = ${optWrap(inner, retained(inner, item))};")
             this.line("break;")
@@ -4750,7 +4836,7 @@ class CBackend() {
             val item = elemUnword(elem, "${snap}->data[${i}]")
             val call = this.callClosure(ft, f, [item], e.file, e.line, e.col)
             if (call == null) { return null }
-            this.line("if (${call}) {")
+            this.openIf(call)
             this.indent += 1
             this.line("${t}++;")
             this.indent -= 1
@@ -5211,7 +5297,7 @@ class CBackend() {
                 val v = this.expr(lhs)
                 val slot = this.temp()
                 this.line("${ct} ${slot};")
-                this.line("if (${optHas(inner, v)}) {")
+                this.openIf(optHas(inner, v))
                 this.indent += 1
                 var taken = optGet(inner, v)
                 if (isValueOpt(resultTy)) {
@@ -5617,7 +5703,7 @@ class CBackend() {
             }
             this.closeScope()
             unless (cond == "") {
-                this.line("if (${cond}) {")
+                this.openIf(cond)
                 this.indent += 1
             }
             // The body's scope closes before the `break`, so its releases
@@ -5680,7 +5766,7 @@ class CBackend() {
             sn = inst
         }
         val test = this.anyIsTest(target, subjectSlot, te.file, te.line, te.col)
-        this.line("if (${test}) {")
+        this.openIf(test)
         this.indent += 1
         this.openScope()
         val p = this.temp()
@@ -5709,7 +5795,7 @@ class CBackend() {
             guardSlot = t
         }
         unless (guardSlot == "") {
-            this.line("if (${guardSlot}) {")
+            this.openIf(guardSlot)
             this.indent += 1
         }
         this.openScope()
@@ -6232,7 +6318,7 @@ class CBackend() {
             // and it says so about every comparison that lands in one.
             val bare = stripOuterParens(a)
             val cond = if (settlesOn == "") { bare } else { "!(${bare})" }
-            this.line("if (${cond}) {")
+            this.openIf(cond)
             this.indent += 1
             this.line("${t} = ${settled};")
             this.indent -= 1
@@ -6287,7 +6373,7 @@ class CBackend() {
         val comp = condTy != null and condTy.kind == "Class" and condTy.name == "Comp" and condTy.args.size == 0
         unless (comp) {
             val c = this.condition(e.kids[0])
-            this.line("if (${c}) {")
+            this.openIf(c)
             this.indent += 1
             this.exprBranch(e.kids[1], slot, slotTy)
             this.indent -= 1
@@ -6365,7 +6451,7 @@ class CBackend() {
         unless (slot == "") { slotTy = this.ety(e) }
 
         val c = this.condition(e.kids[0])
-        this.line("if (${c}) {")
+        this.openIf(c)
         this.indent += 1
         this.branch(e.body!!.stmts, slot, slotTy)
         this.indent -= 1
