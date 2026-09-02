@@ -1,0 +1,38 @@
+// The cycle a closure makes, which is the easy one to write by accident now
+// that a lambda inside a method may capture `this`.
+//
+// A lambda that names `this` holds the receiver for as long as the closure
+// lives. Store the closure back into the object and the object holds itself:
+// neither count reaches zero, and `deinit` never runs.
+//
+// The second holder does the same work and reads the field into a local
+// first, so its closure holds an `Int` rather than the object that had it.
+// One line apart, and the audit is what tells them apart.
+//
+// Both are let go before the program ends on purpose: an object a top-level
+// binding still holds lives to the end by design, and the audit says so —
+// which would hide the cycle rather than show it.
+
+class Holder(var handlers: List<(Int) -> Int>, var factor: Int) {
+    proc addHolding() { this.handlers.add({ n -> n * this.factor }) }
+    proc addValue() {
+        val f = this.factor
+        this.handlers.add({ n -> n * f })
+    }
+    proc deinit() { println("holder ${this.factor} died") }
+}
+
+proc cyclic() {
+    val h = Holder([], 3)
+    h.addHolding()
+    println(h.handlers[0](14))
+}
+
+proc acyclic() {
+    val h = Holder([], 5)
+    h.addValue()
+    println(h.handlers[0](14))
+}
+
+cyclic()
+acyclic()

@@ -344,6 +344,7 @@ fn the_audit_names_what_outlived_the_program() {
     // The two interpreters, on every shape the audit is meant to see: a
     // cycle, a cycle broken by `weak`, and actors holding one another.
     for path in ["tests/audit/cycle.keal", "tests/audit/reachable.keal",
+                 "tests/audit/closure-cycle.keal",
                  "tests/native/weak.keal",
                  "tests/native/actors.keal", "tests/native/actor-mesh.keal"] {
         let mut reports = Vec::new();
@@ -644,10 +645,12 @@ fn the_native_audit_says_what_the_interpreters_say() {
     let dir = std::env::temp_dir().join("keal-audit-test");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
-    // Four shapes, not one: a plain cycle, a cycle a `weak` edge breaks, and
-    // two actor programs whose objects hold each other. Covering only the
-    // first is how a disagreement between engines went unnoticed once.
+    // Five shapes, not one: a plain cycle, a cycle a `weak` edge breaks,
+    // the cycle a closure that captured `this` makes, and two actor programs
+    // whose objects hold each other. Covering only the first is how a
+    // disagreement between engines went unnoticed once.
     for name in ["tests/audit/cycle.keal", "tests/audit/reachable.keal",
+                 "tests/audit/closure-cycle.keal",
                  "tests/native/weak.keal",
                  "tests/native/actors.keal", "tests/native/actor-mesh.keal"] {
     let src = root().join(name);

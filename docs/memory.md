@@ -158,6 +158,37 @@ val a = Node(null)
 a.next = a          // a cycle; its memory is never returned
 ```
 
+The other way, and the one that is easy to write without meaning to, is a
+closure. A lambda inside a method that names `this` **holds the receiver**,
+for as long as the closure lives; store that closure back into the object
+and the object holds itself:
+
+```keal
+class Holder(var handlers: List<(Int) -> Int>, var factor: Int) {
+    // A cycle: the closure holds the Holder, the Holder holds the closure.
+    proc addHolding() { this.handlers.add({ n -> n * this.factor }) }
+
+    // Not a cycle: the closure holds an Int.
+    proc addValue() {
+        val f = this.factor
+        this.handlers.add({ n -> n * f })
+    }
+}
+```
+
+The difference is one line, and it is worth knowing which one you wrote,
+because it can be the whole program: a web framework whose route handlers
+read `this` from the application object put ten objects — the app, its
+router, all seven routes and the session hub — into one cycle by changing a
+single field read.
+
+Note what `weak` does *not* solve here. Making the back edge weak would mean
+making the application weak from inside its own routes, which is not what the
+program means. **When a closure only needs a value, read it into a local
+before the lambda** — the closure then holds the value rather than the object
+that had it. `weak` is for a back edge that genuinely is one, such as a
+child pointing at its parent.
+
 The interpreter has the same behaviour, since it is built on Rust's `Rc`,
 so this is not a regression — but it is a gap, and since `deinit` shipped
 the gap grew teeth. **A cycle does not merely leak memory; its `deinit`
