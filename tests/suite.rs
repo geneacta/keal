@@ -1497,12 +1497,25 @@ fn the_generated_c_compiles_without_warnings() {
             println!("skipping -Werror={}: this compiler does not have it", name);
             continue;
         }
+        // The message has to stand on its own, because the interesting case
+        // is the one where the compiler said NOTHING — a flag that stopped
+        // biting produces no diagnostic, so a report that only echoes the
+        // compiler's output ends in a colon and nothing after it. What a
+        // reader needs is the C that was supposed to be rejected and what
+        // came back instead.
         assert!(
             !out.status.success() && said.contains(name),
-            "-Werror={} did not reject the fault written for it, so the \
-             absence it asserts below means nothing:\n{}",
-            name,
-            said
+            "-Werror={name} did not reject the fault written for it, so the \
+             absence asserted below would mean nothing.\n\
+             \x20 the fault, which this flag exists to catch:\n{fault}\
+             \x20 `{cc}` exited {code} and said: {said}\n\
+             \x20 fix the fault so it commits that mistake again, or drop \
+             the name if the compiler has stopped having it.",
+            name = name,
+            fault = fault,
+            cc = cc,
+            code = out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "on a signal".into()),
+            said = if said.trim().is_empty() { "nothing at all".to_string() } else { format!("\n{}", said) }
         );
         proven.push(name);
     }

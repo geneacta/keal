@@ -53,12 +53,24 @@ project that had it:
    each `-Werror` name a fault of its own and requires it to be rejected,
    and the flags the corpus is compiled under are exactly the ones proven —
    not a second list that could drift from the first.
+4. Something attests correctly and cannot say so. The check above was
+   verified to FAIL when its flag stopped biting; what nobody read was what
+   it printed while failing. Its report ended `... means nothing:` and then
+   nothing, because a flag that has stopped biting produces no diagnostic to
+   echo. This is the only rung that does not make the test wrong — it makes
+   it unusable, which is the same thing three weeks later, because a test
+   that goes red without saying why is a test somebody disables on a Tuesday
+   morning. The report now carries the fault it expected to be rejected, the
+   exit status, `nothing at all` where the compiler was silent, and what to
+   do about either case.
 
-Rung 3 is the kealeb session's sentence. Rung 2 was found here after reading
-its rung 1. None of the three was found by the person who wrote the test.
-That is the part worth keeping: a rule about tests verifies better in pairs,
-not because two sessions are cleverer, but because nobody rereads their own
-test with the eyes they bring to someone else's.
+Rungs 1 and 4 are the kealeb session's, rungs 2 and 3 were found here from
+reading its files. Three of the four were found by someone other than the
+author of the test — and the fourth is the exception that makes the rule
+worth stating rather than weaker: it was caught by measuring the failure
+instead of trusting that a failing test explains itself. A rule about tests
+verifies better in pairs, not because two sessions are cleverer, but because
+nobody rereads their own test with the eyes they bring to someone else's.
 
 **The lesson to carry:** a refusal is a claim about the language, and a
 backend that refuses in the words of its own internals is making a claim it
