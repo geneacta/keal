@@ -118,12 +118,38 @@ fn java_home() -> Option<String> {
             return Some(h.trim().to_string());
         }
     }
-    let out = Command::new("/usr/libexec/java_home").output().ok()?;
-    if !out.status.success() {
-        return None;
+    if let Ok(out) = Command::new("/usr/libexec/java_home").output() {
+        if out.status.success() {
+            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Some(path);
+            }
+        }
     }
-    let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (!path.is_empty()).then_some(path)
+    // `javac` on the PATH, resolved to the JDK it lives in.
+    //
+    // Without this there was no answer on Linux at all: `JAVA_HOME` or
+    // `/usr/libexec/java_home`, and the second is macOS's. A Debian or
+    // Ubuntu machine with a working JDK — which does not set `JAVA_HOME`,
+    // because the package does not — skipped all four interop tests while
+    // printing `ok`. That is a test standing down because it would rather
+    // not, which is the one reason rule 6 does not allow.
+    let exe = if cfg!(windows) { "javac.exe" } else { "javac" };
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    for dir in std::env::var("PATH").ok()?.split(sep) {
+        let candidate = Path::new(dir).join(exe);
+        if !candidate.exists() {
+            continue;
+        }
+        // `/usr/bin/javac` is a symlink into the JDK; the real path is what
+        // names the home, two levels above `bin/javac`.
+        let Ok(real) = std::fs::canonicalize(&candidate) else { continue };
+        let Some(home) = real.parent().and_then(|b| b.parent()) else { continue };
+        if home.join("include").exists() {
+            return Some(home.to_string_lossy().into_owned());
+        }
+    }
+    None
 }
 
 /// The subdirectory a JDK keeps `jni_md.h` in.
@@ -1642,17 +1668,17 @@ fn actors_are_clean_under_thread_sanitizer() {
         );
         // How it failed, not that it did. A process killed by a signal
         // writes nothing, so echoing its stderr reports a colon and an empty
-        // line — and the exit status, which is the whole story, goes unsaid.
-        // On Linux aarch64 this test dies with 132, and the reader had to
-        // work out that 132 is 128 + SIGILL before they could start.
+        // line — and the status, which is the whole story, goes unsaid.
+        //
+        // `ExitStatus`'s own `Display` is what says it: `signal: 4 (SIGILL)`,
+        // the name included, on every platform. Reading `code()` and
+        // decoding 128 + n is the shell's convention and not Rust's — on
+        // Unix `code()` is `None` for a signal, so an arm matching `c > 128`
+        // is dead code that reads like a fix. This test had one.
         assert!(
             out.status.success(),
             "the sanitized binary failed: {status}.\n  it said: {said}",
-            status = match out.status.code() {
-                Some(c) if c > 128 => format!("exit {} — killed by signal {}", c, c - 128),
-                Some(c) => format!("exit {}", c),
-                None => "killed by a signal".to_string(),
-            },
+            status = out.status,
             said = if stderr.trim().is_empty() {
                 "nothing at all, so this is not a race the sanitizer found — \
                  the process died before it could report one"
