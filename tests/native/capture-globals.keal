@@ -63,3 +63,17 @@ proc twice() {
 }
 twice()
 println(counter.n)
+
+// The same from inside a class's method, which is a body like any other —
+// and the one this pass used to run *after*, so a lambda in a method still
+// could not see a top-level binding after the pass existed.
+class Panel(val title: String) {
+    func caption(): String {
+        // `this` is a capture the backend still refuses by name, so the
+        // field is read into a local first; the global is what this proves.
+        val t = this.title
+        val build = { -> t + " (" + "${zoneNone}" + ")" }
+        return build()
+    }
+}
+println(Panel("main").caption())

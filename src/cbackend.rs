@@ -670,18 +670,9 @@ impl CBackend {
                 self.enums.insert(en.name.clone(), names);
             }
         }
-        for item in &program.items {
-            if let Item::Class(c) = item {
-                self.class_struct(c);
-            }
-        }
-        for item in &program.items {
-            if let Item::Class(c) = item {
-                self.class_functions(c);
-            }
-        }
         // Which names the program binds at its top level, known before any
-        // body is emitted.
+        // body is emitted — a class's methods included, which is a body this
+        // pass once ran after.
         //
         // A top-level binding becomes a C global that functions and lambdas
         // read directly. The statement that says so is emitted last, inside
@@ -698,6 +689,16 @@ impl CBackend {
             self.global_vars.insert(name.clone());
             if declared.or_else(|| self.ety(init)) == Some(Type::Any) {
                 self.any_globals.insert(name.clone());
+            }
+        }
+        for item in &program.items {
+            if let Item::Class(c) = item {
+                self.class_struct(c);
+            }
+        }
+        for item in &program.items {
+            if let Item::Class(c) = item {
+                self.class_functions(c);
             }
         }
         for item in &program.items {
