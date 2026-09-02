@@ -71,8 +71,21 @@ project that had it:
    no instance, and that was checked rather than assumed:** no test binds a
    port or touches the network, no two tests share a temporary directory,
    and every binary that gets run is built by an asserted step into a
-   directory named for the test that made it. It is listed anyway, because
-   the shape is what to look for the day one of those stops being true.
+   directory named for the test that made it.
+
+   The last of those was **tested rather than read**, which is the whole
+   lesson of the four rungs above and was worth spending ten minutes on: a
+   fake executable was planted at every path the suite runs, and every one
+   was either wiped with its directory or overwritten by a real build — none
+   survived to be executed. Then the harder half, a build that FAILS with a
+   stale binary already in place: the suite stops at the build and names the
+   file, rather than running what was there. A property held by construction
+   and never exercised is a property the next inoffensive-looking change
+   removes.
+
+   Rung 5 is listed with no instance because the shape is what to look for
+   the day one of those three stops being true, and because a ladder with a
+   rung missing from it reads as a ladder that ends.
 
 Rungs 1 and 4 are the kealeb session's, rungs 2 and 3 were found here from
 reading its files, and rung 5 has not happened here yet. Three of the four were found by someone other than the
