@@ -139,6 +139,7 @@ fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool, depth: usize
         Value::Variant(v) => v.name.to_string(),
         Value::Float(f) => format_float(*f),
         Value::Bool(b) => b.to_string(),
+        Value::Comp(c) => crate::value::comp_word(*c).to_string(),
         Value::Str(s) => {
             if quote {
                 format!("\"{}\"", escape(s))

@@ -4,10 +4,10 @@ assert((3 < 5 ? "y" : "n") == "y", "bool ternary picks then")
 assert((3 > 5 ? "y" : "n") == "n", "bool ternary picks else")
 
 // The spaceship answers a Comp for any Ord operands.
-assert((1 <=> 2).isLess(), "int spaceship less")
-assert((2 <=> 2).isEqual(), "int spaceship equal")
-assert(("b" <=> "a").isGreater(), "string spaceship greater")
-assert((1.5 <=> 2.5).isLess(), "float spaceship")
+assert((1 <=> 2) == less, "int spaceship less")
+assert((2 <=> 2) == equal, "int spaceship equal")
+assert(("b" <=> "a") == greater, "string spaceship greater")
+assert((1.5 <=> 2.5) == less, "float spaceship")
 
 // A Comp condition selects between three branches.
 assert((1 <=> 2 ? "L" : "E" : "G") == "L", "comp ternary less")
@@ -37,7 +37,7 @@ record Pair(val a: Int, val b: Int) : Ord {
         return this.b.compareTo(other.b)
     }
 }
-assert((Pair(1, 5) <=> Pair(1, 7)).isLess(), "record spaceship")
+assert((Pair(1, 5) <=> Pair(1, 7)) == less, "record spaceship")
 assert((Pair(2, 0) <=> Pair(1, 9) ? -1 : 0 : 1) == 1, "record comp ternary")
 
 // Expression positions: arguments, list and map literals, interpolation.

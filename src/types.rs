@@ -9,6 +9,15 @@ pub enum Type {
     Int,
     Float,
     Bool,
+    /// The outcome of a comparison: less, equal or greater — exactly one.
+    ///
+    /// A scalar, and a peer of `Bool` rather than a type built on top of one.
+    /// Two-valued and three-valued answers are the same kind of thing, so
+    /// they cost the same: one word, nothing to retain, nothing to free. The
+    /// language already believed this in one place — a `Comp` selects between
+    /// three ternary branches the way a `Bool` selects between two — and this
+    /// is that belief made general.
+    Comp,
     Str,
     Unit,
     /// Top type; everything is assignable to it.
@@ -354,6 +363,7 @@ impl fmt::Display for Type {
             Type::Enum(name) => write!(f, "{}", name),
             Type::Float => write!(f, "Float"),
             Type::Bool => write!(f, "Bool"),
+            Type::Comp => write!(f, "Comp"),
             Type::Str => write!(f, "String"),
             Type::Unit => write!(f, "Unit"),
             Type::Any => write!(f, "Any"),

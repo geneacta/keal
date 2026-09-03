@@ -62,13 +62,6 @@ public trait Eq {
     func equals(other: Self): Bool
 }
 
-/// A total order. `compareTo` returns a negative number, zero, or a positive
-/// number according as the receiver is less than, equal to, or greater than
-/// `other` — the same convention as `Int.compareTo`.
-public trait Ord {
-    func compareTo(other: Self): Int
-}
-
 /// `a[i]` reads through `get`, and `a[i] = v` writes through `set`.
 ///
 /// The trait carries no signature of its own, and that is deliberate: what
@@ -88,32 +81,31 @@ public trait Invoke {}
 
 // ---- ordering, spoken plainly -------------------------------------------
 //
-// `compareTo` answers with an Int — negative, zero, positive — because that
-// is the protocol operators rewrite to. `Comp` is the readable face over
-// it: a three-valued answer, the way Bool is a two-valued one.
+// `Comp` is a primitive, beside `Int`, `Float` and `Bool`. A three-valued
+// answer is the same kind of thing as a two-valued one, so it costs the
+// same: one word, nothing to retain, nothing to free. Its values are
+// `less`, `equal` and `greater`, written the way `true` and `false` are —
+// bare words, not members of a type.
+//
+// It carries no methods, for the reason `Bool` carries none: `b.isTrue()`
+// would be a way of saying `b`, and `c.isLess()` is a way of saying
+// `c == less`. A `when` over one needs no `else`, because three is all
+// there is.
 
-/// The outcome of a comparison: less, equal or greater — exactly one.
-public record Comp(val sign: Int) {
-    public func isLess(): Bool { return this.sign < 0 }
-    public func isEqual(): Bool { return this.sign == 0 }
-    public func isGreater(): Bool { return this.sign > 0 }
-    public func isAtMost(): Bool { return this.sign <= 0 }
-    public func isAtLeast(): Bool { return this.sign >= 0 }
-
-    public func toString(): String {
-        if (this.sign < 0) { return "less" }
-        if (this.sign > 0) { return "greater" }
-        return "equal"
-    }
+/// A total order. `compareTo` returns a negative number, zero, or a positive
+/// number according as the receiver is less than, equal to, or greater than
+/// `other` — the same convention as `Int.compareTo`.
+public trait Ord {
+    func compareTo(other: Self): Int
 }
 
 /// Compares two values of any ordered type — `Int`, `Float`, `String`, or
 /// your own `: Ord` class — as a `Comp`.
 public func compare<T: Ord>(a: T, b: T): Comp {
     val sign = a.compareTo(b)
-    if (sign < 0) { return Comp(-1) }
-    if (sign > 0) { return Comp(1) }
-    return Comp(0)
+    if (sign < 0) { return less }
+    if (sign > 0) { return greater }
+    return equal
 }
 
 // ---- tuples ------------------------------------------------------------

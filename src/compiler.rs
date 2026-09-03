@@ -848,7 +848,11 @@ impl Compiler {
     fn expr(&mut self, e: &Expr) -> Result<(), Diag> {
         let span = e.span;
         match &e.kind {
-            // One pooled constant, and no new opcode.
+            // One pooled constant, and no new opcode. Same for a `Comp`.
+            ExprKind::Comp(c) => {
+                let k = self.fs().chunk.constant(Value::Comp(*c));
+                self.emit(Op::Const(k), span);
+            }
             ExprKind::Variant { enm, name, ordinal } => {
                 let v = Value::Variant(std::rc::Rc::new(crate::value::VariantVal {
                     enm: enm.clone(),
@@ -982,7 +986,7 @@ impl Compiler {
                 self.expr(cond)?;
                 let comp = cond
                     .ty()
-                    .map(|t| *t == crate::types::Type::class("Comp", Vec::new()))
+                    .map(|t| *t == crate::types::Type::Comp)
                     .unwrap_or(false);
                 if !comp {
                     // A `Bool` selects like a braceless two-branch `if`.
@@ -993,21 +997,22 @@ impl Compiler {
                     self.expr(&branches[1])?;
                     self.fs().chunk.patch(done);
                 } else {
-                    // A `Comp` reads its sign once, then splits three ways.
-                    let n = self.fs().chunk.name("sign");
-                    self.emit(Op::GetField(n), span);
+                    // A `Comp` IS its ordinal, so the split is two equality
+                    // tests against it — no field to read, and no object to
+                    // read it from.
                     let slot = self.temp_slots(1);
                     self.emit(Op::StoreLocal(slot), span);
-                    let zero = self.fs().chunk.constant(Value::Int(0));
+                    let less = self.fs().chunk.constant(Value::Comp(0));
+                    let equal = self.fs().chunk.constant(Value::Comp(1));
                     self.emit(Op::LoadLocal(slot), span);
-                    self.emit(Op::Const(zero), span);
-                    self.emit(Op::Compare(Compare::Lt), span);
+                    self.emit(Op::Const(less), span);
+                    self.emit(Op::Eq, span);
                     let not_less = self.fs().chunk.emit_jump(Op::JumpIfFalse, span);
                     self.expr(&branches[0])?;
                     let first_done = self.fs().chunk.emit_jump(Op::Jump, span);
                     self.fs().chunk.patch(not_less);
                     self.emit(Op::LoadLocal(slot), span);
-                    self.emit(Op::Const(zero), span);
+                    self.emit(Op::Const(equal), span);
                     self.emit(Op::Eq, span);
                     let not_equal = self.fs().chunk.emit_jump(Op::JumpIfFalse, span);
                     self.expr(&branches[1])?;
@@ -1565,7 +1570,7 @@ pub(crate) fn walk_expr(e: &Expr, f: &mut dyn FnMut(&Expr) -> bool) {
         return;
     }
     match &e.kind {
-        ExprKind::Variant { .. } => {}
+        ExprKind::Variant { .. } | ExprKind::Comp(_) => {}
         ExprKind::MacroCall { args, .. } => {
             for a in args {
                 walk_expr(a, f);

@@ -393,6 +393,15 @@ fn wrap(tag: &str, node: &str) -> String {
 
 // ---- expressions --------------------------------------------------------
 
+/// The word a `Comp` ordinal is written with.
+pub fn comp_word(c: u8) -> &'static str {
+    match c {
+        0 => "less",
+        1 => "equal",
+        _ => "greater",
+    }
+}
+
 fn expr_node(e: &Expr) -> String {
     annotate(e, expr_node_inner(e))
 }
@@ -411,6 +420,7 @@ fn expr_node_inner(e: &Expr) -> String {
         ExprKind::Int(n) => format!("int {} {}", n, sp),
         ExprKind::Float(f) => format!("float {} {}", format_float(*f), sp),
         ExprKind::Bool(b) => format!("bool {} {}", b, sp),
+        ExprKind::Comp(c) => format!("comp {} {}", comp_word(*c), sp),
         ExprKind::Str(s) => format!("str {} {}", esc(s), sp),
         ExprKind::Null => format!("null {}", sp),
         ExprKind::This => format!("this {}", sp),

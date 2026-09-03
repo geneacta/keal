@@ -59,18 +59,29 @@ class Poly(val degree: Int) : Pow {
 assert((Poly(3) ** Poly(4)).degree == 12, "`**` through the Pow trait")
 
 // Comp: the three-valued answer over compareTo.
-assert(compare(3, 7).isLess(), "less")
-assert(compare(7, 3).isGreater(), "greater")
-assert(compare(5, 5).isEqual(), "equal")
-assert(compare(3, 7).isAtMost(), "at most")
-assert(compare(5, 5).isAtLeast(), "at least")
+assert(compare(3, 7) == less, "less")
+assert(compare(7, 3) == greater, "greater")
+assert(compare(5, 5) == equal, "equal")
+assert(compare(3, 7) != greater, "at most")
+assert(compare(5, 5) != less, "at least")
 assert("${compare(1, 2)}" == "less", "Comp renders as words")
 assert("${compare(2, 1)}" == "greater", "Comp renders as words")
-assert(compare("b", "a").isGreater(), "compare on strings")
-assert(compare(2.5, 2.5).isEqual(), "compare on floats")
-assert(compare(1, 2) == Comp(-1), "Comp is a record: value equality")
+assert(compare("b", "a") == greater, "compare on strings")
+assert(compare(2.5, 2.5) == equal, "compare on floats")
+// A Comp is a value, not an object: two of them are equal when they say the
+// same thing, and there is no third way for them to differ.
+assert((1 <=> 2) == compare(1, 2), "two Comps that say the same are the same")
+assert(less != equal and equal != greater and less != greater, "three values, all distinct")
+
+// A `when` over one needs no `else`, because three is all there is.
+func word(c: Comp): String {
+    return when (c) { less -> "less" equal -> "equal" greater -> "greater" }
+}
+assert(word(compare(1, 2)) == "less", "when over a Comp is exhaustive")
+assert(word(compare(2, 2)) == "equal", "when over a Comp is exhaustive")
+assert(word(compare(2, 1)) == "greater", "when over a Comp is exhaustive")
 
 class Version(val major: Int) : Ord {
     func compareTo(other: Version): Int { return this.major - other.major }
 }
-assert(compare(Version(3), Version(1)).isGreater(), "compare on an Ord class")
+assert(compare(Version(3), Version(1)) == greater, "compare on an Ord class")

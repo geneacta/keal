@@ -51,6 +51,10 @@ func keywordOf(w: String): String {
         "while", "for", "in", "break", "continue", "try", "catch", "throw",
         "class", "this", "null",
         "true", "false", "when", "is", "import",
+        // The three values of a `Comp`, written as `true` and `false` are.
+        // A three-valued answer is the same kind of thing as a two-valued
+        // one, so it is spelled the same way: a bare word.
+        "less", "equal", "greater",
         // The visibility words. `internal` and `protected` name no rule
         // yet; they are reserved so that the day they do, no program has
         // to be renamed to make room for them.
@@ -73,7 +77,7 @@ func keywordOf(w: String): String {
 func endsStatement(kind: String): Bool {
     return when (kind) {
         "int", "float", "str", "ident", "return", "break", "continue",
-        "null", "true", "false", "this", ")", "}", "]", "?", "!!",
+        "null", "true", "false", "less", "equal", "greater", "this", ")", "}", "]", "?", "!!",
         "++", "--" -> true
         else -> false
     }

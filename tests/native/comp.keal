@@ -1,0 +1,53 @@
+// `Comp`, the three-valued answer, as a primitive beside `Bool`.
+//
+// It used to be a record with a `sign: Int` field and five methods, which
+// meant every comparison allocated an object on the heap — a `<=>` in a
+// three-iteration loop emitted five calls to `K_Comp_new`. It is now one
+// word, an ordinal, exactly as an enum variant is and exactly as `Bool` is.
+//
+// The methods went with the record, and they are not missed: `b.isTrue()`
+// would be a longer way of writing `b`, and `c == less` is already as short
+// as it goes. What replaces `isAtMost()` reads better than it did —
+// `!= greater` says the same thing without a name to learn.
+
+println(1 <=> 2)
+println(2 <=> 2)
+println(3 <=> 2)
+println("b" <=> "a")
+println(1.5 <=> 2.5)
+
+// The three values are values: comparable, distinct, and all of them.
+println(less == less)
+println(less != greater)
+println((1 <=> 2) == compare(1, 2))
+
+// A `when` over one needs no `else`.
+func word(c: Comp): String {
+    return when (c) { less -> "L" equal -> "E" greater -> "G" }
+}
+println(word(less) + word(equal) + word(greater))
+
+// The ternary, which knew this before the type did: two branches on a Bool,
+// three on a Comp, the condition evaluated once.
+proc show(a: Int, b: Int) { println(a <=> b ? "before" : "same" : "after") }
+show(1, 2)
+show(2, 2)
+show(3, 2)
+
+// It goes where a value goes: into a list, into a map, out of a function,
+// through a nullable, and into a lambda.
+val cs: List<Comp> = [less, equal, greater]
+println(cs.size)
+val counts: Map<Comp, Int> = {}
+counts[less] = 1
+counts[greater] = 2
+println(counts[less])
+println(counts[greater])
+val maybe: Comp? = null
+println(maybe ?: equal)
+val pick = { c: Comp -> c == equal }
+println(pick(equal))
+
+// And it renders as the word it is written with, everywhere.
+println("${less} ${equal} ${greater}")
+println([less, greater])

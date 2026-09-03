@@ -44,6 +44,7 @@ pub enum CVal {
     Int(i64),
     Float(f64),
     Bool(bool),
+    Comp(u8),
     Str(String),
     Unit,
     List(Vec<CVal>),
@@ -59,6 +60,7 @@ impl CVal {
             CVal::Int(n) => n.to_string(),
             CVal::Float(f) => crate::runtime::format_float(*f),
             CVal::Bool(b) => b.to_string(),
+            CVal::Comp(c) => crate::value::comp_word(*c).to_string(),
             CVal::Str(s) => s.clone(),
             CVal::Unit => "unit".to_string(),
             CVal::List(items) => {
@@ -86,6 +88,7 @@ impl CVal {
             CVal::Int(_) => "Int",
             CVal::Float(_) => "Float",
             CVal::Bool(_) => "Bool",
+            CVal::Comp(_) => "Comp",
             CVal::Str(_) => "String",
             CVal::Unit => "Unit",
             CVal::List(_) => "List",
@@ -147,6 +150,9 @@ pub fn literal(v: &CVal, span: Span) -> Option<Expr> {
         CVal::Int(n) => ExprKind::Int(*n),
         CVal::Float(f) => ExprKind::Float(*f),
         CVal::Bool(b) => ExprKind::Bool(*b),
+        // Unlike a variant, a `Comp` HAS a literal — `less`, `equal`,
+        // `greater` — so a `constexpr` may end with one.
+        CVal::Comp(c) => ExprKind::Comp(*c),
         CVal::Str(s) => ExprKind::Str(s.clone()),
         // `Unit` is what a call with nothing to say gives; there is no
         // literal for it, and no binding wants one.
@@ -276,6 +282,7 @@ impl<'a> Folder<'a> {
     fn eval(&mut self, e: &Expr) -> Result<CVal, Diag> {
         self.step(e.span)?;
         match &e.kind {
+            ExprKind::Comp(c) => Ok(CVal::Comp(*c)),
             // A variant is a value the compiler already knows, but not one a
             // literal can spell, so a `constexpr` cannot end with one.
             ExprKind::Variant { enm, name, .. } => {

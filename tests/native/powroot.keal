@@ -26,10 +26,10 @@ println(base ** 10)
 println(compare(3, 7))
 println(compare("zebra", "ant"))
 println(compare(1.5, 1.5))
-println(compare(9, 2).isGreater())
+println(compare(9, 2) == greater)
 
 func cheapest<T: Ord>(a: T, b: T): T {
-    return if (compare(a, b).isAtMost()) a
+    return if (compare(a, b) != greater) a
     return b
 }
 println(cheapest(4, 9))

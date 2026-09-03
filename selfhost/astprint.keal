@@ -296,6 +296,7 @@ func pExInner(e: Ex): String {
         "int" -> "int ${e.iVal} ${sp}"
         "float" -> "float ${e.fVal} ${sp}"
         "bool" -> "bool ${e.text} ${sp}"
+        "comp" -> "comp ${e.text} ${sp}"
         "str" -> "str ${esc(e.text)} ${sp}"
         "null" -> "null " + sp
         "this" -> "this " + sp

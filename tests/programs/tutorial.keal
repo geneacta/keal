@@ -270,7 +270,7 @@ tutAcc++
 assert(tutAcc == 10, "compounds and increments")
 
 func tutCheapest<T: Ord>(a: T, b: T): T {
-    return if (compare(a, b).isAtMost()) a
+    return if (compare(a, b) != greater) a
     return b
 }
 assert(tutCheapest(4, 9) == 4, "guarded return, spoken comparison")

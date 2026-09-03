@@ -50,10 +50,9 @@
 <a href="#the-standard-library-Pow"><span class="k k-trait">trait</span>Pow</a>
 <a href="#the-standard-library-Root"><span class="k k-trait">trait</span>Root</a>
 <a href="#the-standard-library-Eq"><span class="k k-trait">trait</span>Eq</a>
-<a href="#the-standard-library-Ord"><span class="k k-trait">trait</span>Ord</a>
 <a href="#the-standard-library-Index"><span class="k k-trait">trait</span>Index</a>
 <a href="#the-standard-library-Invoke"><span class="k k-trait">trait</span>Invoke</a>
-<a href="#the-standard-library-Comp"><span class="k k-record">record</span>Comp</a>
+<a href="#the-standard-library-Ord"><span class="k k-trait">trait</span>Ord</a>
 <a href="#the-standard-library-compare"><span class="k k-func">func</span>compare</a>
 <a href="#the-standard-library-Tuple2"><span class="k k-record">record</span>Tuple2</a>
 <a href="#the-standard-library-Tuple3"><span class="k k-record">record</span>Tuple3</a>
@@ -156,15 +155,6 @@ so two separately built values are never equal.</p>
 <pre class="sig m">func equals(other: Self): Bool</pre>
 </div>
 </section>
-<section id="the-standard-library-Ord">
-<pre class="sig">trait Ord</pre>
-<p>A total order. <code>compareTo</code> returns a negative number, zero, or a positive
-number according as the receiver is less than, equal to, or greater than
-<code>other</code> — the same convention as <code>Int.compareTo</code>.</p>
-<div class="members">
-<pre class="sig m">func compareTo(other: Self): Int</pre>
-</div>
-</section>
 <section id="the-standard-library-Index">
 <pre class="sig">trait Index</pre>
 <p><code>a[i]</code> reads through <code>get</code>, and <code>a[i] = v</code> writes through <code>set</code>.</p>
@@ -182,17 +172,13 @@ take that same key type and the value <code>get</code> returns.</p>
 <p>Same reasoning as <code>Index</code>: the parameters and the result are the class's
 own, and the trait only says that calling one is meaningful.</p>
 </section>
-<section id="the-standard-library-Comp">
-<pre class="sig">record Comp(val sign: Int)</pre>
-<p>The outcome of a comparison: less, equal or greater — exactly one.</p>
+<section id="the-standard-library-Ord">
+<pre class="sig">trait Ord</pre>
+<p>A total order. <code>compareTo</code> returns a negative number, zero, or a positive
+number according as the receiver is less than, equal to, or greater than
+<code>other</code> — the same convention as <code>Int.compareTo</code>.</p>
 <div class="members">
-<pre class="sig m">val sign: Int</pre>
-<pre class="sig m">func isLess(): Bool</pre>
-<pre class="sig m">func isEqual(): Bool</pre>
-<pre class="sig m">func isGreater(): Bool</pre>
-<pre class="sig m">func isAtMost(): Bool</pre>
-<pre class="sig m">func isAtLeast(): Bool</pre>
-<pre class="sig m">func toString(): String</pre>
+<pre class="sig m">func compareTo(other: Self): Int</pre>
 </div>
 </section>
 <section id="the-standard-library-compare">

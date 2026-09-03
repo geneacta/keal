@@ -371,7 +371,7 @@ func retained(t: Ty, expr: String): String {
 func isValueOpt(t: Ty): Bool {
     unless (t.kind == "Nullable") { return false }
     val inner = t.args[0].kind
-    return inner == "Int" or inner == "Float" or inner == "Bool" or inner == "Enum"
+    return inner == "Int" or inner == "Float" or inner == "Bool" or inner == "Enum" or inner == "Comp"
 }
 
 /// True for a type held behind a pointer, which has null to spare.
@@ -387,7 +387,7 @@ func isReference(t: Ty): Bool {
 
 func optWrap(inner: Ty, v: String): String {
     return when (inner.kind) {
-        "Int", "Enum" -> "(KealOptI64){ true, ${v} }"
+        "Int", "Enum", "Comp" -> "(KealOptI64){ true, ${v} }"
         "Float" -> "(KealOptF64){ true, ${v} }"
         "Bool" -> "(int8_t)((${v}) ? 1 : 0)"
         else -> v
@@ -396,7 +396,7 @@ func optWrap(inner: Ty, v: String): String {
 
 func optNull(inner: Ty): String {
     return when (inner.kind) {
-        "Int", "Enum" -> "(KealOptI64){ false, 0 }"
+        "Int", "Enum", "Comp" -> "(KealOptI64){ false, 0 }"
         "Float" -> "(KealOptF64){ false, 0.0 }"
         "Bool" -> "(int8_t)2"
         else -> "NULL"
@@ -408,7 +408,7 @@ func optNull(inner: Ty): String {
 // silently.
 func optHas(inner: Ty, x: String): String {
     return when (inner.kind) {
-        "Int", "Float", "Enum" -> "${x}.has"
+        "Int", "Float", "Enum", "Comp" -> "${x}.has"
         "Bool" -> "(${x} != 2)"
         else -> "(${x} != NULL)"
     }
@@ -416,7 +416,7 @@ func optHas(inner: Ty, x: String): String {
 
 func optGet(inner: Ty, x: String): String {
     return when (inner.kind) {
-        "Int", "Float", "Enum" -> "${x}.v"
+        "Int", "Float", "Enum", "Comp" -> "${x}.v"
         "Bool" -> "(bool)(${x} == 1)"
         else -> x
     }
@@ -957,7 +957,9 @@ class CBackend() {
         // One word holding an ordinal. With nothing to carry beside the
         // tag, a `KealAny` would spend two words and a heap box to hold a
         // permanent zero — the ordinal is the whole value.
-        if (t.kind == "Enum") { return "int64_t" }
+        // A `Comp` is an ordinal too — less, equal, greater — and beside
+        // `Bool` in the same sense: the value is the word.
+        if (t.kind == "Enum" or t.kind == "Comp") { return "int64_t" }
         if (t.kind == "Float") { return "double" }
         if (t.kind == "Bool") { return "bool" }
         if (t.kind == "Str") { return "KealStr*" }
@@ -1001,7 +1003,7 @@ class CBackend() {
             val inner = t.args[0]
             // `T?` over a reference is the same pointer, allowed to be null.
             if (isReference(inner)) { return this.ctype(inner, file, atLine, col) }
-            if (inner.kind == "Int" or inner.kind == "Enum") { return "KealOptI64" }
+            if (inner.kind == "Int" or inner.kind == "Enum" or inner.kind == "Comp") { return "KealOptI64" }
             if (inner.kind == "Float") { return "KealOptF64" }
             if (inner.kind == "Bool") { return "int8_t" }
             this.unsupported(file, atLine, col, "the type `${tyShow(inner)}?`")
@@ -1017,7 +1019,7 @@ class CBackend() {
     func elemKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
         // An empty literal types as `List<Nothing>`, and `Nothing` has no
         // values, so any representative will do.
-        if (t.kind == "Never" or t.kind == "Int" or t.kind == "Enum") { return CElem("int", "", "") }
+        if (t.kind == "Never" or t.kind == "Int" or t.kind == "Enum" or t.kind == "Comp") { return CElem("int", "", "") }
         if (t.kind == "Bool") { return CElem("bool", "", "") }
         if (t.kind == "Float") { return CElem("float", "", "") }
         if (t.kind == "Str") { return CElem("ptr", "KealStr", "keal_str") }
@@ -1199,6 +1201,7 @@ class CBackend() {
         if (name == "Int") { return Ty("Int") }
         if (name == "Float") { return Ty("Float") }
         if (name == "Bool") { return Ty("Bool") }
+        if (name == "Comp") { return Ty("Comp") }
         if (name == "String") { return Ty("Str") }
         if (name == "Any") { return Ty("Any") }
         if (name == "Unit") { return Ty("Unit") }
@@ -1381,7 +1384,7 @@ class CBackend() {
     }
 
     func keyKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
-        if (t.kind == "Never" or t.kind == "Int" or t.kind == "Bool" or t.kind == "Float" or t.kind == "Str" or t.kind == "Enum") {
+        if (t.kind == "Never" or t.kind == "Int" or t.kind == "Bool" or t.kind == "Float" or t.kind == "Str" or t.kind == "Enum" or t.kind == "Comp") {
             return this.elemKind(t, file, atLine, col)
         }
         this.unsupported(file, atLine, col, "map keys of `${tyShow(t)}`")
@@ -2509,6 +2512,7 @@ class CBackend() {
             if (name == "Int") { return Ty("Int") }
             if (name == "Float") { return Ty("Float") }
             if (name == "Bool") { return Ty("Bool") }
+            if (name == "Comp") { return Ty("Comp") }
             if (name == "String") { return Ty("Str") }
             if (name == "Unit") { return Ty("Unit") }
             if (name == "Any") { return Ty("Any") }
@@ -3385,6 +3389,11 @@ class CBackend() {
         }
         if (e.kind == "float") { return formatDouble(e.fVal) }
         if (e.kind == "bool") { return e.text }
+        // The ordinal is the value: 0, 1, 2 — less, equal, greater.
+        if (e.kind == "comp") {
+            val ord = when (e.text) { "less" -> 0 "equal" -> 1 else -> 2 }
+            return "INT64_C(${ord})"
+        }
         if (e.kind == "str") {
             val idx = this.intern(e.text)
             return this.ownTemp("keal_str_retain(_str${idx})")
@@ -3983,6 +3992,7 @@ class CBackend() {
         if (t.kind == "Int") { return "keal_str_from_int(" + SHOW_HOLE + ")" }
         if (t.kind == "Float") { return "keal_str_from_float(" + SHOW_HOLE + ")" }
         if (t.kind == "Bool") { return "keal_str_from_bool(" + SHOW_HOLE + ")" }
+        if (t.kind == "Comp") { return "keal_str_from_comp(" + SHOW_HOLE + ")" }
         if (t.kind == "Str") { return "keal_str_retain(" + SHOW_HOLE + ")" }
         if (t.kind == "Class") {
             return structNameOf(t.name, t.args) + "_show(" + SHOW_HOLE + ")"
@@ -5067,6 +5077,7 @@ class CBackend() {
         if (t.kind == "Int") { return "keal_str_from_int(${expr})" }
         if (t.kind == "Float") { return "keal_str_from_float(${expr})" }
         if (t.kind == "Bool") { return "keal_str_from_bool(${expr})" }
+        if (t.kind == "Comp") { return "keal_str_from_comp(${expr})" }
         if (t.kind == "Class") {
             return "${structNameOf(t.name, t.args)}_show(${expr})"
         }
@@ -5863,7 +5874,7 @@ class CBackend() {
     /// `subject == candidate`, spelled correctly for the subject's type.
     func equality(t: Ty, slot: String, rhs: String, at: Ex): String {
         if (t.kind == "Str") { return "(keal_str_cmp(${slot}, ${rhs}) == 0)" }
-        if (t.kind == "Int" or t.kind == "Float" or t.kind == "Bool" or t.kind == "Enum") {
+        if (t.kind == "Int" or t.kind == "Float" or t.kind == "Bool" or t.kind == "Enum" or t.kind == "Comp") {
             return "(${slot} == ${rhs})"
         }
         if (t.kind == "Any") {
@@ -6208,6 +6219,8 @@ class CBackend() {
             call = "keal_str_from_float(${v})"
         } else if (ty.kind == "Bool") {
             call = "keal_str_from_bool(${v})"
+        } else if (ty.kind == "Comp") {
+            call = "keal_str_from_comp(${v})"
         } else if (ty.kind == "Enum") {
             // The names table, emitted once per enum that is ever shown.
             call = this.enumNames(ty.name) + "(${v})"
@@ -6250,6 +6263,8 @@ class CBackend() {
                 rendered = "keal_str_from_float(${optGet(inner, v)})"
             } else if (inner.kind == "Bool") {
                 rendered = "keal_str_from_bool(${optGet(inner, v)})"
+            } else if (inner.kind == "Comp") {
+                rendered = "keal_str_from_comp(${optGet(inner, v)})"
             } else if (inner.kind == "List") {
                 // A nullable container is a plain pointer, so once the absent
                 // case is out of the way the renderer for the container
@@ -6370,7 +6385,7 @@ class CBackend() {
         var slotTy: Ty? = null
         unless (slot == "") { slotTy = this.ety(e) }
         val condTy = this.ety(e.kids[0])
-        val comp = condTy != null and condTy.kind == "Class" and condTy.name == "Comp" and condTy.args.size == 0
+        val comp = condTy != null and condTy.kind == "Comp"
         unless (comp) {
             val c = this.condition(e.kids[0])
             this.openIf(c)
@@ -6384,14 +6399,17 @@ class CBackend() {
             this.line("}")
         }
         if (comp) {
+            // A `Comp` IS its ordinal, so the split reads the value itself.
+            // It used to read a field off an object, which is what a `Comp`
+            // stopped being.
             val c = this.expr(e.kids[0])
             val s = this.temp()
-            this.line("const int64_t ${s} = ${c}->${mangle("sign")};")
-            this.line("if (${s} < 0) {")
+            this.line("const int64_t ${s} = ${c};")
+            this.line("if (${s} == 0) {")
             this.indent += 1
             this.exprBranch(e.kids[1], slot, slotTy)
             this.indent -= 1
-            this.line("} else if (${s} == 0) {")
+            this.line("} else if (${s} == 1) {")
             this.indent += 1
             this.exprBranch(e.kids[2], slot, slotTy)
             this.indent -= 1

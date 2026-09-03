@@ -41,6 +41,12 @@ pub enum Tok {
     Null,
     True,
     False,
+    /// The three values of a `Comp`, written as `true` and `false` are.
+    /// A three-valued answer is the same kind of thing as a two-valued one,
+    /// so it is spelled the same way: a bare word, not a member of a type.
+    Less,
+    Equal,
+    Greater,
     When,
     Is,
     Import,
@@ -162,6 +168,9 @@ impl Tok {
                 | Tok::Null
                 | Tok::True
                 | Tok::False
+                | Tok::Less
+                | Tok::Equal
+                | Tok::Greater
                 | Tok::This
                 | Tok::RParen
                 | Tok::RBrace
@@ -209,6 +218,9 @@ impl Tok {
             Tok::Null => "null",
             Tok::True => "true",
             Tok::False => "false",
+            Tok::Less => "less",
+            Tok::Equal => "equal",
+            Tok::Greater => "greater",
             Tok::When => "when",
             Tok::Is => "is",
             Tok::Import => "import",
@@ -700,6 +712,9 @@ impl<'a> Lexer<'a> {
             "null" => Tok::Null,
             "true" => Tok::True,
             "false" => Tok::False,
+            "less" => Tok::Less,
+            "equal" => Tok::Equal,
+            "greater" => Tok::Greater,
             "when" => Tok::When,
             "is" => Tok::Is,
             "import" => Tok::Import,

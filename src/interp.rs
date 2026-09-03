@@ -326,6 +326,7 @@ impl Interp {
             ExprKind::Int(n) => Ok(Value::Int(*n)),
             ExprKind::Float(n) => Ok(Value::Float(*n)),
             ExprKind::Bool(b) => Ok(Value::Bool(*b)),
+            ExprKind::Comp(c) => Ok(Value::Comp(*c)),
             ExprKind::Str(s) => Ok(Value::str(s)),
             ExprKind::Null => Ok(Value::Null),
             ExprKind::Interp(parts) => {
@@ -496,18 +497,9 @@ impl Interp {
                             1
                         }
                     }
-                    other => match self.get_member(other, "sign", span)? {
-                        Value::Int(s) => {
-                            if s < 0 {
-                                0
-                            } else if s == 0 {
-                                1
-                            } else {
-                                2
-                            }
-                        }
-                        _ => return err(span, "`?` needs a `Bool` or a `Comp`"),
-                    },
+                    // A `Comp` is its own ordinal: less, equal, greater.
+                    Value::Comp(c) => *c as usize,
+                    _ => return err(span, "`?` needs a `Bool` or a `Comp`"),
                 };
                 self.eval(&branches[idx], env)
             }

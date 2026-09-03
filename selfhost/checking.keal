@@ -124,7 +124,7 @@ func builtinImplements(t: Ty, traitName: String): Bool {
     if (t.kind == "Str") {
         return traitName == "Add" or traitName == "Eq" or traitName == "Ord"
     }
-    if (t.kind == "Bool") { return traitName == "Eq" }
+    if (t.kind == "Bool" or t.kind == "Comp") { return traitName == "Eq" }
     return false
 }
 
@@ -400,6 +400,7 @@ func memberVis(written: String, c: ClassN): String {
 package func coversValue(v: Ex): String {
     if (v.kind == "variant") { return v.text }
     if (v.kind == "bool") { return v.text }
+    if (v.kind == "comp") { return v.text }
     if (v.kind == "null") { return "null" }
     return ""
 }
@@ -1073,6 +1074,7 @@ package class Checker() {
             return out
         }
         if (t.kind == "Bool") { return ["true", "false"] }
+        if (t.kind == "Comp") { return ["less", "equal", "greater"] }
         // `null` is one more value, and the only one `?` adds.
         if (t.kind == "Nullable") {
             val inner = this.closedSet(t.args[0])
@@ -1779,7 +1781,7 @@ package class Checker() {
         }
         val name = te.name
         val arity = te.args.size
-        if (name == "Int" or name == "Float" or name == "Bool" or name == "String" or name == "Unit" or name == "Any" or name == "Nothing" or name == "Range") {
+        if (name == "Int" or name == "Float" or name == "Bool" or name == "Comp" or name == "String" or name == "Unit" or name == "Any" or name == "Nothing" or name == "Range") {
             unless (arity == 0) {
                 this.quietDiag = DiagN(
                     te.file, te.line, te.col,
@@ -1791,6 +1793,7 @@ package class Checker() {
                 "Int" -> Ty("Int")
                 "Float" -> Ty("Float")
                 "Bool" -> Ty("Bool")
+                "Comp" -> Ty("Comp")
                 "String" -> Ty("Str")
                 "Unit" -> Ty("Unit")
                 "Any" -> Ty("Any")
@@ -2562,6 +2565,7 @@ package class Checker() {
         if (e.kind == "int") { return Ty("Int") }
         if (e.kind == "float") { return Ty("Float") }
         if (e.kind == "bool") { return Ty("Bool") }
+        if (e.kind == "comp") { return Ty("Comp") }
         if (e.kind == "str") { return Ty("Str") }
         if (e.kind == "null") { return Ty("Null") }
         if (e.kind == "interp") {
@@ -2892,7 +2896,7 @@ package class Checker() {
             val ct = this.checkExpr(cond, null)
             val branchCount = e.kids.size - 1
             var arity = 2
-            if (ct.kind == "Class" and ct.name == "Comp" and ct.args.size == 0) {
+            if (ct.kind == "Comp") {
                 arity = 3
             } else if (ct.kind == "Bool" or ct.kind == "Error") {
                 arity = 2
@@ -3957,7 +3961,7 @@ package class Checker() {
     func binaryResult(op: String, lt: Ty, rt: Ty, file: Int, line: Int, col: Int): Ty {
         if (lt.kind == "Error" or rt.kind == "Error") { return Ty("Error") }
         // Rewritten to `compare(a, b)` before this is consulted.
-        if (op == "<=>") { return tyClass("Comp", []) }
+        if (op == "<=>") { return Ty("Comp") }
         if (op == "==" or op == "!=") {
             val comparable = assignableTo(lt, rt) or assignableTo(rt, lt) or tyEq(tyNonNull(lt), tyNonNull(rt))
             unless (comparable) {

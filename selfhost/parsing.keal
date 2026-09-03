@@ -1455,6 +1455,14 @@ package class Parser(val toks: List<Token>) {
             node.text = t.kind
             return node
         }
+        // `less`, `equal`, `greater` — the three values of a `Comp`, held as
+        // the ordinal 0, 1, 2, which is what the backends emit.
+        if (t.kind == "less" or t.kind == "equal" or t.kind == "greater") {
+            this.advance()
+            val node = Ex("comp", t.line, t.col)
+            node.text = t.kind
+            return node
+        }
         if (t.kind == "null") {
             this.advance()
             return Ex("null", t.line, t.col)

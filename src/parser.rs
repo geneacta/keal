@@ -1533,6 +1533,18 @@ impl Parser {
                 self.advance();
                 ExprKind::Bool(false)
             }
+            Tok::Less => {
+                self.advance();
+                ExprKind::Comp(0)
+            }
+            Tok::Equal => {
+                self.advance();
+                ExprKind::Comp(1)
+            }
+            Tok::Greater => {
+                self.advance();
+                ExprKind::Comp(2)
+            }
             Tok::Null => {
                 self.advance();
                 ExprKind::Null

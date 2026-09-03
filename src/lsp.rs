@@ -745,6 +745,7 @@ impl Index {
             ExprKind::Int(_)
             | ExprKind::Float(_)
             | ExprKind::Bool(_)
+            | ExprKind::Comp(_)
             | ExprKind::Str(_)
             | ExprKind::Null
             | ExprKind::This => {}

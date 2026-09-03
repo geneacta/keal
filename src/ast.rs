@@ -316,6 +316,9 @@ pub enum ExprKind {
     Int(i64),
     Float(f64),
     Bool(bool),
+    /// `less`, `equal`, `greater` — held as the ordinal 0, 1, 2, which is
+    /// what an enum variant is and what the backends emit.
+    Comp(u8),
     Str(String),
     /// String literal with `${...}` holes, already parsed.
     Interp(Vec<InterpPart>),

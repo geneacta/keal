@@ -149,6 +149,7 @@ pub fn deep_copy(v: &Value, span: Span, depth: usize) -> R<Value> {
         | Value::Int(_)
         | Value::Float(_)
         | Value::Bool(_)
+        | Value::Comp(_)
         | Value::Range(_, _)
         // Immutable, so sharing is indistinguishable from copying.
         | Value::Str(_) => v.clone(),

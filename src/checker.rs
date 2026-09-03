@@ -924,6 +924,11 @@ impl Checker {
                 Some(self.enums.get(&**name)?.variants.iter().map(|v| v.to_string()).collect())
             }
             Type::Bool => Some(vec!["true".to_string(), "false".to_string()]),
+            Type::Comp => Some(vec![
+                "less".to_string(),
+                "equal".to_string(),
+                "greater".to_string(),
+            ]),
             // `null` is one more value, and the only one `?` adds.
             Type::Nullable(inner) => {
                 let mut out = self.closed_set(inner)?;
@@ -941,6 +946,7 @@ impl Checker {
         match &v.kind {
             ExprKind::Variant { name, .. } => Some(name.to_string()),
             ExprKind::Bool(b) => Some(b.to_string()),
+            ExprKind::Comp(c) => Some(crate::value::comp_word(*c).to_string()),
             ExprKind::Null => Some("null".to_string()),
             _ => None,
         }
@@ -1609,6 +1615,7 @@ impl Checker {
                     "Int" => simple(Type::Int),
                     "Float" => simple(Type::Float),
                     "Bool" => simple(Type::Bool),
+                    "Comp" => simple(Type::Comp),
                     "String" => simple(Type::Str),
                     "Unit" => simple(Type::Unit),
                     "Any" => simple(Type::Any),
@@ -2394,6 +2401,7 @@ impl Checker {
             ExprKind::Int(_) => Type::Int,
             ExprKind::Float(_) => Type::Float,
             ExprKind::Bool(_) => Type::Bool,
+            ExprKind::Comp(_) => Type::Comp,
             ExprKind::Str(_) => Type::Str,
             ExprKind::Null => Type::Null,
             ExprKind::Interp(parts) => {
@@ -2726,7 +2734,7 @@ impl Checker {
 
             ExprKind::Ternary { cond, branches } => {
                 let ct = self.check_expr(cond, None);
-                let arity = if ct == Type::class("Comp", Vec::new()) {
+                let arity = if ct == Type::Comp {
                     3
                 } else if ct == Type::Bool || ct == Type::Error {
                     2
@@ -3977,7 +3985,7 @@ impl Checker {
         }
         match op {
             // Rewritten to `compare(a, b)` before this is consulted.
-            Compare => Type::class("Comp", Vec::new()),
+            Compare => Type::Comp,
             Eq | Ne => {
                 let comparable = lt.assignable_to(rt)
                     || rt.assignable_to(lt)
@@ -4366,6 +4374,7 @@ impl Checker {
             | Type::Int
             | Type::Float
             | Type::Bool
+            | Type::Comp
             | Type::Str
             | Type::Unit
             | Type::Null
@@ -4444,6 +4453,7 @@ impl Checker {
             | Type::Int
             | Type::Float
             | Type::Bool
+            | Type::Comp
             | Type::Str
             | Type::Unit
             | Type::Null
@@ -4728,7 +4738,7 @@ fn builtin_implements(ty: &Type, trait_name: &str) -> bool {
             "Add" | "Sub" | "Mul" | "Div" | "Rem" | "Pow" | "Root" | "Neg" | "Eq" | "Ord"
         ),
         Type::Str => matches!(trait_name, "Add" | "Eq" | "Ord"),
-        Type::Bool => matches!(trait_name, "Eq"),
+        Type::Bool | Type::Comp => matches!(trait_name, "Eq"),
         _ => false,
     }
 }

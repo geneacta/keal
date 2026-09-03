@@ -502,6 +502,15 @@ KEAL_FN KealStr* keal_str_from_bool(bool b) {
     return keal_str_static(b ? "true" : "false", b ? 4 : 5);
 }
 
+/* A comparison's outcome, as the word it is written with. The ordinal is
+ * the whole value — 0, 1, 2 — the way `true` and `false` are the whole
+ * value of a Bool. */
+KEAL_FN KealStr* keal_str_from_comp(int64_t c) {
+    if (c == 0) { return keal_str_static("less", 4); }
+    if (c == 1) { return keal_str_static("equal", 5); }
+    return keal_str_static("greater", 7);
+}
+
 /* `.length` counts characters, not bytes, as the interpreters do. */
 KEAL_FN int64_t keal_str_length(KealStr* s) {
     int64_t n = 0;

@@ -346,6 +346,7 @@ package func tyShow(t: Ty): String {
         "Int" -> "Int"
         "Float" -> "Float"
         "Bool" -> "Bool"
+        "Comp" -> "Comp"
         "Str" -> "String"
         "Unit" -> "Unit"
         "Any" -> "Any"

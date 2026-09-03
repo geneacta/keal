@@ -381,7 +381,9 @@ impl CBackend {
             // One word holding an ordinal. With nothing to carry beside the
             // tag, a `KealAny` would spend two words and a heap box to
             // hold a permanent zero — the ordinal is the whole value.
-            Type::Enum(_) => Some("int64_t".to_string()),
+            // A `Comp` is an ordinal too — less, equal, greater — and beside
+            // `Bool` in the same sense: the value is the word.
+            Type::Enum(_) | Type::Comp => Some("int64_t".to_string()),
             Type::Float => Some("double".to_string()),
             Type::Bool => Some("bool".to_string()),
             Type::Str => Some("KealStr*".to_string()),
@@ -425,7 +427,7 @@ impl CBackend {
             Type::Nullable(inner) if is_reference(inner) => self.ctype(inner, span),
             // Over a value: a tag beside it, or Bool's spare pattern.
             Type::Nullable(inner) => match &**inner {
-                Type::Int | Type::Enum(_) => Some("KealOptI64".to_string()),
+                Type::Int | Type::Enum(_) | Type::Comp => Some("KealOptI64".to_string()),
                 Type::Float => Some("KealOptF64".to_string()),
                 Type::Bool => Some("int8_t".to_string()),
                 other => {
@@ -526,7 +528,7 @@ impl CBackend {
             // representative will do.
             Type::Never => Elem::Int,
             Type::Int => Elem::Int,
-            Type::Enum(_) => Elem::Int,
+            Type::Enum(_) | Type::Comp => Elem::Int,
             Type::Bool => Elem::Bool,
             Type::Float => Elem::Float,
             Type::Str => Elem::Ptr("KealStr".into(), "keal_str".into()),
@@ -572,7 +574,8 @@ impl CBackend {
     /// strings by content.
     fn key_kind(&mut self, ty: &Type, span: Span) -> Option<Elem> {
         match ty {
-            Type::Never | Type::Int | Type::Bool | Type::Float | Type::Str | Type::Enum(_) => {
+            Type::Never | Type::Int | Type::Bool | Type::Float | Type::Str | Type::Enum(_)
+            | Type::Comp => {
                 self.elem_kind(ty, span)
             }
             other => {
@@ -1827,6 +1830,7 @@ impl CBackend {
                 "Int" => Some(Type::Int),
                 "Float" => Some(Type::Float),
                 "Bool" => Some(Type::Bool),
+                "Comp" => Some(Type::Comp),
                 "String" => Some(Type::Str),
                 "Unit" => Some(Type::Unit),
                 "Any" => Some(Type::Any),
@@ -2694,6 +2698,8 @@ impl CBackend {
             }
             ExprKind::Float(f) => format_double(*f),
             ExprKind::Bool(b) => b.to_string(),
+            // The ordinal is the value: 0, 1, 2 — less, equal, greater.
+            ExprKind::Comp(c) => format!("INT64_C({})", c),
             ExprKind::Str(s) => {
                 let idx = self.intern(s);
                 self.own_temp(format!("keal_str_retain(_str{})", idx))
@@ -3383,6 +3389,7 @@ impl CBackend {
             Type::Int => "keal_str_from_int($V)".to_string(),
             Type::Float => "keal_str_from_float($V)".to_string(),
             Type::Bool => "keal_str_from_bool($V)".to_string(),
+            Type::Comp => "keal_str_from_comp($V)".to_string(),
             Type::Str => "keal_str_retain($V)".to_string(),
             Type::Class(name, cargs) => format!("{}_show($V)", struct_name_of(name, cargs)),
             other => {
@@ -4705,6 +4712,7 @@ impl CBackend {
             Type::Int => format!("keal_str_from_int({})", expr),
             Type::Float => format!("keal_str_from_float({})", expr),
             Type::Bool => format!("keal_str_from_bool({})", expr),
+            Type::Comp => format!("keal_str_from_comp({})", expr),
             Type::Class(cname, cargs) => {
                 format!("{}_show({})", struct_name_of(cname, cargs), expr)
             }
@@ -5536,7 +5544,7 @@ impl CBackend {
     fn equality(&mut self, ty: &Type, slot: &str, rhs: &str, at: &Expr) -> String {
         match ty {
             Type::Str => format!("(keal_str_cmp({}, {}) == 0)", slot, rhs),
-            Type::Int | Type::Float | Type::Bool | Type::Enum(_) => {
+            Type::Int | Type::Float | Type::Bool | Type::Enum(_) | Type::Comp => {
                 format!("({} == {})", slot, rhs)
             }
             Type::Any => {
@@ -5815,6 +5823,7 @@ impl CBackend {
             Some(Type::Int) => format!("keal_str_from_int({})", v),
             Some(Type::Float) => format!("keal_str_from_float({})", v),
             Some(Type::Bool) => format!("keal_str_from_bool({})", v),
+            Some(Type::Comp) => format!("keal_str_from_comp({})", v),
             // The names table, emitted once per enum that is ever shown.
             Some(Type::Enum(name)) => {
                 let f = self.enum_names(&name);
@@ -5855,6 +5864,7 @@ impl CBackend {
                     Type::Int => format!("keal_str_from_int({})", opt_get(&inner, &v)),
                     Type::Float => format!("keal_str_from_float({})", opt_get(&inner, &v)),
                     Type::Bool => format!("keal_str_from_bool({})", opt_get(&inner, &v)),
+                    Type::Comp => format!("keal_str_from_comp({})", opt_get(&inner, &v)),
                     // A nullable container is a plain pointer, so once the
                     // absent case is out of the way the renderer for the
                     // container itself is the one that already exists.
@@ -5954,7 +5964,7 @@ impl CBackend {
 
     /// `c ? a : b` and `c ? less : equal : greater`: the `if` expression's
     /// slot mechanics, with expressions for branches. The condition is
-    /// emitted once; a `Comp` reads its sign into a temp for the split.
+    /// emitted once; a `Comp` reads its ordinal into a temp for the split.
     fn ternary(&mut self, e: &Expr, cond: &Expr, branches: &[Expr]) -> String {
         let discard = std::mem::replace(&mut self.discard_join, false);
         let produces = !matches!(self.ety(e), None | Some(Type::Unit) | Some(Type::Never))
@@ -5983,7 +5993,7 @@ impl CBackend {
         let filled = slot.as_deref().zip(slot_ty.as_ref());
         let comp = self
             .ety(cond)
-            .map(|t| t == Type::class("Comp", Vec::new()))
+            .map(|t| t == Type::Comp)
             .unwrap_or(false);
         if !comp {
             let c = self.condition(cond);
@@ -5997,14 +6007,17 @@ impl CBackend {
             self.indent -= 1;
             self.line("}");
         } else {
+            // A `Comp` IS its ordinal, so the split reads the value itself.
+            // It used to read a field off an object, which is what a `Comp`
+            // stopped being.
             let c = self.expr(cond);
             let s = self.temp();
-            self.line(format!("const int64_t {} = {}->{};", s, c, mangle("sign")));
-            self.line(format!("if ({} < 0) {{", s));
+            self.line(format!("const int64_t {} = {};", s, c));
+            self.line(format!("if ({} == 0) {{", s));
             self.indent += 1;
             self.expr_branch(&branches[0], filled);
             self.indent -= 1;
-            self.line(format!("}} else if ({} == 0) {{", s));
+            self.line(format!("}} else if ({} == 1) {{", s));
             self.indent += 1;
             self.expr_branch(&branches[1], filled);
             self.indent -= 1;
@@ -7432,8 +7445,8 @@ fn lambda_frees_in_stmt(s: &Stmt, out: &mut std::collections::HashSet<String>) {
 
 fn lambda_frees_in_expr(e: &Expr, out: &mut std::collections::HashSet<String>) {
     match &e.kind {
-        // A variant is a constant; it captures nothing.
-        ExprKind::Variant { .. } => {}
+        // A variant is a constant; it captures nothing. Nor does a `Comp`.
+        ExprKind::Variant { .. } | ExprKind::Comp(_) => {}
         // Expansion happens while the tree is checked, so nothing below
         // ever sees one of these.
         ExprKind::MacroCall { args, .. } => {
@@ -7606,7 +7619,7 @@ pub(crate) fn collect_free(stmts: &[Stmt], bound: &mut Vec<String>, free: &mut V
 
 fn collect_free_expr(e: &Expr, bound: &mut Vec<String>, free: &mut Vec<String>) {
     match &e.kind {
-        ExprKind::Variant { .. } => {}
+        ExprKind::Variant { .. } | ExprKind::Comp(_) => {}
         // Expansion happens while the tree is checked, so nothing below
         // ever sees one of these.
         ExprKind::MacroCall { args, .. } => {
@@ -7755,7 +7768,7 @@ fn describe_expr(kind: &ExprKind) -> &'static str {
 /// spare pattern, the other two as a tag beside the value.
 fn opt_wrap(inner: &Type, v: &str) -> String {
     match inner {
-        Type::Int | Type::Enum(_) => format!("(KealOptI64){{ true, {} }}", v),
+        Type::Int | Type::Enum(_) | Type::Comp => format!("(KealOptI64){{ true, {} }}", v),
         Type::Float => format!("(KealOptF64){{ true, {} }}", v),
         Type::Bool => format!("(int8_t)(({}) ? 1 : 0)", v),
         _ => v.to_string(),
@@ -7764,7 +7777,7 @@ fn opt_wrap(inner: &Type, v: &str) -> String {
 
 fn opt_null(inner: &Type) -> String {
     match inner {
-        Type::Int | Type::Enum(_) => "(KealOptI64){ false, 0 }".to_string(),
+        Type::Int | Type::Enum(_) | Type::Comp => "(KealOptI64){ false, 0 }".to_string(),
         Type::Float => "(KealOptF64){ false, 0.0 }".to_string(),
         Type::Bool => "(int8_t)2".to_string(),
         _ => "NULL".to_string(),
@@ -7776,7 +7789,7 @@ fn opt_null(inner: &Type) -> String {
 // compile silently.
 fn opt_has(inner: &Type, x: &str) -> String {
     match inner {
-        Type::Int | Type::Float | Type::Enum(_) => format!("{}.has", x),
+        Type::Int | Type::Float | Type::Enum(_) | Type::Comp => format!("{}.has", x),
         Type::Bool => format!("({} != 2)", x),
         _ => format!("({} != NULL)", x),
     }
@@ -7784,7 +7797,7 @@ fn opt_has(inner: &Type, x: &str) -> String {
 
 fn opt_get(inner: &Type, x: &str) -> String {
     match inner {
-        Type::Int | Type::Float | Type::Enum(_) => format!("{}.v", x),
+        Type::Int | Type::Float | Type::Enum(_) | Type::Comp => format!("{}.v", x),
         Type::Bool => format!("(bool)({} == 1)", x),
         _ => x.to_string(),
     }
@@ -7793,7 +7806,7 @@ fn opt_get(inner: &Type, x: &str) -> String {
 /// True when `T?` needs the tagged form rather than a pointer.
 fn is_value_opt(ty: &Type) -> bool {
     matches!(ty, Type::Nullable(inner)
-        if matches!(**inner, Type::Int | Type::Float | Type::Bool | Type::Enum(_)))
+        if matches!(**inner, Type::Int | Type::Float | Type::Bool | Type::Enum(_) | Type::Comp))
 }
 
 /// True for a type held behind a pointer, which therefore has null to spare.
@@ -7826,6 +7839,7 @@ fn mangle_type(ty: &Type) -> String {
         Type::Enum(name) => flatten(name),
         Type::Float => "Float".into(),
         Type::Bool => "Bool".into(),
+        Type::Comp => "Comp".into(),
         Type::Str => "String".into(),
         Type::Unit => "Unit".into(),
         Type::Range => "Range".into(),

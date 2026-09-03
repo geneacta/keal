@@ -101,7 +101,7 @@ Forty-five words are reserved: none of them can be the name of anything.
 | **Visibility** | `public` `private` `package` `internal` `protected` |
 | **Control flow** | `if` `unless` `else` `when` `while` `for` `in` `break` `continue` `return` |
 | **Errors** | `try` `catch` `throw` |
-| **Values** | `true` `false` `null` `this` `is` |
+| **Values** | `true` `false` `less` `equal` `greater` `null` `this` `is` |
 | **Connectives** | `not` `and` `or` `xor` `xnor` `nand` `nor` `implies` |
 | **Bit operators** | `band` `bor` `bxor` `bnot` `shl` `shr` `ushr` |
 | **Held** | `async` `await` `yield` `sealed` `super` `static` `typealias` |
@@ -164,6 +164,7 @@ as a name would make a program ambiguous, and not before.
 | `Int` | `0`, `-7`, `1_000_000` | 64-bit signed; overflow is an error, not a wrap |
 | `Float` | `1.5`, `-0.25`, `6.02e23` | 64-bit IEEE 754 |
 | `Bool` | `true`, `false` | |
+| `Comp` | `less`, `equal`, `greater` | what a comparison answers; `Bool`'s three-valued peer |
 | `String` | `"text"` | immutable, indexed by character |
 | `Unit` | — | what a `proc` produces: nothing. Never written by hand |
 | `List<T>` | `[1, 2, 3]` | mutable, ordered |
@@ -187,7 +188,7 @@ the types do divide in two, and the difference shows:
 
 | | Types | Assigning one |
 |---|---|---|
-| **Values** | `Int`, `Float`, `Bool`, `Unit` | copies it |
+| **Values** | `Int`, `Float`, `Bool`, `Comp`, `Unit` | copies it |
 | **References** | `String`, `List<T>`, `Map<K, V>`, class and record instances | shares it |
 
 ```keal
@@ -429,6 +430,36 @@ something anyone reads.
 `_` groups digits anywhere in either form, as it does in a decimal literal.
 Sixteen hex digits or sixty-four binary ones fit, and the top bit set is a
 negative `Int` — the same 64 bits the operators above are defined on.
+
+### `Comp`, the three-valued answer
+
+`Bool` has two values and `Comp` has three: `less`, `equal`, `greater`. They
+are the same kind of thing, so they cost the same — one word, nothing to
+retain, nothing to free — and they are written the same way, as bare words
+rather than members of a type.
+
+```koda
+val c = a <=> b          // less, equal or greater
+when (c) {               // no `else`: three is all there is
+    less    -> "before"
+    equal   -> "same"
+    greater -> "after"
+}
+c == less                // what you would have written `c.isLess()`
+c != greater             // …and `isAtMost()`
+```
+
+`Comp` carries no methods, for the reason `Bool` carries none. `b.isTrue()`
+would be a longer way of writing `b`, and there is no shorter way to say
+`c == less` than to say it.
+
+The ternary knows both, and this is the oldest part of the arrangement: a
+`Bool` picks between two branches and a `Comp` picks between three, with the
+condition evaluated exactly once.
+
+```koda
+a <=> b ? "before" : "same" : "after"
+```
 
 ### Blocks are expressions
 

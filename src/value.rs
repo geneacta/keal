@@ -27,6 +27,19 @@ pub enum Value {
     /// One value of an enum. Interned once per variant when the program is
     /// loaded, so naming one is a refcount bump and never an allocation.
     Variant(Rc<VariantVal>),
+    /// A comparison's outcome, as the ordinal 0, 1 or 2 — less, equal,
+    /// greater. Beside `Bool` and carried the same way: a word in the value,
+    /// not a pointer to one.
+    Comp(u8),
+}
+
+/// The word a `Comp` ordinal is written with, wherever one is shown.
+pub fn comp_word(c: u8) -> &'static str {
+    match c {
+        0 => "less",
+        1 => "equal",
+        _ => "greater",
+    }
 }
 
 /// A variant, and where it sits in its declaration. The ordinal is what the
@@ -72,6 +85,7 @@ impl Value {
             Value::Variant(v) => v.enm.to_string(),
             Value::Float(_) => "Float".into(),
             Value::Bool(_) => "Bool".into(),
+            Value::Comp(_) => "Comp".into(),
             Value::Str(_) => "String".into(),
             Value::List(_) => "List".into(),
             Value::Map(_) => "Map".into(),
@@ -417,6 +431,7 @@ pub enum MapKey {
     Int(i64),
     Str(Rc<str>),
     Bool(bool),
+    Comp(u8),
     /// Floats are keyed by their bit pattern, so `NaN` is its own key.
     Float(u64),
     /// The enum and the variant, because two enums may share a name.
@@ -430,6 +445,7 @@ impl MapKey {
             Value::Int(n) => MapKey::Int(*n),
             Value::Str(s) => MapKey::Str(s.clone()),
             Value::Bool(b) => MapKey::Bool(*b),
+            Value::Comp(c) => MapKey::Comp(*c),
             Value::Float(f) => MapKey::Float(f.to_bits()),
             // A variant keys a map, which is what makes `Map<Level, Int>`
             // the natural way to count by kind.
@@ -501,6 +517,7 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         }
         (Value::Float(x), Value::Float(y)) => x == y,
         (Value::Bool(x), Value::Bool(y)) => x == y,
+        (Value::Comp(x), Value::Comp(y)) => x == y,
         (Value::Str(x), Value::Str(y)) => x == y,
         (Value::Range(a1, b1), Value::Range(a2, b2)) => a1 == a2 && b1 == b2,
         (Value::List(x), Value::List(y)) => {
