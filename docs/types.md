@@ -127,8 +127,22 @@ what the map contains.
 The native backend walked the entries until this landed, while both
 interpreters had hashed all along: the three agreed on every answer and
 differed only in what it cost, which is the kind of difference no test in a
-corpus can see. Two hundred thousand lookups in a five-hundred-key map went
-from 0.21s to 0.015s.
+corpus can see.
+
+What that is worth is not one number, and quoting one would be misleading:
+the scan's cost is the size of the map, so the ratio is whatever size you
+picked. Two hundred thousand lookups, keys built before the clock starts:
+
+| entries | scanning | hashing |
+|---|---|---|
+| 5 | 0.0023s | 0.0015s |
+| 50 | 0.0185s | 0.0022s |
+| 500 | 0.1669s | 0.0022s |
+| 2000 | 0.6363s | 0.0023s |
+
+The claim is the shape of that second column, not any row of it: **finding an
+entry costs the same whatever the map holds.** A small map was never the
+problem and is not much improved; a map that grows no longer gets slower.
 
 ## A map over a closed key
 

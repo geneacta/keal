@@ -1449,7 +1449,7 @@ fn native_agrees_with_the_interpreters() {
 /// One fault per `-Werror` name the check below relies on: the smallest C
 /// that commits exactly that mistake. Their only job is to be rejected — a
 /// flag that rejects nothing lets everything through.
-const FAULTS: [(&str, &str); 5] = [
+const FAULTS: [(&str, &str); 9] = [
     ("comment", "/* a /* b */\nint main(void){return 0;}\n"),
     // An assignment used as a condition, which GCC and clang both reject
     // under this name. The doubled-equality form `if ((a==b))` was the
@@ -1465,6 +1465,49 @@ const FAULTS: [(&str, &str); 5] = [
     ),
     ("implicit-function-declaration", "int main(void){ return nowhere_declared(); }\n"),
     ("int-conversion", "int main(void){ char* p = 5; (void)p; return 0; }\n"),
+    // The five below are what an open-addressed hash table with function
+    // pointers gets wrong, and the barrier was not asking about any of them
+    // until it held one. A map's index is `uint64_t` and its entries are
+    // `int64_t`, its probe masks a hash, and its key hash is reached through
+    // a pointer whose signature the caller casts — every line of that is one
+    // of these mistakes waiting to be made.
+    //
+    // Named by the Linux aarch64 bench, which wrote a fault for each and
+    // confirmed GCC 15.2 rejects it. It also tried `strict-aliasing`, found
+    // it silent even in a real compile, and said so rather than adding a
+    // name that would have proved nothing.
+    // `cast-function-type` is deliberately absent, and the reason is the
+    // point of the list.
+    //
+    // It bites — a fault written for it is rejected. But it also rejects
+    // every closure this language makes: a `KealClosure` stores its code as
+    // `KealCode`, which is `void (*)(void)`, and the call site casts it back
+    // to the signature the static type promises. Converting a function
+    // pointer to another function pointer type and back is defined in C;
+    // only *calling* through the wrong one is not, and nothing here does.
+    // Under clang the name pulls in `-Wcast-function-type-strict`, which
+    // objects to the idiom itself.
+    //
+    // So a flag that bites is necessary and not sufficient: it must also not
+    // refuse code that is right. Calibration proves the first, and only
+    // running it over the corpus proves the second. This one was proposed
+    // from a fault, added, and taken back out by the corpus within the hour
+    // — which is the barrier working, not failing.
+    // From a variable, not a constant: GCC rejects `(char*)1234567` under
+    // this name and clang does not — clang's rule is a cast from a SMALLER
+    // integer type, which a literal is not. A fault calibrated on one
+    // compiler is a compiler assumption, whichever compiler it was, and the
+    // pair caught this one in both directions inside an hour.
+    (
+        "int-to-pointer-cast",
+        "int main(void){ int n = 5; char* p = (char*)n; (void)p; return 0; }\n",
+    ),
+    ("pointer-to-int-cast", "int main(void){ char c; int n = (int)&c; return n & 0; }\n"),
+    (
+        "sign-compare",
+        "int main(void){ int i = -1; unsigned u = 1u; return i < u ? 1 : 0; }\n",
+    ),
+    ("shift-count-overflow", "int main(void){ int x = 1; return x << 64; }\n"),
 ];
 
 /// The generated C must compile *quietly*, not merely compile.
@@ -1527,8 +1570,17 @@ fn the_generated_c_compiles_without_warnings() {
     for (name, fault) in FAULTS {
         let fsrc = dir.join(format!("fault-{}.c", name));
         std::fs::write(&fsrc, fault).expect("cannot write the fault");
+        // A real compile, not `-fsyntax-only`. Some warnings come from the
+        // optimisation passes and cannot be emitted when those do not run:
+        // on GCC 15.2, `-Werror=uninitialized` and `-Werror=return-type` are
+        // silent under `-fsyntax-only` and speak under `-c -O1`. A fault
+        // written for one of those would be skipped as "this compiler has no
+        // such warning", which is the barrier lying about itself in the one
+        // way it exists to prevent. Ten small files; the cost is nothing.
         let out = Command::new(&cc)
-            .args(["-std=c11", "-fsyntax-only", &format!("-Werror={}", name)])
+            .args(["-std=c11", "-c", "-O1", &format!("-Werror={}", name)])
+            .arg("-o")
+            .arg(dir.join("fault.o"))
             .arg(&fsrc)
             .output()
             .expect("cannot run the C compiler");
@@ -1580,8 +1632,13 @@ fn the_generated_c_compiles_without_warnings() {
     );
 
     // The flags the corpus is compiled under are exactly the ones just
-    // proven, and not a second list that could drift from this one.
-    let mut flags: Vec<String> = vec!["-std=c11".to_string(), "-fsyntax-only".to_string()];
+    // proven, and not a second list that could drift from this one — and it
+    // is compiled the same way they were proven, for the same reason: a
+    // warning the optimiser finds is one `-fsyntax-only` cannot reach, and
+    // asking the corpus a narrower question than the calibration answered
+    // would make the calibration a promise about something else.
+    let mut flags: Vec<String> =
+        vec!["-std=c11".to_string(), "-c".to_string(), "-O1".to_string()];
     flags.extend(proven.iter().map(|n| format!("-Werror={}", n)));
 
     // Every program the native corpus has, not just the one written for
@@ -1594,6 +1651,8 @@ fn the_generated_c_compiles_without_warnings() {
 
         let built = Command::new(&cc)
             .args(&flags)
+            .arg("-o")
+            .arg(dir.join("out.o"))
             .arg(&csrc)
             .output()
             .expect("cannot run the C compiler");

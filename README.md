@@ -2,7 +2,7 @@
 
 # Keal — a statically typed language for programs that have to be predictable
 
-**Version 1.1.0** · `keal version` prints the toolchain's own.
+**Version 1.2.0** · `keal version` prints the toolchain's own.
 
 Kotlin's shape over a C-family syntax, compiled to native code, with
 **deterministic destruction and no garbage collector** — and no borrow
@@ -210,10 +210,16 @@ engines, which must agree on every byte they print.
   increments `x++` / `x--` come along. Integer arithmetic is **checked** —
   overflow, division by zero and `Int.pow`'s negative exponent panic instead
   of wrapping — while `Float` follows IEEE 754 (`inf`, `NaN`, no panics).
-- **`Comp`, the three-valued comparison — with its own ternary.**
-  `a <=> b` (the spaceship) works on any `Ord` type and answers a `Comp`:
-  `less`, `equal` or `greater` — `Comp` is to ordering what `Bool` is to
-  truth. And the ternary knows both: `c ? a : b` selects on a `Bool`,
+- **`Comp`, the three-valued comparison — a primitive, beside `Bool`.**
+  `Bool` has two values and `Comp` has three: `less`, `equal`, `greater`,
+  written as bare words the way `true` and `false` are. They are the same
+  kind of thing, so they cost the same — one word, nothing to retain,
+  nothing to free — and neither carries methods, because `b.isTrue()` would
+  be a longer way of writing `b`. A `when` over one needs no `else`.
+  `a <=> b` (the spaceship) answers one for any `Ord` type, `Ord.compareTo`
+  answers one directly, and `a <==> b` asks whether the order separates two
+  values at all — which is not the question `==` asks. The ternary knows
+  both widths: `c ? a : b` selects on a `Bool`,
   `a <=> b ? smaller : same : bigger` selects on a `Comp`, lazily, the
   condition evaluated exactly once.
 - **Guarded returns.** `return if (a > b) a` returns only when the guard

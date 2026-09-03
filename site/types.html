@@ -34,7 +34,7 @@
     <div class="nav-links"><a href="index.html">Home</a><a href="tour.html">Tour</a><a href="docs.html" class="tab-active">Docs</a><a href="coming-from.html">Coming from…</a><a href="stdlib.html">Library</a></div>
   </div>
   <div class="nav-right">
-    <span class="badge">v1.1.0</span>
+    <span class="badge">v1.2.0</span>
     <a class="btn-lang" href="fr/types.html">Français</a>
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>
@@ -61,7 +61,10 @@
 <p>A block's type is its last statement's; <code>return</code>/<code>throw</code>/<code>break</code>/ <code>continue</code> type as <code>Never</code>, and a block that always diverges is <code>Never</code> — which is how <code>try { return a } catch (e) { return b }</code> counts as returning. <code>if</code> without <code>else</code> produces no value. <code>?</code> selects on <code>Bool</code> with two branches or <code>Comp</code> with three, joining the branches.</p>
 <h2 id="finding-an-entry-in-a-map">Finding an entry in a map</h2>
 <p>A <code>Map&lt;K, V&gt;</code> finds an entry by hashing the key, on all three engines. The entries themselves are stored in the order they were first set — <code>keys()</code> promises that order, and a removal shifts the tail down rather than swapping the last entry into the hole — so the index says where to look and never what the map contains.</p>
-<p>The native backend walked the entries until this landed, while both interpreters had hashed all along: the three agreed on every answer and differed only in what it cost, which is the kind of difference no test in a corpus can see. Two hundred thousand lookups in a five-hundred-key map went from 0.21s to 0.015s.</p>
+<p>The native backend walked the entries until this landed, while both interpreters had hashed all along: the three agreed on every answer and differed only in what it cost, which is the kind of difference no test in a corpus can see.</p>
+<p>What that is worth is not one number, and quoting one would be misleading: the scan's cost is the size of the map, so the ratio is whatever size you picked. Two hundred thousand lookups, keys built before the clock starts:</p>
+<div class="tablewrap"><table><thead><tr><th>entries</th><th>scanning</th><th>hashing</th></tr></thead><tbody><tr><td>5</td><td>0.0023s</td><td>0.0015s</td></tr><tr><td>50</td><td>0.0185s</td><td>0.0022s</td></tr><tr><td>500</td><td>0.1669s</td><td>0.0022s</td></tr><tr><td>2000</td><td>0.6363s</td><td>0.0023s</td></tr></tbody></table></div>
+<p>The claim is the shape of that second column, not any row of it: <strong>finding an entry costs the same whatever the map holds.</strong> A small map was never the problem and is not much improved; a map that grows no longer gets slower.</p>
 <h2 id="a-map-over-a-closed-key">A map over a closed key</h2>
 <p>A <code>Map&lt;K, V&gt;</code> whose key type has finitely many values — a <code>Bool</code>, a <code>Comp</code>, an enum — stores its entries the way every other map does and finds them differently. <code>Bool</code> has two values, <code>Comp</code> has three, an enum has one per variant, so the ordinal indexes an array of slots and a lookup is a read rather than a scan.</p>
 <p>Nothing a program can observe changes. The entries sit in the order they were first set, <code>keys()</code> promises that order, removal shifts the tail rather than swapping the last entry into the hole, and re-adding a removed key appends it at the end. The index follows the entries; the entries do not follow the index.</p>
