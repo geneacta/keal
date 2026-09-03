@@ -174,7 +174,16 @@ func shortCircuitC(op: String, left: Bool): Bool? {
 /// A double C will read back as exactly this value — and exactly the string
 /// the oracle prints, since the oracle's two branches match Keal's own float
 /// rendering.
-func formatDouble(f: Float): String { "${f}" }
+/// A float literal, written into the C exactly as the language renders it.
+/// The `.0` is what keeps it a C *double* literal: the language writes an
+/// integral value with no point once it is past 1e15, and `1e300` spelled
+/// as three hundred digits with no point is an integer constant too large
+/// for any integer type C has.
+func formatDouble(f: Float): String {
+    val s = "${f}"
+    if (s.contains(".") or s.contains("e") or s.contains("n") or s.contains("N")) { return s }
+    return s + ".0"
+}
 
 func utf8Bytes(cp: Int): List<Int> {
     if (cp < 128) { return [cp] }

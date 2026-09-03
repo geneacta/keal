@@ -14,9 +14,11 @@ Deterministic per seed. Any crasher is written to tests/fuzz/crash-N.keal
 and the run fails.
 """
 
+import os
 import random
 import subprocess
 import sys
+import tempfile
 
 
 TYPES = ["Int", "Float", "Bool", "String", "Int?", "List<Int>", "List<String>",
@@ -218,10 +220,25 @@ def main():
     rng = random.Random(seed)
     accepted = refused = 0
     crashes = 0
+    # A real file, not `/dev/stdin`.
+    #
+    # Keal resolves `/dev/stdin` to `/proc/self/fd/0`, which Windows has no
+    # more than it has the first name, so every program came back "cannot
+    # read" with exit 1 — and exit 1 is how a REFUSED program looks. Twelve
+    # seeds and thirty-six thousand programs reported zero crashes without
+    # one of them having been checked.
+    tmp = tempfile.TemporaryDirectory()
+    src_path = os.path.join(tmp.name, "fuzz.keal")
+
+    def run(mode):
+        return subprocess.run([binary, mode, src_path],
+                              capture_output=True, text=True, timeout=30)
+
     for k in range(count):
         src = program(rng)
-        p = subprocess.run([binary, "check", "/dev/stdin"], input=src,
-                           capture_output=True, text=True, timeout=30)
+        with open(src_path, "w", encoding="utf-8", newline="") as f:
+            f.write(src)
+        p = run("check")
         blob = p.stdout + p.stderr
         crashed = p.returncode not in (0, 1) or "panicked" in blob or "RUST_BACKTRACE" in blob
         if crashed:
@@ -237,10 +254,8 @@ def main():
             # thing to both interpreters, byte for byte — stdout, stderr
             # and exit code alike (runtime panics included).
             try:
-                a = subprocess.run([binary, "--ast", "/dev/stdin"], input=src,
-                                   capture_output=True, text=True, timeout=30)
-                v = subprocess.run([binary, "--vm", "/dev/stdin"], input=src,
-                                   capture_output=True, text=True, timeout=30)
+                a = run("--ast")
+                v = run("--vm")
             except subprocess.TimeoutExpired:
                 a = v = None
             if a is not None and (a.stdout != v.stdout or a.stderr != v.stderr
@@ -255,6 +270,23 @@ def main():
         else:
             refused += 1
     print(f"seed={seed} count={count}: accepted={accepted} refused={refused} crashes={crashes}")
+
+    # The acceptance rate IS the calibration, and nobody was reading it.
+    #
+    # This script asserts an absence — that nothing crashes — and a check of
+    # that shape passes the moment the thing doing the checking stops
+    # working. The generator writes roughly one program in seven that
+    # type-checks; a run that accepts none has not been fuzzing the checker
+    # at all, whatever its crash count says. Loud, and named, rather than a
+    # green line.
+    if count >= 100 and accepted == 0:
+        print(f"NOT FUZZING: {count} programs and not one type-checked. The "
+              f"generator produces roughly one in seven that does, so a rate "
+              f"of zero means `{binary}` never saw a program — a path it "
+              f"cannot read, a binary that is not this compiler, or a "
+              f"generator that emits nothing valid. A crash count from this "
+              f"run means nothing.")
+        sys.exit(1)
     sys.exit(1 if crashes else 0)
 
 

@@ -482,7 +482,9 @@ KEAL_FN KealStr* keal_str_from_int(int64_t n) {
  * the same answer Rust's formatter gives, found here by widening the
  * precision until the round-trip closes. */
 KEAL_FN KealStr* keal_str_from_float(double d) {
-    char buf[512];
+    /* 5e-324 written out is "0." and 324 digits; the largest double is 309
+     * digits before the point. 768 leaves room for both and the sign. */
+    char buf[768];
     int len;
     /* `NaN`, as the two interpreters spell it. C's `%g` writes `nan`, and
      * the loop below could never have corrected it: it accepts a precision
@@ -494,15 +496,97 @@ KEAL_FN KealStr* keal_str_from_float(double d) {
     if (d != d) {
         return keal_str_static("NaN", 3);
     }
-    if (d == (double)(int64_t)d && d < 1e15 && d > -1e15) {
+    /* The range test first, and the cast second.
+     *
+     * These were the other way round, so every program that printed a float
+     * outside int64_t's range converted one into it — undefined in C, and
+     * caught by `-fsanitize=float-cast-overflow` on `1e300`. The range guard
+     * behind it made the answer right anyway, which is why it survived: it
+     * was undefined behaviour whose result was never used. `&&` sequences
+     * left to right, so the cast now happens only where it is defined. */
+    if (d > -1e15 && d < 1e15 && d == (double)(int64_t)d) {
         len = snprintf(buf, sizeof buf, "%.1f", d);
         return keal_str_from_bytes(buf, len);
     }
+    /* The shortest digits that read back as this value, written out in
+     * full — never in scientific notation, because the two interpreters
+     * never write one.
+     *
+     * `%g` switches to an exponent as soon as one leaves [-4, precision),
+     * so `1e15` printed as `1e+15` natively and `1000000000000000` on the
+     * other two engines, and `1e300` printed as 1e+300 against three
+     * hundred zeros. Everything outside [1e-4, 1e15) disagreed. The
+     * precision loop could not correct it: `1e+15` reads back exactly, so
+     * it was accepted on the first round.
+     *
+     * `%g` still finds the precision — it is the cheapest way to ask how
+     * many significant digits round-trip — and then `%e` says where the
+     * point sits, and `%f` writes it there. */
     for (int prec = 1; prec <= 17; prec++) {
         len = snprintf(buf, sizeof buf, "%.*g", prec, d);
-        if (strtod(buf, NULL) == d) {
+        if (strtod(buf, NULL) != d) {
+            continue;
+        }
+        if (strchr(buf, 'e') == NULL && strchr(buf, 'n') == NULL) {
             return keal_str_from_bytes(buf, len);
         }
+        /* `inf`, which both other engines also write as `inf`. */
+        if (strchr(buf, 'n') != NULL) {
+            return keal_str_from_bytes(buf, len);
+        }
+        /* The digits themselves, laid out by hand.
+         *
+         * `%.*f` on the value would print what the double exactly IS —
+         * 1e300 expands to 1000...0525047602552044..., three hundred digits
+         * of binary truth. The other two engines print the shortest digits
+         * that read back as this value, `1`, followed by three hundred
+         * zeros. So the digits come from `%e`, which gives exactly those,
+         * and the point goes where the exponent says. */
+        char sci[64];
+        snprintf(sci, sizeof sci, "%.*e", prec - 1, d);
+        const char* p = sci;
+        char sign = '\0';
+        if (*p == '-') {
+            sign = '-';
+            p++;
+        }
+        char digits[24];
+        int nd = 0;
+        for (; *p != '\0' && *p != 'e' && nd < (int)sizeof digits - 1; p++) {
+            if (*p != '.') {
+                digits[nd++] = *p;
+            }
+        }
+        digits[nd] = '\0';
+        int exp10 = *p == 'e' ? atoi(p + 1) : 0;
+
+        char* w = buf;
+        if (sign != '\0') {
+            *w++ = sign;
+        }
+        if (exp10 >= nd - 1) {
+            /* Every digit is before the point, then zeros to reach it. */
+            memcpy(w, digits, (size_t)nd);
+            w += nd;
+            for (int i = 0; i < exp10 - (nd - 1); i++) {
+                *w++ = '0';
+            }
+        } else if (exp10 >= 0) {
+            memcpy(w, digits, (size_t)exp10 + 1);
+            w += exp10 + 1;
+            *w++ = '.';
+            memcpy(w, digits + exp10 + 1, (size_t)(nd - exp10 - 1));
+            w += nd - exp10 - 1;
+        } else {
+            *w++ = '0';
+            *w++ = '.';
+            for (int i = 0; i < -exp10 - 1; i++) {
+                *w++ = '0';
+            }
+            memcpy(w, digits, (size_t)nd);
+            w += nd;
+        }
+        return keal_str_from_bytes(buf, (int)(w - buf));
     }
     len = snprintf(buf, sizeof buf, "%.17g", d);
     return keal_str_from_bytes(buf, len);
@@ -1600,6 +1684,17 @@ KEAL_FN void keal_map_clear(KealMap* m) {
         }
     }
     m->len = 0;
+    /* The entries are gone, so the index that says where they were has to
+     * go with them. It did not, and the result was not a slow map but a
+     * stuck one: `clear` left every bucket holding the position of an entry
+     * that no longer counted, the next fill probed past all of them, and
+     * the fill after that met a table with no free slot at all and looped
+     * for ever. Two clears were needed to reach it, which is why a corpus
+     * that fills a map and reads it never went near.
+     *
+     * `remove` already did this, because removing shifts the tail and moves
+     * every position after it. Emptying the map moves them all. */
+    keal_map_reindex(m);
 }
 
 KEAL_FN bool keal_map_eq(KealMap* a, KealMap* b, bool (*val_eq)(KealWord, KealWord)) {

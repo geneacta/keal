@@ -1,0 +1,39 @@
+// Every float prints the same on the three engines, including the ones
+// outside the range anybody had ever printed.
+//
+// The native backend wrote `1e+15` where the interpreters wrote
+// `1000000000000000`, and `1e+300` against three hundred zeros. Everything
+// outside [1e-4, 1e15) disagreed — `%g` switches to an exponent as soon as
+// one leaves [-4, precision), and Rust's `Display` never does. The two
+// guards above the divergence were identical, which is why reading them
+// found nothing; it was the branch below them that differed.
+//
+// The precision loop could not have caught it: `1e+15` reads back exactly,
+// so it was accepted on the first round. And nothing in the corpus caught
+// it because no `.expected` file contained a scientific notation and no
+// test had ever printed a large float — the same reason the `NaN` spelling
+// survived, found the same week by the same means.
+//
+// The fix writes the shortest digits that read back as the value and puts
+// the point where the exponent says. It cannot use `%f` on the value: that
+// prints what the double exactly IS, and 1e300 exactly is three hundred
+// digits of binary truth rather than a one and three hundred zeros.
+//
+// Found on Linux aarch64 and confirmed on Windows MinGW before it was
+// fixed here, which is what says it is `%g` against `Display` and not a
+// platform.
+
+proc main() {
+    val vs: List<Float> = [
+        0.0, -0.0, 1.0, -1.0, 0.5, -0.5, 1.5, 0.1, 0.2, 0.3,
+        1e14, 1e15, 1e16, -1e15, 1e-4, 1e-5, -1e-5,
+        1e300, -1e300, 1e-300, 5e-324, 1.7976931348623157e308,
+        1.0 / 3.0, 2.0 / 3.0, -2.0 / 3.0, 123.456, 1e21, 1.23e20,
+        9.999e-5, 1e100, 6.02e23, 0.000123456789,
+        1.0 / 0.0, -1.0 / 0.0, 0.0 / 0.0
+    ]
+    for (v in vs) { println(v) }
+    println(vs.size)
+    println("${1e15} ${1e-5} ${1e300}")
+    println([1e15, 1e-5])
+}

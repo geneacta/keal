@@ -8171,11 +8171,25 @@ fn apply_logical(op: LogicalOp, a: &str, b: &str) -> String {
 }
 
 /// A double C will read back as exactly this value.
+/// A float literal, written into the C exactly as the language renders it.
+///
+/// There were two formatters here — this one used Rust's `{:?}`, which
+/// writes an exponent for anything large or small, and the twin used the
+/// language's own rendering, which never does. They agreed for as long as
+/// no file in the corpus held a float outside `[1e-4, 1e15)`, which was
+/// until the test written for exactly that. Two implementations of one idea
+/// agree until something asks them the question they answer differently.
+///
+/// The `.0` is what keeps it a C *double* literal: the language writes an
+/// integral value with no point once it is past 1e15, and `1e300` spelled
+/// as three hundred digits with no point is an integer constant too large
+/// for any integer type C has.
 fn format_double(f: f64) -> String {
-    if f.fract() == 0.0 && f.abs() < 1e15 {
-        format!("{:.1}", f)
+    let s = crate::runtime::format_float(f);
+    if s.contains('.') || s.contains('e') || s.contains('n') || s.contains('N') {
+        s
     } else {
-        format!("{:?}", f)
+        s + ".0"
     }
 }
 

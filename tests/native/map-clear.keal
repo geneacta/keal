@@ -1,0 +1,57 @@
+// A map emptied and refilled, more than once.
+//
+// `clear` set the length to zero and left the index alone — every bucket
+// still holding the position of an entry that no longer counted. The first
+// refill probed past all of them and worked. The second met a table with no
+// free slot left and looped for ever: not a slow map, a stuck one.
+//
+// Two clears are needed to reach it, which is why nothing here went near.
+// A test fills a map, reads it, and stops; a program that empties a bounded
+// cache when it overflows does this all day, and that is where it was found
+// — a glyph cache in a GUI framework, whose suite stopped finishing.
+//
+// The three engines had agreed on every answer: same size, same contents,
+// same output. They differed only in whether the program ended. Six rounds
+// here rather than three, so that a partial fix that survives the second
+// clear does not survive this file.
+
+val m: Map<Int, Int> = {}
+var round = 0
+while (round < 6) {
+    var i = 0
+    while (i < 500) { m[round * 1000 + i] = i; i += 1 }
+    println("filled ${round + 1}: size ${m.size} at ${m[round * 1000 + 250]}")
+    m.clear()
+    println("cleared ${round + 1}: size ${m.size} at ${m[round * 1000 + 250]}")
+    round += 1
+}
+
+// The same for a key type that indexes by ordinal, which has its own index
+// and its own way of going stale.
+enum L { A, B, C, D }
+val e: Map<L, Int> = {}
+var r = 0
+while (r < 4) {
+    e[L.A] = r
+    e[L.D] = r * 2
+    println("${e.size} ${e[L.A]} ${e[L.D]} ${e[L.C]}")
+    e.clear()
+    println("${e.size} ${e[L.A]}")
+    r += 1
+}
+
+// Emptying, refilling, and removing in the same map, since removal shifts
+// the tail and clear moves everything.
+val mix: Map<String, Int> = {}
+var k = 0
+while (k < 3) {
+    var j = 0
+    while (j < 40) { mix["k${j}"] = j; j += 1 }
+    mix.remove("k10")
+    mix.remove("k20")
+    println("${mix.size} ${mix["k11"]} ${mix["k10"]}")
+    mix.clear()
+    println("${mix.size}")
+    k += 1
+}
+println("done")
