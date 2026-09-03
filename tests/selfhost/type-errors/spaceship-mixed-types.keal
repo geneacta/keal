@@ -1,0 +1,6 @@
+// `<=>` between two types that share no order. It desugared to the
+// prelude's `compare(a, b)`, so inference solved `T` to `Any` and the `Ord`
+// bound failed there — reporting that `Any` does not implement `Ord`, with
+// a note suggesting `class Any : Ord`. Three names the program does not
+// contain, and one that cannot be written.
+val x = 1 <=> "a"

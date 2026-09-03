@@ -3813,6 +3813,45 @@ package class Checker() {
         // `a <=> b` is the prelude's `compare(a, b)` wearing an operator:
         // the rewrite reuses the generic call path, so `Ord` bounds, the
         // instantiation and the `Comp` result all come from one place.
+        // What the rewrite must not do is answer in the words of the
+        // machinery it uses. Given operands that share no ordered type,
+        // inference solved `T` to `Any` and the bound failed there, so
+        // `1 <=> "a"`, `1 <=> 1.5` and `V(1) <=> W(2)` all reported that
+        // `Any` does not implement `Ord` — naming three things the program
+        // did not contain and one that cannot be written.
+        if (op == "<=>") {
+            var lt0 = this.checkExpr(e.kids[0], null)
+            var rt0 = this.checkExpr(e.kids[1], null)
+            // A literal on one side adapts, exactly as it does for every
+            // other comparison: `1 <=> 1.5` asks about two Floats.
+            if (lt0.kind == "Float" and rt0.kind == "Int" and canWiden(e.kids[1])) {
+                widen(e.kids[1])
+                rt0 = Ty("Float")
+            } else if (rt0.kind == "Float" and lt0.kind == "Int" and canWiden(e.kids[0])) {
+                widen(e.kids[0])
+                lt0 = Ty("Float")
+            }
+            if (lt0.kind == "Error" or rt0.kind == "Error") { return Ty("Comp") }
+            // Two different mistakes, and `<` already tells them apart: two
+            // types that cannot be compared at all, and one type that could
+            // be if it said so.
+            unless (tyEq(lt0, rt0)) {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "`<=>` cannot be applied to `${tyShow(lt0)}` and `${tyShow(rt0)}`",
+                    "both sides must be the same ordered type — a number, a String, or a class that implements `Ord`"
+                )
+                return Ty("Comp")
+            }
+            unless (this.implements(lt0, "Ord")) {
+                this.errorNote(
+                    e.file, e.line, e.col,
+                    "`${tyShow(lt0)}` cannot be used with `<=>`: it does not implement `Ord`",
+                    "declare it with `class ${tyShow(lt0)} : Ord` and define `compareTo`"
+                )
+                return Ty("Comp")
+            }
+        }
         if (op == "<=>") {
             val lhs0 = e.kids[0]
             val rhs0 = e.kids[1]

@@ -1,0 +1,4 @@
+// The other mistake, which has a different answer: one type, comparable if
+// it said so. `<` has always told these two apart; `<=>` now does too.
+class W(val n: Int)
+val x = W(1) <=> W(2)

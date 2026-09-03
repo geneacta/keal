@@ -3734,6 +3734,62 @@ impl Checker {
         // `a <=> b` is the prelude's `compare(a, b)` wearing an operator:
         // the rewrite reuses the generic call path, so `Ord` bounds, the
         // instantiation and the `Comp` result all come from one place.
+        //
+        // What the rewrite must not do is answer in the words of the
+        // machinery it uses. Given operands that share no ordered type,
+        // inference solved `T` to `Any` and the bound failed there, so
+        // `1 <=> "a"`, `1 <=> 1.5` and `V(1) <=> W(2)` all reported that
+        // `Any` does not implement `Ord` — with a note suggesting
+        // `class Any : Ord` — naming three things the program did not
+        // contain and one that cannot be written. So the operands are
+        // settled here first, in the operator's own words, and the rewrite
+        // is left to the case it was written for.
+        if op == BinOp::Compare {
+            let (lt, rt) = match &mut e.kind {
+                ExprKind::Binary { lhs, rhs, .. } => {
+                    let lt = self.check_expr(lhs, None);
+                    let rt = self.check_expr(rhs, None);
+                    // A literal on one side adapts, exactly as it does for
+                    // every other comparison: `1 <=> 1.5` asks about two
+                    // Floats, and refusing it while `1 <==> 1.5` widened
+                    // would be two rules where the language promises one.
+                    if lt == Type::Float && rt == Type::Int && can_widen(rhs) {
+                        widen(rhs);
+                        (lt, Type::Float)
+                    } else if rt == Type::Float && lt == Type::Int && can_widen(lhs) {
+                        widen(lhs);
+                        (Type::Float, rt)
+                    } else {
+                        (lt, rt)
+                    }
+                }
+                _ => unreachable!(),
+            };
+            if lt == Type::Error || rt == Type::Error {
+                return Type::Comp;
+            }
+            // Two different mistakes, and `<` already tells them apart: two
+            // types that cannot be compared at all, and one type that could
+            // be if it said so. Saying both the same way would lose the
+            // second one's answer, which is a line the author can write.
+            if lt != rt {
+                self.error_note(
+                    span,
+                    format!("`<=>` cannot be applied to `{}` and `{}`", lt, rt),
+                    "both sides must be the same ordered type — a number, a \
+                     String, or a class that implements `Ord`",
+                );
+                return Type::Comp;
+            }
+            if !self.implements(&lt, "Ord") {
+                self.error_note(
+                    span,
+                    format!("`{}` cannot be used with `<=>`: it does not implement `Ord`", lt),
+                    format!("declare it with `class {} : Ord` and define `compareTo`", lt),
+                );
+                return Type::Comp;
+            }
+        }
         if op == BinOp::Compare {
             let (lhs, rhs) = match std::mem::replace(&mut e.kind, ExprKind::Null) {
                 ExprKind::Binary { lhs, rhs, .. } => (lhs, rhs),
