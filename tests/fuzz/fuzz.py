@@ -24,7 +24,8 @@ TYPES = ["Int", "Float", "Bool", "String", "Int?", "List<Int>", "List<String>",
          "(Int) -> Int", "(String) -> Bool", "Comp"]
 
 LITERALS = {
-    "Int": ["0", "1", "-7", "9223372036854775807", "2 ** 10"],
+    "Int": ["0", "1", "-7", "9223372036854775807", "2 ** 10",
+            "0xFF", "0b1010", "0xFFFFFFFFFFFFFFFF", "bnot 0", "1 shl 8"],
     "Float": ["0.0", "1.5", "-2.25", "1.0 / 3.0"],
     "Bool": ["true", "false", "1 < 2", "not true"],
     "String": ['"s"', '""', '"${1 + 2}"', '"a" + "b"'],
@@ -37,11 +38,21 @@ LITERALS = {
     "Box<List<Int>>": ["Box([1])"],
     "(Int) -> Int": ["{ n -> n + 1 }"],
     "(String) -> Bool": ['{ s -> s == "x" }'],
-    "Comp": ["compare(1, 2)", "1 <=> 2", 'Comp(0)'],
+    # `Comp(0)` was here until `Comp` stopped being a record. A generator
+    # that names a constructor the language has dropped spends its
+    # "accepted" half on programs that can only ever be refused, and stops
+    # exercising the half it was written for.
+    "Comp": ["compare(1, 2)", "1 <=> 2", "less", "equal", "greater"],
 }
 
 BINOPS = ["+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "**",
-          "^/", "<=>", "and", "or", "xor", "nand", "implies", "?:", ".."]
+          "^/", "<=>", "<==>", "and", "or", "xor", "nand", "implies", "?:", "..",
+          # The bit operators, which refuse to mix with arithmetic and with
+          # each other. Every operand here is parenthesised, so what they
+          # meet is the type rule rather than the mixing rule — and both
+          # answers are refusals, which is one of the two outcomes this asks
+          # the checker to survive.
+          "band", "bor", "bxor", "shl", "shr", "ushr"]
 
 METHODS = ["size", "length", "toString", "toInt", "abs", "get(0)", "take(2)",
            "drop(1)", "add(1)", "keys()", "contains(1)", "isLess",
