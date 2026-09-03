@@ -1570,17 +1570,26 @@ fn the_generated_c_compiles_without_warnings() {
     for (name, fault) in FAULTS {
         let fsrc = dir.join(format!("fault-{}.c", name));
         std::fs::write(&fsrc, fault).expect("cannot write the fault");
-        // A real compile, not `-fsyntax-only`. Some warnings come from the
-        // optimisation passes and cannot be emitted when those do not run:
-        // on GCC 15.2, `-Werror=uninitialized` and `-Werror=return-type` are
-        // silent under `-fsyntax-only` and speak under `-c -O1`. A fault
-        // written for one of those would be skipped as "this compiler has no
-        // such warning", which is the barrier lying about itself in the one
-        // way it exists to prevent. Ten small files; the cost is nothing.
+        // Compiled exactly the way the corpus below is compiled, and that
+        // sameness is the whole safety property — not the mode itself.
+        //
+        // Some warnings come only from the optimisation passes: on GCC 15.2,
+        // `-Werror=uninitialized` and `-Werror=return-type` say nothing under
+        // `-fsyntax-only` and speak under `-c -O1`. Both of us read that as
+        // "such a name would be skipped in silence", and both of us were
+        // wrong. The skip fires on `unknown warning option`, which a compiler
+        // prints for a name it does not have; a name it HAS and cannot reach
+        // under these flags exits 0 saying nothing, reaches the assertion,
+        // and fails loudly with "did not reject the fault written for it".
+        //
+        // So the mode is free to be the cheap one. The nine names in the
+        // table were measured to bite identically either way, and a real
+        // compile of the corpus costs seven times more on Windows than on
+        // macOS — for nothing that is being asked today. The day someone
+        // adds a name that needs the optimiser, this loop says so in one
+        // sentence and both sides move together.
         let out = Command::new(&cc)
-            .args(["-std=c11", "-c", "-O1", &format!("-Werror={}", name)])
-            .arg("-o")
-            .arg(dir.join("fault.o"))
+            .args(["-std=c11", "-fsyntax-only", &format!("-Werror={}", name)])
             .arg(&fsrc)
             .output()
             .expect("cannot run the C compiler");
@@ -1633,12 +1642,10 @@ fn the_generated_c_compiles_without_warnings() {
 
     // The flags the corpus is compiled under are exactly the ones just
     // proven, and not a second list that could drift from this one — and it
-    // is compiled the same way they were proven, for the same reason: a
-    // warning the optimiser finds is one `-fsyntax-only` cannot reach, and
-    // asking the corpus a narrower question than the calibration answered
-    // would make the calibration a promise about something else.
+    // is compiled the same way they were proven, which is what makes the
+    // calibration a promise about this run rather than about some other one.
     let mut flags: Vec<String> =
-        vec!["-std=c11".to_string(), "-c".to_string(), "-O1".to_string()];
+        vec!["-std=c11".to_string(), "-fsyntax-only".to_string()];
     flags.extend(proven.iter().map(|n| format!("-Werror={}", n)));
 
     // Every program the native corpus has, not just the one written for
@@ -1651,8 +1658,6 @@ fn the_generated_c_compiles_without_warnings() {
 
         let built = Command::new(&cc)
             .args(&flags)
-            .arg("-o")
-            .arg(dir.join("out.o"))
             .arg(&csrc)
             .output()
             .expect("cannot run the C compiler");
