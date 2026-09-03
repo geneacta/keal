@@ -478,6 +478,16 @@ KEAL_FN KealStr* keal_str_from_int(int64_t n) {
 KEAL_FN KealStr* keal_str_from_float(double d) {
     char buf[512];
     int len;
+    /* `NaN`, as the two interpreters spell it. C's `%g` writes `nan`, and
+     * the loop below could never have corrected it: it accepts a precision
+     * when `strtod` reads the text back equal to `d`, and no NaN is equal
+     * to itself. So every NaN fell through seventeen rounds of that and
+     * landed on the C spelling — a three-engine disagreement on output,
+     * which is the one thing the three are not allowed to have.
+     * `inf` and `-inf` already agree. */
+    if (d != d) {
+        return keal_str_static("NaN", 3);
+    }
     if (d == (double)(int64_t)d && d < 1e15 && d > -1e15) {
         len = snprintf(buf, sizeof buf, "%.1f", d);
         return keal_str_from_bytes(buf, len);

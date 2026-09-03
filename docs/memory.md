@@ -471,6 +471,33 @@ No behaviour depends on either, and no `deinit` is missed.
 
 ---
 
+### What valgrind says about a top-level binding
+
+A native build compiles with `-O2`, and under it valgrind reports a block
+*definitely lost* for every heap value a top-level binding holds — 96 bytes
+for a map, and so on. It is not a leak, and the explanation is worth writing
+down so that nobody has to find it twice.
+
+The emitted C does what this section describes: `static KealMap* k_m;`, then
+`k_m = keal_map_retain(...)` in `main`, and the count stays at one because
+the binding lives to the end of the program by design. But nothing reads
+`k_m` after its last use, and it has internal linkage, so from `-O1` the
+compiler deletes the variable — at `-O0` the symbol is in the object file
+and at `-O2` it is gone. With no pointer left anywhere, valgrind is right:
+the block is unreachable.
+
+So the chain is: the memory is deliberately held to the end, the global that
+recorded that intention is never read again, the optimiser removes it, and
+the last witness to a deliberate retention disappears. Compiled `-O0` the
+same programs report nothing lost.
+
+`--audit` cannot see any of this, and that is not a gap in it: the audit
+counts what is still *tracked* at the end, and valgrind finds what is no
+longer tracked at all. They are two instruments, not one checking the other.
+
+Measured on Linux aarch64 with GCC 15.2, which is also where the
+disassembly was read.
+
 ## 6. Crossing into C
 
 `keal layout` marks which representations can be handed to C as they are:

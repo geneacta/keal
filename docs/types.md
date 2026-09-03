@@ -130,19 +130,28 @@ differed only in what it cost, which is the kind of difference no test in a
 corpus can see.
 
 What that is worth is not one number, and quoting one would be misleading:
-the scan's cost is the size of the map, so the ratio is whatever size you
-picked. Two hundred thousand lookups, keys built before the clock starts:
+the scan's cost is the size of the map, so the ratio is whatever size the
+person quoting it picked. Two hundred thousand lookups, keys built before
+the clock starts, on two machines:
 
-| entries | scanning | hashing |
-|---|---|---|
-| 5 | 0.0023s | 0.0015s |
-| 50 | 0.0185s | 0.0022s |
-| 500 | 0.1669s | 0.0022s |
-| 2000 | 0.6363s | 0.0023s |
+| entries | macOS ARM, clang | | Linux aarch64, GCC 15.2 | |
+|---|---|---|---|---|
+| | scanning | hashing | scanning | hashing |
+| 5 | 0.0023s | 0.0015s | 0.0025s | 0.0024s |
+| 50 | 0.0185s | 0.0022s | 0.0152s | 0.0038s |
+| 500 | 0.1669s | 0.0022s | 0.1249s | 0.0040s |
+| 2000 | 0.6363s | 0.0023s | 0.5070s | 0.0041s |
 
-The claim is the shape of that second column, not any row of it: **finding an
-entry costs the same whatever the map holds.** A small map was never the
-problem and is not much improved; a map that grows no longer gets slower.
+The claim is the shape of the hashing columns, not any row of them:
+**finding an entry costs the same whatever the map holds.** The scanning
+columns grow by two hundred times across those four sizes and the hashing
+ones do not move.
+
+At five entries the two are the same speed within measurement error on the
+second machine, and the first machine's small edge does not reproduce. So
+the honest statement about small maps is that **there is no regression** —
+hashing is never slower, at any of these sizes, on either machine — and not
+a ratio, which at that size is noise wearing a number.
 
 ## A map over a closed key
 

@@ -1,0 +1,11 @@
+NaN
+inf
+-inf
+NaN inf -inf
+[NaN, inf, -inf]
+4
+zero
+minus zero
+not a number
+not a number
+0.0 -0.0 1.5 NaN 

@@ -1,0 +1,36 @@
+// The three engines must print the same bytes, and for one value they did
+// not: the interpreters wrote `NaN` and the native backend wrote `nan`.
+//
+// The C formatter tries increasing precisions and accepts one when `strtod`
+// reads the text back equal to the value — a test no NaN can pass, because
+// no NaN equals itself. So every NaN fell through seventeen rounds of that
+// and landed on whatever `%g` had written. `inf` and `-inf` already agreed,
+// which is why nothing noticed.
+//
+// Found by probing what the map's new hash did with float keys, which is
+// not where the fault was. The keys were fine.
+
+val nan = 0.0 / 0.0
+val inf = 1.0 / 0.0
+val ninf = -1.0 / 0.0
+println(nan)
+println(inf)
+println(ninf)
+println("${nan} ${inf} ${ninf}")
+println([nan, inf, ninf])
+
+// A float key is its bit pattern, on every engine — so a signed zero is a
+// key of its own, and a NaN is findable by the value that made it.
+val m: Map<Float, String> = {}
+m[0.0] = "zero"
+m[-0.0] = "minus zero"
+m[1.5] = "one and a half"
+m[nan] = "not a number"
+println(m.size)
+println(m[0.0])
+println(m[-0.0])
+println(m[nan])
+println(m[0.0 / 0.0])
+var ks = ""
+for (k in m.keys()) { ks = ks + "${k} " }
+println(ks)
