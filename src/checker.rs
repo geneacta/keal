@@ -3953,6 +3953,7 @@ impl Checker {
                 let (want, negate) = match op {
                     BinOp::Lt => (0u8, false),
                     BinOp::Gt => (2, false),
+                    BinOp::OrdEq => (1, false),
                     BinOp::Le => (2, true),
                     _ => (0, true),
                 };
@@ -4019,7 +4020,7 @@ impl Checker {
                 }
                 Type::Bool
             }
-            Lt | Le | Gt | Ge => {
+            Lt | Le | Gt | Ge | OrdEq => {
                 let ok = lt == rt && matches!(lt, Type::Int | Type::Float | Type::Str);
                 if !ok {
                     self.error(
@@ -4738,7 +4739,7 @@ fn operator_trait(op: BinOp) -> (&'static str, &'static str) {
         BinOp::Pow => ("Pow", "pow"),
         BinOp::Root => ("Root", "root"),
         BinOp::Eq | BinOp::Ne => ("Eq", "equals"),
-        BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => ("Ord", "compareTo"),
+        BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::OrdEq => ("Ord", "compareTo"),
         // Answered in `check_binary` before any trait is consulted: the bits
         // of an `Int` belong to no trait, and a class has none to offer.
         BinOp::BAnd | BinOp::BOr | BinOp::BXor | BinOp::Shl | BinOp::Shr | BinOp::UShr => {

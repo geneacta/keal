@@ -5788,7 +5788,12 @@ impl CBackend {
         if matches!(lty, Some(Type::Str)) && op != BinOp::Add {
             let t = self.temp();
             let cmp = match op {
-                BinOp::Eq => "== 0",
+                // Named, not left to the tail: a new comparison that fell
+                // through to `>= 0` compiled `"b" <==> "a"` to true while
+                // both interpreters said false. The tail is where an
+                // operator this backend has not been taught goes to be
+                // silently mis-compiled.
+                BinOp::Eq | BinOp::OrdEq => "== 0",
                 BinOp::Ne => "!= 0",
                 BinOp::Lt => "< 0",
                 BinOp::Le => "<= 0",
@@ -8091,6 +8096,9 @@ fn c_operator(op: BinOp) -> &'static str {
         BinOp::Pow => "**",
         BinOp::Root => "^/",
         BinOp::Eq => "==",
+        // On a primitive, nothing separates two equal values, so the order's
+        // equality and the value's are the same test.
+        BinOp::OrdEq => "==",
         BinOp::Ne => "!=",
         BinOp::Lt => "<",
         BinOp::Le => "<=",

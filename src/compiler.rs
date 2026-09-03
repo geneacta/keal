@@ -1408,6 +1408,9 @@ fn binary_op(op: BinOp) -> Op {
         BinOp::UShr => Op::Arith(Arith::UShr),
         BinOp::Compare => unreachable!("`<=>` is rewritten to `compare` by the checker"),
         BinOp::Eq => Op::Eq,
+        // On a primitive the two equalities coincide, so the same opcode
+        // answers both.
+        BinOp::OrdEq => Op::Eq,
         BinOp::Ne => Op::Ne,
         BinOp::Lt => Op::Compare(Compare::Lt),
         BinOp::Le => Op::Compare(Compare::Le),

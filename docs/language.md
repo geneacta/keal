@@ -253,7 +253,7 @@ immutable, like `val`.
 
 ```
 not and or xor xnor nand nor implies
-==  !=   <  <=  >  >=   is   in   ?:   ..
+==  !=  <==>   <  <=  >  >=   is   in   ?:   ..
 band bor bxor shl shr ushr
 +  -   *  /  %   unary -   unary bnot   . ?. [] ()
 ```
@@ -448,6 +448,25 @@ when (c) {               // no `else`: three is all there is
 c == less                // what you would have written `c.isLess()`
 c != greater             // …and `isAtMost()`
 ```
+
+**`a <==> b`** asks the order's question about equality: does the comparison
+answer `equal`? `a == b` asks `Eq` whether two values are the same; `<==>`
+asks `Ord` whether anything separates them. For a type ordered on part of
+itself these differ, and both are worth being able to say:
+
+```koda
+class Card(val rank: Int, val suit: String) : Ord, Eq {
+    func compareTo(other: Card): Comp { this.rank <=> other.rank }
+    func equals(other: Card): Bool {
+        this.rank == other.rank and this.suit == other.suit
+    }
+}
+
+Card(7, "hearts") ==   Card(7, "spades")   // false — different cards
+Card(7, "hearts") <==> Card(7, "spades")   // true  — the same rank
+```
+
+On a primitive the two coincide, because nothing separates two equal `Int`s.
 
 `Comp` carries no methods, for the reason `Bool` carries none. `b.isTrue()`
 would be a longer way of writing `b`, and there is no shorter way to say

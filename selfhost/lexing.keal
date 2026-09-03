@@ -267,7 +267,18 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
             "<" -> {
                 if (this.peek() == "=") {
                     this.bump()
-                    if (this.peek() == ">") { this.bump(); "<=>" } else { "<=" }
+                    // `<=`, then `<=>`, then `<==>`: each one more character,
+                    // and each a different question.
+                    if (this.peek() == ">") {
+                        this.bump()
+                        "<=>"
+                    } else if (this.peek() == "=" and this.peekAt(1) == ">") {
+                        this.bump()
+                        this.bump()
+                        "<==>"
+                    } else {
+                        "<="
+                    }
                 } else {
                     "<"
                 }

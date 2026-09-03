@@ -665,6 +665,7 @@ package class Folder(package val funs: Map<String, FunN>) {
     }
 
     package func intOp(op: String, x: Int, y: Int, file: Int, atLine: Int, atCol: Int): CV? {
+        if (op == "<==>") { return cvBool(x == y) }
         if (op == "<") { return cvBool(x < y) }
         if (op == "<=") { return cvBool(x <= y) }
         if (op == ">") { return cvBool(x > y) }

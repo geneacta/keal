@@ -167,7 +167,7 @@ func canWiden(e: Ex): Bool {
     if (e.kind == "unary" and e.text == "neg") { return canWiden(e.kids[0]) }
     if (e.kind == "binary") {
         val op = e.text
-        if (op == "<" or op == "<=" or op == ">" or op == ">=") { return false }
+        if (op == "<" or op == "<=" or op == ">" or op == ">=" or op == "<==>") { return false }
         if (op == "==" or op == "!=") { return false }
         return canWiden(e.kids[0]) and canWiden(e.kids[1])
     }
@@ -3938,7 +3938,13 @@ package class Checker() {
             }
             return Ty("Comp")
         }
-        val want = when (op) { "<" -> "less" ">" -> "greater" "<=" -> "greater" else -> "less" }
+        val want = when (op) {
+            "<" -> "less"
+            ">" -> "greater"
+            "<==>" -> "equal"
+            "<=" -> "greater"
+            else -> "less"
+        }
         val negate = op == "<=" or op == ">="
         val against = Ex("comp", e.line, e.col)
         against.file = e.file
@@ -3988,7 +3994,7 @@ package class Checker() {
             }
             return Ty("Bool")
         }
-        if (op == "<" or op == "<=" or op == ">" or op == ">=") {
+        if (op == "<" or op == "<=" or op == ">" or op == ">=" or op == "<==>") {
             val ok = tyEq(lt, rt) and (lt.kind == "Int" or lt.kind == "Float" or lt.kind == "Str")
             unless (ok) {
                 this.error(

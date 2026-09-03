@@ -6141,7 +6141,10 @@ class CBackend() {
         if (lty != null and lty.kind == "Str" and op != "+") {
             val t = this.temp()
             val cmp = when (op) {
-                "==" -> "== 0"
+                // Named, not left to the tail: a new comparison that fell
+                // through to `>= 0` compiled `"b" <==> "a"` to true while
+                // both interpreters said false.
+                "==", "<==>" -> "== 0"
                 "!=" -> "!= 0"
                 "<" -> "< 0"
                 "<=" -> "<= 0"
@@ -6165,6 +6168,9 @@ class CBackend() {
         // `band`, `bor` and `bxor` are C operators under other names; every
         // other operator that reaches here spells itself.
         val cOp = when (op) {
+            // On a primitive, nothing separates two equal values, so the
+            // order's equality and the value's are the same test.
+            "<==>" -> "=="
             "band" -> "&"
             "bor" -> "|"
             "bxor" -> "^"

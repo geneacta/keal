@@ -127,7 +127,7 @@ count += 1</code></pre>
 <h2 id="4-expressions">4. Expressions</h2>
 <h3 id="operators-tightest-binding-last">Operators, tightest binding last</h3>
 <pre><code>not and or xor xnor nand nor implies
-==  !=   &lt;  &lt;=  &gt;  &gt;=   is   in   ?:   ..
+==  !=  &lt;==&gt;   &lt;  &lt;=  &gt;  &gt;=   is   in   ?:   ..
 band bor bxor shl shr ushr
 +  -   *  /  %   unary -   unary bnot   . ?. [] ()</code></pre>
 <p>The bit operators are on a line of their own because their tier is the one place the table's "tightest binding last" is not the whole story: they bind tighter than comparison, and against arithmetic they do not bind at all — mixing the two needs parentheses. The section on them says why.</p>
@@ -193,6 +193,17 @@ when (c) {               // no `else`: three is all there is
 }
 c == less                // what you would have written `c.isLess()`
 c != greater             // …and `isAtMost()`</code></pre>
+<p><strong><code>a &lt;==&gt; b</code></strong> asks the order's question about equality: does the comparison answer <code>equal</code>? <code>a == b</code> asks <code>Eq</code> whether two values are the same; <code>&lt;==&gt;</code> asks <code>Ord</code> whether anything separates them. For a type ordered on part of itself these differ, and both are worth being able to say:</p>
+<pre class="lang-koda"><code>class Card(val rank: Int, val suit: String) : Ord, Eq {
+    func compareTo(other: Card): Comp { this.rank &lt;=&gt; other.rank }
+    func equals(other: Card): Bool {
+        this.rank == other.rank and this.suit == other.suit
+    }
+}
+
+Card(7, &quot;hearts&quot;) ==   Card(7, &quot;spades&quot;)   // false — different cards
+Card(7, &quot;hearts&quot;) &lt;==&gt; Card(7, &quot;spades&quot;)   // true  — the same rank</code></pre>
+<p>On a primitive the two coincide, because nothing separates two equal <code>Int</code>s.</p>
 <p><code>Comp</code> carries no methods, for the reason <code>Bool</code> carries none. <code>b.isTrue()</code> would be a longer way of writing <code>b</code>, and there is no shorter way to say <code>c == less</code> than to say it.</p>
 <p>The ternary knows both, and this is the oldest part of the arrangement: a <code>Bool</code> picks between two branches and a <code>Comp</code> picks between three, with the condition evaluated exactly once.</p>
 <pre class="lang-koda"><code>a &lt;=&gt; b ? &quot;before&quot; : &quot;same&quot; : &quot;after&quot;</code></pre>

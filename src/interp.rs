@@ -654,6 +654,7 @@ impl Interp {
                     Le => Value::Bool(x <= y),
                     Gt => Value::Bool(x > y),
                     Ge => Value::Bool(x >= y),
+                    OrdEq => Value::Bool(x == y),
                     Compare | Eq | Ne => unreachable!(),
                 })
             }
@@ -682,6 +683,7 @@ impl Interp {
                     Le => Value::Bool(x <= y),
                     Gt => Value::Bool(x > y),
                     Ge => Value::Bool(x >= y),
+                    OrdEq => Value::Bool(x == y),
                     Compare | Eq | Ne => unreachable!(),
                 })
             }
@@ -690,6 +692,11 @@ impl Interp {
                 Ok(Value::str(format!("{}{}", x, rhs)))
             }
             (Value::Str(x), Value::Str(y)) => Ok(match op {
+                // Named, not left to the tail: an operator that falls
+                // through here is refused at run time on one engine while
+                // the other two answer it, which is a disagreement the
+                // corpus only finds if a test writes the case.
+                OrdEq => Value::Bool(**x == **y),
                 Lt => Value::Bool(**x < **y),
                 Le => Value::Bool(**x <= **y),
                 Gt => Value::Bool(**x > **y),

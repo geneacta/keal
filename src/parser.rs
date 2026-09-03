@@ -32,6 +32,8 @@ struct Parser {
 fn binary_power(tok: &Tok) -> Option<(u8, BinOp)> {
     Some(match tok {
         Tok::EqEq => (2, BinOp::Eq),
+        // An equality, so it sits with the equalities.
+        Tok::OrdEqOp => (2, BinOp::OrdEq),
         Tok::BangEq => (2, BinOp::Ne),
         Tok::Lt => (3, BinOp::Lt),
         Tok::Spaceship => (3, BinOp::Compare),

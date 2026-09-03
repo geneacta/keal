@@ -17,3 +17,14 @@ equal
 true
 less equal greater
 [less, greater]
+false
+true
+false
+true
+false
+true
+true
+false
+true
+less
+false

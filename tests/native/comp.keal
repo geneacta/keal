@@ -51,3 +51,30 @@ println(pick(equal))
 // And it renders as the word it is written with, everywhere.
 println("${less} ${equal} ${greater}")
 println([less, greater])
+
+// `<==>`, equality in the order's sense. `==` asks `Eq` whether two values
+// are the same; this asks `Ord` whether anything separates them. For a type
+// ordered on part of itself, those are different questions.
+class Card(val rank: Int, val suit: String) : Ord, Eq {
+    func compareTo(other: Card): Comp { return this.rank <=> other.rank }
+    func equals(other: Card): Bool {
+        return this.rank == other.rank and this.suit == other.suit
+    }
+}
+val heart = Card(7, "hearts")
+val spade = Card(7, "spades")
+println(heart == spade)
+println(heart <==> spade)
+println(Card(2, "x") <==> Card(9, "x"))
+
+// On a primitive nothing separates two equal values, so the two coincide.
+println(3 <==> 3)
+println(3 <==> 4)
+println(1.5 <==> 1.5)
+println("a" <==> "a")
+println("b" <==> "a")
+
+// It is its own token, next to two that look like it.
+println(1 <= 2)
+println(1 <=> 2)
+println(1 <==> 2)

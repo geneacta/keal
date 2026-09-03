@@ -101,6 +101,10 @@ pub enum Tok {
     BangBang,
     Lt,
     Spaceship,
+    /// `<==>` — equality in the order's sense: the comparison answers
+    /// `equal`. `==` asks `Eq` whether two values are the same; this asks
+    /// `Ord` whether anything separates them.
+    OrdEqOp,
     LtEq,
     Gt,
     GtEq,
@@ -258,6 +262,7 @@ impl Tok {
             Tok::Lt => "<",
             Tok::LtEq => "<=",
             Tok::Spaceship => "<=>",
+            Tok::OrdEqOp => "<==>",
             Tok::Gt => ">",
             Tok::GtEq => ">=",
             Tok::AndAnd => "&&",
@@ -520,9 +525,15 @@ impl<'a> Lexer<'a> {
                 b'<' => {
                     if self.peek() == b'=' {
                         self.bump();
+                        // `<=`, then `<=>`, then `<==>`: each one more
+                        // character, and each a different question.
                         if self.peek() == b'>' {
                             self.bump();
                             Tok::Spaceship
+                        } else if self.peek() == b'=' && self.peek2() == b'>' {
+                            self.bump();
+                            self.bump();
+                            Tok::OrdEqOp
                         } else {
                             Tok::LtEq
                         }

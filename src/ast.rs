@@ -524,6 +524,11 @@ pub enum BinOp {
     /// `a <=> b` — the spaceship: rewritten by the checker to the prelude's
     /// `compare(a, b)`, so it answers a `Comp` for any `Ord` operands.
     Compare,
+    /// `a <==> b` — equality in the order's sense: `(a <=> b) == equal`.
+    /// `==` asks `Eq` whether two values are the same; this asks `Ord`
+    /// whether anything separates them, which for a type ordered on part of
+    /// itself is a different question with a different answer.
+    OrdEq,
     Lt,
     Le,
     Gt,
@@ -556,6 +561,7 @@ impl BinOp {
             BinOp::Eq => "==",
             BinOp::Ne => "!=",
             BinOp::Compare => "<=>",
+            BinOp::OrdEq => "<==>",
             BinOp::Lt => "<",
             BinOp::Le => "<=",
             BinOp::Gt => ">",
@@ -570,7 +576,7 @@ impl BinOp {
     }
 
     pub fn is_comparison(self) -> bool {
-        matches!(self, BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge)
+        matches!(self, BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::OrdEq)
     }
 
     /// True for the operators that read an `Int` as 64 bits rather than as a

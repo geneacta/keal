@@ -558,6 +558,7 @@ impl<'a> Folder<'a> {
                     Le => Ok(CVal::Bool(x <= y)),
                     Gt => Ok(CVal::Bool(x > y)),
                     Ge => Ok(CVal::Bool(x >= y)),
+                    OrdEq => Ok(CVal::Bool(x == y)),
                     Eq | Ne => unreachable!("handled above"),
                 }
             }
@@ -579,6 +580,7 @@ impl<'a> Folder<'a> {
                     Le => CVal::Bool(x <= y),
                     Gt => CVal::Bool(x > y),
                     Ge => CVal::Bool(x >= y),
+                    OrdEq => CVal::Bool(x == y),
                     Eq | Ne => unreachable!("handled above"),
                 })
             }
