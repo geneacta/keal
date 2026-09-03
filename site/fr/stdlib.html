@@ -174,11 +174,11 @@ own, and the trait only says that calling one is meaningful.</p>
 </section>
 <section id="the-standard-library-Ord">
 <pre class="sig">trait Ord</pre>
-<p>A total order. <code>compareTo</code> returns a negative number, zero, or a positive
-number according as the receiver is less than, equal to, or greater than
-<code>other</code> — the same convention as <code>Int.compareTo</code>.</p>
+<p>A total order. <code>compareTo</code> answers <code>less</code>, <code>equal</code> or <code>greater</code> according
+as the receiver sorts before, with, or after <code>other</code> — the question being
+asked, rather than a number to compare against zero.</p>
 <div class="members">
-<pre class="sig m">func compareTo(other: Self): Int</pre>
+<pre class="sig m">func compareTo(other: Self): Comp</pre>
 </div>
 </section>
 <section id="the-standard-library-compare">

@@ -47,8 +47,9 @@ func operatorSig(recv: Ty, name: String): Ty? {
     }
     if (name == "negate" and arithmetic) { return tyFun([], recv) }
     if (name == "equals") { return tyFun([bp("other", recv)], Ty("Bool")) }
+    // The question, not a number standing in for it.
     if (name == "compareTo" and (arithmetic or recv.kind == "Str")) {
-        return tyFun([bp("other", recv)], Ty("Int"))
+        return tyFun([bp("other", recv)], Ty("Comp"))
     }
     return null
 }

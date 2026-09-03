@@ -4,7 +4,7 @@ error: `BadAdd.plus` does not match `Add`, which declares `func plus(other: BadA
 4 |     func plus(other: Int): BadAdd { BadAdd(this.n + other) }
   |     ^
   = note: found `func plus(other: Int): BadAdd`
-error: `BadOrd.compareTo` does not match `Ord`, which declares `func compareTo(other: BadOrd): Int`
+error: `BadOrd.compareTo` does not match `Ord`, which declares `func compareTo(other: BadOrd): Comp`
   --> tests/errors/operators.keal:8:5
   |
 8 |     func compareTo(other: BadOrd): Bool { true }

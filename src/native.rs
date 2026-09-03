@@ -478,9 +478,9 @@ fn operator_method(recv: &Value, name: &str, args: &[Value], span: Span) -> Opti
         },
         "equals" => Some(Ok(Value::Bool(values_equal(recv, args.first()?)))),
         "compareTo" => match compare(recv, args.first()?) {
-            Some(Ordering::Less) => Some(Ok(Value::Int(-1))),
-            Some(Ordering::Equal) => Some(Ok(Value::Int(0))),
-            Some(Ordering::Greater) => Some(Ok(Value::Int(1))),
+            Some(Ordering::Less) => Some(Ok(Value::Comp(0))),
+            Some(Ordering::Equal) => Some(Ok(Value::Comp(1))),
+            Some(Ordering::Greater) => Some(Ok(Value::Comp(2))),
             None => None,
         },
         _ => None,

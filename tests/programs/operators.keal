@@ -15,7 +15,7 @@ class Vec2(val x: Float, val y: Float) : Add, Sub, Mul, Neg, Eq {
 class Money(val cents: Int) : Add, Sub, Ord, Eq {
     func plus(other: Money): Money { Money(this.cents + other.cents) }
     func minus(other: Money): Money { Money(this.cents - other.cents) }
-    func compareTo(other: Money): Int { this.cents - other.cents }
+    func compareTo(other: Money): Comp { this.cents <=> other.cents }
     func equals(other: Money): Bool { this.cents == other.cents }
 }
 
@@ -71,4 +71,4 @@ assert(biggest(["pear", "apple"], "") == "pear", "generic Ord at String")
 // The trait methods are ordinary methods and may be called by name.
 assert(a.plus(b).toString() == "(4.0, 6.0)", "plus called directly")
 assert(1.plus(2) == 3, "the built-in implementation is real too")
-assert(2.compareTo(5) < 0, "Int.compareTo")
+assert(2.compareTo(5) == less, "Int.compareTo")

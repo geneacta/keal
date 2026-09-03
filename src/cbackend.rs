@@ -3740,7 +3740,7 @@ impl CBackend {
                     let b = self.expr(&args[0].value);
                     let t = self.temp();
                     self.line(format!(
-                        "const int64_t {t} = {a} < {b} ? INT64_C(-1) : ({a} > {b} ? INT64_C(1) : INT64_C(0));",
+                        "const int64_t {t} = {a} < {b} ? INT64_C(0) : ({a} > {b} ? INT64_C(2) : INT64_C(1));",
                         t = t,
                         a = a,
                         b = b
@@ -3788,7 +3788,7 @@ impl CBackend {
                     let b = self.expr(&args[0].value);
                     let t = self.temp();
                     self.line(format!(
-                        "const int64_t {t} = {a} < {b} ? INT64_C(-1) : ({a} > {b} ? INT64_C(1) : INT64_C(0));",
+                        "const int64_t {t} = {a} < {b} ? INT64_C(0) : ({a} > {b} ? INT64_C(2) : INT64_C(1));",
                         t = t,
                         a = a,
                         b = b
@@ -3817,7 +3817,7 @@ impl CBackend {
                     self.line(format!("const int {} = keal_str_cmp({}, {});", c, a, b));
                     let t = self.temp();
                     self.line(format!(
-                        "const int64_t {t} = {c} < 0 ? INT64_C(-1) : ({c} > 0 ? INT64_C(1) : INT64_C(0));",
+                        "const int64_t {t} = {c} < 0 ? INT64_C(0) : ({c} > 0 ? INT64_C(2) : INT64_C(1));",
                         t = t,
                         c = c
                     ));

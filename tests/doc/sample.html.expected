@@ -68,7 +68,7 @@ footer { margin-top: 64px; color: var(--dim); font-size: 13px;
 <div class="members">
 <pre class="sig m">val value: Float</pre>
 <pre class="sig m">val unit: String</pre>
-<pre class="sig m">func compareTo(other: Measure): Int</pre>
+<pre class="sig m">func compareTo(other: Measure): Comp</pre>
 <p>Magnitude order; the unit is a label, not a dimension.</p>
 </div>
 </section>

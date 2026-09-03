@@ -4255,7 +4255,7 @@ class CBackend() {
                 val a = this.expr(obj)
                 val b = this.expr(e.args[0].value)
                 val t = this.temp()
-                this.line("const int64_t ${t} = ${a} < ${b} ? INT64_C(-1) : (${a} > ${b} ? INT64_C(1) : INT64_C(0));")
+                this.line("const int64_t ${t} = ${a} < ${b} ? INT64_C(0) : (${a} > ${b} ? INT64_C(2) : INT64_C(1));")
                 return t
             }
             return null
@@ -4298,7 +4298,7 @@ class CBackend() {
                 val a = this.expr(obj)
                 val b = this.expr(e.args[0].value)
                 val t = this.temp()
-                this.line("const int64_t ${t} = ${a} < ${b} ? INT64_C(-1) : (${a} > ${b} ? INT64_C(1) : INT64_C(0));")
+                this.line("const int64_t ${t} = ${a} < ${b} ? INT64_C(0) : (${a} > ${b} ? INT64_C(2) : INT64_C(1));")
                 return t
             }
             return null
@@ -4322,7 +4322,7 @@ class CBackend() {
                 val c = this.temp()
                 this.line("const int ${c} = keal_str_cmp(${a}, ${b});")
                 val t = this.temp()
-                this.line("const int64_t ${t} = ${c} < 0 ? INT64_C(-1) : (${c} > 0 ? INT64_C(1) : INT64_C(0));")
+                this.line("const int64_t ${t} = ${c} < 0 ? INT64_C(0) : (${c} > 0 ? INT64_C(2) : INT64_C(1));")
                 return t
             }
             return null

@@ -8,8 +8,8 @@ func grade(score: Int): String {
 /// A measurement with its unit, comparable by magnitude.
 record Measure(val value: Float, val unit: String) : Ord {
     /// Magnitude order; the unit is a label, not a dimension.
-    func compareTo(other: Measure): Int {
-        return this.value < other.value ? -1 : (this.value > other.value ? 1 : 0)
+    func compareTo(other: Measure): Comp {
+        return this.value <=> other.value
     }
 }
 

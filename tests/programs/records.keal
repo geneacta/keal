@@ -49,9 +49,9 @@ assert(countEqual([Point(1, 1), Point(2, 2), Point(1, 1)], Point(1, 1)) == 2, "E
 
 // A record may implement further traits itself.
 record Version(val major: Int, val minor: Int) : Ord {
-    func compareTo(other: Version): Int {
-        if (this.major != other.major) { return this.major - other.major }
-        return this.minor - other.minor
+    func compareTo(other: Version): Comp {
+        if (this.major != other.major) { return this.major <=> other.major }
+        return this.minor <=> other.minor
     }
 }
 assert(Version(2, 0) > Version(1, 9), "Ord on a record")

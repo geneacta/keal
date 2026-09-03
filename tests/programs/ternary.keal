@@ -31,10 +31,10 @@ assert((1 <=> 1 ? 0 : (2 <=> 1 ? 10 : 20 : 30) : 9) == 30, "comp nested in comp"
 
 // User types ride the same rails through Ord.
 record Pair(val a: Int, val b: Int) : Ord {
-    func compareTo(other: Pair): Int {
-        val first = this.a.compareTo(other.a)
-        return if (first != 0) first
-        return this.b.compareTo(other.b)
+    func compareTo(other: Pair): Comp {
+        val first = this.a <=> other.a
+        return if (first != equal) first
+        return this.b <=> other.b
     }
 }
 assert((Pair(1, 5) <=> Pair(1, 7)) == less, "record spaceship")

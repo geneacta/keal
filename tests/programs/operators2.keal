@@ -82,6 +82,6 @@ assert(word(compare(2, 2)) == "equal", "when over a Comp is exhaustive")
 assert(word(compare(2, 1)) == "greater", "when over a Comp is exhaustive")
 
 class Version(val major: Int) : Ord {
-    func compareTo(other: Version): Int { return this.major - other.major }
+    func compareTo(other: Version): Comp { return this.major <=> other.major }
 }
 assert(compare(Version(3), Version(1)) == greater, "compare on an Ord class")

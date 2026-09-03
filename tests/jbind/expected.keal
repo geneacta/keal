@@ -288,9 +288,9 @@ public class UUID(public val handle: Int) : Ord {
     public func hashCode(): Int {
         return jvmCallInt(this.handle, "hashCode", "()I")
     }
-    public func compareTo(a0: UUID): Int {
+    public func compareTo(a0: UUID): Comp {
         jvmArgObj(a0.handle)
-        return jvmCallInt(this.handle, "compareTo", "(Ljava/util/UUID;)I")
+        return (jvmCallInt(this.handle, "compareTo", "(Ljava/util/UUID;)I")) <=> 0
     }
 }
 

@@ -3916,22 +3916,41 @@ package class Checker() {
             e.args = []
             return Ty("Bool")
         }
-        // `a < b` becomes `a.compareTo(b) < 0`.
+        // `a < b` becomes `a.compareTo(b) == less`, and `a <= b` becomes
+        // `a.compareTo(b) != greater`. There is no sign to inspect any more
+        // and no zero to compare against: `compareTo` answers the
+        // three-valued question directly, which is the question being asked.
         val call = Ex("method", e.line, e.col)
         call.file = e.file
         call.text = method
         call.kids = [lhs]
         call.args = args
-        val zero = Ex("int", e.line, e.col)
-        zero.file = e.file
+        if (op == "<=>") {
+            e.kind = "method"
+            e.text = method
+            e.kids = [lhs]
+            e.args = args
+            if (result.kind != "Comp" and result.kind != "Error") {
+                this.error(
+                    e.file, e.line, e.col,
+                    "`compareTo` must return `Comp`, but returns `${tyShow(result)}`"
+                )
+            }
+            return Ty("Comp")
+        }
+        val want = when (op) { "<" -> "less" ">" -> "greater" "<=" -> "greater" else -> "less" }
+        val negate = op == "<=" or op == ">="
+        val against = Ex("comp", e.line, e.col)
+        against.file = e.file
+        against.text = want
         e.kind = "binary"
-        e.text = op
-        e.kids = [call, zero]
+        e.text = if (negate) { "!=" } else { "==" }
+        e.kids = [call, against]
         e.args = []
-        if (result.kind != "Int" and result.kind != "Error") {
+        if (result.kind != "Comp" and result.kind != "Error") {
             this.error(
                 e.file, e.line, e.col,
-                "`compareTo` must return `Int`, but returns `${tyShow(result)}`"
+                "`compareTo` must return `Comp`, but returns `${tyShow(result)}`"
             )
         }
         return Ty("Bool")

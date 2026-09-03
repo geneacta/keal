@@ -3934,17 +3934,38 @@ impl Checker {
                 e.kind = ExprKind::Unary { op: UnOp::Not, rhs: Box::new(call) };
                 Type::Bool
             }
-            // `a < b` becomes `a.compareTo(b) < 0`.
-            _ => {
-                e.kind = ExprKind::Binary {
-                    op,
-                    lhs: Box::new(call),
-                    rhs: Box::new(Expr { ty: None, inst: None, span, kind: ExprKind::Int(0) }),
-                };
-                if result != Type::Int && result != Type::Error {
+            // `a < b` becomes `a.compareTo(b) == less`, and `a <= b` becomes
+            // `a.compareTo(b) != greater`. There is no sign to inspect any
+            // more and no zero to compare against: `compareTo` answers the
+            // three-valued question directly, which is the question being
+            // asked.
+            BinOp::Compare => {
+                e.kind = call.kind;
+                if result != Type::Comp && result != Type::Error {
                     self.error(
                         span,
-                        format!("`compareTo` must return `Int`, but returns `{}`", result),
+                        format!("`compareTo` must return `Comp`, but returns `{}`", result),
+                    );
+                }
+                Type::Comp
+            }
+            _ => {
+                let (want, negate) = match op {
+                    BinOp::Lt => (0u8, false),
+                    BinOp::Gt => (2, false),
+                    BinOp::Le => (2, true),
+                    _ => (0, true),
+                };
+                let against = Expr { ty: None, inst: None, span, kind: ExprKind::Comp(want) };
+                e.kind = ExprKind::Binary {
+                    op: if negate { BinOp::Ne } else { BinOp::Eq },
+                    lhs: Box::new(call),
+                    rhs: Box::new(against),
+                };
+                if result != Type::Comp && result != Type::Error {
+                    self.error(
+                        span,
+                        format!("`compareTo` must return `Comp`, but returns `{}`", result),
                     );
                 }
                 Type::Bool

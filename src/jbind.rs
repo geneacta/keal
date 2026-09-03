@@ -435,7 +435,9 @@ fn emit_class(p: &ParsedClass, simple: &str, bound: &[(String, String)]) -> Stri
     let mut seen_toplevel: Vec<String> = Vec::new();
 
     for m in &p.members {
-        match emit_member(m, p, simple, &lc, &accessor, bound, &mut seen_instance, &mut seen_toplevel) {
+        match emit_member(
+            m, p, simple, &lc, &accessor, bound, &mut seen_instance, &mut seen_toplevel, is_ord,
+        ) {
             Emitted::Instance(text) => instance.push(text),
             Emitted::Toplevel(text) => toplevel.push(text),
             Emitted::Skipped(label, reason) => skips.push((label, reason)),
@@ -493,6 +495,7 @@ fn emit_member(
     bound: &[(String, String)],
     seen_instance: &mut Vec<String>,
     seen_toplevel: &mut Vec<String>,
+    is_ord: bool,
 ) -> Emitted {
     match parse_member(line, &p.fqcn) {
         Member::Field(name) => Emitted::Skipped(name, "fields are not bound yet".into()),
@@ -579,7 +582,23 @@ fn emit_member(
                     );
                 }
                 seen_instance.push(name.clone());
-                let (kw, ret_ty, body) = call(&rk, "this.handle", &name, &sig, false, &crossed);
+                let (kw, ret_ty, mut body) = call(&rk, "this.handle", &name, &sig, false, &crossed);
+                // Java's `compareTo` answers a sign; the trait it satisfies
+                // here answers a `Comp`. The conversion is written with the
+                // operator that means it — `<=> 0` reads the sign as the
+                // three-valued question it always stood for.
+                let mut ret_ty = ret_ty;
+                if is_ord && name == "compareTo" && ret_ty == ": Int" {
+                    body = body
+                        .lines()
+                        .map(|l| match l.trim_start().strip_prefix("return ") {
+                            Some(rest) => format!("    return ({}) <=> 0", rest),
+                            None => l.to_string(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    ret_ty = ": Comp".to_string();
+                }
                 let indented: String =
                     body.lines().map(|l| format!("    {}\n", l)).collect();
                 Emitted::Instance(format!(

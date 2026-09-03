@@ -92,20 +92,17 @@ public trait Invoke {}
 // `c == less`. A `when` over one needs no `else`, because three is all
 // there is.
 
-/// A total order. `compareTo` returns a negative number, zero, or a positive
-/// number according as the receiver is less than, equal to, or greater than
-/// `other` — the same convention as `Int.compareTo`.
+/// A total order. `compareTo` answers `less`, `equal` or `greater` according
+/// as the receiver sorts before, with, or after `other` — the question being
+/// asked, rather than a number to compare against zero.
 public trait Ord {
-    func compareTo(other: Self): Int
+    func compareTo(other: Self): Comp
 }
 
 /// Compares two values of any ordered type — `Int`, `Float`, `String`, or
 /// your own `: Ord` class — as a `Comp`.
 public func compare<T: Ord>(a: T, b: T): Comp {
-    val sign = a.compareTo(b)
-    if (sign < 0) { return less }
-    if (sign > 0) { return greater }
-    return equal
+    return a.compareTo(b)
 }
 
 // ---- tuples ------------------------------------------------------------

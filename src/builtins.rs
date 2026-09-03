@@ -61,8 +61,9 @@ fn operator_sig(recv: &Type, name: &str) -> Option<FunType> {
         }
         "negate" if arithmetic => sig(vec![], t),
         "equals" => sig(vec![p("other", t)], Type::Bool),
+        // The question, not a number standing in for it.
         "compareTo" if arithmetic || *recv == Type::Str => {
-            sig(vec![p("other", t)], Type::Int)
+            sig(vec![p("other", t)], Type::Comp)
         }
         _ => None,
     }
