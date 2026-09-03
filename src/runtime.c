@@ -1311,7 +1311,49 @@ typedef struct KealMap {
      * differently from how it did. */
     int64_t* slot;
     int64_t domain;
+    /* For every other key type: an open-addressed table from hash to the
+     * position of the entry in `data`, holding position + 1 so that zero
+     * means empty.
+     *
+     * The entries themselves are untouched — they stay in the order they
+     * were first set, which `keys()` promises — and this only says where to
+     * look. The interpreters have had a hash map here since they were
+     * written; the native backend walked the entries, so the three engines
+     * agreed on every answer and disagreed on what it cost.
+     *
+     * NULL when `key_hash` is NULL, and then the scan below still works. */
+    int64_t* bucket;
+    int64_t nbuckets;
+    uint64_t (*key_hash)(KealWord);
 } KealMap;
+
+/* A word key — an Int, a Bool, an enum's ordinal, a Comp, or a Float's bit
+ * pattern. Splitmix64's finaliser: cheap, and it moves every input bit. */
+KEAL_FN uint64_t keal_hash_word(KealWord k) {
+    uint64_t x = (uint64_t)k.i;
+    x ^= x >> 30;
+    x *= 0xbf58476d1ce4e5b9ULL;
+    x ^= x >> 27;
+    x *= 0x94d049bb133111ebULL;
+    x ^= x >> 31;
+    return x;
+}
+
+/* A string key, hashed over its bytes so that two equal strings agree
+ * whatever their addresses. FNV-1a. A NULL string is its own hash, which is
+ * what a nullable key needs. */
+KEAL_FN uint64_t keal_hash_str(KealWord k) {
+    KealStr* s = (KealStr*)k.p;
+    if (s == NULL) {
+        return 0xcbf29ce484222325ULL;
+    }
+    uint64_t h = 0xcbf29ce484222325ULL;
+    for (int64_t i = 0; i < s->len; i++) {
+        h ^= (uint64_t)(unsigned char)s->bytes[i];
+        h *= 0x100000001b3ULL;
+    }
+    return h;
+}
 
 KEAL_FN bool keal_key_eq_word(KealWord a, KealWord b) {
     return a.i == b.i;
@@ -1322,6 +1364,7 @@ KEAL_FN bool keal_key_eq_str(KealWord a, KealWord b) {
 }
 
 KEAL_FN KealMap* keal_map_new(bool (*key_eq)(KealWord, KealWord),
+                              uint64_t (*key_hash)(KealWord),
                               void (*release_key)(void*), void (*release_val)(void*)) {
     KealMap* m = (KealMap*)keal_alloc(sizeof(KealMap));
     m->rc = 1;
@@ -1333,6 +1376,9 @@ KEAL_FN KealMap* keal_map_new(bool (*key_eq)(KealWord, KealWord),
     m->release_val = release_val;
     m->slot = NULL;
     m->domain = 0;
+    m->bucket = NULL;
+    m->nbuckets = 0;
+    m->key_hash = key_hash;
     return m;
 }
 
@@ -1342,9 +1388,10 @@ KEAL_FN KealMap* keal_map_new(bool (*key_eq)(KealWord, KealWord),
  * still sit in the order they were first set — only the cost of finding
  * one, which stops depending on how many there are. */
 KEAL_FN KealMap* keal_map_new_closed(bool (*key_eq)(KealWord, KealWord),
+                                     uint64_t (*key_hash)(KealWord),
                                      void (*release_key)(void*),
                                      void (*release_val)(void*), int64_t domain) {
-    KealMap* m = keal_map_new(key_eq, release_key, release_val);
+    KealMap* m = keal_map_new(key_eq, key_hash, release_key, release_val);
     if (domain <= 0) {
         /* Not a closed key after all — a plain map, so that a caller which
          * passes another map's domain along does the right thing either
@@ -1383,6 +1430,7 @@ KEAL_FN void keal_map_release(KealMap* m) {
     }
     free(m->data);
     free(m->slot);
+    free(m->bucket);
     free(m);
 }
 
@@ -1394,6 +1442,20 @@ KEAL_FN int64_t keal_map_find(KealMap* m, KealWord key) {
         }
         return m->slot[key.i];
     }
+    if (m->bucket != NULL) {
+        uint64_t mask = (uint64_t)m->nbuckets - 1;
+        uint64_t i = m->key_hash(key) & mask;
+        while (m->bucket[i] != 0) {
+            int64_t at = m->bucket[i] - 1;
+            /* The hash says where to look; equality says whether it is the
+             * one. Two keys may land in the same bucket and still differ. */
+            if (m->key_eq(m->data[2 * at], key)) {
+                return at;
+            }
+            i = (i + 1) & mask;
+        }
+        return -1;
+    }
     for (int64_t i = 0; i < m->len; i++) {
         if (m->key_eq(m->data[2 * i], key)) {
             return i;
@@ -1402,17 +1464,51 @@ KEAL_FN int64_t keal_map_find(KealMap* m, KealWord key) {
     return -1;
 }
 
-/* Rebuilds the ordinal index after the entries move. Only a removal moves
- * them, and only by shifting the tail down one. */
-KEAL_FN void keal_map_reindex(KealMap* m) {
-    if (m->slot == NULL) {
-        return;
+/* Puts one entry into the bucket table. The table always has a free slot
+ * because it is grown before it fills. */
+KEAL_FN void keal_map_bucket_put(KealMap* m, KealWord key, int64_t at) {
+    uint64_t mask = (uint64_t)m->nbuckets - 1;
+    uint64_t i = m->key_hash(key) & mask;
+    while (m->bucket[i] != 0) {
+        i = (i + 1) & mask;
     }
-    for (int64_t i = 0; i < m->domain; i++) {
-        m->slot[i] = -1;
+    m->bucket[i] = at + 1;
+}
+
+/* Grows the bucket table to hold `want` entries at half load, and refills it
+ * from the entries. Also the way it is built the first time. */
+KEAL_FN void keal_map_rehash(KealMap* m, int64_t want) {
+    int64_t n = 8;
+    while (n < want * 2) {
+        n *= 2;
+    }
+    free(m->bucket);
+    m->nbuckets = n;
+    m->bucket = (int64_t*)keal_alloc((size_t)n * sizeof(int64_t));
+    for (int64_t i = 0; i < n; i++) {
+        m->bucket[i] = 0;
     }
     for (int64_t i = 0; i < m->len; i++) {
-        m->slot[m->data[2 * i].i] = i;
+        keal_map_bucket_put(m, m->data[2 * i], i);
+    }
+}
+
+/* Rebuilds whichever index this map has, after the entries move. Only a
+ * removal moves them, and only by shifting the tail down one — which
+ * changes the position of every entry after it, so both kinds of index have
+ * to be rebuilt rather than patched. */
+KEAL_FN void keal_map_reindex(KealMap* m) {
+    if (m->slot != NULL) {
+        for (int64_t i = 0; i < m->domain; i++) {
+            m->slot[i] = -1;
+        }
+        for (int64_t i = 0; i < m->len; i++) {
+            m->slot[m->data[2 * i].i] = i;
+        }
+        return;
+    }
+    if (m->bucket != NULL) {
+        keal_map_rehash(m, m->len);
     }
 }
 
@@ -1442,6 +1538,12 @@ KEAL_FN void keal_map_set(KealMap* m, KealWord key, KealWord value) {
     m->data[2 * m->len + 1] = value;
     if (m->slot != NULL) {
         m->slot[key.i] = m->len;
+    } else if (m->key_hash != NULL) {
+        /* Half load, so a probe stays short. */
+        if (m->bucket == NULL || (m->len + 1) * 2 > m->nbuckets) {
+            keal_map_rehash(m, m->len + 1);
+        }
+        keal_map_bucket_put(m, key, m->len);
     }
     m->len++;
 }

@@ -585,6 +585,15 @@ impl CBackend {
         }
     }
 
+    /// The hash a map applies to its keys. A map key is one of seven types
+    /// and all of them are a word or a string in C, so there are two.
+    fn key_hash_fn(elem: &Elem) -> &'static str {
+        match elem {
+            Elem::Ptr(_, _) => "keal_hash_str",
+            _ => "keal_hash_word",
+        }
+    }
+
     fn key_eq_fn(elem: &Elem) -> &'static str {
         match elem {
             Elem::Ptr(_, _) => "keal_key_eq_str",
@@ -4683,15 +4692,20 @@ impl CBackend {
     fn map_new_call(&mut self, kt: &Type, kk: &Elem, rel_k: &str, rel_v: &str) -> String {
         match self.closed_domain(kt) {
             Some(domain) => format!(
-                "keal_map_new_closed({}, {}, {}, INT64_C({}))",
+                "keal_map_new_closed({}, {}, {}, {}, INT64_C({}))",
                 Self::key_eq_fn(kk),
+                Self::key_hash_fn(kk),
                 rel_k,
                 rel_v,
                 domain
             ),
-            None => {
-                format!("keal_map_new({}, {}, {})", Self::key_eq_fn(kk), rel_k, rel_v)
-            }
+            None => format!(
+                "keal_map_new({}, {}, {}, {})",
+                Self::key_eq_fn(kk),
+                Self::key_hash_fn(kk),
+                rel_k,
+                rel_v
+            ),
         }
     }
 
@@ -6470,10 +6484,11 @@ impl CBackend {
                 };
                 let _ = write!(
                     self.defs,
-                    "\nKealMap* {n}(KealMap* m, int64_t depth) {{\n    {cap}\n    KealMap* out = keal_map_new_closed({eq}, {rk}, {rv}, m->domain);\n    for (int64_t i = 0; i < m->len; i++) {{\n        KealWord k = m->data[2 * i];\n        KealWord v = m->data[2 * i + 1];\n        keal_map_set(out, {kw}, {vw});\n{bail}    }}\n    return out;\n}}\n",
+                    "\nKealMap* {n}(KealMap* m, int64_t depth) {{\n    {cap}\n    KealMap* out = keal_map_new_closed({eq}, {hash}, {rk}, {rv}, m->domain);\n    for (int64_t i = 0; i < m->len; i++) {{\n        KealWord k = m->data[2 * i];\n        KealWord v = m->data[2 * i + 1];\n        keal_map_set(out, {kw}, {vw});\n{bail}    }}\n    return out;\n}}\n",
                     n = name,
                     cap = cap,
                     eq = Self::key_eq_fn(&kk),
+                    hash = Self::key_hash_fn(&kk),
                     rk = rel_k,
                     rv = rel_v,
                     bail = bail,

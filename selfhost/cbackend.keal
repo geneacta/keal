@@ -755,6 +755,13 @@ func elemUnword(e: CElem, w: String): String {
     }
 }
 
+/// The hash a map applies to its keys. A map key is one of seven types and
+/// all of them are a word or a string in C, so there are two.
+func keyHashFn(e: CElem): String {
+    if (e.kind == "ptr") { return "keal_hash_str" }
+    return "keal_hash_word"
+}
+
 func keyEqFn(e: CElem): String {
     if (e.kind == "ptr") { return "keal_key_eq_str" }
     return "keal_key_eq_word"
@@ -1339,7 +1346,7 @@ class CBackend() {
             } else {
                 ""
             }
-            this.defs += "\nKealMap* ${name}(KealMap* m, int64_t depth) {\n    ${cap}\n    KealMap* out = keal_map_new_closed(${keyEqFn(kk)}, ${relK}, ${relV}, m->domain);\n    for (int64_t i = 0; i < m->len; i++) {\n        KealWord k = m->data[2 * i];\n        KealWord v = m->data[2 * i + 1];\n        keal_map_set(out, ${elemWord(kk, ck)}, ${elemWord(vk, cv)});\n${bail}    }\n    return out;\n}\n"
+            this.defs += "\nKealMap* ${name}(KealMap* m, int64_t depth) {\n    ${cap}\n    KealMap* out = keal_map_new_closed(${keyEqFn(kk)}, ${keyHashFn(kk)}, ${relK}, ${relV}, m->domain);\n    for (int64_t i = 0; i < m->len; i++) {\n        KealWord k = m->data[2 * i];\n        KealWord v = m->data[2 * i + 1];\n        keal_map_set(out, ${elemWord(kk, ck)}, ${elemWord(vk, cv)});\n${bail}    }\n    return out;\n}\n"
             return name
         }
         if (t.kind == "Class") {
@@ -5052,9 +5059,9 @@ class CBackend() {
     func mapNewCall(kt: Ty, kk: CElem, relK: String, relV: String): String {
         val domain = this.closedDomain(kt)
         if (domain < 0) {
-            return "keal_map_new(${keyEqFn(kk)}, ${relK}, ${relV})"
+            return "keal_map_new(${keyEqFn(kk)}, ${keyHashFn(kk)}, ${relK}, ${relV})"
         }
-        return "keal_map_new_closed(${keyEqFn(kk)}, ${relK}, ${relV}, INT64_C(${domain}))"
+        return "keal_map_new_closed(${keyEqFn(kk)}, ${keyHashFn(kk)}, ${relK}, ${relV}, INT64_C(${domain}))"
     }
 
     func mapLiteral(e: Ex): String {

@@ -1,0 +1,49 @@
+// Finding an entry in a map, on a key type that is not closed.
+//
+// The native map walked its entries — a linear scan, for every key type —
+// while both interpreters have used a hash map since they were written. The
+// three engines agreed on every answer and disagreed on what it cost, which
+// is the kind of difference nothing in the corpus can see: no test asks how
+// long an answer took.
+//
+// What must not change is everything else. The entries sit in the order
+// they were first set; `keys()` promises it; a removal shifts the tail down
+// rather than swapping the last entry into the hole, so every position
+// after it moves and the index has to be rebuilt rather than patched; and a
+// key set again after being removed appends at the end. Two hundred keys,
+// because a bug in the growth or the probing needs more entries than a
+// small example has.
+
+proc main() {
+    val m: Map<String, Int> = {}
+    for (i in 0..200) { m["key-${i}"] = i }
+    println(m.size)
+    println(m["key-0"])
+    println(m["key-199"])
+    println(m["absent"])
+    // l'ordre d'insertion survit
+    var first = ""
+    var n = 0
+    for (k in m.keys()) { if (n < 3) { first = first + k + " " } n += 1 }
+    println(first)
+    // suppression : les entrées glissent, l'index doit suivre
+    m.remove("key-0")
+    m.remove("key-100")
+    println(m.size)
+    println(m["key-0"])
+    println(m["key-1"])
+    println(m["key-199"])
+    m["key-0"] = 999
+    println(m["key-0"])
+    // écrasement
+    m["key-5"] = -5
+    println(m["key-5"])
+    println(m.size)
+    // clés flottantes et entières
+    val f: Map<Float, String> = {1.5: "a", 2.5: "b"}
+    println(f[2.5])
+    val n2: Map<Int, Int> = {}
+    for (i in 0..100) { n2[i * 7] = i }
+    println(n2[693])
+    println(n2[694])
+}

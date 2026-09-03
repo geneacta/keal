@@ -116,6 +116,20 @@ A block's type is its last statement's; `return`/`throw`/`break`/
 as returning. `if` without `else` produces no value. `?` selects on
 `Bool` with two branches or `Comp` with three, joining the branches.
 
+## Finding an entry in a map
+
+A `Map<K, V>` finds an entry by hashing the key, on all three engines. The
+entries themselves are stored in the order they were first set — `keys()`
+promises that order, and a removal shifts the tail down rather than swapping
+the last entry into the hole — so the index says where to look and never
+what the map contains.
+
+The native backend walked the entries until this landed, while both
+interpreters had hashed all along: the three agreed on every answer and
+differed only in what it cost, which is the kind of difference no test in a
+corpus can see. Two hundred thousand lookups in a five-hundred-key map went
+from 0.21s to 0.015s.
+
 ## A map over a closed key
 
 A `Map<K, V>` whose key type has finitely many values — a `Bool`, a `Comp`,
