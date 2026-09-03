@@ -1304,6 +1304,19 @@ typedef struct KealMap {
     bool (*key_eq)(KealWord, KealWord);
     void (*release_key)(void*);
     void (*release_val)(void*);
+    /* A key type with finitely many values indexes this directly.
+     *
+     * `domain` is how many values the key type has — 2 for a Bool, 3 for a
+     * Comp, one per variant for an enum — and `slot[ordinal]` is where that
+     * key's entry sits in `data`, or -1. Lookup stops being a scan and
+     * becomes a read, without changing anything a program can observe:
+     * `data` still holds the entries in the order they were first set,
+     * which is what `keys()` promises.
+     *
+     * NULL for every other key type, and then nothing below behaves
+     * differently from how it did. */
+    int64_t* slot;
+    int64_t domain;
 } KealMap;
 
 KEAL_FN bool keal_key_eq_word(KealWord a, KealWord b) {
@@ -1324,6 +1337,31 @@ KEAL_FN KealMap* keal_map_new(bool (*key_eq)(KealWord, KealWord),
     m->key_eq = key_eq;
     m->release_key = release_key;
     m->release_val = release_val;
+    m->slot = NULL;
+    m->domain = 0;
+    return m;
+}
+
+/* The same map, with an ordinal index because the key type has finitely
+ * many values. `domain` is how many: 2 for a Bool, 3 for a Comp, one per
+ * variant for an enum. Nothing a program can observe differs — the entries
+ * still sit in the order they were first set — only the cost of finding
+ * one, which stops depending on how many there are. */
+KEAL_FN KealMap* keal_map_new_closed(bool (*key_eq)(KealWord, KealWord),
+                                     void (*release_key)(void*),
+                                     void (*release_val)(void*), int64_t domain) {
+    KealMap* m = keal_map_new(key_eq, release_key, release_val);
+    if (domain <= 0) {
+        /* Not a closed key after all — a plain map, so that a caller which
+         * passes another map's domain along does the right thing either
+         * way. */
+        return m;
+    }
+    m->domain = domain;
+    m->slot = (int64_t*)keal_alloc((size_t)domain * sizeof(int64_t));
+    for (int64_t i = 0; i < domain; i++) {
+        m->slot[i] = -1;
+    }
     return m;
 }
 
@@ -1350,17 +1388,38 @@ KEAL_FN void keal_map_release(KealMap* m) {
         }
     }
     free(m->data);
+    free(m->slot);
     free(m);
 }
 
 /* The entry's index, or -1. */
 KEAL_FN int64_t keal_map_find(KealMap* m, KealWord key) {
+    if (m->slot != NULL) {
+        if (key.i < 0 || key.i >= m->domain) {
+            return -1;
+        }
+        return m->slot[key.i];
+    }
     for (int64_t i = 0; i < m->len; i++) {
         if (m->key_eq(m->data[2 * i], key)) {
             return i;
         }
     }
     return -1;
+}
+
+/* Rebuilds the ordinal index after the entries move. Only a removal moves
+ * them, and only by shifting the tail down one. */
+KEAL_FN void keal_map_reindex(KealMap* m) {
+    if (m->slot == NULL) {
+        return;
+    }
+    for (int64_t i = 0; i < m->domain; i++) {
+        m->slot[i] = -1;
+    }
+    for (int64_t i = 0; i < m->len; i++) {
+        m->slot[m->data[2 * i].i] = i;
+    }
 }
 
 /* Takes ownership of both words; on a replaced entry the displaced key and
@@ -1387,6 +1446,9 @@ KEAL_FN void keal_map_set(KealMap* m, KealWord key, KealWord value) {
     }
     m->data[2 * m->len] = key;
     m->data[2 * m->len + 1] = value;
+    if (m->slot != NULL) {
+        m->slot[key.i] = m->len;
+    }
     m->len++;
 }
 
@@ -1407,6 +1469,7 @@ KEAL_FN void keal_map_remove(KealMap* m, KealWord key) {
     memmove(m->data + 2 * at, m->data + 2 * (at + 1),
             (size_t)(m->len - at - 1) * 2 * sizeof(KealWord));
     m->len--;
+    keal_map_reindex(m);
 }
 
 /* Structural map equality, as the interpreters compare maps: same size, and

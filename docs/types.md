@@ -115,3 +115,28 @@ A block's type is its last statement's; `return`/`throw`/`break`/
 `Never` — which is how `try { return a } catch (e) { return b }` counts
 as returning. `if` without `else` produces no value. `?` selects on
 `Bool` with two branches or `Comp` with three, joining the branches.
+
+## A map over a closed key
+
+A `Map<K, V>` whose key type has finitely many values — a `Bool`, a `Comp`,
+an enum — stores its entries the way every other map does and finds them
+differently. `Bool` has two values, `Comp` has three, an enum has one per
+variant, so the ordinal indexes an array of slots and a lookup is a read
+rather than a scan.
+
+Nothing a program can observe changes. The entries sit in the order they
+were first set, `keys()` promises that order, removal shifts the tail rather
+than swapping the last entry into the hole, and re-adding a removed key
+appends it at the end. The index follows the entries; the entries do not
+follow the index.
+
+**There is one mechanism here, not three container types.** `Map<Bool, V>`
+is the map optimised for `true` and `false`; `Map<Comp, V>` is the one
+optimised for less, equal and greater; `Map<Level, V>` is the one optimised
+for an enum. Naming three of them would ask a reader to choose, and the
+choice has one right answer that the compiler already knows.
+
+What it is worth, measured rather than claimed: on a sixteen-variant enum,
+four million lookups take a third of the time they did. On a `Bool` or a
+`Comp` the scan was already one or two comparisons and the difference is
+noise — there the value is the guarantee, not the speed.

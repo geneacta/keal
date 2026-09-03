@@ -1,0 +1,75 @@
+// A map whose key type has finitely many values indexes them instead of
+// scanning for them.
+//
+// Nothing a program can observe changes: the entries still sit in the order
+// they were first set, `keys()` still promises that order, and removal still
+// shifts rather than swapping. Only the cost of finding one changes, and it
+// stops depending on how many there are.
+//
+// The condition is the checker's `closedSet` asked for a count rather than
+// for names — 2 for a Bool, 3 for a Comp, one per variant for an enum — so
+// there is one mechanism here and not three container types. `Map<Bool, V>`
+// IS the BoolMap; `Map<Comp, V>` IS the CompMap.
+//
+// What this is worth is honest rather than flattering: on a sixteen-variant
+// enum it is three times faster to look one up, and on a Bool or a Comp the
+// scan was already one or two comparisons and the difference is noise. The
+// guarantee is the point at that size, not the speed.
+
+enum Level { Debug, Info, Warn, Error }
+
+val counts: Map<Level, Int> = {}
+counts[Level.Warn] = 3
+counts[Level.Debug] = 1
+counts[Level.Error] = 7
+println(counts[Level.Warn])
+println(counts[Level.Debug])
+println(counts[Level.Error])
+println(counts[Level.Info])
+println(counts.size)
+
+// Insertion order survives, which is the promise the index must not break.
+var order = ""
+for (k in counts.keys()) { order = order + "${k} " }
+println(order)
+
+// Overwriting keeps the entry where it was.
+counts[Level.Warn] = 30
+println(counts[Level.Warn])
+println(counts.size)
+var again = ""
+for (k in counts.keys()) { again = again + "${k} " }
+println(again)
+
+// Removing shifts the tail down, and the index has to follow it.
+counts.remove(Level.Debug)
+println(counts.size)
+println(counts[Level.Warn])
+println(counts[Level.Error])
+println(counts[Level.Debug])
+var after = ""
+for (k in counts.keys()) { after = after + "${k} " }
+println(after)
+
+// Re-adding a removed key appends it at the end, as any map does.
+counts[Level.Debug] = 100
+println(counts[Level.Debug])
+var last = ""
+for (k in counts.keys()) { last = last + "${k} " }
+println(last)
+
+// The other two closed keys, which need no container type of their own.
+val flags: Map<Bool, String> = {true: "yes", false: "no"}
+println(flags[true])
+println(flags[false])
+
+val tally: Map<Comp, Int> = {}
+for (i in 0..7) { val c = i <=> 3
+    tally[c] = (tally[c] ?: 0) + 1 }
+println(tally[less])
+println(tally[equal])
+println(tally[greater])
+
+// A key type that is not closed still scans, and still works.
+val names: Map<String, Int> = {"a": 1, "b": 2}
+println(names["b"])

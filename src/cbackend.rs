@@ -4663,6 +4663,38 @@ impl CBackend {
         }
     }
 
+    /// How many values a key type has, when it has finitely many: 2 for a
+    /// `Bool`, 3 for a `Comp`, one per variant for an enum. `None` for every
+    /// other key, which is most of them.
+    ///
+    /// This is the checker's `closed_set` asked for a count rather than for
+    /// names, and it is the whole condition for a map to index its keys
+    /// instead of scanning for them.
+    fn closed_domain(&self, ty: &Type) -> Option<i64> {
+        match ty {
+            Type::Bool => Some(2),
+            Type::Comp => Some(3),
+            Type::Enum(name) => self.enums.get(&**name).map(|vs| vs.len() as i64),
+            _ => None,
+        }
+    }
+
+    /// The constructor call for a map with these key and value kinds.
+    fn map_new_call(&mut self, kt: &Type, kk: &Elem, rel_k: &str, rel_v: &str) -> String {
+        match self.closed_domain(kt) {
+            Some(domain) => format!(
+                "keal_map_new_closed({}, {}, {}, INT64_C({}))",
+                Self::key_eq_fn(kk),
+                rel_k,
+                rel_v,
+                domain
+            ),
+            None => {
+                format!("keal_map_new({}, {}, {})", Self::key_eq_fn(kk), rel_k, rel_v)
+            }
+        }
+    }
+
     fn map_literal(&mut self, e: &Expr, entries: &[(Expr, Expr)]) -> String {
         let Some(Type::Map(kt, vt)) = self.ety(e) else { return "0".to_string() };
         let (kt, vt) = ((*kt).clone(), (*vt).clone());
@@ -4671,13 +4703,8 @@ impl CBackend {
         let rel_k = self.releaser_thunk(&kk);
         let rel_v = self.releaser_thunk(&vk);
         let t = self.temp();
-        self.line(format!(
-            "KealMap* {} = keal_map_new({}, {}, {});",
-            t,
-            Self::key_eq_fn(&kk),
-            rel_k,
-            rel_v
-        ));
+        let ctor = self.map_new_call(&kt, &kk, &rel_k, &rel_v);
+        self.line(format!("KealMap* {} = {};", t, ctor));
         self.own(&t, &Type::map(kt.clone(), vt.clone()));
         for (k, v) in entries {
             let kv = self.expr(k);
@@ -6443,7 +6470,7 @@ impl CBackend {
                 };
                 let _ = write!(
                     self.defs,
-                    "\nKealMap* {n}(KealMap* m, int64_t depth) {{\n    {cap}\n    KealMap* out = keal_map_new({eq}, {rk}, {rv});\n    for (int64_t i = 0; i < m->len; i++) {{\n        KealWord k = m->data[2 * i];\n        KealWord v = m->data[2 * i + 1];\n        keal_map_set(out, {kw}, {vw});\n{bail}    }}\n    return out;\n}}\n",
+                    "\nKealMap* {n}(KealMap* m, int64_t depth) {{\n    {cap}\n    KealMap* out = keal_map_new_closed({eq}, {rk}, {rv}, m->domain);\n    for (int64_t i = 0; i < m->len; i++) {{\n        KealWord k = m->data[2 * i];\n        KealWord v = m->data[2 * i + 1];\n        keal_map_set(out, {kw}, {vw});\n{bail}    }}\n    return out;\n}}\n",
                     n = name,
                     cap = cap,
                     eq = Self::key_eq_fn(&kk),

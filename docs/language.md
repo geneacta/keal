@@ -168,7 +168,7 @@ as a name would make a program ambiguous, and not before.
 | `String` | `"text"` | immutable, indexed by character |
 | `Unit` | — | what a `proc` produces: nothing. Never written by hand |
 | `List<T>` | `[1, 2, 3]` | mutable, ordered |
-| `Map<K, V>` | `{"a": 1}` | mutable, insertion-ordered |
+| `Map<K, V>` | `{"a": 1}` | mutable, insertion-ordered; a key type with finitely many values is indexed, not scanned |
 | `Range` | `0..10` | half-open: contains 0 through 9 |
 | `T?` | `null` or a `T` | see [null safety](#6-null-safety) |
 | `(A, B) -> C` | lambdas, functions | first-class function values |
