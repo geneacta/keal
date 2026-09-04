@@ -37,3 +37,6 @@ bench/ports/keal/fib
 bench/ports/keal/loops
 bench/ports/keal/objects
 bench/ports/keal/lists
+
+# the harness is importable, so python leaves bytecode beside it
+bench/ports/__pycache__/

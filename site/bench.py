@@ -160,6 +160,21 @@ MACHINES = [
                   'bare metal, 24 GB — the only machine here that is not a guest',
         'cpu_fr': 'Apple M4 10 cœurs (4 performance + 6 efficacité), arm64, '
                   'matériel nu, 24 Go — la seule machine ici qui ne soit pas un invité',
+        'note_en': "The JDK and the interpreter above were arranged for this run "
+                   "rather than taken from the machine. Both installs are keg-only: "
+                   "this Mac's default <code>java</code> is 23 and its default "
+                   "<code>python3</code> is Apple's 3.9.6. Reproducing with the "
+                   "machine's own defaults gives different numbers — CPython 3.9 alone "
+                   "runs <code>fib</code> 2.2× slower than 3.14 here, which is larger "
+                   "than any difference between the machines on that row.",
+        'note_fr': "Le JDK et l'interpréteur ci-dessus ont été mis en place pour cette "
+                   "mesure, ils ne sont pas ceux de la machine. Les deux installations "
+                   "sont keg-only : le <code>java</code> par défaut de ce Mac est en 23 "
+                   "et son <code>python3</code> par défaut est le 3.9.6 d'Apple. "
+                   "Reproduire avec les valeurs par défaut de la machine donne d'autres "
+                   "chiffres — à lui seul, CPython 3.9 exécute <code>fib</code> 2,2 fois "
+                   "plus lentement que 3.14 ici, soit davantage que tout écart entre les "
+                   "machines sur cette ligne.",
         'os': 'macOS 26.5.1, Darwin 25.5.0',
         'date': '2026-09-04',
         'keal': 'keal 1.2.0',
