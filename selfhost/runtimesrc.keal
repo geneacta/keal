@@ -289,6 +289,8 @@ KEAL_FN void keal_audit_died(const char* name) {
 
 /* The same words, in the same order, as the interpreters print. */
 KEAL_FN void keal_audit_report(void) {
+    /* After everything the program printed, for the reason in `keal_panic`. */
+    fflush(stdout);
     int order[256];
     int n = 0;
     int64_t total = 0;
@@ -389,6 +391,14 @@ KEAL_FN void keal_panic(const char* what, int64_t line) {
         }
         return;
     }
+    /* What the program already printed comes first, because it happened
+     * first. C leaves stdout fully buffered when it is not a terminal, so a
+     * program that prints and then fails hands a pipe the failure BEFORE the
+     * output, while the interpreters — whose writer flushes each line —
+     * hand over the two in the order they occurred. Same words, same exit
+     * status, different story. Comparing the streams separately cannot see
+     * it, which is why it survived: it is only wrong where they meet. */
+    fflush(stdout);
     fprintf(stderr, "runtime error: %s\n", what);
     if (line > 0) {
         fprintf(stderr, "  at line %" PRId64 "\n", line);
@@ -398,6 +408,7 @@ KEAL_FN void keal_panic(const char* what, int64_t line) {
 
 /* Failures no `catch` can make right end the process even under a `try`. */
 KEAL_FN void keal_fatal(const char* what) {
+    fflush(stdout);
     fprintf(stderr, "runtime error: %s\n", what);
     exit(1);
 }

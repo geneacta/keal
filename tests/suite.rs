@@ -1384,6 +1384,76 @@ fn layouts_match_snapshots() {
     }
 }
 
+/// A program that prints and then fails must tell the two things in the order
+/// it did them, on every engine.
+///
+/// This is only visible where the two streams MEET — a terminal, a log, a
+/// `2>&1` — and every other comparison in this file reads them apart. So the
+/// native backend disagreed here from the day it was written and nothing
+/// could see it: C leaves stdout fully buffered when it is not a terminal, so
+/// the failure reached a pipe ahead of the output that came before it, while
+/// the interpreters' writer flushes each line. Same words, same exit status,
+/// the story backwards.
+#[test]
+fn output_and_failure_arrive_in_the_order_they_happened() {
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let src = "tests/runtime/print_then_fail.keal";
+    let dir = std::env::temp_dir().join("keal-stream-order");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+    let exe = dir.join("print_then_fail");
+    let built = Command::new(BIN)
+        .args(["build", src])
+        .arg("-o")
+        .arg(&exe)
+        .current_dir(root())
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the fixture did not compile:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    // Both streams into ONE file, which is the only arrangement that records
+    // an order at all.
+    let merged = |mut cmd: Command, tag: &str| -> String {
+        let path = dir.join(tag);
+        let f = std::fs::File::create(&path).expect("cannot make a capture file");
+        let g = f.try_clone().expect("cannot share the capture file");
+        cmd.stdout(std::process::Stdio::from(f));
+        cmd.stderr(std::process::Stdio::from(g));
+        cmd.current_dir(root()).status().expect("cannot run the program");
+        std::fs::read_to_string(&path).expect("cannot read the capture")
+    };
+
+    let mut runs = vec![("native", merged(Command::new(&exe), "native"))];
+    for engine in ENGINES {
+        let mut cmd = Command::new(BIN);
+        cmd.args([engine, src]);
+        runs.push((engine, merged(cmd, engine.trim_start_matches('-'))));
+    }
+
+    for (name, text) in &runs {
+        let printed = text
+            .find("before the failure")
+            .unwrap_or_else(|| panic!("{}: the program's own output is missing:\n{}", name, text));
+        let failed = text
+            .find("runtime error")
+            .unwrap_or_else(|| panic!("{}: the failure is missing:\n{}", name, text));
+        assert!(
+            printed < failed,
+            "{} tells the failure before the output that preceded it:\n{}",
+            name,
+            text
+        );
+    }
+}
+
 /// The native backend must agree with the interpreters, not merely compile.
 ///
 /// This emits C, hands it to a real C compiler, runs the binary, and compares
