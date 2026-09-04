@@ -87,9 +87,34 @@ project that had it:
    the day one of those three stops being true, and because a ladder with a
    rung missing from it reads as a ladder that ends.
 
+6. Something attests correctly, says what it attests, and is pointed at the
+   right subject — and the guard that lets it run everywhere is what removes
+   the behaviour. Every `runCommand` in this corpus passed an ABSOLUTE PATH,
+   guarded by `isFile`: ask whether the file is there, then run the path you
+   just asked about. That is the natural way to write a portable process
+   test, and it is exactly the shape that never resolves a name. The
+   native Windows backend could not search the `PATH` at all — every tool
+   called as `git` or `gcc` answered `null`, which is this language's word
+   for "no such command", so an installed tool and a missing one looked
+   alike — and forty-six passing tests said nothing about it, correctly,
+   because not one of them had ever asked. **A guard written to survive
+   three platforms can quietly substitute a code path no user takes.** The
+   rung is not that the test was wrong; it is that the device making it
+   portable was invisible as a choice of subject.
+
+   The repair had to be calibrated twice over, and the two calibrations are
+   not equivalent. Here, the new case only bites under `env PATH=`, which is
+   an artificial failure standing in for the real one. On Windows it bites
+   by itself, before the fix, with the same message. **A test that fails for
+   the true reason on the platform that has the defect is worth more than
+   the same test failed by hand elsewhere** — and it took the third machine
+   to say so, because the two that resolve names through `execvp` agreed
+   with each other and with themselves.
+
 Rungs 1 and 4 are the kealeb session's, rungs 2 and 3 were found here from
-reading its files, and rung 5 has not happened here yet. Three of the four were found by someone other than the
-author of the test — and the fourth is the exception that makes the rule
+reading its files, rung 6 came from a third machine, and rung 5 has not
+happened here yet. Four of the five were found by someone other than the
+author of the test — and rung 4 is the exception that makes the rule
 worth stating rather than weaker: it was caught by measuring the failure
 instead of trusting that a failing test explains itself. A rule about tests
 verifies better in pairs, not because two sessions are cleverer, but because
