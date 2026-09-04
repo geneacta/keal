@@ -158,6 +158,17 @@ same as for controls: make the effect exceed the instrument rather than
 averaging and rounding. Both retractions came from a second measurement or
 another bench, never from rereading.
 
+That parade has a failure mode, learned by applying it wrongly the next day.
+**Ask whether the quantity to be enlarged is an amplitude or a frequency.**
+A measurement lost in noise is an amplitude: ten times the effect lifts it
+clear of the instrument, which is what fixed the file-open figure. A race is
+a frequency: it has no noise to exceed, only a probability, and a probability
+is not amplified but repeated. Making the lines in the tearing test longer —
+enlarging each occurrence — took detection from every run to one in ten,
+because a hundred long prints open the window a hundred times where eight
+thousand short ones open it eight thousand. The same word "enlarge" names two
+opposite operations, and picking the wrong one looks like following the rule.
+
 And the residual they were chasing has a compiler ruled out: GCC 15.2 and a
 16.0.1 trunk snapshot on the same aarch64 machine differ by at most 12.5%,
 on the shortest and noisiest row — with both built `--enable-checking=release`,

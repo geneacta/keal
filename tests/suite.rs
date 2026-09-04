@@ -1468,9 +1468,11 @@ fn output_and_failure_arrive_in_the_order_they_happened() {
 /// on every run of one machine and 9% of runs on another — a green that means
 /// nothing and a red that gets called flaky. Eight actors and 8,000 lines tear
 /// about 250 of them per run here, 20 runs out of 20, which leaves room for a
-/// scheduler an order of magnitude less obliging. Longer lines were tried
-/// first and made it WORSE: what matters is how many times the window opens,
-/// not how wide it is.
+/// scheduler an order of magnitude less obliging — measured at four runs in
+/// five there, against every run here on the same fixture, which is how much
+/// this quantity varies between machines. Longer lines were tried first and
+/// made it WORSE: what matters is how many times the window opens, not how
+/// wide it is.
 ///
 /// The fixture is built here rather than kept in `tests/`, because its output
 /// is 8,000 lines in an order that is nobody's business and every directory
@@ -1520,8 +1522,14 @@ fn concurrent_actors_do_not_tear_a_line() {
     );
 
     let expected = ACTORS.len() * EACH;
-    // Tearing is a race, so one run proves nothing either way.
-    for attempt in 1..=3 {
+    // Tearing is a race, so one run proves nothing either way — and the odds
+    // are the machine's, not the test's: the defect shows in every run here
+    // and four runs in five on Linux aarch64. Five attempts take that second
+    // figure to 99.97%, or one missed reintroduction in three thousand. The
+    // lever for a frequency is the number of draws; three attempts left one
+    // in 125, which is a test that looks flaky on some Tuesday rather than a
+    // test that failed.
+    for attempt in 1..=5 {
         let out = Command::new(&exe).output().expect("cannot run the fixture");
         let text = String::from_utf8_lossy(&out.stdout);
         let lines: Vec<&str> = text.lines().collect();
