@@ -472,10 +472,15 @@ LIMITS = [
      "instructions in the function body against 30 with inlining turned off — "
      "and the same source, same compiler and same flag then runs in 11.8 ms "
      "against 20.3 ms. That 1.7× swing is about the size of the gap between the "
-     "machines' own C baselines on that program. So <code>fib</code> ratios "
-     "compare within a machine and not across C compilers, and a row that moves "
-     "between machines has to be read against the denominator before it is read "
-     "as a fact about the language.",
+     "machines' own C baselines on that program. <code>objects</code> is the "
+     "second such column and it points the other way: against the clang "
+     "machine, six of seven rows move together by about 1.6× because that C "
+     "baseline is the fast one there. Between the two gcc machines the same "
+     "column stays inside the pack, which is what says the effect belongs to "
+     "the compiler rather than to the hardware. So those two ratios compare "
+     "within a machine and not across C compilers, and any row that moves "
+     "between machines has to be read against its denominator before it is "
+     "read as a fact about the language.",
      "Un rapport divise par ce qu'a produit le compilateur C local : il absorbe "
      "la vitesse du matériel, pas les décisions d'optimisation de la référence "
      "elle-même. <code>fib</code> est l'endroit où cela se voit. Sur la machine "
@@ -483,11 +488,36 @@ LIMITS = [
      "— 244 instructions dans le corps de la fonction contre 30 sans inlining — "
      "et la même source, le même compilateur et le même drapeau s'exécutent "
      "alors en 11,8 ms contre 20,3 ms. Ce facteur 1,7 est de l'ordre de l'écart "
-     "entre les références C des machines sur ce programme. Les rapports de "
-     "<code>fib</code> se comparent donc à l'intérieur d'une machine et non "
-     "d'un compilateur C à l'autre, et une ligne qui bouge d'une machine à "
-     "l'autre doit être lue contre son dénominateur avant d'être lue comme un "
-     "fait sur le langage."),
+     "entre les références C des machines sur ce programme. <code>objects</code> "
+     "est la seconde colonne dans ce cas, et elle pointe en sens inverse : face "
+     "à la machine sous clang, six lignes sur sept montent ensemble d'environ "
+     "1,6× parce que c'est là que la référence C est la rapide. Entre les deux "
+     "machines sous gcc, cette même colonne reste dans le peloton — c'est ce "
+     "qui dit que l'effet appartient au compilateur et non au matériel. Ces "
+     "deux rapports se comparent donc à l'intérieur d'une machine et non d'un "
+     "compilateur C à l'autre, et toute ligne qui bouge d'une machine à l'autre "
+     "doit être lue contre son dénominateur avant d'être lue comme un fait sur "
+     "le langage."),
+
+    ("Subtracting startup weighs most on the rows that have the most of it.",
+     "La soustraction du démarrage pèse le plus là où il y en a le plus.",
+     "Each figure has its own machine's hello-world time taken off it, which is "
+     "what keeps a JVM's boot out of its arithmetic. But a JVM's boot is tens "
+     "of milliseconds where a native binary's is under two, so the JVM rows "
+     "carry by far the largest correction — and it moves: on the macOS machine, "
+     "aligning the JDK changed Java's startup by 8 ms, which is 8 ms on all "
+     "four of its figures and a tenth of its <code>lists</code>. Comparing a "
+     "JVM row across machines compares two startup corrections as well as two "
+     "runtimes.",
+     "Chaque chiffre est diminué du temps de hello-world de sa propre machine, "
+     "ce qui garde l'amorçage d'une JVM hors de son arithmétique. Mais cet "
+     "amorçage se compte en dizaines de millisecondes là où celui d'un binaire "
+     "natif tient sous deux : les lignes JVM portent donc de loin la plus "
+     "grosse correction — et elle bouge. Sur la machine macOS, aligner le JDK a "
+     "déplacé le démarrage de Java de 8 ms, soit 8 ms sur ses quatre chiffres "
+     "et un dixième de son <code>lists</code>. Comparer une ligne JVM d'une "
+     "machine à l'autre, c'est comparer deux corrections de démarrage autant "
+     "que deux runtimes."),
 
     ("The machines do not share a toolchain.",
      "Les machines ne partagent pas leur chaîne d'outils.",

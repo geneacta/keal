@@ -566,6 +566,14 @@ def benchmark(lang):
         out.append('<div class="chips"><span>%s</span><span>%s</span><span>%s</span>'
                    '<span>%d runs</span></div>'
                    % (E(M["os"]), E(M["date"]), E(M["keal"]), M["runs"]))
+        # A machine may need to say something about its own run that the
+        # toolchain table cannot carry — most usefully, that a version it
+        # reports was arranged for the measurement and is not what the box
+        # would give someone reproducing it with its own defaults.
+        note = M.get("note_en" if lang == "en" else "note_fr")
+        if note:
+            out.append('<div class="callout"><span class="st">&#9670;</span><p>%s</p></div>'
+                       % note)
 
         out.append("<h3>%s</h3><p>%s</p>" % (E(T["results_h"]), T["results_p"]))
         th = "".join("<th>%s</th>" % E(prog["name"]) for prog in B.PROGRAMS)

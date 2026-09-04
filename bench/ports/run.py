@@ -408,6 +408,13 @@ def main():
     print("\nFill in every CHANGE-ME, and describe the machine the way a reader")
     print("who has never seen it would need: cores, architecture, and whether")
     print("it is bare metal or a guest.")
+    print("\nIf any version above was arranged for this run rather than being what")
+    print("the machine gives by default — a JDK picked with JAVA_HOME, an")
+    print("interpreter chosen to launch this file — add a `note_en` and `note_fr`")
+    print("saying so. Someone reproducing it with the machine's own defaults would")
+    print("otherwise get different numbers and no way to know why.")
+    print("\nAnd note that pulling a newer run.py while this one is running changes")
+    print("nothing about what it prints: Python has already read the file.")
 
 
 if __name__ == "__main__":
