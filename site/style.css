@@ -79,6 +79,19 @@ a { text-decoration: none; color: inherit; }
 
 /* ---- feature cards ---- */
 .cards4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; padding: 0 40px 64px; }
+/* `.cards` had no rule at all, so the three pages that use it — the landing
+   page, the documentation index and "coming from" — laid their cards out as
+   plain blocks, one full-width panel per row. `auto-fit` rather than a fixed
+   count because those three hold five, ten and ten cards. */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+         gap: 18px; padding: 0 40px 64px; }
+/* Inside the documentation column there is 616px to work with, not the full
+   band: three fixed columns leave 145px of text per card. */
+.dmain .cards3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+/* A caption under a figure, not another paragraph of body text. `.cap` is
+   used on the landing page too, so this stays scoped to the doc column. */
+.dmain .cap { margin: 26px 0 4px; font: 500 12.5px 'JetBrains Mono', monospace;
+              color: var(--dim); }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 24px; }
 .eyebrow { font: 600 12px 'JetBrains Mono', monospace; color: var(--accent);
            letter-spacing: .08em; margin-bottom: 12px; text-transform: uppercase; }
