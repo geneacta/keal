@@ -466,11 +466,13 @@ programs put `keal build` within **1.0× of C** on tight loops and on
 allocation, **2.2×** on deep recursion and **3.4×** on collections — next to
 C++, Rust, Go, Java, Kotlin and Python on one machine, each written once and
 held to the same output byte for byte:
-[**Keal Benchmark**](https://claude.ai/code/artifact/351a9248-407d-442b-86e0-757c60421eb5).
+[**the benchmark page**](https://geneacta.github.io/keal/benchmark.html).
 The page carries its controls with it, which is the part worth reading: the
 run-order check, the scaling test that rules out a compiler having computed
-the answer at build time, and the two configurations whose spread is too wide
-to rank.
+the answer at build time, and each configuration's spread, so a figure too
+unstable to rank says so. The programs are in `bench/ports/` and
+`bench/ports/run.py` times them and prints an entry for a second machine —
+absolute times belong to one box, ratios are what travel.
 
 **Calling C and C++ from Keal** is part of the language, not an FFI bolted
 on. A `native` block passes text into the generated C verbatim — a header, or

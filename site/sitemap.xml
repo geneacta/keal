@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
+    <loc>https://geneacta.github.io/keal/benchmark.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/benchmark.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/benchmark.html"/>
+  </url>
+  <url>
     <loc>https://geneacta.github.io/keal/coming-from.html</loc>
     <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/coming-from.html"/>
     <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/coming-from.html"/>
@@ -109,6 +114,11 @@
     <loc>https://geneacta.github.io/keal/types.html</loc>
     <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/types.html"/>
     <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/types.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/benchmark.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/benchmark.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/benchmark.html"/>
   </url>
   <url>
     <loc>https://geneacta.github.io/keal/fr/coming-from.html</loc>

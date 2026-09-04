@@ -29,3 +29,11 @@ editors/vscode/node_modules/
 # the generator, the tour check, the drift check. Untracked noise is where
 # a real change hides, so it is named rather than swept up by hand.
 site/__pycache__/
+
+# the cross-language benchmark builds its binaries here
+bench/ports/_build/
+bench/ports/go/go.mod
+bench/ports/keal/fib
+bench/ports/keal/loops
+bench/ports/keal/objects
+bench/ports/keal/lists

@@ -1,0 +1,6 @@
+// Collections and closures.
+val xs: List<Int> = []
+for (i in 0..1000000) { xs.add(i % 1000) }
+val doubled = xs.map({ it * 2 })
+val big = doubled.filter({ it > 1000 })
+println(big.fold(0, { acc, n -> acc + n }))

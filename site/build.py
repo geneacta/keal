@@ -335,6 +335,7 @@ def write(lang, filename, text):
 
 import content as C  # noqa: E402
 import coming as CM  # noqa: E402
+import bench as B  # noqa: E402
 
 
 def code_window(title, code, output=None, run_label="Run"):
@@ -534,6 +535,148 @@ def coming_page(lang, L):
                 active="coming-from.html")
 
 
+def benchmark(lang):
+    """Four programs across eight languages, one section per machine.
+
+    Absolute milliseconds belong to the machine that produced them, so the
+    per-machine tables are never put side by side. The ratio to C is what
+    travels, and it is the only thing a second machine is compared on — see
+    the module docstring in `bench.py`.
+    """
+    T = B.TEXT[lang]
+    E = html.escape
+    L = lambda d, k: d[k + ("_en" if lang == "en" else "_fr")]
+    out = []
+
+    out.append('<h1>%s</h1><p class="lede">%s</p>' % (E(T["title"]), T["lede"]))
+
+    rows = "".join(
+        "<tr><td><code>%s</code></td><td>%s</td><td>%s</td></tr>"
+        % (E(p["name"]), E(L(p, "size")), L(p, "what"))
+        for p in B.PROGRAMS)
+    out.append('<h2 id="programs">%s</h2><p>%s</p>'
+               '<div class="tablewrap"><table><thead><tr><th>%s</th><th>%s</th><th>%s</th>'
+               '</tr></thead><tbody>%s</tbody></table></div>'
+               % (E(T["programs_h"]), T["programs_p"],
+                  E(T["th_program"]), E(T["th_size"]), E(T["th_stresses"]), rows))
+
+    for M in B.MACHINES:
+        live = [n for n in B.LANGS if n in M["ms"]]
+        out.append('<h2 id="m-%s">%s</h2>' % (M["key"], E("%s — %s" % (L(M, "name"), L(M, "cpu")))))
+        out.append('<div class="chips"><span>%s</span><span>%s</span><span>%s</span>'
+                   '<span>%d runs</span></div>'
+                   % (E(M["os"]), E(M["date"]), E(M["keal"]), M["runs"]))
+
+        out.append("<h3>%s</h3><p>%s</p>" % (E(T["results_h"]), T["results_p"]))
+        th = "".join("<th>%s</th>" % E(prog["name"]) for prog in B.PROGRAMS)
+        body = []
+        for n in live:
+            cells = "".join("<td><code>%s</code></td>" % fmt_ms(v) for v in M["ms"][n])
+            body.append("<tr><td>%s</td>%s<td><code>%s</code></td></tr>"
+                        % (E(n), cells, fmt_ms(M["startup"].get(n, 0.0))))
+        out.append('<div class="tablewrap"><table><thead><tr><th>%s</th>%s<th>%s</th></tr>'
+                   '</thead><tbody>%s</tbody></table></div>'
+                   % (E(T["th_lang"]), th, E(T["th_startup"]), "".join(body)))
+
+        # A bar per language per program. The width is speed relative to the
+        # fastest on that program, so the longest bar wins; the value beside it
+        # is the ratio to C, which is what a second machine is compared on.
+        for i, prog in enumerate(B.PROGRAMS):
+            best = min(M["ms"][n][i] for n in live)
+            base = M["ms"]["C"][i]
+            bars = []
+            for n in live:
+                v = M["ms"][n][i]
+                bars.append('<div class="barrow"><span class="bl">%s</span>'
+                            '<span class="bar%s"><div data-w="%.1f%%"></div></span>'
+                            '<span class="bv">%s</span></div>'
+                            % (E(n), " hot" if n == B.SUBJECT else "",
+                               max(best / v * 100.0, 0.6), fmt_ratio(v / base)))
+            out.append('<p class="cap"><code>%s</code> — %s</p><div class="bars">%s</div>'
+                       % (E(prog["name"]), E(L(prog, "size")), "".join(bars)))
+
+        out.append("<h3>%s</h3><p>%s</p>" % (E(T["spread_h"]), T["spread_p"]))
+        body = "".join("<tr><td>%s</td>%s</tr>"
+                       % (E(n), "".join("<td><code>%d%%</code></td>" % v for v in M["spread"][n]))
+                       for n in live)
+        out.append('<div class="tablewrap"><table><thead><tr><th>%s</th>%s</tr></thead>'
+                   '<tbody>%s</tbody></table></div>' % (E(T["th_lang"]), th, body))
+
+        rows = "".join("<tr><td>%s</td><td>%s</td><td><code>%s</code></td></tr>"
+                       % (E(n), E(v), E(f)) for n, v, f in M["toolchains"])
+        out.append('<h3>%s</h3><div class="tablewrap"><table><thead><tr><th>%s</th>'
+                   '<th>%s</th><th>%s</th></tr></thead><tbody>%s</tbody></table></div>'
+                   % (E(T["toolchain_h"]), E(T["th_lang"]), E(T["th_version"]),
+                      E(T["th_flags"]), rows))
+
+    out.append('<h2 id="across">%s</h2>' % E(T["cross_h"]))
+    if len(B.MACHINES) < 2:
+        out.append("<p>%s</p>" % T["alone"])
+    else:
+        out.append("<p>%s</p>" % T["cross_p"])
+        for i, prog in enumerate(B.PROGRAMS):
+            th = "".join("<th>%s</th>" % E(L(M, "name")) for M in B.MACHINES)
+            body = []
+            for n in B.LANGS:
+                if not any(n in M["ms"] for M in B.MACHINES):
+                    continue
+                cells = "".join(
+                    ("<td><code>%s</code></td>" % fmt_ratio(M["ms"][n][i] / M["ms"]["C"][i]))
+                    if n in M["ms"] else "<td>—</td>"
+                    for M in B.MACHINES)
+                body.append("<tr><td>%s</td>%s</tr>" % (E(n), cells))
+            out.append('<p class="cap"><code>%s</code></p><div class="tablewrap"><table>'
+                       '<thead><tr><th>%s</th>%s</tr></thead><tbody>%s</tbody></table></div>'
+                       % (E(prog["name"]), E(T["th_lang"]), th, "".join(body)))
+
+    # How many configurations crossed the order threshold, in the words the
+    # sentence in `bench.py` leaves a hole for. Computed here so the claim and
+    # the data cannot drift apart the way a hand-written one does.
+    flagged = sum(M.get("order_effects", 0) for M in B.MACHINES)
+    total = len(B.MACHINES) * len(B.LANGS) * len(B.PROGRAMS)
+    n_en = ("Not one of %d crossed it" % total) if not flagged else ("%d of %d crossed it" % (flagged, total))
+    n_fr = ("Pas un seul sur %d ne l'a franchi" % total) if not flagged else ("%d sur %d l'ont franchi" % (flagged, total))
+
+    out.append('<h2 id="controls">%s</h2><p>%s</p>' % (E(T["controls_h"]), T["controls_p"]))
+    cards = []
+    for v_en, v_fr, t_en, t_fr, b_en, b_fr in B.CONTROLS:
+        body = (b_en if lang == "en" else b_fr).replace("{n}", n_en if lang == "en" else n_fr)
+        cards.append('<div class="card"><div class="eyebrow">%s</div><h3>%s</h3><p>%s</p></div>'
+                     % (E(v_en if lang == "en" else v_fr),
+                        E(t_en if lang == "en" else t_fr), body))
+    out.append('<div class="cards3">%s</div>' % "".join(cards))
+
+    out.append('<h2 id="limits">%s</h2>' % E(T["limits_h"]))
+    for t_en, t_fr, b_en, b_fr in B.LIMITS:
+        out.append("<p><strong>%s</strong> %s</p>"
+                   % (t_en if lang == "en" else t_fr, b_en if lang == "en" else b_fr))
+
+    out.append('<h2 id="method">%s</h2><p>%s</p>' % (E(T["method_h"]), T["method_p"]))
+
+    toc = [("programs", T["programs_h"])]
+    toc += [("m-" + M["key"], L(M, "name")) for M in B.MACHINES]
+    toc += [("across", T["cross_h"]), ("controls", T["controls_h"]),
+            ("limits", T["limits_h"]), ("method", T["method_h"])]
+    head = "ON THIS PAGE" if lang == "en" else "SUR CETTE PAGE"
+    entries = "".join('<a href="#%s">%s</a>' % (a, html.escape(t)) for a, t in toc)
+    tocbox = ('<div class="dtoc"><div class="h">%s</div><div class="dtoc-items">%s</div></div>'
+              % (head, entries))
+    layout = '<div class="dgrid">%s<div class="dmain prose">%s</div>%s</div>' % (
+        sidebar_html(lang, "benchmark.html"), "".join(out), tocbox)
+    return page(lang, "benchmark.html", "Keal \u2014 " + T["title"], T["lede"][:150], layout,
+                active="docs.html")
+
+
+def fmt_ms(v):
+    """Milliseconds, with a thin space once they stop being small."""
+    return format(v, ",.0f").replace(",", "\u202f") if v >= 1000 else "%.1f" % v
+
+
+def fmt_ratio(r):
+    """A ratio to C. One decimal below ten, none above."""
+    return ("%.0f\u00d7" % r) if r >= 10 else ("%.1f\u00d7" % r)
+
+
 def stdlib(lang):
     """`keal doc`'s own output, re-dressed in the site's theme."""
     # `text=True` alone decodes the child in the machine's locale encoding,
@@ -570,6 +713,7 @@ def main():
         for source, filename, t_en, t_fr, group in C.DOC_PAGES:
             written.append(write(lang, filename, doc_page(lang, source, filename,
                                                           t_en if lang == "en" else t_fr)))
+        written.append(write(lang, "benchmark.html", benchmark(lang)))
         try:
             written.append(write(lang, "stdlib.html", stdlib(lang)))
         except Exception as e:  # a missing binary should not stop the rest
