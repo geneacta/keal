@@ -62,3 +62,16 @@ if (isFile("/bin/sh")) {
     val viaDir = runCommand(["/bin/../bin/sh", "-c", "exit 5"]) ?: []
     assert(viaDir.size == 3 and viaDir[0] == "5", "a path with a directory is used as one")
 }
+
+// That control is an ABSOLUTE path; the assertion it controls is a RELATIVE
+// one. On Unix any slash short-circuits the search and the two are the same
+// case — but that is a platform's rule, not this language's, and the three
+// places the engines have disagreed this week were all about the FORM of a
+// name. So the relative form gets its own control, and it is not conditional:
+// the one executable at a known relative path on every machine that runs this
+// file is the compiler the suite just built. Like `filesystem.keal`, this file
+// runs from the repository root.
+val built = isFile("target/release/keal.exe") ? "./target/release/keal.exe" : "./target/release/keal"
+val own = runCommand([built, "version"]) ?: []
+assert(own.size == 3 and own[0] == "0",
+    "a relative path with directories runs, or you are not at the repository root: ${built}")
