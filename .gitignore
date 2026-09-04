@@ -38,5 +38,14 @@ bench/ports/keal/loops
 bench/ports/keal/objects
 bench/ports/keal/lists
 
+# The four above are what `keal build` writes on Unix. On Windows it writes
+# the same names with `.exe`, because it takes the source's stem and adds the
+# extension the platform will run (src/nativebuild.rs). The first Windows run
+# of the harness left four untracked binaries here for exactly this reason.
+bench/ports/keal/fib.exe
+bench/ports/keal/loops.exe
+bench/ports/keal/objects.exe
+bench/ports/keal/lists.exe
+
 # the harness is importable, so python leaves bytecode beside it
 bench/ports/__pycache__/

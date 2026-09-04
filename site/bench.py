@@ -254,6 +254,103 @@ MACHINES = [
             'Python': [8, 8, 11, 21],
         },
     },
+    {
+        'key': 'windows-x86_64',
+        'name_en': 'Windows · x86_64',
+        'name_fr': 'Windows · x86_64',
+        'cpu_en': '4-core / 8-thread AMD EPYC 9354 guest on a Shadow cloud PC, 16 GB; '
+                  'a slice of a 32-core part, and the neighbours are outside our control',
+        'cpu_fr': 'invité AMD EPYC 9354 4 cœurs / 8 threads sur cloud PC Shadow, 16 Go ; '
+                  'une tranche d\'un processeur 32 cœurs, dont le voisinage nous échappe',
+        'note_en': "Every toolchain above was installed for this run: the machine had "
+                   "none of them, not even a working Python. Rust is on the GNU ABI "
+                   "rather than MSVC, which is recorded in its flags — C here is MinGW, "
+                   "and an MSVC Rust would have put a second C runtime inside the same "
+                   "column of ratios. <code>keal build</code> takes that same gcc.",
+        'note_fr': "Toutes les chaînes d'outils ci-dessus ont été installées pour cette "
+                   "mesure : la machine n'en avait aucune, pas même un Python "
+                   "fonctionnel. Rust est sur l'ABI GNU et non MSVC, ce que ses options "
+                   "indiquent — le C est ici MinGW, et un Rust MSVC aurait introduit un "
+                   "second runtime C dans la même colonne de rapports. "
+                   "<code>keal build</code> emprunte ce même gcc.",
+        'os': 'Windows 11, build 22621',
+        'date': '2026-09-04',
+        'keal': 'keal 1.2.0',
+        'runs': 18,
+        'order_effects': 0,
+        'toolchains': [
+            [
+                'C',
+                'gcc.EXE (MinGW-W64 x86_64-ucrt-posix-seh, built by Brecht Sanders, r1) 16.2.0',
+                '-O2 -std=c11',
+            ],
+            [
+                'C++',
+                'g++.EXE (MinGW-W64 x86_64-ucrt-posix-seh, built by Brecht Sanders, r1) 16.2.0',
+                '-O2 -std=c++17',
+            ],
+            [
+                'Rust',
+                'rustc 1.98.1 (48a229cea 2026-09-01)',
+                '-C opt-level=2, x86_64-pc-windows-gnu',
+            ],
+            [
+                'Keal',
+                'keal 1.2.0',
+                'keal build (gcc, MinGW-w64 UCRT)',
+            ],
+            [
+                'Go',
+                'go version go1.27.1 windows/amd64',
+                'go build',
+            ],
+            [
+                'Java',
+                'openjdk version "25.0.4.1" 2026-08-18 LTS',
+                'javac, default JVM',
+            ],
+            [
+                'Kotlin',
+                'kotlinc-jvm 2.4.10 (JRE 25.0.4.1+1-LTS)',
+                '-include-runtime, default JVM',
+            ],
+            [
+                'Python',
+                'CPython 3.12.10',
+                'stock build',
+            ],
+        ],
+        'startup': {
+            'C': 4.9,
+            'C++': 5.0,
+            'Rust': 5.9,
+            'Keal': 6.2,
+            'Go': 6.9,
+            'Java': 46.9,
+            'Kotlin': 63.4,
+            'Python': 21.4,
+        },
+        'ms': {
+            'C': [11.1, 92.0, 19.3, 7.7],
+            'C++': [11.4, 91.7, 19.6, 10.8],
+            'Rust': [21.6, 66.7, 20.3, 6.6],
+            'Keal': [45.3, 108.2, 18.4, 17.6],
+            'Go': [41.4, 83.5, 19.6, 23.6],
+            'Java': [26.5, 108.8, 32.4, 101.7],
+            'Kotlin': [24.7, 108.0, 33.1, 85.6],
+            'Python': [1129.5, 9278.2, 2896.4, 235.4],
+        },
+        'spread': {
+            'C': [6, 1, 3, 9],
+            'C++': [5, 1, 4, 5],
+            'Rust': [1, 2, 4, 7],
+            'Keal': [1, 1, 3, 4],
+            'Go': [2, 2, 4, 19],
+            'Java': [5, 3, 4, 5],
+            'Kotlin': [5, 1, 2, 3],
+            'Python': [1, 3, 4, 2],
+        },
+    },
 ]
 
 
