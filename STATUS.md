@@ -120,6 +120,19 @@ instead of trusting that a failing test explains itself. A rule about tests
 verifies better in pairs, not because two sessions are cleverer, but because
 nobody rereads their own test with the eyes they bring to someone else's.
 
+**What the ladder does not say, and 1.2.0 spent two days learning: ask the
+same question in every FORM it has.** The four engine disagreements found
+that week were all one shape — `nan` against `NaN`, `1e+15` against a
+million billion written out, `C:/…/cmd.exe` against `C:\…\cmd.exe`, a name
+against a path — and none was about whether a case worked. Each was a case
+the corpus already covered, asked in one form only. It follows that a
+control has to share the form of what it controls: `/bin/../bin/sh` proves
+that an ABSOLUTE path with directories is used as a location, and proves
+nothing about the RELATIVE assertion it was written to control. On Unix the
+two are the same case, so the substitution is invisible from here — which is
+what makes it a rule and not a reminder. **A control that does not share the
+form of what it controls is a control for a different question.**
+
 **The lesson to carry:** a refusal is a claim about the language, and a
 backend that refuses in the words of its own internals is making a claim it
 has not checked. Two of the three defects were invisible to the whole suite
