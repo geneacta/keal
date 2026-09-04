@@ -44,8 +44,25 @@ package func runtimeSource(): String {
 
 /* What the file-system primitives need, on both sides of the platform line.
  * Unconditional: a program reads a directory whether or not it has actors,
- * and `windows.h` guards itself against the copy the actor block includes. */
+ * and `windows.h` guards itself against the copy the actor block includes.
+ *
+ * `WIN32_LEAN_AND_MEAN` leaves out the sockets, OLE, RPC, shell and
+ * cryptography headers that `windows.h` otherwise drags in. Nothing here
+ * touches any of them: the whole Windows surface this runtime uses is
+ * `CreateThread`, `WaitForSingleObject`, `CloseHandle`, `GetSystemInfo`,
+ * the `FindFirstFileW` family, `CreateFileW`, `CreateProcessW`, the
+ * attribute and directory calls, and the two character conversions — all
+ * of it kernel32, none of it excluded.
+ *
+ * Measured on Windows 10 with MinGW-W64 UCRT GCC 16.1: 505 headers and
+ * 115,160 preprocessed lines become 278 and 79,865, and a translation unit
+ * that costs 1,842 ms costs 1,408 — 23.6% off every file the backend emits.
+ * An empty `main` cost more there than an 8,639-line program, because the
+ * program is not what is being read. */
 #ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #else
 #include <dirent.h>
