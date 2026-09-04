@@ -47,3 +47,10 @@ if (isFile("/bin/sh") or isFile("C:/Windows/System32/cmd.exe")) {
     assert(named.size == 3, "`${shell}` is on this machine, but not reachable by name")
     assert(named[0] == "7", "the named program ran: ${named[0]}")
 }
+
+// The other half of the same rule, and this half holds on every platform: a
+// first argument containing a directory is a LOCATION, not a name. Nothing
+// lives at this one, and the search path does not rescue it — otherwise a
+// mistyped path would silently run whatever shares its last component.
+assert(runCommand(["./nowhere-at-all/" + shell, flag, "exit 3"]) == null,
+    "a path with a directory in it is not looked up on the search path")
