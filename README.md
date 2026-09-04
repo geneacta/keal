@@ -461,6 +461,17 @@ That is 84× the VM and 205× the evaluator. The generated code carries the same
 guarantees: integer overflow is checked rather than wrapped, so a program
 fails where it would have failed on either interpreter.
 
+Measured against other languages rather than against itself, the same four
+programs put `keal build` within **1.0× of C** on tight loops and on
+allocation, **2.2×** on deep recursion and **3.4×** on collections — next to
+C++, Rust, Go, Java, Kotlin and Python on one machine, each written once and
+held to the same output byte for byte:
+[**Keal Benchmark**](https://claude.ai/code/artifact/351a9248-407d-442b-86e0-757c60421eb5).
+The page carries its controls with it, which is the part worth reading: the
+run-order check, the scaling test that rules out a compiler having computed
+the answer at build time, and the two configurations whose spread is too wide
+to rank.
+
 **Calling C and C++ from Keal** is part of the language, not an FFI bolted
 on. A `native` block passes text into the generated C verbatim — a header, or
 an implementation written inline — and `extern func` binds a symbol with a
