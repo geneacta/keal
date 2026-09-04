@@ -1454,6 +1454,82 @@ fn output_and_failure_arrive_in_the_order_they_happened() {
     }
 }
 
+/// Two actors printing at once must not tear a line.
+///
+/// `fwrite` and `fputc` each lock the stream and do not lock together, so the
+/// backend's `println` — a write then a newline — let a second thread's line
+/// land between a line and its own newline: two lines joined, then an empty
+/// one. The interpreters emit a line under one lock and cannot do it. It is a
+/// disagreement about OUTPUT, so every corpus comparison should have caught
+/// it, and none did: no program in the corpus prints from more than one
+/// thread.
+///
+/// The fixture is written here rather than kept in `tests/`, because its
+/// output is 800 lines in an order that is nobody's business, and every
+/// directory under `tests/` belongs to a harness that would compare it.
+#[test]
+fn concurrent_actors_do_not_tear_a_line() {
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-torn-lines");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+    let src = dir.join("torn.keal");
+    std::fs::write(
+        &src,
+        r#"record M(val tag: String)
+val sys: ActorSystem<M> = ActorSystem()
+val a = sys.spawn({ self, m -> var i = 0
+    while (i < 400) { println("${m.tag}-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA") i++ } })
+val b = sys.spawn({ self, m -> var i = 0
+    while (i < 400) { println("${m.tag}-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB") i++ } })
+a.send(M("a"))
+b.send(M("b"))
+sys.run()
+"#,
+    )
+    .expect("cannot write the fixture");
+    let exe = dir.join("torn");
+    let built = Command::new(BIN)
+        .arg("build")
+        .arg(&src)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the fixture did not compile:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    // Tearing is a race, so once proves nothing either way. Before the fix
+    // this showed four torn lines on the first run and some on every run
+    // after.
+    for attempt in 1..=3 {
+        let out = Command::new(&exe).output().expect("cannot run the fixture");
+        let text = String::from_utf8_lossy(&out.stdout);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 800, "attempt {}: wrong number of lines", attempt);
+        for (i, line) in lines.iter().enumerate() {
+            let whole = (line.starts_with("a-") || line.starts_with("b-"))
+                && line.len() == 38
+                && line[2..].bytes().all(|c| c == b'A' || c == b'B')
+                && line[2..].bytes().all(|c| c == line.as_bytes()[2]);
+            assert!(
+                whole,
+                "attempt {}: line {} was torn by another thread: {:?}",
+                attempt,
+                i + 1,
+                line
+            );
+        }
+    }
+}
+
 /// The native backend must agree with the interpreters, not merely compile.
 ///
 /// This emits C, hands it to a real C compiler, runs the binary, and compares

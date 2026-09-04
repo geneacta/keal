@@ -647,11 +647,27 @@ KEAL_FN int64_t keal_str_length(KealStr* s) {
 }
 
 KEAL_FN void keal_print(KealStr* s, bool newline) {
-    fwrite(s->bytes, 1, (size_t)s->len, stdout);
-    if (newline) {
-        fputc('\n', stdout);
-    } else {
+    if (!newline) {
+        /* A `print` with no newline is usually a prompt, and a prompt sitting
+         * in a buffer is a program that looks hung. */
+        fwrite(s->bytes, 1, (size_t)s->len, stdout);
         fflush(stdout);
+        return;
+    }
+    /* ONE write, not two. `fwrite` and `fputc` each lock the stream, but not
+     * together, so a second actor's line lands between a line and its newline
+     * and both come out wrong — two lines joined, then an empty one. The
+     * interpreters write a line under a single lock and never tear, so this
+     * was a disagreement about output between the engines, visible only with
+     * more than one thread printing. */
+    size_t n = (size_t)s->len;
+    char small[512];
+    char* buf = n + 1 <= sizeof small ? small : (char*)keal_alloc(n + 1);
+    memcpy(buf, s->bytes, n);
+    buf[n] = '\n';
+    fwrite(buf, 1, n + 1, stdout);
+    if (buf != small) {
+        free(buf);
     }
 }
 
