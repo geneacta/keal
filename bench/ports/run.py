@@ -143,6 +143,11 @@ def build_all():
         lambda k: [o("rs_" + k)],
         lambda: version([rustc, "--version"]), "-C opt-level=2")
 
+    # `keal build` names its output from the source's stem and writes it into
+    # the CURRENT directory, not beside the source (src/nativebuild.rs). So the
+    # `cwd` below and the path on the line after it have to agree; they do only
+    # because both name the source directory. Change one and the harness looks
+    # for a binary that was written somewhere else.
     langs["Keal"] = Lang("Keal", keal,
         lambda k: run([keal, "build", os.path.join(HERE, "keal", k + ".keal")],
                       cwd=os.path.join(HERE, "keal")),
@@ -369,7 +374,10 @@ def main():
         "key": "CHANGE-ME",
         "name_en": "CHANGE-ME", "name_fr": "CHANGE-ME",
         "cpu_en": "CHANGE-ME", "cpu_fr": "CHANGE-ME",
-        "os": "%s %s" % (os.name, sys.platform),
+        # `nt win32` is not something a reader learns anything from, so this
+        # asks to be replaced like the other CHANGE-MEs rather than looking
+        # filled in. Name the distribution or the OS version.
+        "os": "CHANGE-ME (the harness only saw: %s %s)" % (os.name, sys.platform),
         "date": time.strftime("%Y-%m-%d"),
         "keal": version([KEAL, "version"]) if os.path.exists(KEAL) else "?",
         "runs": REPLICATES * 2,
