@@ -20,5 +20,7 @@ for f in bench/*.keal; do
 done
 ```
 
-These are ordinary Keal programs, so they double as tests: the suite checks
-that both engines print the same thing for each of them.
+These are ordinary Keal programs, but nothing checks them: `cargo test
+--release` walks `tests/programs` and `examples`, and never this directory.
+A change that made the engines disagree here would not turn the suite red.
+Copy a program into `tests/programs` if you want that guarantee for it.
