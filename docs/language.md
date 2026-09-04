@@ -1491,6 +1491,35 @@ opens an argument as a path, gets a name that is not the one you passed. A
 Keal string is UTF-8, so it is converted at the boundary and quoted by
 `CommandLineToArgvW`'s own rules.
 
+**How a name is looked up.** A first argument with no directory in it is a
+name to be resolved; one with a directory is a location to be used. `sh`
+searches, `./bin/sh` does not, and a name containing a directory that holds
+nothing is not rescued by the search path. That much is the same on every
+platform and on all three engines.
+
+What is *not* the same is Windows, and it is the platform's convention
+showing through rather than a decision of this language:
+
+* **The current directory is searched first, natively.** Compiled code runs
+  a `git.exe` sitting in the working directory in preference to the
+  installed one; the interpreters go through Rust's resolution, which
+  deliberately excludes it, and answer `null`. A bare name can therefore
+  mean two different programs depending on the engine. Until that is
+  aligned, pass a path rather than a name for anything that must not be
+  substitutable by a file someone else can drop next to yours. On Unix the
+  current directory is consulted only when `PATH` asks for it — a `.` entry
+  or an empty one — and all three engines then agree, including on where in
+  the order it falls.
+* **Only `.exe` is appended, natively.** `PATHEXT` is not consulted, so a
+  bare name never reaches a `.bat` or a `.cmd`. Name the file.
+* **Use backslashes when the program is a `.bat`.** A batch file is not an
+  executable image: Windows runs it through `cmd.exe`, which re-reads the
+  line, and a forward slash there begins a switch. `.\tool.bat` works where
+  `./tool.bat` does not, and `C:/Windows/System32/cmd.exe` loses the child's
+  exit code where `C:\Windows\System32\cmd.exe` keeps it. Forward slashes
+  are fine everywhere else in this language, `isFile` and `listDir`
+  included, which is exactly why this one is worth writing down.
+
 ### Dates and times
 
 `time(): Float` is seconds since the Unix epoch, and a calendar is written

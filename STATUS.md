@@ -1,6 +1,6 @@
 # STATUS — where the work stands, and how to resume it
 
-*Updated: 2026-09-01 (version 1.1.0). This file is the hand-off: if a session dies, the next
+*Updated: 2026-09-04 (version 1.2.0). This file is the hand-off: if a session dies, the next
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
@@ -282,6 +282,41 @@ not ours".
   (`examples/interop/java/`). Plan in `docs/interop.md`.
 
 ## IN FLIGHT
+
+**1.2.0 IS BEING CUT (2026-09-04).** `Comp` is a primitive, maps index
+instead of scanning, `<==>` exists, floats print alike on all three engines,
+and `runCommand` resolves a name on Windows. Three machines signed the
+release criteria: macOS ARM/clang 46 passes, Linux aarch64/GCC 15.2 51
+passes, Windows 10/MinGW-W64 UCRT GCC 16.1 46 passes in 342 s. The tag's
+message is the release notes; `RELEASING.md` records why a release that
+takes things away shipped under a `1.x` number, and says a second one would
+mean the rule needs changing instead.
+
+**OPEN, and it is not a regression of 1.2.0 — measured before and after, the
+same either way.** On Windows the native backend searches the CURRENT
+DIRECTORY first for a bare program name; the interpreters go through Rust's
+resolution, which excludes it deliberately, and answer `null`. So a
+`git.exe` dropped beside the working directory is run by compiled code and
+not by interpreted code — a three-engine divergence with the shape of binary
+planting. Two narrower ones ride with it: `PATHEXT` is not consulted
+natively, so a bare name never reaches a `.bat`; and a `.bat` or an absolute
+path written with forward slashes goes through `cmd.exe`, which re-reads the
+line and loses the child's exit code. All three are documented in
+`docs/language.md` and none is fixed.
+
+The fix for the first is to resolve the name against `PATH` explicitly and
+hand `CreateProcessW` the result, and **it must live under `#ifdef _WIN32`**:
+on POSIX, consulting the current directory is CORRECT when `PATH` asks for
+it — a `.` entry or an empty one — and all three engines already honour that,
+including where in the order it falls. A rule phrased as "do not search the
+current directory" would move a platform defect into shared code and break
+conforming behaviour on the other two. That distinction came from the Linux
+bench, which measured the empty-`PATH`-entry case rather than assuming it.
+
+Two other things the Windows bench attests and that no green should be read
+as covering: **MSVC has never been built**, so "Windows" throughout this file
+means MinGW-W64 UCRT GCC; and **MinGW ships no ThreadSanitizer**, so the TSan
+guard does not run there at all.
 
 **1.1.0 IS PUBLISHED (2026-09-01).**
 https://github.com/geneacta/keal/releases/tag/v1.1.0 — four archives, all
