@@ -1524,11 +1524,18 @@ fn concurrent_actors_do_not_tear_a_line() {
     let expected = ACTORS.len() * EACH;
     // Tearing is a race, so one run proves nothing either way — and the odds
     // are the machine's, not the test's: the defect shows in every run here
-    // and four runs in five on Linux aarch64. Five attempts take that second
-    // figure to 99.97%, or one missed reintroduction in three thousand. The
-    // lever for a frequency is the number of draws; three attempts left one
-    // in 125, which is a test that looks flaky on some Tuesday rather than a
-    // test that failed.
+    // and four runs in five on Linux aarch64. Five draws rather than three,
+    // because the lever for a frequency is the number of draws and three left
+    // roughly one miss in 125 on that machine — not a test that fails, a test
+    // that looks flaky on some Tuesday and gets disabled.
+    //
+    // What is MEASURED, on the machine with the worse odds: 40 batches of
+    // five, 40 detections of the defect, and 40 batches with the fix in place
+    // and no false alarm. What is DERIVED from a per-run 0.8: a miss in three
+    // thousand. Forty batches cannot tell that apart from a miss in a hundred
+    // — they bound the miss rate at 7% or better — and measuring the derived
+    // figure would take thousands of batches and is not worth the machine
+    // time. The bound is what this test stands on.
     for attempt in 1..=5 {
         let out = Command::new(&exe).output().expect("cannot run the fixture");
         let text = String::from_utf8_lossy(&out.stdout);
