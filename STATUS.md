@@ -133,6 +133,14 @@ two are the same case, so the substitution is invisible from here — which is
 what makes it a rule and not a reminder. **A control that does not share the
 form of what it controls is a control for a different question.**
 
+And the reporting half, which is not a courtesy: **saying which forms you
+asked in is part of having asked.** A test that attests nothing and a test
+whose attestation was never stated read identically from outside, and the
+reader has no way to tell them apart — so an unstated form is an unasked one
+until somebody spends a message finding out. Every claim in this file that
+names a machine, a form and a direction is paying that cost once instead of
+each time it is read.
+
 **The lesson to carry:** a refusal is a claim about the language, and a
 backend that refuses in the words of its own internals is making a claim it
 has not checked. Two of the three defects were invisible to the whole suite
