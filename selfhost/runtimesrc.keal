@@ -3119,28 +3119,35 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     if (argv->len == 0) {
         return NULL;
     }
-    /* The command line, as wide characters. The program's path is token
-     * zero even though it is also passed as lpApplicationName: the first
-     * token is consumed as argv[0] regardless, so leaving it out loses an
-     * argument. */
+    /* The command line, as wide characters, program included as token zero.
+     *
+     * That token is ALL the naming CreateProcessW gets: lpApplicationName
+     * below is NULL on purpose. Given a name there, Windows completes it with
+     * the current drive and directory and stops — it never consults the
+     * search path — so `runCommand(["git", ...])` failed to start on Windows
+     * while both interpreters, which go through execvp's POSIX equivalent in
+     * Rust, resolved it. The failure wore the language's ordinary answer for
+     * an absent command, `null`, so a program could not tell "not installed"
+     * from "installed and unreachable".
+     *
+     * Passing NULL moves the naming into the line, which is the form that
+     * searches. What lpApplicationName bought was the unquoted-path
+     * ambiguity: `C:\Program Files\x.exe` unquoted invites Windows to try
+     * `C:\Program.exe` first. keal_win_quote already quotes any token holding
+     * a space, so that protection is kept where it was, one layer down. */
     KealBuf line;
     keal_buf_init(&line);
-    wchar_t* app = NULL;
     for (int64_t i = 0; i < argv->len; i++) {
         KealStr* a = (KealStr*)argv->data[i].p;
         wchar_t* w = keal_widen(a->bytes, a->len);
         if (w == NULL) {
             free(line.data);
-            free(app);
             return NULL;
         }
-        if (i == 0) {
-            app = w;
-            keal_win_quote(w, &line);
-            continue;
+        if (i > 0) {
+            wchar_t sp = L' ';
+            keal_buf_bytes(&line, (const char*)&sp, (int64_t)sizeof sp);
         }
-        wchar_t sp = L' ';
-        keal_buf_bytes(&line, (const char*)&sp, (int64_t)sizeof sp);
         keal_win_quote(w, &line);
         free(w);
     }
@@ -3171,7 +3178,7 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     si.hStdError = ew;
     PROCESS_INFORMATION pi;
     ZeroMemory(&pi, sizeof pi);
-    if (!CreateProcessW(app, (wchar_t*)line.data, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
+    if (!CreateProcessW(NULL, (wchar_t*)line.data, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi)) {
         goto fail;
     }
     /* And the parent must drop the write ends, or end of file never comes. */
@@ -3221,7 +3228,6 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
         CloseHandle(or_);
         CloseHandle(er);
         free(line.data);
-        free(app);
         free(ro.buf.data);
         free(re.buf.data);
         return NULL;
@@ -3231,7 +3237,6 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     CloseHandle(or_);
     CloseHandle(er);
     free(line.data);
-    free(app);
     KealList* result = keal_run_result((int64_t)(int32_t)code, &ro.buf, &re.buf);
     free(ro.buf.data);
     free(re.buf.data);
@@ -3244,7 +3249,6 @@ fail:
     if (ew) CloseHandle(ew);
     if (nulh != INVALID_HANDLE_VALUE) CloseHandle(nulh);
     free(line.data);
-    free(app);
     return NULL;
 }
 

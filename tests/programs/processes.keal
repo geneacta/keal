@@ -29,3 +29,21 @@ if (isFile("/bin/sh")) {
     val spaced = runCommand(["/bin/sh", "-c", "printf %s \"$1\"", "sh", "a b c"]) ?: []
     assert(spaced[1] == "a b c", "one argument stayed one argument: ${spaced[1]}")
 }
+
+// A program named, not located. Everything above hands `runCommand` a path it
+// has just checked with `isFile` — and that gesture, the one that makes those
+// lines portable, is exactly what kept anything from ever being resolved. A
+// backend that could not look a name up at all passed this file for as long as
+// it existed.
+//
+// The lookup is what a caller writes in practice: `git`, `python`, `cc`. When
+// it fails, `runCommand` answers `null`, which is the language's word for "no
+// such command" — so the machine that cannot reach an installed tool and the
+// machine that does not have it give the same answer.
+val shell = isFile("/bin/sh") ? "sh" : "cmd"
+val flag = isFile("/bin/sh") ? "-c" : "/c"
+if (isFile("/bin/sh") or isFile("C:/Windows/System32/cmd.exe")) {
+    val named = runCommand([shell, flag, "exit 7"]) ?: []
+    assert(named.size == 3, "`${shell}` is on this machine, but not reachable by name")
+    assert(named[0] == "7", "the named program ran: ${named[0]}")
+}
