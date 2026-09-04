@@ -56,9 +56,11 @@ package func runtimeSource(): String {
  *
  * Measured on Windows 10 with MinGW-W64 UCRT GCC 16.1: 505 headers and
  * 115,160 preprocessed lines become 278 and 79,865, and a translation unit
- * that costs 1,842 ms costs 1,408 — 23.6% off every file the backend emits.
- * An empty `main` cost more there than an 8,639-line program, because the
- * program is not what is being read. */
+ * that costs 1,275 ms costs 953 — 25.3% off every file the backend emits,
+ * from two concordant passes on an idle machine. The whole suite there went
+ * from 449s to 369s, which reaches the same figure by a second route on a
+ * workload that is not all C compilation. An empty `main` cost more than an
+ * 8,639-line program, because the program is not what is being read. */
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
