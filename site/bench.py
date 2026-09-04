@@ -152,6 +152,93 @@ MACHINES = [
             'Python': [8, 3, 5, 7],
         },
     },
+    {
+        'key': 'macos-arm64',
+        'name_en': 'macOS · Apple M4',
+        'name_fr': 'macOS · Apple M4',
+        'cpu_en': '10-core Apple M4 (4 performance + 6 efficiency), arm64, '
+                  'bare metal, 24 GB — the only machine here that is not a guest',
+        'cpu_fr': 'Apple M4 10 cœurs (4 performance + 6 efficacité), arm64, '
+                  'matériel nu, 24 Go — la seule machine ici qui ne soit pas un invité',
+        'os': 'macOS 26.5.1, Darwin 25.5.0',
+        'date': '2026-09-04',
+        'keal': 'keal 1.2.0',
+        'runs': 18,
+        'order_effects': 0,
+        'toolchains': [
+            [
+                'C',
+                'Apple clang version 21.0.0 (clang-2100.1.1.101)',
+                '-O2 -std=c11',
+            ],
+            [
+                'C++',
+                'Apple clang version 21.0.0 (clang-2100.1.1.101)',
+                '-O2 -std=c++17',
+            ],
+            [
+                'Rust',
+                'rustc 1.98.0 (88d9e12ae 2026-08-18)',
+                '-C opt-level=2',
+            ],
+            [
+                'Keal',
+                'keal 1.2.0',
+                'keal build',
+            ],
+            [
+                'Go',
+                'go version go1.27.0 darwin/arm64',
+                'go build',
+            ],
+            [
+                'Java',
+                'openjdk version "25.0.4.1" 2026-08-18',
+                'javac, default JVM',
+            ],
+            [
+                'Kotlin',
+                'kotlinc-jvm 2.4.10 (JRE 25.0.4.1); jars run on '
+                'openjdk version "25.0.4.1" 2026-08-18',
+                '-include-runtime, jars run on the PATH java',
+            ],
+            [
+                'Python',
+                'CPython 3.14.7',
+                'stock build',
+            ],
+        ],
+        'startup': {
+            'C': 1.8,
+            'C++': 2.0,
+            'Rust': 1.9,
+            'Keal': 1.7,
+            'Go': 2.2,
+            'Java': 18.9,
+            'Kotlin': 26.3,
+            'Python': 15.6,
+        },
+        'ms': {
+            'C': [16.4, 32.5, 6.0, 2.5],
+            'C++': [16.4, 32.8, 6.0, 2.9],
+            'Rust': [16.2, 33.4, 9.1, 2.9],
+            'Keal': [20.9, 45.4, 9.5, 10.4],
+            'Go': [20.4, 46.0, 9.7, 7.3],
+            'Java': [14.2, 42.7, 12.5, 48.7],
+            'Kotlin': [17.0, 41.8, 13.0, 41.5],
+            'Python': [605.3, 5860.2, 1687.5, 106.6],
+        },
+        'spread': {
+            'C': [8, 8, 13, 12],
+            'C++': [7, 11, 5, 7],
+            'Rust': [7, 11, 6, 16],
+            'Keal': [9, 2, 5, 10],
+            'Go': [8, 5, 12, 27],
+            'Java': [21, 8, 8, 10],
+            'Kotlin': [10, 14, 7, 12],
+            'Python': [8, 8, 11, 21],
+        },
+    },
 ]
 
 
