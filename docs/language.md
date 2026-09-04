@@ -865,9 +865,9 @@ any other class:
 
 ```keal
 record Version(val major: Int, val minor: Int) : Ord {
-    func compareTo(other: Version): Int {
-        if (this.major != other.major) { return this.major - other.major }
-        return this.minor - other.minor
+    func compareTo(other: Version): Comp {
+        if (this.major != other.major) { return this.major <=> other.major }
+        return this.minor <=> other.minor
     }
 }
 
@@ -1107,7 +1107,7 @@ trait Show {
     func shout(): String { this.show().toUpper() }   // a default body
 }
 
-trait Ordered {
+trait Ordered {                                    // your own trait, not `Ord`
     func compareTo(other: Self): Int
 }
 
@@ -1159,7 +1159,7 @@ implements one gains the operator; nothing else changes.
 | `a % b` | `Rem` | `func rem(other: Self): Self` |
 | `-a` | `Neg` | `func negate(): Self` |
 | `a == b`, `a != b` | `Eq` | `func equals(other: Self): Bool` |
-| `a < b`, `<=`, `>`, `>=` | `Ord` | `func compareTo(other: Self): Int` |
+| `a < b`, `<=`, `>`, `>=` | `Ord` | `func compareTo(other: Self): Comp` |
 | `a[i]` | `Index` | `func get(key): Value` |
 | `a[i] = v` | `Index` | `proc set(key, value)` |
 | `a(x, y)` | `Invoke` | `func invoke(...): Result` |
@@ -1197,8 +1197,9 @@ Vec2(1.0, 2.0) + Vec2(3.0, 4.0)     // Vec2(4.0, 6.0)
 ```
 
 `a + b` on a class is *rewritten* into `a.plus(b)`, and `a < b` into
-`a.compareTo(b) < 0`. The methods stay ordinary methods: you can call
-`a.plus(b)` yourself.
+`a.compareTo(b) == less` — `<=` into `a.compareTo(b) != greater`, and so on.
+There is no sign to inspect and no zero to compare against. The methods stay
+ordinary methods: you can call `a.plus(b)` yourself.
 
 **Equality is the exception.** `==` already works on every type by comparing
 identity, so a class without `Eq` is not an error — it simply keeps comparing

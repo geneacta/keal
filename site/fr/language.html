@@ -403,9 +403,9 @@ Point(1, 2) == Point(1, 2)                 // true — a class would say false
 Point(1, 2).toString()                     // &quot;Point(x=1, y=2)&quot;</code></pre>
 <p>A record may declare methods, take type parameters and implement traits, like any other class:</p>
 <pre class="lang-keal"><code>record Version(val major: Int, val minor: Int) : Ord {
-    func compareTo(other: Version): Int {
-        if (this.major != other.major) { return this.major - other.major }
-        return this.minor - other.minor
+    func compareTo(other: Version): Comp {
+        if (this.major != other.major) { return this.major &lt;=&gt; other.major }
+        return this.minor &lt;=&gt; other.minor
     }
 }
 
@@ -518,7 +518,7 @@ mapAll([&quot;a&quot;, &quot;bb&quot;], { it.length }) // T = String, then R = I
     func shout(): String { this.show().toUpper() }   // a default body
 }
 
-trait Ordered {
+trait Ordered {                                    // your own trait, not `Ord`
     func compareTo(other: Self): Int
 }
 
@@ -540,7 +540,7 @@ func loudest&lt;T: Show + Ordered&gt;(a: T, b: T): String {
 <p>A default method's body is checked in each class that inherits it, not once in the abstract — the same rule C++ templates follow. A trait nobody implements is therefore never type-checked.</p>
 <h2 id="12-operator-overloading">12. Operator overloading</h2>
 <p>Operators are wired to the traits the prelude declares. A class that implements one gains the operator; nothing else changes.</p>
-<div class="tablewrap"><table><thead><tr><th>Operator</th><th>Trait</th><th>Method</th></tr></thead><tbody><tr><td><code>a + b</code></td><td><code>Add</code></td><td><code>func plus(other: Self): Self</code></td></tr><tr><td><code>a - b</code></td><td><code>Sub</code></td><td><code>func minus(other: Self): Self</code></td></tr><tr><td><code>a * b</code></td><td><code>Mul</code></td><td><code>func times(other: Self): Self</code></td></tr><tr><td><code>a / b</code></td><td><code>Div</code></td><td><code>func div(other: Self): Self</code></td></tr><tr><td><code>a % b</code></td><td><code>Rem</code></td><td><code>func rem(other: Self): Self</code></td></tr><tr><td><code>-a</code></td><td><code>Neg</code></td><td><code>func negate(): Self</code></td></tr><tr><td><code>a == b</code>, <code>a != b</code></td><td><code>Eq</code></td><td><code>func equals(other: Self): Bool</code></td></tr><tr><td><code>a &lt; b</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code></td><td><code>Ord</code></td><td><code>func compareTo(other: Self): Int</code></td></tr><tr><td><code>a[i]</code></td><td><code>Index</code></td><td><code>func get(key): Value</code></td></tr><tr><td><code>a[i] = v</code></td><td><code>Index</code></td><td><code>proc set(key, value)</code></td></tr><tr><td><code>a(x, y)</code></td><td><code>Invoke</code></td><td><code>func invoke(...): Result</code></td></tr></tbody></table></div>
+<div class="tablewrap"><table><thead><tr><th>Operator</th><th>Trait</th><th>Method</th></tr></thead><tbody><tr><td><code>a + b</code></td><td><code>Add</code></td><td><code>func plus(other: Self): Self</code></td></tr><tr><td><code>a - b</code></td><td><code>Sub</code></td><td><code>func minus(other: Self): Self</code></td></tr><tr><td><code>a * b</code></td><td><code>Mul</code></td><td><code>func times(other: Self): Self</code></td></tr><tr><td><code>a / b</code></td><td><code>Div</code></td><td><code>func div(other: Self): Self</code></td></tr><tr><td><code>a % b</code></td><td><code>Rem</code></td><td><code>func rem(other: Self): Self</code></td></tr><tr><td><code>-a</code></td><td><code>Neg</code></td><td><code>func negate(): Self</code></td></tr><tr><td><code>a == b</code>, <code>a != b</code></td><td><code>Eq</code></td><td><code>func equals(other: Self): Bool</code></td></tr><tr><td><code>a &lt; b</code>, <code>&lt;=</code>, <code>&gt;</code>, <code>&gt;=</code></td><td><code>Ord</code></td><td><code>func compareTo(other: Self): Comp</code></td></tr><tr><td><code>a[i]</code></td><td><code>Index</code></td><td><code>func get(key): Value</code></td></tr><tr><td><code>a[i] = v</code></td><td><code>Index</code></td><td><code>proc set(key, value)</code></td></tr><tr><td><code>a(x, y)</code></td><td><code>Invoke</code></td><td><code>func invoke(...): Result</code></td></tr></tbody></table></div>
 <p><code>Index</code> and <code>Invoke</code> are the two that carry no signature of their own, and that is deliberate: what a class is indexed <em>by</em>, and what it gives back, differ from class to class. So the trait says a class is indexable and the class's own <code>get</code> says with what — the key may be a <code>String</code>, the value anything. A class that declares <code>Index</code> and has no <code>get</code> is refused where it says so, not at a use site three files away.</p>
 <pre class="lang-keal"><code>class Env(val fallback: Int) : Index {
     func get(name: String): Int { ... }
@@ -557,7 +557,7 @@ println(env[&quot;width&quot;])</code></pre>
 }
 
 Vec2(1.0, 2.0) + Vec2(3.0, 4.0)     // Vec2(4.0, 6.0)</code></pre>
-<p><code>a + b</code> on a class is <em>rewritten</em> into <code>a.plus(b)</code>, and <code>a &lt; b</code> into <code>a.compareTo(b) &lt; 0</code>. The methods stay ordinary methods: you can call <code>a.plus(b)</code> yourself.</p>
+<p><code>a + b</code> on a class is <em>rewritten</em> into <code>a.plus(b)</code>, and <code>a &lt; b</code> into <code>a.compareTo(b) == less</code> — <code>&lt;=</code> into <code>a.compareTo(b) != greater</code>, and so on. There is no sign to inspect and no zero to compare against. The methods stay ordinary methods: you can call <code>a.plus(b)</code> yourself.</p>
 <p><strong>Equality is the exception.</strong> <code>==</code> already works on every type by comparing identity, so a class without <code>Eq</code> is not an error — it simply keeps comparing identity, and two separately built instances are never equal. Implementing <code>Eq</code> is how a class opts into structural equality.</p>
 <p><strong>The built-in types implement these traits too.</strong> <code>Int</code> and <code>Float</code> provide all of them, <code>String</code> provides <code>Add</code>, <code>Eq</code> and <code>Ord</code>, and <code>Bool</code> provides <code>Eq</code>. So a bound is satisfied by a built-in as readily as by your own type:</p>
 <pre class="lang-koda"><code>func total&lt;T: Add&gt;(xs: List&lt;T&gt;, zero: T): T {

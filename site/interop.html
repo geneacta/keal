@@ -115,7 +115,7 @@ keal build prog.keal -I$JH/include -I$JH/include/darwin \
 class UUID(val handle: Int) : Ord {
     func toString(): String { return jvmToString(this.handle) }
     proc free() { jvmFree(this.handle) }
-    func compareTo(a0: UUID): Int { ... }
+    func compareTo(a0: UUID): Comp { ... }
 }
 func uuidRandomUUID(): UUID { ... }</code></pre>
 <p>so user code never touches JNI signatures. The bindgen rule holds: only members whose types cross exactly are bound — <code>int</code>, <code>long</code>, <code>double</code>, <code>boolean</code>, <code>String</code>, and any class bound in the same run (bind <code>DayOfWeek</code> alongside <code>LocalDate</code> and <code>getDayOfWeek()</code> comes typed) — everything else is skipped with the reason printed. Statics and constructors become free functions (<code>localDateOf</code>, <code>uuidNew</code>); a representable Java <code>compareTo</code> makes the wrapper <code>Ord</code>, so prelude <code>compare</code> and <code>&lt;</code> reach across the JVM; <code>free()</code> releases the global ref (<code>handle</code> stays visible for calls jbind could not type). <code>--jvm &lt;path&gt;</code> sets the emitted import path, and an argument naming a file is read as saved <code>javap</code> output — which keeps the snapshot test (<code>tests/jbind/</code>) JDK-free; the end-to-end test builds a native binary against live-generated <code>java.time</code> wrappers. Kotlin classes are plain JVM classes: same generator, Kotlin's stdlib on the classpath.</p>

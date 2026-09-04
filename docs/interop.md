@@ -229,7 +229,7 @@ one typed Keal module over exactly the 4a calls:
 class UUID(val handle: Int) : Ord {
     func toString(): String { return jvmToString(this.handle) }
     proc free() { jvmFree(this.handle) }
-    func compareTo(a0: UUID): Int { ... }
+    func compareTo(a0: UUID): Comp { ... }
 }
 func uuidRandomUUID(): UUID { ... }
 ```
