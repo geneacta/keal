@@ -169,6 +169,25 @@ because a hundred long prints open the window a hundred times where eight
 thousand short ones open it eight thousand. The same word "enlarge" names two
 opposite operations, and picking the wrong one looks like following the rule.
 
+**The corpus's own concurrent tests were never checked for stability, and now
+are — to a bound.** Six tests run more than one thread; 280 runs across three
+engines produced no varying output. That excludes the gross and not the rare,
+like every such bound. It also explains why none of them could see the torn
+lines: their concurrency is in the COMPUTATION and their output is an
+aggregate, a total, a sorted list. Not one of them has two threads printing at
+once, which is what made them comparable byte for byte in the first place. The
+property that makes a concurrent test easy to compare is the property that
+stops it testing concurrent output.
+
+**And what every retraction of that week had in common: not one was a wrong
+calculation.** A gloss that contradicted the table printed above it. A range
+that dressed noise as prudence. A product that inherited a precision neither
+of its factors had — arithmetic launders its inputs, and 99.97% carries four
+digits that 0.8 could not pay for, where a range at least admits to being a
+range. A rule followed correctly in the wrong domain. The substance was right
+every time; the FORM lied — and form is what rereading cannot catch, because
+form is what satisfies it.
+
 And the residual they were chasing has a compiler ruled out: GCC 15.2 and a
 16.0.1 trunk snapshot on the same aarch64 machine differ by at most 12.5%,
 on the shortest and noisiest row — with both built `--enable-checking=release`,
