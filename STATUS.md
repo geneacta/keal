@@ -141,6 +141,31 @@ until somebody spends a message finding out. Every claim in this file that
 names a machine, a form and a direction is paying that cost once instead of
 each time it is read.
 
+**Two ways a number lies, both found by retraction in the 1.2.0 week.** The
+first: a duration measured on a machine doing other work is not a duration.
+`1,842 ms → 1,408` became `1,275 → 953` when the bench was idle, and the
+header counts beside them never moved, because counting what the
+preprocessor emits does not depend on load. The two figures that looked most
+precise were the two least worth trusting.
+
+The second is harder to see, because it wears the clothes of care. A range
+offered as a cautious measurement — "between 2.8 and 8.0 µs per file open" —
+was the dispersion of an instrument, not a property of the thing: the effect
+was 0.55–1.10 ms on a 5 ms base, so the signal sat inside the noise.
+Enlarged tenfold, it was a stable 2.0 µs. **A range that comes from noise
+looks exactly like a range that comes from physics**, and the parade is the
+same as for controls: make the effect exceed the instrument rather than
+averaging and rounding. Both retractions came from a second measurement or
+another bench, never from rereading.
+
+And the residual they were chasing has a compiler ruled out: GCC 15.2 and a
+16.0.1 trunk snapshot on the same aarch64 machine differ by at most 12.5%,
+on the shortest and noisiest row — with both built `--enable-checking=release`,
+since an experimental GCC with internal checks on would have slowed the whole
+column silently. The suite passes under both, and the nine `-Werror` names
+bite under both. Whatever makes Windows compilation expensive, it is not the
+version of GCC.
+
 **The lesson to carry:** a refusal is a claim about the language, and a
 backend that refuses in the words of its own internals is making a claim it
 has not checked. Two of the three defects were invisible to the whole suite
