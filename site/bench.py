@@ -171,8 +171,12 @@ TEXT = {
                      "The minimum rather than the median: a machine under interference "
                      "produces a long right tail and no left one.",
         "ratio_h": "Against C",
-        "ratio_p": "Ratios travel between machines in a way absolute times do not, so this "
-                   "is the table a second machine is compared on.",
+        "ratio_p": "Ratios survive a change of machine better than absolute times do, which "
+                   "is why a second machine is compared on this table and not on the one "
+                   "above. They are not immune: a ratio divides by whatever the local C "
+                   "compiler produced, so it carries that compiler's decisions with it. "
+                   "On <code>fib</code> that is most of what separates the machines — see "
+                   "the limits below.",
         "spread_h": "How solid each figure is",
         "spread_p": "How far the median sits above the minimum, as a percentage. Below "
                     "about 10% a figure is settled; well above it, two languages a few "
@@ -193,8 +197,10 @@ TEXT = {
         "toolchain_h": "Toolchains",
         "cross_h": "The same ratios, machine by machine",
         "cross_p": "Where two machines disagree about a ratio, the disagreement is the "
-                   "result — it means the number was a property of one box rather than of "
-                   "the language.",
+                   "result — the number was a property of one box rather than of the "
+                   "language. Read the denominator first: several rows moving together "
+                   "and in the same direction is the signature of the C baseline having "
+                   "changed, not of five languages changing at once.",
         "th_lang": "Language", "th_startup": "startup", "th_machine": "Machine",
         "th_version": "Version", "th_flags": "Build", "th_program": "Program",
         "th_stresses": "What it stresses", "th_size": "Size",
@@ -216,8 +222,12 @@ TEXT = {
                      "pas imputé à son arithmétique. Le minimum plutôt que la médiane : une "
                      "machine perturbée produit une longue queue à droite et aucune à gauche.",
         "ratio_h": "Rapporté à C",
-        "ratio_p": "Les rapports voyagent d'une machine à l'autre, ce que les temps absolus "
-                   "ne font pas ; c'est donc sur ce tableau qu'une seconde machine se compare.",
+        "ratio_p": "Les rapports résistent mieux au changement de machine que les temps "
+                   "absolus, et c'est pourquoi une seconde machine se compare sur ce "
+                   "tableau-ci et non sur le précédent. Ils n'y sont pas insensibles : un "
+                   "rapport divise par ce qu'a produit le compilateur C local, donc il "
+                   "emporte les décisions de ce compilateur avec lui. Sur <code>fib</code>, "
+                   "c'est l'essentiel de ce qui sépare les machines — voir les limites.",
         "spread_h": "La solidité de chaque chiffre",
         "spread_p": "De combien la médiane dépasse le minimum, en pourcentage. Sous 10% "
                     "environ, un chiffre est acquis ; bien au-dessus, deux langages séparés "
@@ -239,8 +249,10 @@ TEXT = {
         "toolchain_h": "Chaînes d'outils",
         "cross_h": "Les mêmes rapports, machine par machine",
         "cross_p": "Là où deux machines ne s'accordent pas sur un rapport, le désaccord est "
-                   "le résultat — il signifie que le chiffre était une propriété d'une "
-                   "machine et non du langage.",
+                   "le résultat — le chiffre était une propriété d'une machine et non du "
+                   "langage. Lisez le dénominateur d'abord : plusieurs lignes qui bougent "
+                   "ensemble et dans le même sens signent un changement de la référence C, "
+                   "et non cinq langages changeant à la fois.",
         "th_lang": "Langage", "th_startup": "démarrage", "th_machine": "Machine",
         "th_version": "Version", "th_flags": "Compilation", "th_program": "Programme",
         "th_stresses": "Ce qu'il sollicite", "th_size": "Taille",
@@ -362,6 +374,51 @@ LIMITS = [
      "Ils ont été choisis pour quatre coûts différents, mais aucun ensemble aussi "
      "petit ne prédit une charge réelle, et aucun ne touche aux entrées-sorties, "
      "aux chaînes ni à la concurrence."),
+
+    ("The ratio to C carries the C compiler with it.",
+     "Le rapport à C emporte le compilateur C avec lui.",
+     "A ratio divides by whatever the local C compiler produced, so it absorbs "
+     "how fast the hardware is but not the baseline's own optimisation "
+     "decisions. <code>fib</code> is where that shows. On the Linux machine, "
+     "gcc at <code>-O2</code> inlines the recursion several levels deep — 244 "
+     "instructions in the function body against 30 with inlining turned off — "
+     "and the same source, same compiler and same flag then runs in 11.8 ms "
+     "against 20.3 ms. That 1.7× swing is about the size of the gap between the "
+     "machines' own C baselines on that program. So <code>fib</code> ratios "
+     "compare within a machine and not across C compilers, and a row that moves "
+     "between machines has to be read against the denominator before it is read "
+     "as a fact about the language.",
+     "Un rapport divise par ce qu'a produit le compilateur C local : il absorbe "
+     "la vitesse du matériel, pas les décisions d'optimisation de la référence "
+     "elle-même. <code>fib</code> est l'endroit où cela se voit. Sur la machine "
+     "Linux, gcc en <code>-O2</code> déroule la récursion sur plusieurs niveaux "
+     "— 244 instructions dans le corps de la fonction contre 30 sans inlining — "
+     "et la même source, le même compilateur et le même drapeau s'exécutent "
+     "alors en 11,8 ms contre 20,3 ms. Ce facteur 1,7 est de l'ordre de l'écart "
+     "entre les références C des machines sur ce programme. Les rapports de "
+     "<code>fib</code> se comparent donc à l'intérieur d'une machine et non "
+     "d'un compilateur C à l'autre, et une ligne qui bouge d'une machine à "
+     "l'autre doit être lue contre son dénominateur avant d'être lue comme un "
+     "fait sur le langage."),
+
+    ("The machines do not share a toolchain.",
+     "Les machines ne partagent pas leur chaîne d'outils.",
+     "A ratio to C absorbs how fast the hardware is. It does not absorb a "
+     "different gcc, a different Go, or a different JVM, and each machine "
+     "reports whatever it had. Where the runtime is itself the thing being "
+     "measured — the Java and Kotlin rows — the machines align on a JDK major "
+     "version, because otherwise a gap between two machines would confound the "
+     "operating system with the virtual one. Everywhere else the version is "
+     "declared rather than forced, and the toolchain table under each machine "
+     "is that disclosure.",
+     "Un rapport à C absorbe la vitesse du matériel. Il n'absorbe ni un gcc "
+     "différent, ni un Go différent, ni une JVM différente, et chaque machine "
+     "rapporte ce qu'elle avait. Là où le runtime est lui-même l'objet de la "
+     "mesure — les lignes Java et Kotlin — les machines s'alignent sur une "
+     "version majeure de JDK, faute de quoi un écart entre deux machines "
+     "confondrait le système d'exploitation et la machine virtuelle. Partout "
+     "ailleurs la version est déclarée plutôt qu'imposée, et le tableau des "
+     "chaînes d'outils sous chaque machine est cette divulgation."),
 
     ("A ratio is a property of a machine until a second machine agrees.",
      "Un rapport est une propriété d'une machine tant qu'une seconde ne l'a pas confirmé.",
