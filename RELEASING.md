@@ -16,7 +16,33 @@ work:
 * **1.x.y** — fixes and internals with no visible change to a correct
   program.
 * **2.0** would mean something a working program has to be rewritten for.
-  There is nothing on the list that needs one.
+
+### 1.2.0 broke that, deliberately, and this says so
+
+1.2.0 takes three things away. `Ord.compareTo` answers a `Comp` instead of
+an `Int`, `Comp` carries no methods where it carried five, and `less`,
+`equal` and `greater` became reserved words. By the rule above that is a
+2.0, and it was released as 1.2.0 anyway. Tony's call, made with the
+breaks in front of him, and the reasoning is worth recording rather than
+leaving as an inconsistency for somebody to find:
+
+**The promise had nobody to keep it to yet.** The two programs written in
+this language are a GUI framework and a web framework, both in-house, both
+migrated the same week by the sessions that wrote them — the whole cost of
+the change was three files and an afternoon. A major number spent before
+anyone outside is affected buys nothing and spends the one signal that
+tells a stranger to read carefully.
+
+**What protects a reader is the notes, not the number.** The release names
+what breaks in its first section, with the line to write instead for each.
+That is the part that has to be right.
+
+**The rule stands for what comes next.** It is not suspended and it does
+not become a habit: the day there is code out there that this project did
+not write, the first number starts meaning what it says here. If a second
+release takes something away under a `1.x` number, this section stops
+being a recorded decision and becomes a pattern, and the honest thing then
+is to change the rule rather than the exception.
 
 ### What 1.0 freezes, and what it does not
 
@@ -27,6 +53,14 @@ carry data, generic traits, extension methods, sized integers, and each of
 the seven held words — is **refused today**, so adding it can only make an
 invalid program valid. `async`, `await`, `yield`, `sealed`, `super`,
 `static` and `typealias` are reserved for exactly that reason.
+
+That reasoning is why 1.2.0 is the exception recorded above and not a
+second way of reading the rule. It did not add something refused today; it
+changed the meaning of something accepted, three times. The three words it
+reserved were not held in advance, which is exactly what holding words is
+for — and that is the lesson to take rather than the licence: a word the
+language may want later should be reserved before anyone can name a
+variable with it, not after.
 
 **Not frozen: the standard library.** It grows, and it grows by addition.
 Seventy-seven built-in methods and a prelude is a small library and the
