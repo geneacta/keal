@@ -170,12 +170,27 @@ def build_all():
         lambda k: [java, "-cp", os.path.join(OUT, "javacls"), JAVA_CLASS[k]],
         lambda: version([java, "-version"]), "javac, default JVM")
 
-    langs["Kotlin"] = Lang("Kotlin", kotlinc and java,
+    def kotlin_version():
+        """Kotlin's compiler, and the JVM that actually ran the jars.
+
+        `kotlinc -version` names the JVM the COMPILER runs on. Where kotlinc
+        ships or picks its own JDK that is not the JVM the benchmark used —
+        the timed runs go through `java -jar`, which is whatever `java` is on
+        the PATH. Reporting only the first names a runtime that never executed
+        a program, and the macOS bench declared JRE 26 for rows that had run
+        on 23. Both are printed, so the column cannot say one and mean the
+        other.
+        """
+        kc = version([kotlinc, "-version"],
+                     lambda t: t.replace("info: ", "").splitlines()[0])
+        return "%s; jars run on %s" % (kc, version([java, "-version"]))
+
+    langs["Kotlin"] = Lang("Kotlin", kotlinc if (kotlinc and java) else None,
         lambda k: run([kotlinc, os.path.join(HERE, "kotlin", k + ".kt"),
                        "-include-runtime", "-d", os.path.join(OUT, "kt_" + k + ".jar")]),
         lambda k: [java, "-jar", os.path.join(OUT, "kt_" + k + ".jar")],
-        lambda: version([kotlinc, "-version"], lambda s: s.replace("info: ", "").splitlines()[0]),
-        "-include-runtime, default JVM")
+        kotlin_version,
+        "-include-runtime, jars run on the PATH java")
 
     langs["Python"] = Lang("Python", py, lambda k: None,
         lambda k: [py, os.path.join(HERE, "python", k + ".py")],

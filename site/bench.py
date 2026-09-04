@@ -111,8 +111,9 @@ MACHINES = [
             ],
             [
                 'Kotlin',
-                'kotlinc-jvm 2.4.10 (JRE 25.0.4+7-1-26.04-Ubuntu)',
-                '-include-runtime, default JVM',
+                'kotlinc-jvm 2.4.10 (JRE 25.0.4+7-1-26.04-Ubuntu); '
+                'jars run on openjdk version "25.0.4" 2026-07-21',
+                '-include-runtime, jars run on the PATH java',
             ],
             [
                 'Python',
