@@ -24,3 +24,9 @@ These are ordinary Keal programs, but nothing checks them: `cargo test
 --release` walks `tests/programs` and `examples`, and never this directory.
 A change that made the engines disagree here would not turn the suite red.
 Copy a program into `tests/programs` if you want that guarantee for it.
+
+`ports/` holds these same four programs written once per language — C, C++,
+Rust, Go, Java, Kotlin, Python — at larger sizes, so `keal build` can be
+measured against something other than itself. `ports/run.py` builds them,
+checks that all of them still print the same number, times them, and prints
+an entry for [the benchmark page](https://geneacta.github.io/keal/benchmark.html).
