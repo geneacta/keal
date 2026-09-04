@@ -1,0 +1,39 @@
+// Named arguments and defaults on a METHOD call, on all three engines.
+//
+// The interpreters have always taken them; the C backend refused them by
+// name, which meant a program using one was interpreter-only. What made the
+// refusal easy to miss is that named arguments on a free function and on a
+// CONSTRUCTOR already compiled — only the method path was short.
+
+var log = ""
+proc note(s: String) { log = log + s }
+func side(s: String, v: Int): Int { note(s) return v }
+
+class K(val n: Int) {
+    func m(a: Int, b: Int = 2, c: Int = 3): Int { return this.n * 1000 + a * 100 + b * 10 + c }
+    func g<T>(x: T, tag: String = "?"): String { return "${x}${tag}" }
+    // A default that reads `this`. The default belongs to the callee, so its
+    // `this` is the RECEIVER — which is not where the C backend emits it, and
+    // is why it used to refuse this by name too.
+    func scaled(by: Int = this.n): Int { return this.n * by }
+}
+
+val k = K(9)
+assert(k.m(1, c = 7) == 9127, "named after positional: ${k.m(1, c = 7)}")
+assert(k.m(c = 7, a = 1) == 9127, "all named, out of order")
+assert(k.m(b = 5, a = 4) == 9453, "two named, reordered")
+assert(k.g(3, tag = "!") == "3!", "named on a generic method")
+assert(k.scaled() == 81, "a default that reads `this`: ${k.scaled()}")
+assert(k.scaled(by = 2) == 18, "and the same one given a value")
+
+val maybe: K? = k
+assert(maybe?.m(1, c = 7) == 9127, "named through a safe call")
+
+// Arguments run in WRITTEN order, not slot order — the order the
+// interpreters run them in, so the order the backend must keep.
+log = ""
+assert(k.m(a = side("A", 1), c = side("C", 7)) == 9127, "value with side effects")
+assert(log == "AC", "written order: ${log}")
+log = ""
+assert(k.m(c = side("C", 7), a = side("A", 1)) == 9127, "same value")
+assert(log == "CA", "written order again, though the slots are the same: ${log}")

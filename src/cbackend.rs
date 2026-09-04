@@ -168,6 +168,12 @@ struct CBackend {
     generic_classes: Vec<String>,
     /// What `this` is called in the function being emitted.
     this_name: Option<String>,
+    /// What `this` means while a parameter's DEFAULT is being emitted, which
+    /// is not where it was written. A default belongs to the callee, so its
+    /// `this` is the receiver of the call — and the call site is emitting it,
+    /// where `this` is the caller's own receiver or nothing at all. Set only
+    /// around a default, and it wins over both.
+    this_override: Option<String>,
     /// The type of the object `this_name` points at, so a lambda that
     /// captures `this` knows what it is holding: what to retain, what to
     /// release, and what to write in the environment struct.
@@ -274,6 +280,7 @@ impl CBackend {
             shapes: HashMap::new(),
             generic_classes: Vec::new(),
             this_name: None,
+            this_override: None,
             this_ty: None,
             locals: Vec::new(),
             global_funs: std::collections::HashSet::new(),
@@ -2155,6 +2162,9 @@ impl CBackend {
     ///
     /// This is `var_ref` for the one name a program cannot bind.
     fn this_ref(&self) -> Option<String> {
+        if self.this_override.is_some() {
+            return self.this_override.clone();
+        }
         if let Some(env) = &self.capture_env {
             if let Some((field, _)) = env.get("this") {
                 return Some(format!("env->{}", field));
@@ -5328,10 +5338,6 @@ impl CBackend {
             }
         }
 
-        if args.iter().any(|a| a.name.is_some()) {
-            self.unsupported(e.span, "named arguments");
-            return "0".to_string();
-        }
         let receiver = self.expr(obj);
         let decl_params: Vec<Param> = self
             .class_decls
@@ -5351,7 +5357,7 @@ impl CBackend {
             })
             .unwrap_or_default();
         let Some(mut rendered) =
-            self.render_args_with_defaults(&decl_params, &callee_subst, args, e.span)
+            self.render_args_with_defaults(&decl_params, &callee_subst, args, e.span, Some(&receiver))
         else {
             return "0".to_string();
         };
@@ -6934,7 +6940,7 @@ impl CBackend {
                 None => (Vec::new(), Vec::new()),
             };
             let Some(rendered) =
-                self.render_args_with_defaults(&ctor_params, &callee_subst, args, e.span)
+                self.render_args_with_defaults(&ctor_params, &callee_subst, args, e.span, None)
             else {
                 return "0".to_string();
             };
@@ -7035,7 +7041,7 @@ impl CBackend {
             .map(|f| f.params.as_ref().clone())
             .unwrap_or_default();
         let Some(rendered) =
-            self.render_args_with_defaults(&decl_params, &callee_subst, args, e.span)
+            self.render_args_with_defaults(&decl_params, &callee_subst, args, e.span, None)
         else {
             return "0".to_string();
         };
@@ -7058,6 +7064,7 @@ impl CBackend {
         callee_subst: &[(String, Type)],
         args: &[Arg],
         span: Span,
+        this_at: Option<&str>,
     ) -> Option<Vec<String>> {
         let mut slots: Vec<Option<String>> = vec![None; params.len()];
         let mut next = 0usize;
@@ -7109,7 +7116,12 @@ impl CBackend {
                 .filter_map(|(j, q)| slots[j].clone().map(|v| (q.name.clone(), v)))
                 .collect();
             let saved_alias = self.param_alias.replace(aliases);
+            let saved_this = std::mem::replace(
+                &mut self.this_override,
+                this_at.map(|r| r.to_string()),
+            );
             let v = self.expr(default);
+            self.this_override = saved_this;
             self.param_alias = saved_alias;
             slots[i] = Some(v);
         }

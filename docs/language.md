@@ -2061,7 +2061,9 @@ destructuring a record in a `when` or a binding, the native backend
 through C11 (with C, C++, Rust, Go, Java and Kotlin interop), actors on
 real OS threads, `deinit`, `weak`, `Any` natively, visibility with
 `package` and `public`, a namespace that lets two modules declare the same
-name, dependencies with transitivity and a lockfile, `constexpr`, and
-macros. What the C
+name, dependencies with transitivity and a lockfile, `constexpr`,
+macros, and named arguments on a method call natively — which is also a
+parameter default that mentions `this`, since the two are the same
+machinery. What the C
 backend still refuses, it refuses **by name** — `keal build` never
 mis-compiles.

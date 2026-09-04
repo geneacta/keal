@@ -846,6 +846,12 @@ class CBackend() {
     var shapes: Map<String, List<SField>> = {}
     var genericClasses: List<String> = []
     var thisName: String = ""
+    /// What `this` means while a parameter's DEFAULT is being emitted, which
+    /// is not where it was written. A default belongs to the callee, so its
+    /// `this` is the receiver of the call — and the call site is emitting it,
+    /// where `this` is the caller's own receiver or nothing at all. Set only
+    /// around a default, and it wins over both. `""` when not in one.
+    var thisOverride: String = ""
     /// The type of the object `thisName` points at, so a lambda that captures
     /// `this` knows what it is holding: what to retain, what to release, and
     /// what to write in the environment struct.
@@ -2805,6 +2811,7 @@ class CBackend() {
     ///
     /// This is `varRef` for the one name a program cannot bind.
     func thisRef(): String {
+        unless (this.thisOverride == "") { return this.thisOverride }
         val env = this.captureEnv
         if (env != null) {
             val cap = env["this"]
@@ -5671,12 +5678,6 @@ class CBackend() {
             }
         }
 
-        for (a in e.args) {
-            unless (a.name == "") {
-                this.unsupported(e.file, e.line, e.col, "named arguments")
-                return "0"
-            }
-        }
         val receiver = this.expr(obj)
         var declParams: List<ParamN> = []
         val cd = this.classDecls[class_]
@@ -5693,7 +5694,7 @@ class CBackend() {
                 i += 1
             }
         }
-        val rendered = this.renderArgsWithDefaults(declParams, calleeSubst, e.args, e.file, e.line, e.col)
+        val rendered = this.renderArgsWithDefaults(declParams, calleeSubst, e.args, e.file, e.line, e.col, receiver)
         if (rendered == null) { return "0" }
         rendered.insert(0, receiver)
         val margs = e.inst
@@ -6922,7 +6923,7 @@ class CBackend() {
                     i += 1
                 }
             }
-            val rendered = this.renderArgsWithDefaults(ctorParams, calleeSubst, args, e.file, e.line, e.col)
+            val rendered = this.renderArgsWithDefaults(ctorParams, calleeSubst, args, e.file, e.line, e.col, "")
             if (rendered == null) { return "0" }
             val call = "${sn}_new(${rendered.join(", ")})"
             return this.ownTempOf(ty, call)
@@ -7038,7 +7039,7 @@ class CBackend() {
         var declParams: List<ParamN> = []
         val fd = this.funDecls[name]
         if (fd != null) { declParams = fd.params }
-        val rendered = this.renderArgsWithDefaults(declParams, calleeSubst, args, e.file, e.line, e.col)
+        val rendered = this.renderArgsWithDefaults(declParams, calleeSubst, args, e.file, e.line, e.col, "")
         if (rendered == null) { return "0" }
         val call = "${cname}(${rendered.join(", ")})"
         return this.finishCall(e, call)
@@ -7047,7 +7048,7 @@ class CBackend() {
     /// Renders a call's arguments against the declaration's parameters:
     /// positional first, then named into their slots, then each missing slot
     /// filled by emitting its default at the call site.
-    func renderArgsWithDefaults(params: List<ParamN>, calleeSubst: List<SubstPair>, args: List<ArgN>, file: Int, atLine: Int, col: Int): List<String>? {
+    func renderArgsWithDefaults(params: List<ParamN>, calleeSubst: List<SubstPair>, args: List<ArgN>, file: Int, atLine: Int, col: Int, thisAt: String): List<String>? {
         val slots: List<String> = []
         val filled: List<Bool> = []
         for (p in params) {
@@ -7119,7 +7120,10 @@ class CBackend() {
             }
             val savedAlias = this.paramAlias
             this.paramAlias = aliases
+            val savedThis = this.thisOverride
+            this.thisOverride = thisAt
             val v = this.expr(default)
+            this.thisOverride = savedThis
             this.paramAlias = savedAlias
             slots[i] = v
             filled[i] = true
