@@ -1106,6 +1106,11 @@ impl Checker {
             if let Some(m) = synth {
                 c.methods.push(m);
             }
+            let synth_with =
+                (!c.methods.iter().any(|m| m.name == "with")).then(|| synth_record_with(c));
+            if let Some(m) = synth_with {
+                c.methods.push(m);
+            }
             let has_eq = c.traits.iter().any(|t| {
                 matches!(&t.kind, TypeExprKind::Named { name, .. } if name == "Eq")
             });
@@ -3162,6 +3167,17 @@ impl Checker {
             for a in args.iter_mut() {
                 self.check_expr(&mut a.value, None);
             }
+            if name == "with" {
+                // `with` is generated for records only, and a class reaching
+                // for it is asking a real question. Answering "no such
+                // method" alone sends somebody looking for a typo.
+                self.error_note(
+                    span,
+                    format!("`{}` has no method `with`", cls),
+                    "`with` is generated for a `record`, whose fields cannot change; a class's `var` field is assigned instead, and a class compares by identity, so a copy of one is never equal to it",
+                );
+                return Type::Error;
+            }
             self.error(span, format!("`{}` has no method `{}`", cls, name));
             return Type::Error;
         }
@@ -4777,6 +4793,84 @@ fn synth_record_equals(c: &ClassDecl) -> FunDecl {
             span,
         }]),
         ret: Some(named("Bool", Vec::new())),
+        body: Rc::new(Block { stmts: vec![Stmt { kind: StmtKind::Expr(body_expr), span }] }),
+        span,
+    }
+}
+
+/// `r.with(port = 8080)`: the same record with some fields replaced.
+///
+/// It is a method, not a form of its own, and it is written the way anyone
+/// could write it by hand — one parameter per constructor field, each
+/// defaulting to `this`'s value of that field, and a constructor call:
+///
+///     func with(host: String = this.host, port: Int = this.port): Conf {
+///         return Conf(host, port)
+///     }
+///
+/// Everything it needs already existed: parameter defaults, named arguments
+/// in any order, and a default that may mention `this`. So there is no new
+/// rule to learn and nothing below the checker to teach — the engines see an
+/// ordinary method call, and `keal types` shows one.
+///
+/// Only a record gets one. A class's fields may be `var`, so it can be
+/// changed in place and does not need a new value to change; and a class
+/// compares by identity, so a "copy with one field replaced" would answer
+/// `false` against the value it came from, which is not what anyone writing
+/// `with` means.
+///
+/// The parameters are the CONSTRUCTOR's fields only. A field declared in the
+/// body is derived — it is whatever its initializer says — so it is derived
+/// again for the new value rather than carried across.
+fn synth_record_with(c: &ClassDecl) -> FunDecl {
+    let span = c.span;
+    let named = |name: &str, args: Vec<TypeExpr>| TypeExpr {
+        kind: TypeExprKind::Named { name: name.to_string(), args },
+        span,
+    };
+    let self_ty = named(
+        &c.name,
+        c.type_params.iter().map(|p| named(&p.name, Vec::new())).collect(),
+    );
+    let ex = |kind: ExprKind| Expr { ty: None, inst: None, kind, span };
+
+    let fields: Vec<&CtorParam> = c.ctor.iter().filter(|p| p.field.is_some()).collect();
+
+    let params: Vec<Param> = fields
+        .iter()
+        .map(|f| Param {
+            name: f.name.clone(),
+            ty: Some(f.ty.clone()),
+            default: Some(ex(ExprKind::Field {
+                obj: Box::new(ex(ExprKind::This)),
+                name: f.name.clone(),
+                safe: false,
+            })),
+            mutable: false,
+            span,
+        })
+        .collect();
+
+    let args: Vec<Arg> = fields
+        .iter()
+        .map(|f| Arg { name: None, value: ex(ExprKind::Ident(f.name.clone())) })
+        .collect();
+
+    let body_expr = ex(ExprKind::Call {
+        callee: Box::new(ex(ExprKind::Ident(c.name.clone()))),
+        args,
+    });
+
+    FunDecl {
+        name: "with".to_string(),
+        constexpr: false,
+        // As visible as the record, for the reason `equals` is: a record is
+        // its fields, and one whose fields cannot be replaced is not the
+        // data case.
+        vis: c.vis,
+        type_params: Vec::new(),
+        params: Rc::new(params),
+        ret: Some(self_ty),
         body: Rc::new(Block { stmts: vec![Stmt { kind: StmtKind::Expr(body_expr), span }] }),
         span,
     }

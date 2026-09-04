@@ -1,0 +1,56 @@
+// `with`: the same record, some fields replaced.
+//
+// It is a synthesized method and nothing more — one parameter per constructor
+// field, each defaulting to `this`'s value of it, then a constructor call.
+// Everything it needs already existed: parameter defaults, named arguments in
+// any order, and a default that may mention `this`. So there is nothing below
+// the checker that learns a rule, and `keal types` shows an ordinary method.
+
+record Conf(val host: String = "localhost", val port: Int = 80, val tls: Bool = false)
+record Point(val x: Int, val y: Int)
+record Box<T>(val v: T, val tag: String)
+record Empty()
+
+val base = Conf()
+assert(base.with(port = 8080) == Conf("localhost", 8080, false), "one field replaced")
+assert(base.with(tls = true, host = "keal.dev") == Conf("keal.dev", 80, true),
+    "two fields, written in the other order")
+assert(base.with() == base, "replacing nothing gives an equal value")
+assert(base == Conf(), "and the value it came from is untouched")
+assert(Empty().with() == Empty(), "a record with no fields still has one")
+
+// The case it exists for: a value assembled a condition at a time, where
+// every step is a COMPLETE record. There is no half-built state to get wrong,
+// which is the difference between this and a builder.
+var c = Conf()
+val dev = true
+val secure = false
+if (dev) { c = c.with(port = 8080) }
+if (secure) { c = c.with(tls = true) }
+assert(c == Conf("localhost", 8080, false), "assembled step by step")
+
+// A record whose fields have no defaults of their own still gets `with`: the
+// defaults `with` uses are the receiver's values, not the constructor's.
+assert(Point(1, 2).with(y = 9) == Point(1, 9), "no constructor defaults needed")
+assert(Box(3, "n").with(tag = "m") == Box(3, "m"), "a generic record")
+
+// The receiver is evaluated exactly once, whatever expression it is — which
+// is what makes this a method rather than a rewrite into a constructor call
+// with the receiver spelled once per field.
+var calls = 0
+func src(): Point { calls += 1 return Point(1, 2) }
+assert(src().with(y = 5) == Point(1, 5), "the receiver may be any expression")
+assert(calls == 1, "and runs once: ${calls}")
+
+// Written by hand, yours is used — the rule `equals` already follows.
+record Own(val x: Int) {
+    func with(x: Int = this.x): String { return "mine ${x}" }
+}
+assert(Own(1).with(x = 5) == "mine 5", "a `with` of your own wins")
+
+// A field declared in the BODY is derived, so a new value derives it again
+// rather than carrying the old one across.
+record Sized(val text: String) {
+    val length: Int = text.length
+}
+assert(Sized("abc").with(text = "hello").length == 5, "a body field is derived again")

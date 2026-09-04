@@ -1,0 +1,12 @@
+// `with` is a record's, not a class's. A class's fields may be `var`, so it
+// changes in place rather than by copy; and a class compares by identity, so
+// a copy with one field replaced would answer `false` against the value it
+// came from, which is not what anyone writing `with` means.
+class Counter(val n: Int)
+
+proc main() {
+    val c = Counter(1)
+    println(c.with(n = 2))
+}
+
+main()

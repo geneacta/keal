@@ -887,6 +887,56 @@ unless you opt in.
 Records cannot have `var` fields, in the constructor or in the body. If the
 data has to change, use a `class`.
 
+### `with`
+
+A record is immutable, so changing one means building another. `with` is that,
+without repeating the fields that stay:
+
+```keal
+record Conf(val host: String = "localhost", val port: Int = 80, val tls: Bool = false)
+
+val base = Conf()
+base.with(port = 8080)                    // Conf(host="localhost", port=8080, tls=false)
+base.with(tls = true, host = "keal.dev")  // any order, any subset
+base                                       // unchanged — it always was
+```
+
+It exists for the value assembled a condition at a time:
+
+```keal
+var c = Conf()
+if (dev)    { c = c.with(port = 8080) }
+if (secure) { c = c.with(tls = true) }
+```
+
+**Every step is a whole record.** That is the difference between this and a
+builder: there is no half-built state, so nothing can ask what happens when a
+required field was never set — the question a builder's `build()` has to
+answer at run time, and this language answers by not having it.
+
+`with` is a method, generated the way `equals` is, and written the way you
+would write it by hand:
+
+```keal
+func with(host: String = this.host, port: Int = this.port, tls: Bool = this.tls): Conf {
+    return Conf(host, port, tls)
+}
+```
+
+Nothing new made that possible — parameter defaults, named arguments in any
+order, and a default that may mention `this` were all already there. So the
+usual rule holds: write your own `with` and yours is used instead.
+
+Two consequences of it being that method and not a form of its own:
+
+* **The parameters are the constructor's fields.** A field declared in the
+  body is derived from its initializer, so the new value derives it again
+  rather than carrying the old one across.
+* **Only a record has one.** A class's fields may be `var`, so it changes in
+  place; and a class compares by identity, so a copy with one field replaced
+  would answer `false` against what it came from — which is not what anyone
+  writing `with` means. Asking for it on a class says so.
+
 ### Destructuring
 
 A binding may name a value's constructor fields instead of the value:
@@ -2062,8 +2112,8 @@ through C11 (with C, C++, Rust, Go, Java and Kotlin interop), actors on
 real OS threads, `deinit`, `weak`, `Any` natively, visibility with
 `package` and `public`, a namespace that lets two modules declare the same
 name, dependencies with transitivity and a lockfile, `constexpr`,
-macros, and named arguments on a method call natively — which is also a
-parameter default that mentions `this`, since the two are the same
-machinery. What the C
+macros, `with` on records, and named arguments on a method call natively —
+which is also a parameter default that mentions `this`, since that is what
+`with` is made of. What the C
 backend still refuses, it refuses **by name** — `keal build` never
 mis-compiles.

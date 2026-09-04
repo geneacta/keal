@@ -1279,6 +1279,13 @@ package class Checker() {
             unless (hasEquals) {
                 c.methods.add(synthRecordEquals(c))
             }
+            var hasWith = false
+            for (m in c.methods) {
+                if (m.name == "with") { hasWith = true }
+            }
+            unless (hasWith) {
+                c.methods.add(synthRecordWith(c))
+            }
             var hasEq = false
             for (t in c.traits) {
                 if (t.kind == "named" and t.name == "Eq") { hasEq = true }
@@ -3288,6 +3295,14 @@ package class Checker() {
             for (a in args) {
                 this.checkExpr(a.value, null)
             }
+            if (name == "with") {
+                // `with` is generated for records only, and a class reaching
+                // for it is asking a real question. Answering "no such
+                // method" alone sends somebody looking for a typo.
+                this.errorNote(e.file, e.line, e.col, "`${cls}` has no method `with`",
+                    "`with` is generated for a `record`, whose fields cannot change; a class's `var` field is assigned instead, and a class compares by identity, so a copy of one is never equal to it")
+                return Ty("Error")
+            }
             this.error(e.file, e.line, e.col, "`${cls}` has no method `${name}`")
             return Ty("Error")
         }
@@ -4679,6 +4694,77 @@ func synthRecordEquals(c: ClassN): FunN {
     val s = StmtN("expr", c.line, c.col)
     s.file = c.file
     s.ex = bodyEx
+    val b = BlockN()
+    b.stmts = [s]
+    f.body = b
+    return f
+}
+
+/// `r.with(port = 8080)`: the same record with some fields replaced.
+///
+/// A method, not a form of its own, written the way anyone could write it by
+/// hand — one parameter per constructor field, each defaulting to `this`'s
+/// value of that field, and a constructor call. Everything it needs already
+/// existed: parameter defaults, named arguments in any order, and a default
+/// that may mention `this`. Nothing below the checker learns a rule.
+///
+/// Only a record gets one. A class's fields may be `var`, so it changes in
+/// place rather than by copy, and it compares by identity, so a copy with one
+/// field replaced would answer `false` against what it came from.
+///
+/// The parameters are the CONSTRUCTOR's fields only: a field declared in the
+/// body is derived, so the new value derives it again.
+func synthRecordWith(c: ClassN): FunN {
+    val selfTy = TypeEx("named", c.line, c.col)
+    selfTy.file = c.file
+    selfTy.name = c.name
+    for (p in c.typeParams) {
+        val a = TypeEx("named", c.line, c.col)
+        a.file = c.file
+        a.name = p.name
+        selfTy.args.add(a)
+    }
+
+    val f = FunN("with", c.line, c.col)
+    // As visible as the record, for the reason `equals` is.
+    f.vis = c.vis
+    f.file = c.file
+
+    val params: List<ParamN> = []
+    val args: List<ArgN> = []
+    for (p in c.ctor) {
+        unless (p.fieldKind == "") {
+            val par = ParamN(p.name, c.line, c.col)
+            par.file = c.file
+            par.tyEx = p.tyEx
+            val thisEx = Ex("this", c.line, c.col)
+            thisEx.file = c.file
+            val read = Ex("field", c.line, c.col)
+            read.file = c.file
+            read.text = p.name
+            read.kids = [thisEx]
+            par.default = read
+            params.add(par)
+            val use = Ex("ident", c.line, c.col)
+            use.file = c.file
+            use.text = p.name
+            args.add(ArgN("", use))
+        }
+    }
+    f.params = params
+    f.ret = selfTy
+
+    val callee = Ex("ident", c.line, c.col)
+    callee.file = c.file
+    callee.text = c.name
+    val call = Ex("call", c.line, c.col)
+    call.file = c.file
+    call.kids = [callee]
+    call.args = args
+
+    val s = StmtN("expr", c.line, c.col)
+    s.file = c.file
+    s.ex = call
     val b = BlockN()
     b.stmts = [s]
     f.body = b

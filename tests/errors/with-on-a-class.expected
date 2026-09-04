@@ -1,0 +1,7 @@
+error: `Counter` has no method `with`
+  --> tests/errors/with-on-a-class.keal:9:15
+  |
+9 |     println(c.with(n = 2))
+  |               ^
+  = note: `with` is generated for a `record`, whose fields cannot change; a class's `var` field is assigned instead, and a class compares by identity, so a copy of one is never equal to it
+1 error found
