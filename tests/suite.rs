@@ -1454,19 +1454,27 @@ fn output_and_failure_arrive_in_the_order_they_happened() {
     }
 }
 
-/// Two actors printing at once must not tear a line.
+/// Actors printing at once must not tear a line.
 ///
 /// `fwrite` and `fputc` each lock the stream and do not lock together, so the
-/// backend's `println` — a write then a newline — let a second thread's line
+/// backend's `println` — a write then a newline — let another thread's line
 /// land between a line and its own newline: two lines joined, then an empty
 /// one. The interpreters emit a line under one lock and cannot do it. It is a
 /// disagreement about OUTPUT, so every corpus comparison should have caught
 /// it, and none did: no program in the corpus prints from more than one
 /// thread.
 ///
-/// The fixture is written here rather than kept in `tests/`, because its
-/// output is 800 lines in an order that is nobody's business, and every
-/// directory under `tests/` belongs to a harness that would compare it.
+/// The SIZE of the fixture is the test. Two actors and 800 lines caught this
+/// on every run of one machine and 9% of runs on another — a green that means
+/// nothing and a red that gets called flaky. Eight actors and 8,000 lines tear
+/// about 250 of them per run here, 20 runs out of 20, which leaves room for a
+/// scheduler an order of magnitude less obliging. Longer lines were tried
+/// first and made it WORSE: what matters is how many times the window opens,
+/// not how wide it is.
+///
+/// The fixture is built here rather than kept in `tests/`, because its output
+/// is 8,000 lines in an order that is nobody's business and every directory
+/// there belongs to a harness that would compare it.
 #[test]
 fn concurrent_actors_do_not_tear_a_line() {
     let cc = c_driver();
@@ -1474,28 +1482,33 @@ fn concurrent_actors_do_not_tear_a_line() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
     }
+    const ACTORS: &str = "abcdefgh";
+    const EACH: usize = 1000;
+    const WIDTH: usize = 36;
+
+    let mut src = String::from("record M(val tag: String)\nval sys: ActorSystem<M> = ActorSystem()\n");
+    for a in ACTORS.chars() {
+        src.push_str(&format!(
+            "val {a} = sys.spawn({{ self, m -> var i = 0\n    while (i < {EACH}) {{ println(\"{a}-{body}\") i++ }} }})\n",
+            a = a,
+            EACH = EACH,
+            body = a.to_ascii_uppercase().to_string().repeat(WIDTH),
+        ));
+    }
+    for a in ACTORS.chars() {
+        src.push_str(&format!("{a}.send(M(\"{a}\"))\n", a = a));
+    }
+    src.push_str("sys.run()\n");
+
     let dir = std::env::temp_dir().join("keal-torn-lines");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
-    let src = dir.join("torn.keal");
-    std::fs::write(
-        &src,
-        r#"record M(val tag: String)
-val sys: ActorSystem<M> = ActorSystem()
-val a = sys.spawn({ self, m -> var i = 0
-    while (i < 400) { println("${m.tag}-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA") i++ } })
-val b = sys.spawn({ self, m -> var i = 0
-    while (i < 400) { println("${m.tag}-BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB") i++ } })
-a.send(M("a"))
-b.send(M("b"))
-sys.run()
-"#,
-    )
-    .expect("cannot write the fixture");
+    let path = dir.join("torn.keal");
+    std::fs::write(&path, &src).expect("cannot write the fixture");
     let exe = dir.join("torn");
     let built = Command::new(BIN)
         .arg("build")
-        .arg(&src)
+        .arg(&path)
         .arg("-o")
         .arg(&exe)
         .output()
@@ -1506,19 +1519,19 @@ sys.run()
         String::from_utf8_lossy(&built.stderr)
     );
 
-    // Tearing is a race, so once proves nothing either way. Before the fix
-    // this showed four torn lines on the first run and some on every run
-    // after.
+    let expected = ACTORS.len() * EACH;
+    // Tearing is a race, so one run proves nothing either way.
     for attempt in 1..=3 {
         let out = Command::new(&exe).output().expect("cannot run the fixture");
         let text = String::from_utf8_lossy(&out.stdout);
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 800, "attempt {}: wrong number of lines", attempt);
+        assert_eq!(lines.len(), expected, "attempt {}: wrong number of lines", attempt);
         for (i, line) in lines.iter().enumerate() {
-            let whole = (line.starts_with("a-") || line.starts_with("b-"))
-                && line.len() == 38
-                && line[2..].bytes().all(|c| c == b'A' || c == b'B')
-                && line[2..].bytes().all(|c| c == line.as_bytes()[2]);
+            let b = line.as_bytes();
+            let whole = b.len() == WIDTH + 2
+                && ACTORS.contains(b[0] as char)
+                && b[1] == b'-'
+                && b[2..].iter().all(|&c| c == b[0].to_ascii_uppercase());
             assert!(
                 whole,
                 "attempt {}: line {} was torn by another thread: {:?}",
