@@ -54,3 +54,11 @@ if (isFile("/bin/sh") or isFile("C:/Windows/System32/cmd.exe")) {
 // mistyped path would silently run whatever shares its last component.
 assert(runCommand(["./nowhere-at-all/" + shell, flag, "exit 3"]) == null,
     "a path with a directory in it is not looked up on the search path")
+
+// And that `null` needs a positive control of the same shape, or it could be
+// passing because this FORM of call always fails rather than because nothing
+// lives at that path. Same rule, opposite outcome: a directory that IS there.
+if (isFile("/bin/sh")) {
+    val viaDir = runCommand(["/bin/../bin/sh", "-c", "exit 5"]) ?: []
+    assert(viaDir.size == 3 and viaDir[0] == "5", "a path with a directory is used as one")
+}
