@@ -1,0 +1,14 @@
+// A program that prints and then fails.
+//
+// The snapshot beside this file pins WHAT it says. What it cannot pin is the
+// ORDER the two things reach a place that holds both — a terminal, a log,
+// `2>&1` — because a snapshot of stderr has already thrown the other stream
+// away. `output_and_failure_arrive_in_the_order_they_happened` pins that.
+
+proc main() {
+    println("before the failure")
+    val missing: String? = null
+    println(missing!!.length)
+}
+
+main()

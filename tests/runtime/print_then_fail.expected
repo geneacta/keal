@@ -1,0 +1,7 @@
+runtime error: `!!` was applied to a null value
+  --> tests/runtime/print_then_fail.keal:11:13
+   |
+11 |     println(missing!!.length)
+   |             ^
+  = note: handle the null case with `?:` or an `if` instead
+  in `main` at tests/runtime/print_then_fail.keal:14:1
