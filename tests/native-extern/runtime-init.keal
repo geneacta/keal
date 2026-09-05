@@ -1,0 +1,28 @@
+// `keal_runtime_init` — the entry point a host that loads this program as a
+// library calls before anything else in it runs.
+//
+// A generated program's `main` calls it, so a program run the ordinary way
+// never has to think about it. A host that never calls `main` — PostgreSQL
+// loading a `LANGUAGE C` function, a JNI `.so`, a Python extension — has to,
+// or every string literal is still a null pointer and the first read of one
+// ends the process.
+//
+// What this file pins is the half a host depends on and a normal run never
+// exercises: that calling it AGAIN changes nothing. A host cannot always tell
+// whether it has already run.
+
+native """
+static int64_t init_twice(void) {
+    keal_runtime_init();
+    keal_runtime_init();
+    return 1;
+}
+"""
+
+extern func initTwice(): Int = "init_twice"
+
+val greeting = "a string literal, interned once"
+println("before: ${greeting}")
+println("re-init returned ${initTwice()}")
+println("after: ${greeting}")
+println("length unchanged: ${greeting.length == 31}")

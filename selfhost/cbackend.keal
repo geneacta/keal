@@ -7400,6 +7400,21 @@ class CBackend() {
             i += 1
         }
         out += "}\n\n"
+        // The one entry point a host that loads this translation unit as a
+        // library has to call before anything else in it runs. It does what
+        // `main` does before the program's first statement, which today is
+        // interning the string literals — a global read before it happens is
+        // a null pointer, and the first thing that dereferences one ends the
+        // process.
+        //
+        // Exported and named on purpose. `keal_init_literals` is static and
+        // its name is this file's business; a host that reaches for it is
+        // holding something that may be renamed. This one will not be.
+        //
+        // Idempotent, so a host that cannot tell whether it has already run
+        // may call it again. Not thread-safe, and does not need to be: it
+        // belongs at load time, before anything else has started.
+        out += "void keal_runtime_init(void) {\n    static bool done = false;\n    if (done) { return; }\n    done = true;\n    keal_init_literals();\n}\n\n"
 
         out += this.typesOut
         out += "\n"
@@ -7432,7 +7447,7 @@ class CBackend() {
         // the program's own arguments start after its path.
         out = out.replace(
             "int main(void) {\n",
-            "int main(int argc, char** argv) {\n    keal_argc = argc > 1 ? argc - 1 : 0;\n    keal_argv = argv + 1;\n    keal_init_literals();\n"
+            "int main(int argc, char** argv) {\n    keal_argc = argc > 1 ? argc - 1 : 0;\n    keal_argv = argv + 1;\n    keal_runtime_init();\n"
         )
         return out
     }

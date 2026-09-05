@@ -1,0 +1,4 @@
+before: a string literal, interned once
+re-init returned 1
+after: a string literal, interned once
+length unchanged: true
