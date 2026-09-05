@@ -34,7 +34,13 @@ SITE = os.path.join(ROOT, "site")
 _DEFAULT_KEAL = os.path.join(ROOT, "target/release/keal")
 if os.name == "nt":
     _DEFAULT_KEAL += ".exe"
-KEAL = sys.argv[1] if len(sys.argv) > 1 else _DEFAULT_KEAL
+# Flags are taken out first. `sys.argv[1]` used to be read as the compiler's
+# path whatever it was, so `--external` was tried as a binary, the standard
+# library page was skipped with its reason printed, and the run reported 44
+# pages instead of 46 — a smaller site, built successfully.
+_FLAGS = {a for a in sys.argv[1:] if a.startswith("--")}
+_ARGS = [a for a in sys.argv[1:] if not a.startswith("--")]
+KEAL = _ARGS[0] if _ARGS else _DEFAULT_KEAL
 
 # ---- a small markdown converter -----------------------------------------
 # Enough of markdown for the documents this repository actually writes:
@@ -788,6 +794,75 @@ def main():
         f.write("\n".join(lines) + "\n")
     check_links(written)
     print("%d pages written, plus robots.txt and sitemap.xml" % len(written))
+    if "--external" in _FLAGS:
+        check_external(written)
+
+
+def check_external(written):
+    """Follow every link that leaves the site. Off by default, on purpose.
+
+    A build that needs the network fails on a train, and a suite that does not
+    run offline is a suite people stop running — so this is never part of one.
+    Run it by hand, or on a schedule, when the question is whether the outside
+    world still has what we say it has.
+
+    The trap, from the kealeb session that hit it first: `rel="preconnect"`
+    names an ORIGIN to warm up, not a document, and fetching it answers 404 by
+    construction. Its first run reported twelve broken links and every one was
+    the checker being wrong. So this reads tag by tag rather than hunting for
+    `href=`, and skips the rels that do not name a page.
+    """
+    import re as _re
+    import urllib.error
+    import urllib.request
+
+    skip_rel = {"preconnect", "dns-prefetch", "prefetch", "preload"}
+    urls = {}
+    for w in written:
+        rel = os.path.relpath(w, SITE).replace(os.sep, "/")
+        with open(w, encoding="utf-8") as f:
+            body = f.read()
+        for tag in _re.findall(r"<[a-zA-Z][^>]*>", body):
+            m = _re.search(r'\b(?:href|src)="(https?://[^"]+)"', tag)
+            if not m:
+                continue
+            r = _re.search(r'\brel="([^"]+)"', tag)
+            if r and set(r.group(1).split()) & skip_rel:
+                continue
+            urls.setdefault(m.group(1), set()).add(rel)
+
+    print("checking %d external link(s)" % len(urls))
+    bad = []
+    for url in sorted(urls):
+        req = urllib.request.Request(url, method="HEAD",
+                                     headers={"User-Agent": "keal-site-linkcheck"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                code = r.status
+        except urllib.error.HTTPError as e:
+            # Some servers refuse HEAD and answer GET; ask again before
+            # calling a page gone.
+            if e.code in (403, 405, 501):
+                try:
+                    with urllib.request.urlopen(
+                        urllib.request.Request(url, headers={"User-Agent": "keal-site-linkcheck"}),
+                        timeout=20,
+                    ) as r:
+                        code = r.status
+                except Exception as e2:
+                    code = getattr(e2, "code", str(e2))
+            else:
+                code = e.code
+        except Exception as e:
+            code = str(e)
+        if code != 200:
+            bad.append((url, code, sorted(urls[url])))
+    for url, code, pages in bad:
+        print("  %s -> %s  (on %d page(s): %s)"
+              % (url, code, len(pages), ", ".join(pages[:3])))
+    if bad:
+        raise SystemExit("%d external link(s) do not answer 200" % len(bad))
+    print("every external link answers 200")
 
 
 def check_links(written):

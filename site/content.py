@@ -83,10 +83,13 @@ LANDING = {
                    " qui n'en est pas une, un type que le backend natif ne savait pas"
                    " compiler du tout.",
         "built": [
+            # Les deux ont une moitié française, comme la barre de navigation
+            # le fait déjà pour keal-view : un lecteur français renvoyé vers
+            # l'anglais est une couture qu'on ne voit pas en écrivant.
             ("kealeb", "Un cadriciel web — routage, sessions, SQLite, pages vivantes.",
-             "https://geneacta.github.io/kealeb/"),
+             "https://geneacta.github.io/kealeb/fr/"),
             ("keal-view", "Un cadriciel graphique — rastériseur, TrueType, mise en page, widgets.",
-             "https://geneacta.github.io/keal-view/"),
+             "https://geneacta.github.io/keal-view/fr/"),
             ("KealSql", "Un langage de schémas et de requêtes PostgreSQL, compilé vers SQL.",
              "https://github.com/geneacta/kealsql"),
         ],
