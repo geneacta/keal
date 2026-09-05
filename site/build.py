@@ -69,11 +69,30 @@ def fix_href(href):
             "threads": "threads.html",
             "interop": "interop.html",
             "drop": "deinit.html",
+            "packages": "packages.html",
             "README": "index.html",
             "TUTORIAL": "tour.html",
             "CONTRIBUTING": "contributing.html",
         }
-        return mapped.get(name, "docs.html") + anchor
+        if name in mapped:
+            return mapped[name] + anchor
+        # An unmapped `.md` used to become a link to the docs index. That is
+        # never a broken link and never the right one: `packages.md` had a
+        # page of its own and every link naming it landed on the index
+        # instead, while `SECURITY.md`, which has no page at all, landed
+        # there too. A link checker cannot see either, because both point at
+        # something that exists.
+        #
+        # So the two cases are told apart. A document under `docs/` is meant
+        # to have a page, and one missing from the map above is the map being
+        # out of date — which stops the build rather than redirecting. Any
+        # other `.md` is a repository file and is linked as one.
+        if os.path.exists(os.path.join(ROOT, "docs", name + ".md")):
+            raise SystemExit(
+                "site: docs/%s.md has no entry in fix_href's map, so a link to "
+                "it would silently become the docs index" % name
+            )
+        return "https://github.com/geneacta/keal/blob/main/" + href.lstrip("./") + anchor
     # Anything else still lives in the repository.
     return "https://github.com/geneacta/keal/blob/main/" + href.lstrip("./") + anchor
 
@@ -747,7 +766,61 @@ def main():
     lines.append("</urlset>")
     with open(os.path.join(SITE, "sitemap.xml"), "w", encoding="utf-8", newline="") as f:
         f.write("\n".join(lines) + "\n")
+    check_links(written)
     print("%d pages written, plus robots.txt and sitemap.xml" % len(written))
+
+
+def check_links(written):
+    """Every relative link on every page written must reach something.
+
+    A set of pages that promise each other exist is a promise nothing keeps:
+    a document renamed, a heading retitled, a page dropped from one language
+    and not the other, and the site still builds and still says the link is
+    there. The build fails instead. Anchors are checked as anchors — the
+    target page has to exist, and if the fragment names an `id`, that has to
+    exist too, which is what catches a heading renamed in one language only.
+    """
+    import re as _re
+
+    have = set()
+    ids = {}
+    for w in written:
+        rel = os.path.relpath(w, SITE).replace(os.sep, "/")
+        have.add(rel)
+        with open(w, encoding="utf-8") as f:
+            body = f.read()
+        ids[rel] = set(_re.findall(r'id="([^"]+)"', body))
+    # Anything already sitting in the output directory is reachable too —
+    # the stylesheet, the images, the script. The first version of this check
+    # counted only the pages it had just written and called 138 good links
+    # broken, which is the failure mode of a checker that knows one half of
+    # what it is checking.
+    for base, _, names in os.walk(SITE):
+        for n in names:
+            rel = os.path.relpath(os.path.join(base, n), SITE).replace(os.sep, "/")
+            have.add(rel)
+
+    broken = []
+    for w in written:
+        rel = os.path.relpath(w, SITE).replace(os.sep, "/")
+        here = os.path.dirname(rel)
+        with open(w, encoding="utf-8") as f:
+            body = f.read()
+        for href in _re.findall(r'(?:href|src)="([^"]+)"', body):
+            if href.startswith(("http://", "https://", "mailto:", "data:", "#")):
+                continue
+            target, _, anchor = href.partition("#")
+            if not target:
+                continue
+            dest = os.path.normpath(os.path.join(here, target)).replace(os.sep, "/")
+            if dest not in have:
+                broken.append("%s -> %s" % (rel, href))
+            elif anchor and dest in ids and anchor not in ids[dest]:
+                broken.append("%s -> %s (no such anchor)" % (rel, href))
+    if broken:
+        for b in broken:
+            print("  broken link: %s" % b)
+        raise SystemExit("%d broken link(s); the site was not finished" % len(broken))
 
 
 if __name__ == "__main__":

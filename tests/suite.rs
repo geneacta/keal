@@ -775,9 +775,15 @@ fn the_site_is_what_its_generator_would_write() {
     // along with everything it reads that lives under `site/`.
     for entry in std::fs::read_dir(root().join("site")).expect("cannot read site/") {
         let path = entry.expect("cannot read a site entry").path();
+        let name = path.file_name().expect("a file has a name");
         if path.is_file() {
-            let name = path.file_name().expect("a file has a name");
             std::fs::copy(&path, site.join(name)).expect("cannot copy a site file");
+        } else if name == "assets" {
+            // The generator now checks that every relative link it wrote
+            // reaches something, and the images are part of "something". A
+            // copy that left them out made the generator report 92 broken
+            // links against a site that has none.
+            copy_into(&path, &site.join(name));
         }
     }
     // `ROOT` is the generator's parent, so the documents it converts have to

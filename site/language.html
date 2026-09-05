@@ -627,7 +627,7 @@ version = &quot;0.1.0&quot;
 [dependencies]
 geometry = { git = &quot;https://github.com/someone/geometry&quot;, tag = &quot;v1.2.0&quot; }</code></pre>
 <p><code>keal fetch</code> clones each one and checks out what was named. Nothing else in the compiler touches the network: a <code>dep:</code> import reads what is on disk, so a project that commits <code>.keal/deps/</code> builds without git.</p>
-<p>There is no <code>package</code> declaration and no version resolution — a manifest names a commit, not a range. There <em>is</em> an index: <code>keal search</code> finds a package whose URL you do not know, <code>keal add</code> writes it into <code>keal.toml</code> pinned to one exact tag, and the index is an ordinary git repository rather than a service anybody has to keep running. <a href="docs.html">Packages and namespaces</a> argues the order and the difference.</p>
+<p>There is no <code>package</code> declaration and no version resolution — a manifest names a commit, not a range. There <em>is</em> an index: <code>keal search</code> finds a package whose URL you do not know, <code>keal add</code> writes it into <code>keal.toml</code> pinned to one exact tag, and the index is an ordinary git repository rather than a service anybody has to keep running. <a href="packages.html">Packages and namespaces</a> argues the order and the difference.</p>
 <p>The modifier goes on a top-level <code>func</code>, <code>proc</code>, <code>class</code>, <code>record</code>, <code>trait</code>, <code>extern func</code>, <code>val</code> or <code>var</code> — and on a class's own members:</p>
 <pre class="lang-keal"><code>public class Counter(public var n: Int) {
     var steps: Int = 0                    // the class&#x27;s own business
