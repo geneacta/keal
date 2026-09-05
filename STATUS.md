@@ -155,6 +155,18 @@ like a tool being wrong: one looked like a broken site, the other like a
 successful build. So it is not only "nothing was found, suspect the check";
 it is "something was found, suspect the first answer anyway".
 
+**And the rule that says which defects deserve machinery at all**, from the
+kealeb session, at the end of a week where both benches kept finding the same
+faults in each other's code: *a defect that comes from a SLOPE needs a check;
+one that comes from inattention needs attention, and attention does not
+transmit.* Every entry above is a slope. Writing the English page and copying
+it leaves the English link. Writing a link map and giving it a default sends
+every unknown name somewhere plausible. Writing a control with the list of
+what you just produced already in hand counts only that. None of these is
+carelessness — each is what the obvious way of doing the thing produces, which
+is why two people writing independently got the same one, and why a rule about
+being careful would have caught neither.
+
 And the reporting half, which is not a courtesy: **saying which forms you
 asked in is part of having asked.** A test that attests nothing and a test
 whose attestation was never stated read identically from outside, and the
