@@ -6690,9 +6690,14 @@ class CBackend() {
             this.line("const bool ${t} = keal_write_file(${p}, ${c});")
             return t
         }
-        if (name == "runCommand" and args.size == 1) {
+        if (name == "runCommand" and (args.size == 1 or args.size == 2)) {
             val v = this.expr(args[0].value)
-            return this.ownTempOf(tyNullable(tyList(Ty("Str"))), "keal_run_command(${v})")
+            // No second argument means the child reads nothing, which the
+            // runtime spells as a null input rather than an empty string, so
+            // that the descriptor it gets is the one it always got.
+            var input = "NULL"
+            if (args.size == 2) { input = this.expr(args[1].value) }
+            return this.ownTempOf(tyNullable(tyList(Ty("Str"))), "keal_run_command(${v}, ${input})")
         }
         if (name == "readLine" and args.size == 0) {
             return this.ownTempOf(tyNullable(Ty("Str")), "keal_read_line()")

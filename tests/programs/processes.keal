@@ -75,3 +75,32 @@ val built = isFile("target/release/keal.exe") ? "./target/release/keal.exe" : ".
 val own = runCommand([built, "version"]) ?: []
 assert(own.size == 3 and own[0] == "0",
     "a relative path with directories runs, or you are not at the repository root: ${built}")
+
+// A second argument is what the child reads on its standard input. Without
+// one it reads nothing, which is what it always did.
+if (isFile("/bin/sh")) {
+    val fed = runCommand(["/bin/sh", "-c", "cat"], "bonjour") ?: []
+    assert(fed[1] == "bonjour", "the child read what it was sent: ${fed[1]}")
+    val counted = runCommand(["/bin/sh", "-c", "wc -c"], "12345") ?: []
+    assert(counted[1].trim() == "5", "and all of it: ${counted[1].trim()}")
+    val none = runCommand(["/bin/sh", "-c", "cat; echo end"], "") ?: []
+    assert(none[1].trim() == "end", "an empty input is end of file at once")
+
+    // THE ONE THAT MATTERS, and it is the flood above turned around. A child
+    // that answers while it is still reading fills the output pipe while the
+    // parent is still filling the input one. Writing the input to the end
+    // first deadlocks — and so does waiting on all three descriptors together
+    // and then blocking in the write, which is what a `write` of 64 KiB does
+    // on a pipe `poll` said was writable. It wedges for ever, both ways.
+    var big = "0123456789"
+    var k = 0
+    while (k < 15) { big = big + big k++ }
+    val echoed = runCommand(["/bin/sh", "-c", "cat"], big) ?: []
+    assert(echoed[1].length == big.length, "every byte came back: ${echoed[1].length}")
+    assert(echoed[0] == "0", "and the child ended well")
+
+    // A child that stops reading is not an absence: it ran, so it has an exit
+    // code. Only a program that never started is null.
+    val deaf = runCommand(["/bin/sh", "-c", "exit 7"], big) ?: []
+    assert(deaf.size == 3 and deaf[0] == "7", "a child that ignores its input still reports")
+}

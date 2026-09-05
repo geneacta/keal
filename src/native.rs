@@ -369,12 +369,51 @@ pub fn call_global(it: &mut dyn Runtime, name: &str, args: Vec<Value>, span: Spa
                 // absence as a program that is not there.
                 return Ok(Value::Null);
             };
-            match std::process::Command::new(program).args(rest).output() {
-                Ok(out) => Ok(Value::list(vec![
-                    Value::str(out.status.code().unwrap_or(-1).to_string()),
-                    Value::str(String::from_utf8_lossy(&out.stdout).into_owned()),
-                    Value::str(String::from_utf8_lossy(&out.stderr).into_owned()),
-                ])),
+            // A second argument is what the child reads on its standard
+            // input. Without one it reads nothing, as it always did.
+            let input: Option<String> = match args.get(1) {
+                None => None,
+                Some(Value::Str(s)) => Some(s.to_string()),
+                Some(other) => {
+                    return err(
+                        span,
+                        format!("`runCommand` wants a string to send, not `{}`", other.type_name()),
+                    )
+                }
+            };
+            let mut cmd = std::process::Command::new(program);
+            cmd.args(rest);
+            let Some(text) = input else {
+                return match cmd.output() {
+                    Ok(out) => Ok(run_result(&out)),
+                    Err(_) => Ok(Value::Null),
+                };
+            };
+            cmd.stdin(std::process::Stdio::piped());
+            cmd.stdout(std::process::Stdio::piped());
+            cmd.stderr(std::process::Stdio::piped());
+            let mut child = match cmd.spawn() {
+                Ok(c) => c,
+                Err(_) => return Ok(Value::Null),
+            };
+            // Written on a thread of its own, because a child that answers
+            // before it has finished reading fills the output pipe while the
+            // parent is still filling the input one, and neither moves. The
+            // C backend does the same with `poll` on all three descriptors.
+            let mut sink = child.stdin.take();
+            let writer = std::thread::spawn(move || {
+                if let Some(mut h) = sink.take() {
+                    use std::io::Write;
+                    // A child that stops reading is not a failure: it ran,
+                    // and its exit code is the answer. Only a program that
+                    // never started is absent.
+                    let _ = h.write_all(text.as_bytes());
+                }
+            });
+            let out = child.wait_with_output();
+            let _ = writer.join();
+            match out {
+                Ok(out) => Ok(run_result(&out)),
                 Err(_) => Ok(Value::Null),
             }
         }
@@ -1015,4 +1054,14 @@ fn parse_offset(text: &[u8]) -> i64 {
     let hours = i64::from(text[1] - b'0') * 10 + i64::from(text[2] - b'0');
     let minutes = i64::from(text[3] - b'0') * 10 + i64::from(text[4] - b'0');
     sign * (hours * 3600 + minutes * 60)
+}
+
+/// The three parts a finished command answers with, the same for a child
+/// that was given something to read and one that was not.
+fn run_result(out: &std::process::Output) -> Value {
+    Value::list(vec![
+        Value::str(out.status.code().unwrap_or(-1).to_string()),
+        Value::str(String::from_utf8_lossy(&out.stdout).into_owned()),
+        Value::str(String::from_utf8_lossy(&out.stderr).into_owned()),
+    ])
 }

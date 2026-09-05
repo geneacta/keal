@@ -3157,6 +3157,33 @@ typedef struct {
     KealBuf buf;
 } KealReader;
 
+/* The other direction. A thread of its own for the same reason the two
+ * readers have theirs: a child that answers before it has finished reading
+ * fills the output pipe while the parent is still filling the input one, and
+ * neither moves. */
+typedef struct {
+    HANDLE h;
+    const char* bytes;
+    int64_t len;
+} KealWriter;
+
+static DWORD WINAPI keal_feed(LPVOID arg) {
+    KealWriter* w = (KealWriter*)arg;
+    int64_t sent = 0;
+    while (sent < w->len) {
+        DWORD chunk = (DWORD)((w->len - sent) > 65536 ? 65536 : (w->len - sent));
+        DWORD put = 0;
+        /* A child that stopped reading is not a failure: it ran, and its exit
+         * code is the answer. */
+        if (!WriteFile(w->h, w->bytes + sent, chunk, &put, NULL) || put == 0) {
+            break;
+        }
+        sent += (int64_t)put;
+    }
+    CloseHandle(w->h);
+    return 0;
+}
+
 static DWORD WINAPI keal_drain(LPVOID arg) {
     KealReader* r = (KealReader*)arg;
     char chunk[16384];
@@ -3167,7 +3194,7 @@ static DWORD WINAPI keal_drain(LPVOID arg) {
     return 0;
 }
 
-KEAL_FN KealList* keal_run_command(KealList* argv) {
+KEAL_FN KealList* keal_run_command(KealList* argv, KealStr* input) {
     if (argv->len == 0) {
         return NULL;
     }
@@ -3211,6 +3238,7 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     sa.lpSecurityDescriptor = NULL;
     sa.bInheritHandle = TRUE;
     HANDLE or_ = NULL, ow = NULL, er = NULL, ew = NULL, nulh = INVALID_HANDLE_VALUE;
+    HANDLE ir = NULL, iw = NULL;
     if (!CreatePipe(&or_, &ow, &sa, 0) || !CreatePipe(&er, &ew, &sa, 0)) {
         goto fail;
     }
@@ -3218,14 +3246,24 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
      * open and ReadFile never reaches end of file. */
     SetHandleInformation(or_, HANDLE_FLAG_INHERIT, 0);
     SetHandleInformation(er, HANDLE_FLAG_INHERIT, 0);
-    nulh = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                       &sa, OPEN_EXISTING, 0, NULL);
+    /* Nothing to send is the case that was here before this took an input:
+     * the child reads NUL and sees end of file at once. */
+    int64_t to_send = input == NULL ? 0 : input->len;
+    if (to_send > 0) {
+        if (!CreatePipe(&ir, &iw, &sa, 0)) {
+            goto fail;
+        }
+        SetHandleInformation(iw, HANDLE_FLAG_INHERIT, 0);
+    } else {
+        nulh = CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           &sa, OPEN_EXISTING, 0, NULL);
+    }
 
     STARTUPINFOW si;
     ZeroMemory(&si, sizeof si);
     si.cb = sizeof si;
     si.dwFlags = STARTF_USESTDHANDLES;
-    si.hStdInput = nulh;
+    si.hStdInput = to_send > 0 ? ir : nulh;
     si.hStdOutput = ow;
     si.hStdError = ew;
     PROCESS_INFORMATION pi;
@@ -3234,6 +3272,10 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
         goto fail;
     }
     /* And the parent must drop the write ends, or end of file never comes. */
+    if (ir != NULL) {
+        CloseHandle(ir);
+        ir = NULL;
+    }
     CloseHandle(ow);
     ow = NULL;
     CloseHandle(ew);
@@ -3251,7 +3293,23 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     keal_buf_init(&re.buf);
     HANDLE t1 = CreateThread(NULL, 0, keal_drain, &ro, 0, NULL);
     HANDLE t2 = CreateThread(NULL, 0, keal_drain, &re, 0, NULL);
+    KealWriter wi;
+    HANDLE t3 = NULL;
+    if (iw != NULL) {
+        wi.h = iw;
+        wi.bytes = input->bytes;
+        wi.len = to_send;
+        t3 = CreateThread(NULL, 0, keal_feed, &wi, 0, NULL);
+        if (t3 == NULL) {
+            CloseHandle(iw);
+        }
+        iw = NULL;
+    }
     WaitForSingleObject(pi.hProcess, INFINITE);
+    if (t3 != NULL) {
+        WaitForSingleObject(t3, INFINITE);
+        CloseHandle(t3);
+    }
     if (t1 != NULL) {
         WaitForSingleObject(t1, INFINITE);
         CloseHandle(t1);
@@ -3295,6 +3353,8 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     return result;
 
 fail:
+    if (ir) CloseHandle(ir);
+    if (iw) CloseHandle(iw);
     if (or_) CloseHandle(or_);
     if (ow) CloseHandle(ow);
     if (er) CloseHandle(er);
@@ -3306,7 +3366,7 @@ fail:
 
 #else
 
-KEAL_FN KealList* keal_run_command(KealList* argv) {
+KEAL_FN KealList* keal_run_command(KealList* argv, KealStr* input) {
     if (argv->len == 0) {
         return NULL;
     }
@@ -3326,14 +3386,19 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
         words[i][a->len] = '\0';
     }
 
-    int outp[2], errp[2], failp[2];
+    int outp[2], errp[2], failp[2], inp[2];
     if (pipe(outp) != 0) { goto cleanup_words; }
     if (pipe(errp) != 0) { close(outp[0]); close(outp[1]); goto cleanup_words; }
+    if (pipe(inp) != 0) {
+        close(outp[0]); close(outp[1]); close(errp[0]); close(errp[1]);
+        goto cleanup_words;
+    }
     /* How the child says `exec` failed. Closed automatically when exec
      * succeeds, so an empty read is success — the same way the interpreters
      * tell "could not start" from "started and failed". */
     if (pipe(failp) != 0) {
         close(outp[0]); close(outp[1]); close(errp[0]); close(errp[1]);
+        close(inp[0]); close(inp[1]);
         goto cleanup_words;
     }
     fcntl(failp[1], F_SETFD, FD_CLOEXEC);
@@ -3341,15 +3406,18 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     pid_t pid = fork();
     if (pid < 0) {
         close(outp[0]); close(outp[1]); close(errp[0]); close(errp[1]);
-        close(failp[0]); close(failp[1]);
+        close(failp[0]); close(failp[1]); close(inp[0]); close(inp[1]);
         goto cleanup_words;
     }
     if (pid == 0) {
         close(outp[0]);
         close(errp[0]);
         close(failp[0]);
+        close(inp[1]);
+        dup2(inp[0], STDIN_FILENO);
         dup2(outp[1], STDOUT_FILENO);
         dup2(errp[1], STDERR_FILENO);
+        close(inp[0]);
         close(outp[1]);
         close(errp[1]);
         execvp(words[0], words);
@@ -3362,6 +3430,24 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     close(outp[1]);
     close(errp[1]);
     close(failp[1]);
+    close(inp[0]);
+    /* NON-BLOCKING, and this is not an optimisation. `poll` promises only
+     * that ONE byte can be written; a blocking `write` of 64 KiB returns when
+     * it has placed all 64 KiB, so the parent sits in the write while the
+     * child fills the output pipe it is no longer draining, and neither
+     * moves. That is the deadlock the two readers were already written to
+     * avoid, one level down: it is not enough to wait for all three
+     * descriptors together if one of them can still block once chosen. */
+    fcntl(inp[1], F_SETFL, O_NONBLOCK);
+    /* Nothing to send is the case that was here before this took an input:
+     * close at once, and the child reads end of file exactly as it did from
+     * /dev/null. */
+    int64_t sent = 0;
+    int64_t to_send = input == NULL ? 0 : input->len;
+    if (to_send == 0) {
+        close(inp[1]);
+        inp[1] = -1;
+    }
 
     KealBuf out;
     KealBuf err;
@@ -3370,14 +3456,21 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
     /* Both streams drained together. Taking one to the end first deadlocks
      * the moment the child fills the other's buffer, which is any command
      * that writes a result and a warning. */
-    struct pollfd fds[2];
+    /* All three descriptors in one wait. Writing the input to the end before
+     * reading deadlocks the moment the child answers before it has finished
+     * reading — it fills the output pipe while the parent is still filling
+     * the input one, and neither moves. That is not a stress case: it is any
+     * command that streams. */
+    struct pollfd fds[3];
     fds[0].fd = outp[0];
     fds[1].fd = errp[0];
+    fds[2].fd = inp[1];
     fds[0].events = fds[1].events = POLLIN;
-    int open_streams = 2;
+    fds[2].events = POLLOUT;
+    int open_streams = fds[2].fd < 0 ? 2 : 3;
     while (open_streams > 0) {
-        fds[0].revents = fds[1].revents = 0;
-        if (poll(fds, 2, -1) < 0) {
+        fds[0].revents = fds[1].revents = fds[2].revents = 0;
+        if (poll(fds, 3, -1) < 0) {
             if (errno == EINTR) { continue; }
             break;
         }
@@ -3395,6 +3488,27 @@ KEAL_FN KealList* keal_run_command(KealList* argv) {
                 open_streams--;
             }
         }
+        if (fds[2].fd >= 0 && fds[2].revents != 0) {
+            int64_t left = to_send - sent;
+            ssize_t put = left > 0
+                ? write(fds[2].fd, input->bytes + sent, (size_t)(left > 65536 ? 65536 : left))
+                : 0;
+            if (put > 0) {
+                sent += (int64_t)put;
+            }
+            /* A child that stopped reading is not a failure — it ran, and its
+             * exit code is the answer. SIGPIPE is ignored process-wide, so
+             * this comes back as EPIPE rather than as a death. */
+            if (sent >= to_send || (put < 0 && errno != EINTR && errno != EAGAIN)
+                || (fds[2].revents & (POLLERR | POLLHUP)) != 0) {
+                close(fds[2].fd);
+                fds[2].fd = -1;
+                open_streams--;
+            }
+        }
+    }
+    if (fds[2].fd >= 0) {
+        close(fds[2].fd);
     }
 
     int failed = 0;

@@ -234,7 +234,15 @@ package func globalSig(name: String, args: List<Ty?>): Ty? {
         // the machine thinks it is and on which side of a daylight-saving
         // change the instant falls, so it takes the instant.
         "localOffset" -> tyFun([bp("at", Ty("Int"))], Ty("Int"))
-        "runCommand" -> tyFun([bp("argv", tyList(Ty("Str")))], tyNullable(tyList(Ty("Str"))))
+        // A second argument is what the child reads on its standard input.
+        // Optional rather than defaulted, because a built-in's shape is
+        // chosen per call: with one argument the child reads nothing, which
+        // is what it did before this existed.
+        "runCommand" -> {
+            val params: List<PTy> = [bp("argv", tyList(Ty("Str")))]
+            if (args.size >= 2) { params.add(bp("input", Ty("Str"))) }
+            tyFun(params, tyNullable(tyList(Ty("Str"))))
+        }
         "abs" -> {
             val t = numericOf([knownArg(args, 0)])
             tyFun([bp("x", t)], t)

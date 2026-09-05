@@ -6683,11 +6683,18 @@ impl CBackend {
             self.line(format!("const bool {} = keal_write_file({}, {});", t, p, c));
             return t;
         }
-        if name == "runCommand" && args.len() == 1 {
+        if name == "runCommand" && (args.len() == 1 || args.len() == 2) {
             let v = self.expr(&args[0].value);
+            // No second argument means the child reads nothing, which the
+            // runtime spells as a null input rather than an empty string, so
+            // that the descriptor it gets is the one it always got.
+            let input = match args.get(1) {
+                Some(a) => self.expr(&a.value),
+                None => "NULL".to_string(),
+            };
             return self.own_temp_of(
                 &Type::list(Type::Str).nullable(),
-                format!("keal_run_command({})", v),
+                format!("keal_run_command({}, {})", v, input),
             );
         }
         if name == "readLine" && args.is_empty() {

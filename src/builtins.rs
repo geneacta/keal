@@ -274,8 +274,16 @@ pub fn global_sig(name: &str, args: &[Option<Type>]) -> Option<FunType> {
         // the machine thinks it is and on which side of a daylight-saving
         // change the instant falls, so it takes the instant.
         "localOffset" => sig(vec![p("at", Type::Int)], Type::Int),
+        // A second argument is what the child reads on its standard input.
+        // Optional rather than defaulted, because a built-in's shape is
+        // chosen per call: with one argument the child reads nothing, which
+        // is what it did before this existed.
         "runCommand" => {
-            sig(vec![p("argv", Type::list(Type::Str))], Type::list(Type::Str).nullable())
+            let mut params = vec![p("argv", Type::list(Type::Str))];
+            if args.len() >= 2 {
+                params.push(p("input", Type::Str));
+            }
+            sig(params, Type::list(Type::Str).nullable())
         }
         // `abs`, `min` and `max` accept Int or Float and return that type.
         "abs" => {

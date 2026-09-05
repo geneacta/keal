@@ -1513,6 +1513,7 @@ program that hangs cannot be told from one that is working.
 | | |
 |---|---|
 | `runCommand(argv: List<String>): List<String>?` | `[exit code, standard output, standard error]`, or `null` if it could not be started |
+| `runCommand(argv, input: String)` | the same, with `input` on the child's standard input |
 
 No shell is involved. The list *is* the argument vector, so a path with a
 space in it stays one argument and nothing is ever re-parsed — which is the
@@ -1527,12 +1528,24 @@ if (r.size == 3 and r[0] == "0") { println(r[1]) }
 failed comes back with its exit code. Confusing the two is how a script
 retries the wrong thing.
 
+A second argument is what the child reads on its standard input, and without
+one it reads nothing — end of file at once, which is what it did before this
+existed. A child that stops reading before the end is not a failure: it ran,
+so the answer is its exit code and whatever it did say, not `null`.
+
 It compiles natively too, and the part of that worth knowing is why it took
 a second pass. Draining one stream to the end before the other **deadlocks**
 the moment the child fills the other stream's pipe buffer — 65536 bytes on
 Unix, and 4096 on Windows, which is not a stress case but any command that
-writes a result and a warning. So both are drained at once: `poll` on Unix, a
-reader thread per stream on Windows.
+writes a result and a warning. So all three are handled at once: `poll` on
+Unix, a thread per stream on Windows.
+
+Waiting on all three together is necessary and **not sufficient**, which
+cost a second deadlock. `poll` promises that one byte can be written; a
+blocking `write` of 64 KiB returns only when it has placed all 64 KiB, so
+the parent sits inside the write while the child fills the output pipe
+nobody is draining. The input descriptor is therefore non-blocking, and a
+short write is the normal case rather than an error.
 
 On Windows the wide entry points are used rather than the ANSI ones, and that
 was measured rather than assumed: the ANSI form appears to round-trip UTF-8
