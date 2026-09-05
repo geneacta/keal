@@ -1,17 +1,23 @@
 """Count the `.keal` files across this owner's repositories and rewrite the
-badge in README.md.
+badge band at the top of README.md.
 
     python3 ci/count-keal-files.py [--check]
 
-Why this number and not another. Linguist admits a new language once an
-extension has "at least 2000 files per extension indexed in the last year,
-excluding forks", and asks separately that those files "show a reasonable
-distribution across unique :user/:repo combinations". This script measures
-the first half and cannot measure the second: everything it counts belongs
-to one owner, so a badge reading 2000 would satisfy the threshold and still
-fail the distribution check. It is a progress bar for one of two conditions,
-and the README says so beside it rather than letting the number imply more
-than it is.
+The band also carries the version, and takes it from Cargo.toml rather than
+from a number typed into the README. A version written by hand in a second
+place is a copy that drifts, and this repository has already been bitten by
+that shape: `site/build.py` still holds a literal `v1.2.0`, and the test that
+checks the site against its generator cannot see it, because the generator
+faithfully rewrites the same stale string.
+
+Why 2000 colours the badge. Linguist admits a new language once an extension
+has "at least 2000 files per extension indexed in the last year, excluding
+forks", and asks separately that those files "show a reasonable distribution
+across unique :user/:repo combinations". This script can measure the first
+and not the second — everything it counts belongs to one owner — so the
+threshold is a colour here and nothing more. The README states neither, and
+should not: a reader wants to know how much Keal is written, not what the
+number is being saved up for.
 
 It counts what is IN the repositories, which is not what GitHub's code
 search reports — on 2026-09-05 the trees held 346 files and search answered
@@ -41,8 +47,9 @@ EXT = ".keal"
 # repository. The badge is coloured by how close the count is to it.
 TARGET = 2000
 
-START = "<!-- keal-count:start -->"
-END = "<!-- keal-count:end -->"
+START = "<!-- keal-band:start -->"
+END = "<!-- keal-band:end -->"
+CARGO = os.path.join(ROOT, "Cargo.toml")
 
 
 def api(path):
@@ -104,12 +111,29 @@ def colour(n):
     return "lightgrey"
 
 
-def badge(n):
+def version():
+    m = re.search(r'^version\s*=\s*"([^"]+)"', open(CARGO, encoding="utf-8").read(), re.M)
+    if not m:
+        sys.exit("Cargo.toml has no version for the band to carry.")
+    return m.group(1)
+
+
+def shield(label, message, col, href, alt):
+    return ('  <a href="%s"><img alt="%s" src="https://img.shields.io/badge/'
+            '%s-%s-%s?style=flat-square&labelColor=2b2b2b"></a>'
+            % (href, alt, urllib.parse.quote(label), urllib.parse.quote(message), col))
+
+
+def band(n):
     search = ("https://github.com/search?q=" +
               urllib.parse.quote("extension:keal user:" + OWNER) + "&type=code")
-    return ('[![%s files](https://img.shields.io/badge/.keal_files-%d-%s'
-            '?style=flat-square&labelColor=2b2b2b)](%s)'
-            % (EXT, n, colour(n), search))
+    return "\n".join([
+        "<p align=\"center\">",
+        shield("version", version(), "blue",
+               "https://github.com/%s/keal/releases" % OWNER, "version"),
+        shield(".keal files", str(n), colour(n), search, ".keal files"),
+        "</p>",
+    ])
 
 
 def main():
@@ -126,16 +150,16 @@ def main():
     if START not in text or END not in text:
         sys.exit("README.md has no %s / %s markers to write between." % (START, END))
     new = re.sub(re.escape(START) + r".*?" + re.escape(END),
-                 START + "\n" + badge(total) + "\n" + END,
+                 START + "\n" + band(total) + "\n" + END,
                  text, count=1, flags=re.S)
     if new == text:
-        print("badge already current")
+        print("band already current")
         return
     if check:
-        sys.exit("the badge in README.md is not what this script would write "
-                 "(it should say %d)" % total)
+        sys.exit("the band in README.md is not what this script would write "
+                 "(it should say %s / %d)" % (version(), total))
     open(README, "w", encoding="utf-8").write(new)
-    print("badge updated")
+    print("band updated")
 
 
 if __name__ == "__main__":

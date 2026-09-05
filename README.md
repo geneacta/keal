@@ -1,18 +1,13 @@
 <p align="center"><img src="assets/keal.png" alt="Keal" width="360"></p>
 
+<!-- keal-band:start -->
+<p align="center">
+  <a href="https://github.com/geneacta/keal/releases"><img alt="version" src="https://img.shields.io/badge/version-1.2.0-blue?style=flat-square&labelColor=2b2b2b"></a>
+  <a href="https://github.com/search?q=extension%3Akeal%20user%3Ageneacta&type=code"><img alt=".keal files" src="https://img.shields.io/badge/.keal%20files-347-blue?style=flat-square&labelColor=2b2b2b"></a>
+</p>
+<!-- keal-band:end -->
+
 # Keal — a statically typed language for programs that have to be predictable
-
-**Version 1.2.0** · `keal version` prints the toolchain's own.
-
-<!-- keal-count:start -->
-[![.keal files](https://img.shields.io/badge/.keal_files-346-blue?style=flat-square&labelColor=2b2b2b)](https://github.com/search?q=extension%3Akeal%20user%3Ageneacta&type=code)
-<!-- keal-count:end -->
-
-Files written in Keal across this owner's repositories. Linguist adds an
-extension once 2000 of its files are indexed *and* they are spread across
-many unrelated repositories; this counts the first condition only, and
-every file it counts belongs to one owner. The badge links to the search
-GitHub actually reads, which lags behind the trees this number comes from.
 
 Kotlin's shape over a C-family syntax, compiled to native code, with
 **deterministic destruction and no garbage collector** — and no borrow

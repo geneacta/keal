@@ -1,4 +1,6 @@
-# Keeps the `.keal` file count in README.md current.
+# Keeps the badge band at the top of README.md current: the version, which
+# it takes from Cargo.toml, and the count of `.keal` files across this
+# owner's repositories.
 #
 # The number exists to track one of Linguist's two conditions for adding an
 # extension — 2000 files indexed — and it moves when ANY of this owner's
@@ -21,7 +23,7 @@ on:
     - cron: "17 4 * * *"
   push:
     branches: [main]
-    paths: ["**.keal", "ci/count-keal-files.py"]
+    paths: ["**.keal", "Cargo.toml", "ci/count-keal-files.py"]
   workflow_dispatch:
 
 permissions:
@@ -57,8 +59,11 @@ jobs:
           # unified diff holds the old count as well as the new one, and
           # picking the right line out of it is a guess that reads fine
           # until the day it names the number the badge just stopped saying.
-          n=$(sed -n 's/.*\.keal_files-\([0-9]*\)-.*/\1/p' README.md | head -1)
-          test -n "$n" || { echo "no count in README.md"; exit 1; }
+          n=$(sed -n 's/.*\.keal%20files-\([0-9]*\)-.*/\1/p' README.md | head -1)
+          v=$(sed -n 's/.*badge\/version-\([^-]*\)-.*/\1/p' README.md | head -1)
+          test -n "$n" -a -n "$v" || { echo "no band in README.md"; exit 1; }
           git add README.md
-          git commit -m "the count of Keal files reached $n"
+          # Both halves, because the band moves for either reason and a
+          # message naming only the count would misdescribe a version bump.
+          git commit -m "the band at the top of README.md: $v, $n Keal files"
           git push
