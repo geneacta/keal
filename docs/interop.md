@@ -79,7 +79,14 @@ extern func render(doc: Int): own String           // C hands us a malloc'd buff
   not retain it past the call.
 * `own String` on a result adopts the buffer: Keal counts it and `free()`s
   it with the string (`keal_str_adopt` in the runtime; a NULL from C reads
-  as the empty string).
+  as the empty string). **`free()`, so the buffer has to come from
+  `malloc`** — and that is worth saying because the hosts this boundary
+  exists for each have an allocator of their own that their own code reaches
+  for by habit: PostgreSQL's `palloc`, Python's `PyMem_Malloc`, a JVM's
+  `NewStringUTF`. Handing one of those back as `own String` corrupts the
+  heap rather than failing, which is the quietest way to be wrong. Copy into
+  `malloc`'d memory at the boundary, or hand back `borrow String` and keep
+  the buffer.
 * The checker demands a mode on every `String` crossing, in both
   directions, and rejects a mode anywhere else — misuse is a checked error
   with a note saying what to write.
