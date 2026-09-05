@@ -1,0 +1,46 @@
+// What a record prints, for every shape a field can have.
+//
+// Two of these used to disagree between the engines, and they disagreed in
+// two different ways — which is why they are all here rather than the one
+// that was reported.
+//
+// A nullable field's absence is a POINTER for a `String` or a class, and a
+// TAGGED FORM for an `Int`, a `Float`, a `Bool`, an enum or a `Comp`. The
+// generated `toString` tested `== NULL` for all of them, so a record with an
+// `Int?` emitted C that would not compile. It went unseen because a record of
+// strings is the common one, and strings are the case that works.
+//
+// And a plain enum field made the emitted program PANIC where it was printed,
+// while both interpreters printed the variant. The list and map generators
+// refuse an unrenderable element by name at compile time; the record's
+// generator emits a runtime failure instead, on purpose, so that a class with
+// one unprintable field is still usable. That is a good rule, and it is what
+// let this one through as a wrong answer rather than a refusal.
+
+enum Suit { Hearts, Spades }
+class Held(val n: Int)
+record All(val i: Int?, val f: Float?, val b: Bool?, val s: String?,
+           val e: Suit?, val c: Comp?, val l: List<Int>?, val k: Held?)
+record Plain(val e: Suit, val c: Comp, val i: Int, val s: String)
+
+assert("${All(null, null, null, null, null, null, null, null)}"
+    == "All(i=null, f=null, b=null, s=null, e=null, c=null, l=null, k=null)",
+    "every field absent: ${All(null, null, null, null, null, null, null, null)}")
+
+val full = All(7, 1.5, true, "x", Suit.Spades, greater, [1, 2], Held(3))
+assert("${full}" == "All(i=7, f=1.5, b=true, s=\"x\", e=Spades, c=greater, l=[1, 2], k=Held(n=3))",
+    "every field present: ${full}")
+
+// The zero of each type is present, not absent — the distinction a tagged
+// form exists to keep and a pointer test would lose for `Bool`.
+val zeros = All(0, 0.0, false, "", Suit.Hearts, less, [], Held(0))
+assert("${zeros}" == "All(i=0, f=0.0, b=false, s=\"\", e=Hearts, c=less, l=[], k=Held(n=0))",
+    "zero is a value: ${zeros}")
+
+val plain = Plain(Suit.Spades, less, 4, "y")
+assert("${plain}" == "Plain(e=Spades, c=less, i=4, s=\"y\")", "the same shapes without `?`")
+
+// Inside the containers too, which is where the enum was refused by name.
+assert("${[Suit.Hearts, Suit.Spades]}" == "[Hearts, Spades]", "a list of enums")
+val m: Map<String, Suit> = {"a": Suit.Spades}
+assert("${m}" == "{\"a\": Spades}", "a map to enums: ${m}")

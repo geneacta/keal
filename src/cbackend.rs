@@ -1268,13 +1268,23 @@ impl CBackend {
             }
             // An absent field renders as `null`, which needs a branch rather
             // than an expression.
+            //
+            // How it is absent depends on the type. `String?` and any class
+            // are pointers with null to spare; `Int?`, `Float?`, `Bool?`,
+            // an enum and a `Comp` are the tagged forms, where the test is a
+            // field and the value is another. Writing `== NULL` for all of
+            // them emitted C that does not compile for half the language —
+            // and it was the half nobody printed, since a record of strings
+            // is the common one.
             if let Type::Nullable(inner) = ty {
-                match self.try_repr(inner, &field, c.span) {
+                let absent = format!("!({})", opt_has(inner, &field));
+                let payload = opt_get(inner, &field);
+                match self.try_repr(inner, &payload, c.span) {
                     Some(present) => {
                         let _ = write!(
                             f,
-                            "    if ({} == NULL) {{\n        keal_buf_lit(&b, \"null\");\n    }} else {{\n        keal_buf_str(&b, {});\n    }}\n",
-                            field, present
+                            "    if ({}) {{\n        keal_buf_lit(&b, \"null\");\n    }} else {{\n        keal_buf_str(&b, {});\n    }}\n",
+                            absent, present
                         );
                     }
                     None => {
@@ -4764,6 +4774,16 @@ impl CBackend {
             Type::Float => format!("keal_str_from_float({})", expr),
             Type::Bool => format!("keal_str_from_bool({})", expr),
             Type::Comp => format!("keal_str_from_comp({})", expr),
+            // An enum is an ordinal, and its name lives in the table the
+            // interpolation of a bare one already builds. Without this arm a
+            // record holding an enum compiled and then panicked where it was
+            // printed, while both interpreters printed the variant — the
+            // list and map generators refused by name instead, which is why
+            // the record was the one that got through.
+            Type::Enum(name) => {
+                let f = self.enum_names(&name.to_string());
+                format!("{}({})", f, expr)
+            }
             Type::Class(cname, cargs) => {
                 format!("{}_show({})", struct_name_of(cname, cargs), expr)
             }

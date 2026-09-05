@@ -2002,10 +2002,20 @@ class CBackend() {
                 continue
             }
             // An absent field renders as `null`, which needs a branch.
+            //
+            // How it is absent depends on the type. `String?` and any class
+            // are pointers with null to spare; `Int?`, `Float?`, `Bool?`, an
+            // enum and a `Comp` are the tagged forms, where the test is a
+            // field and the value is another. Writing `== NULL` for all of
+            // them emitted C that does not compile for half the language —
+            // and it was the half nobody printed, since a record of strings
+            // is the common one.
             if (fty.kind == "Nullable") {
-                val present = this.tryRepr(fty.args[0], fieldAccess, c.file, c.line, c.col)
+                val absent = "!(" + optHas(fty.args[0], fieldAccess) + ")"
+                val payload = optGet(fty.args[0], fieldAccess)
+                val present = this.tryRepr(fty.args[0], payload, c.file, c.line, c.col)
                 if (present != null) {
-                    f += "    if (${fieldAccess} == NULL) {\n        keal_buf_lit(&b, \"null\");\n    } else {\n        keal_buf_str(&b, ${present});\n    }\n"
+                    f += "    if (${absent}) {\n        keal_buf_lit(&b, \"null\");\n    } else {\n        keal_buf_str(&b, ${present});\n    }\n"
                 } else {
                     val bail = if (this.catchMode) { "    return keal_buf_finish(&b);\n" } else { "" }
                     f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, 0);\n" + bail
@@ -5126,6 +5136,15 @@ class CBackend() {
         if (t.kind == "Float") { return "keal_str_from_float(${expr})" }
         if (t.kind == "Bool") { return "keal_str_from_bool(${expr})" }
         if (t.kind == "Comp") { return "keal_str_from_comp(${expr})" }
+        // An enum is an ordinal, and its name lives in the table the
+        // interpolation of a bare one already builds. Without this, a record
+        // holding an enum compiled and then panicked where it was printed,
+        // while both interpreters printed the variant — the list and map
+        // generators refused by name instead, which is why the record was the
+        // one that got through.
+        if (t.kind == "Enum") {
+            return "${this.enumNames(t.name)}(${expr})"
+        }
         if (t.kind == "Class") {
             return "${structNameOf(t.name, t.args)}_show(${expr})"
         }
