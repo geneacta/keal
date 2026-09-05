@@ -688,6 +688,38 @@ a handful of conveniences. The next thing to work on is whatever the first
 person to write a real program in Keal finds missing — and that is a better
 list than one written from here.
 
+## Written in Keal
+
+Someone did write a real program in it, and this is the list it produced.
+
+[**keal-view**](https://github.com/geneacta/keal-view) is a cross-platform
+GUI framework in which the drawing is Keal: the rasteriser, the TrueType
+engine, the layout, the widgets, the theme and the docking are `.keal` files,
+and the C underneath opens a window and shows a finished buffer of pixels
+without drawing anything. Five and a half thousand lines of Keal against
+seven to eight hundred of C, depending on the backend, on macOS, Windows and
+Linux. Its site is at
+[**geneacta.github.io/keal-view**](https://geneacta.github.io/keal-view/) —
+[en français](https://geneacta.github.io/keal-view/fr/).
+
+It was the first serious use anything had made of several corners of this
+compiler, and it found four defects in them, all since fixed:
+
+* a call whose callee is **a field of function type** panicked the C backend
+  when it had arguments — which is every event handler in a declarative
+  interface;
+* **a local did not shadow an imported function** of the same name inside a
+  function body, so the backend emitted a direct call over the binding in
+  scope. The checker had it right all along; only the backend disagreed;
+* **a lambda could not capture a top-level binding**, which is exactly the
+  shape a declarative interface pushes you towards;
+* **`Int` had no bitwise operators, and the boundary could not say `void`** —
+  so colours were packed with `*` and unpacked with `/` and `%`, and thirty C
+  functions returning nothing each had to lie about returning an `Int`.
+
+Hex and binary literals with `_` separators arrived on the way, which a
+TrueType parser needs rather more than it needs shifts.
+
 ## Taking part
 
 * [CONTRIBUTING.md](CONTRIBUTING.md) — the whole procedure: the rules

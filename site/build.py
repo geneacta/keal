@@ -210,11 +210,17 @@ def markdown(text):
 
 # ---- page chrome ---------------------------------------------------------
 
+# The last entry leaves the site: keal-view is a separate repository with a
+# site of its own, and the French nav points at the French half of it. It is
+# an absolute URL, which the template takes as it comes — nothing in `active`
+# can match it, which is right, because you are never on it here.
 NAV = {
     "en": [("index.html", "Home"), ("tour.html", "Tour"), ("docs.html", "Docs"),
-           ("coming-from.html", "Coming from…"), ("stdlib.html", "Library")],
+           ("coming-from.html", "Coming from…"), ("stdlib.html", "Library"),
+           ("https://geneacta.github.io/keal-view/", "keal-view")],
     "fr": [("index.html", "Accueil"), ("tour.html", "Le tour"), ("docs.html", "Docs"),
-           ("coming-from.html", "Je viens de…"), ("stdlib.html", "Bibliothèque")],
+           ("coming-from.html", "Je viens de…"), ("stdlib.html", "Bibliothèque"),
+           ("https://geneacta.github.io/keal-view/fr/", "keal-view")],
 }
 
 FOOTER = {
