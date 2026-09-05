@@ -97,6 +97,12 @@ a { text-decoration: none; color: inherit; }
            letter-spacing: .08em; margin-bottom: 12px; text-transform: uppercase; }
 .card h3 { margin: 0 0 8px; font: 600 16px Sora, sans-serif; color: var(--ink); }
 .card p { margin: 0; font: 400 13.5px/1.6 Sora, sans-serif; color: var(--dim); }
+/* The "Written in Keal" cards link out. `a { color: inherit }` above is what
+   the rest of the site wants, and here it would make a link read as plain
+   text — so these say so, with the arrow that marks an outbound link. */
+.built .card h3 a { color: var(--accent); }
+.built .card h3 a span { font-size: .85em; opacity: .8; }
+.built .card h3 a:hover { text-decoration: underline; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font: 500 11.5px 'JetBrains Mono', monospace; color: var(--mint);
         border: 1px solid rgba(169,235,205,.2); border-radius: 6px; padding: 3px 8px; }

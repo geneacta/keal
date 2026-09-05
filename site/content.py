@@ -33,6 +33,20 @@ LANDING = {
         "perf_h": "84× faster natively — with the same guarantees.",
         "perf_p": "The tree-walking interpreter is the specification. The bytecode VM is the default. <code>keal build</code> compiles through C11 to a real executable. The suite runs every program on all three and demands byte-identical output.",
         "perf_cap": "fib(35) — the same program, on all three engines.",
+        "built_h": "Written in Keal",
+        "built_p": "Three programs that use the language for what it is for, and report"
+                   " what they find. Each has found defects the suite could not: a map that"
+                   " looped after being emptied twice, a record that printed itself with a"
+                   " pointer test for a value that is not one, a type the native backend"
+                   " could not compile at all.",
+        "built": [
+            ("kealeb", "A web framework — routing, sessions, SQLite, live pages.",
+             "https://geneacta.github.io/kealeb/"),
+            ("keal-view", "A GUI framework — rasteriser, TrueType, layout, widgets.",
+             "https://geneacta.github.io/keal-view/"),
+            ("KealSql", "A language for PostgreSQL schemas and queries, compiled to SQL.",
+             "https://github.com/geneacta/kealsql"),
+        ],
         "start_h": "Running in a minute.",
         "start_after": "Then take the tour — 30 minutes, every snippet runs →",
     },
@@ -61,6 +75,21 @@ LANDING = {
         "perf_h": "×84 en natif — avec les mêmes garanties.",
         "perf_p": "L'interpréteur arborescent est la spécification. La VM à bytecode est le défaut. <code>keal build</code> compile via C11 vers un vrai exécutable. La suite exécute chaque programme sur les trois et exige une sortie identique à l'octet.",
         "perf_cap": "fib(35) — le même programme, sur les trois moteurs.",
+        "built_h": "Écrit en Keal",
+        "built_p": "Trois programmes qui se servent du langage pour ce à quoi il sert, et"
+                   " rapportent ce qu'ils trouvent. Chacun a trouvé des défauts que la suite"
+                   " ne pouvait pas voir : une table qui bouclait après avoir été vidée deux"
+                   " fois, un record qui s'imprimait avec un test de pointeur sur une valeur"
+                   " qui n'en est pas une, un type que le backend natif ne savait pas"
+                   " compiler du tout.",
+        "built": [
+            ("kealeb", "Un cadriciel web — routage, sessions, SQLite, pages vivantes.",
+             "https://geneacta.github.io/kealeb/"),
+            ("keal-view", "Un cadriciel graphique — rastériseur, TrueType, mise en page, widgets.",
+             "https://geneacta.github.io/keal-view/"),
+            ("KealSql", "Un langage de schémas et de requêtes PostgreSQL, compilé vers SQL.",
+             "https://github.com/geneacta/kealsql"),
+        ],
         "start_h": "Opérationnel en une minute.",
         "start_after": "Puis faites le tour — 30 minutes, chaque extrait s'exécute →",
     },

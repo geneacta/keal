@@ -408,6 +408,11 @@ def landing(lang):
   <p class="cap">%(pc)s</p>
 </section>
 <section class="band">
+  <h2>%(bh)s</h2>
+  <p class="lede">%(bp)s</p>
+</section>
+<section class="cards built">%(built)s</section>
+<section class="band">
   <h2>%(sh)s</h2>
   %(start)s
   <p class="cap"><a href="tour.html">%(sa)s</a></p>
@@ -417,6 +422,15 @@ def landing(lang):
         "hero": code_window("point.keal", C.HERO_CODE),
         "cards": cards, "ih": t["interop_h"], "ip": t["interop_p"],
         "ph": t["perf_h"], "pp": t["perf_p"], "pc": t["perf_cap"],
+        "bh": t["built_h"], "bp": t["built_p"],
+        # Linked out rather than described: these are somebody else's
+        # repositories, and a page that summarised them would go stale the
+        # first time one of them changed.
+        "built": "".join(
+            '<div class="card"><h3><a href="%s">%s <span>&#8599;</span></a></h3><p>%s</p></div>'
+            % (url, name, blurb)
+            for name, blurb, url in t["built"]
+        ),
         "sh": t["start_h"],
         "start": code_window("shell", "git clone https://github.com/geneacta/keal\ncd keal\ncargo build --release\n./bootstrap.sh"),
         "sa": t["start_after"],
