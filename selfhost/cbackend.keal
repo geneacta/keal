@@ -415,6 +415,18 @@ func optNull(inner: Ty): String {
 // A tail here assumes a pointer, so every scalar has to be named — an enum
 // that fell through would compile to a NULL test on an ordinal, and compile
 // silently.
+/// A value of `t` that is never read: what a slot is filled with after a call
+/// to something that does not return. It has to be a valid initializer for
+/// the C type — `0` serves a pointer and an integer alike, but a tagged
+/// optional and an `Any` are structs, and C will not take a `0` for either.
+func zeroOf(t: Ty): String {
+    if (t.kind == "Any") { return "keal_any_null()" }
+    if (isValueOpt(t)) { return optNull(t.args[0]) }
+    if (t.kind == "Float") { return "0.0" }
+    if (t.kind == "Bool") { return "false" }
+    return "0"
+}
+
 func optHas(inner: Ty, x: String): String {
     return when (inner.kind) {
         "Int", "Float", "Enum", "Comp" -> "${x}.has"
@@ -986,6 +998,12 @@ class CBackend() {
         if (t.kind == "Bool") { return "bool" }
         if (t.kind == "Str") { return "KealStr*" }
         if (t.kind == "Unit") { return "void" }
+        // `Nothing` is the type of an expression that never produces one: a
+        // function that always throws or always exits. In C that is a `void`
+        // function, and the code after a call to it is unreachable — which is
+        // what lets a call in value position be emitted as a statement
+        // followed by a value nobody reads.
+        if (t.kind == "Never") { return "void" }
         // A tag and a payload, two words — `keal layout`'s promise.
         if (t.kind == "Any") { return "KealAny" }
         if (t.kind == "Class" and this.shapes.contains(t.name)) {
@@ -2547,6 +2565,8 @@ class CBackend() {
             if (name == "Comp") { return Ty("Comp") }
             if (name == "String") { return Ty("Str") }
             if (name == "Unit") { return Ty("Unit") }
+            // The type of an expression that never produces one.
+            if (name == "Nothing") { return Ty("Never") }
             if (name == "Any") { return Ty("Any") }
             if (this.tsubst.contains(name)) {
                 return this.tsubst[name]!!
@@ -5732,7 +5752,7 @@ class CBackend() {
 
         val ty = this.ety(e)
         if (ty == null) { return call }
-        if (ty.kind == "Unit") {
+        if (ty.kind == "Unit" or ty.kind == "Never") {
             this.line("${call};")
             return "0"
         }
@@ -7161,6 +7181,14 @@ class CBackend() {
     /// absent form. Everywhere a plain value meets a nullable slot goes
     /// through here.
     func coercedTo(e: Ex, target: Ty): String {
+        // An expression of type `Nothing` produces no value, so what reaches
+        // the slot is whatever keeps the C valid. The call itself is emitted
+        // by `expr` as a statement, and nothing after it runs.
+        val srcTy = this.ety(e)
+        if (srcTy != null and srcTy.kind == "Never") {
+            this.expr(e)
+            return zeroOf(target)
+        }
         if (target.kind == "Any") {
             val src = this.ety(e)
             val v = this.expr(e)
@@ -7184,7 +7212,7 @@ class CBackend() {
     func finishCall(e: Ex, call: String): String {
         val ty = this.ety(e)
         if (ty == null) { return call }
-        if (ty.kind == "Unit") {
+        if (ty.kind == "Unit" or ty.kind == "Never") {
             this.line("${call};")
             this.checkUnwind()
             // Arguments were borrowed; anything owned for the call is

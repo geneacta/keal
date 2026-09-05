@@ -1,0 +1,46 @@
+// `Nothing`: the type of an expression that never produces one.
+//
+// A function declared to return it always leaves by another door — `exit`, a
+// `throw`, an endless loop — so the checker treats a call to it as a value of
+// whatever type the place needs. That is what makes it useful for narrowing:
+// after `if (x == null) { fail(...) }` the checker knows `x` is not null,
+// because the branch cannot fall through.
+//
+// The C backend used to refuse the DECLARATION, so any program using the idiom
+// was interpreter-only. It emits the function as `void` now, and a call in
+// value position as a statement followed by a value nobody reads.
+
+func fail(msg: String): Nothing { println("fail: ${msg}") exit(3) }
+func pick(v: Int?): Int { if (v == null) { fail("pick") } return v }
+
+// Every slot shape, because what the unreachable value must be depends on the
+// C type: `0` serves a pointer and an integer, an `Any` and a tagged optional
+// are structs and take neither.
+val s: String? = "s"
+val i: Int? = 7
+val f: Float? = 1.5
+val b: Bool? = true
+val a: Any = 1
+
+assert((s ?: fail("s")) == "s", "a reference slot")
+assert((i ?: fail("i")) == 7, "a tagged Int")
+assert((f ?: fail("f")) == 1.5, "a tagged Float")
+assert((b ?: fail("b")) == true, "a Bool, which has no tag of its own")
+
+val chosen: Int? = i != null ? i : fail("ternary")
+assert(chosen == 7, "a ternary branch")
+val boxed: Any = a != 0 ? a : fail("any")
+assert(boxed is Int, "an Any branch")
+val fromIf: String = if (s != null) { s } else { fail("if") }
+assert(fromIf == "s", "an if branch")
+
+assert(pick(3) == 3, "narrowing after a call that does not return")
+
+// A lambda whose body ends in a `throw` is a `Nothing` too, and a list of
+// them is a list of `() -> Unit`.
+val jobs: List<() -> Unit> = []
+jobs.add({ -> println("never") throw "on purpose" })
+assert(jobs.size == 1, "a lambda that only throws")
+
+// And the function is still a function: called on the path that needs it, it
+// ends the program. `tests/runtime/nothing-exits.keal` pins that half.

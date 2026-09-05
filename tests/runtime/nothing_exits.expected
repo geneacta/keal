@@ -1,0 +1,7 @@
+runtime error: no value: absent
+  --> tests/runtime/nothing_exits.keal:5:35
+  |
+5 | func fail(msg: String): Nothing { throw "no value: ${msg}" }
+  |                                   ^
+  in `fail` at tests/runtime/nothing_exits.keal:10:23
+  in `main` at tests/runtime/nothing_exits.keal:7:1

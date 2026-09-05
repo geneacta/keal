@@ -1,0 +1,12 @@
+// The other half of `Nothing`: on the path that needs it, the function that
+// never returns does end the program. The corpus test beside this one only
+// ever takes the branch that skips it.
+
+func fail(msg: String): Nothing { throw "no value: ${msg}" }
+
+proc main() {
+    val absent: String? = null
+    println("before")
+    println(absent ?: fail("absent"))
+    println("never reached")
+}

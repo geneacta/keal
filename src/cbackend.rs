@@ -395,6 +395,12 @@ impl CBackend {
             Type::Bool => Some("bool".to_string()),
             Type::Str => Some("KealStr*".to_string()),
             Type::Unit => Some("void".to_string()),
+            // `Nothing` is the type of an expression that never produces one:
+            // a function that always throws or always exits. In C that is a
+            // `void` function, and the code after a call to it is unreachable
+            // — which is what lets a call in value position be emitted as a
+            // statement followed by a value nobody reads.
+            Type::Never => Some("void".to_string()),
             // A tag and a payload, two words — `keal layout`'s promise.
             Type::Any => Some("KealAny".to_string()),
             Type::Class(name, args) if self.shapes.contains_key(&**name) => {
@@ -1859,6 +1865,8 @@ impl CBackend {
                 "Comp" => Some(Type::Comp),
                 "String" => Some(Type::Str),
                 "Unit" => Some(Type::Unit),
+                // The type of an expression that never produces one.
+                "Nothing" => Some(Type::Never),
                 "Any" => Some(Type::Any),
                 other if self.tsubst.contains_key(other) => {
                     Some(self.tsubst[other].clone())
@@ -5398,7 +5406,7 @@ impl CBackend {
         }
 
         let Some(ty) = self.ety(e) else { return call };
-        if ty == Type::Unit {
+        if ty == Type::Unit || ty == Type::Never {
             self.line(format!("{};", call));
             return "0".to_string();
         }
@@ -7160,6 +7168,13 @@ impl CBackend {
     /// absent form. Everywhere a plain value meets a nullable slot goes
     /// through here, so the wrapping exists in exactly one place.
     fn coerced_to(&mut self, e: &Expr, target: &Type) -> String {
+        // An expression of type `Nothing` produces no value, so what reaches
+        // the slot is whatever keeps the C valid. The call itself is emitted
+        // by `expr` as a statement, and nothing after it runs.
+        if self.ety(e) == Some(Type::Never) {
+            self.expr(e);
+            return zero_of(target);
+        }
         if *target == Type::Any {
             let src = self.ety(e);
             let v = self.expr(e);
@@ -7184,7 +7199,7 @@ impl CBackend {
     /// Binds a call's result according to its type, or emits it for effect.
     fn finish_call(&mut self, e: &Expr, call: String) -> String {
         let Some(ty) = self.ety(e) else { return call };
-        if ty == Type::Unit {
+        if ty == Type::Unit || ty == Type::Never {
             self.line(format!("{};", call));
             self.check_unwind();
             // Arguments were borrowed, so anything owned for the call is
@@ -7947,6 +7962,20 @@ fn opt_get(inner: &Type, x: &str) -> String {
         Type::Int | Type::Float | Type::Enum(_) | Type::Comp => format!("{}.v", x),
         Type::Bool => format!("(bool)({} == 1)", x),
         _ => x.to_string(),
+    }
+}
+
+/// A value of `ty` that is never read: what a slot is filled with after a
+/// call to something that does not return. It has to be a valid initializer
+/// for the C type — `0` serves a pointer and an integer alike, but a tagged
+/// optional and an `Any` are structs, and C will not take a `0` for either.
+fn zero_of(ty: &Type) -> String {
+    match ty {
+        Type::Any => "keal_any_null()".to_string(),
+        Type::Nullable(inner) if is_value_opt(ty) => opt_null(inner),
+        Type::Float => "0.0".to_string(),
+        Type::Bool => "false".to_string(),
+        _ => "0".to_string(),
     }
 }
 
