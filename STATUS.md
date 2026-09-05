@@ -145,6 +145,16 @@ directions. So the rule has a second half: before concluding an instrument is
 blunt, read what you actually broke — a calibration is a measurement too, and
 this file already says a measurement is not believed until it is checked.
 
+There is a rung past that one, and both benches paid for it the same day:
+**the first run of a checker says something about the checker.** A new link
+check here reported 138 good links broken, then, once fixed, silently built a
+site two pages smaller because its own flag was read as a file path. The same
+check in kealeb reported twelve broken links that were all `rel="preconnect"`
+— an origin to warm up, which answers 404 by construction. Neither looked
+like a tool being wrong: one looked like a broken site, the other like a
+successful build. So it is not only "nothing was found, suspect the check";
+it is "something was found, suspect the first answer anyway".
+
 And the reporting half, which is not a courtesy: **saying which forms you
 asked in is part of having asked.** A test that attests nothing and a test
 whose attestation was never stated read identically from outside, and the

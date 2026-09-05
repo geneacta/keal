@@ -216,24 +216,27 @@ def markdown(text):
 
 # ---- page chrome ---------------------------------------------------------
 
-# The last entry leaves the site: keal-view is a separate repository with a
-# site of its own, and the French nav points at the French half of it. It is
-# an absolute URL, which the template takes as it comes — nothing in `active`
-# can match it, which is right, because you are never on it here.
+# THE NAV IS THIS SITE'S PAGES, and that is the rule rather than the state.
+# `keal-view` sat here because there was nowhere else to point; there is now
+# — the landing page's "Written in Keal" section, and the footer line that
+# reaches it from anywhere. Keeping it would have left one consumer in the
+# bar and two in a card, and adding the others would grow the bar with every
+# program somebody writes in the language, which is a bar that goes wrong on
+# its own.
 NAV = {
     "en": [("index.html", "Home"), ("tour.html", "Tour"), ("docs.html", "Docs"),
-           ("coming-from.html", "Coming from…"), ("stdlib.html", "Library"),
-           ("https://geneacta.github.io/keal-view/", "keal-view")],
+           ("coming-from.html", "Coming from…"), ("stdlib.html", "Library")],
     "fr": [("index.html", "Accueil"), ("tour.html", "Le tour"), ("docs.html", "Docs"),
-           ("coming-from.html", "Je viens de…"), ("stdlib.html", "Bibliothèque"),
-           ("https://geneacta.github.io/keal-view/fr/", "keal-view")],
+           ("coming-from.html", "Je viens de…"), ("stdlib.html", "Bibliothèque")],
 }
 
 FOOTER = {
     "en": ("A statically typed, self-hosting programming language. Built by Geneacta.",
-           "Source on GitHub", "Contribute", "Code of conduct", "Security"),
+           "Source on GitHub", "Contribute", "Code of conduct", "Security",
+           "Written in Keal"),
     "fr": ("Un langage de programmation typé statiquement et auto-hébergé. Construit par Geneacta.",
-           "Les sources sur GitHub", "Contribuer", "Code de conduite", "Sécurité"),
+           "Les sources sur GitHub", "Contribuer", "Code de conduite", "Sécurité",
+           "Écrit en Keal"),
 }
 
 SWITCH = {"en": ("fr/", "Français"), "fr": ("../", "English")}
@@ -325,6 +328,7 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
     <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">%(foot2)s</a>
     <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">%(foot3)s</a>
     <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">%(foot4)s</a>
+    <a href="%(prefix)sindex.html#built">%(foot5)s</a>
   </div>
 </footer>
 </div>
@@ -351,6 +355,7 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
         "foot2": foot[2],
         "foot3": foot[3],
         "foot4": foot[4],
+        "foot5": foot[5],
     }
 
 
@@ -413,7 +418,7 @@ def landing(lang):
   </div>
   <p class="cap">%(pc)s</p>
 </section>
-<section class="band">
+<section class="band" id="built">
   <h2>%(bh)s</h2>
   <p class="lede">%(bp)s</p>
 </section>
