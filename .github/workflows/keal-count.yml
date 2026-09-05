@@ -1,0 +1,64 @@
+# Keeps the `.keal` file count in README.md current.
+#
+# The number exists to track one of Linguist's two conditions for adding an
+# extension — 2000 files indexed — and it moves when ANY of this owner's
+# repositories gains a Keal file, not only this one. So a push to `keal` is
+# the wrong trigger to rely on: most of what changes the count happens
+# somewhere else. The daily schedule is the real one; the push and the
+# manual dispatch are for seeing a change immediately.
+#
+# It commits with GITHUB_TOKEN, and a push made with that token does not
+# start another workflow run — so this cannot loop, and it will not spend a
+# `cargo test --release` on a badge.
+#
+# Deliberately NOT wired into check.yml as a `--check` gate. The count goes
+# stale on its own whenever a sibling repository changes, so a gate would
+# turn some unrelated push red for a reason that push did not cause. The
+# `--check` flag is there for a person, and for a dry run.
+name: keal-count
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  push:
+    branches: [main]
+    paths: ["**.keal", "ci/count-keal-files.py"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: keal-count
+  cancel-in-progress: false
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Reads every public repository of the owner, so it needs a token that
+      # sees more than this one. GITHUB_TOKEN is scoped to this repository;
+      # for public repositories that is enough to read their trees.
+      - name: Count and rewrite the badge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 ci/count-keal-files.py
+
+      - name: Commit if it moved
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "the badge was already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Read the number out of the file rather than out of the diff: a
+          # unified diff holds the old count as well as the new one, and
+          # picking the right line out of it is a guess that reads fine
+          # until the day it names the number the badge just stopped saying.
+          n=$(sed -n 's/.*\.keal_files-\([0-9]*\)-.*/\1/p' README.md | head -1)
+          test -n "$n" || { echo "no count in README.md"; exit 1; }
+          git add README.md
+          git commit -m "the count of Keal files reached $n"
+          git push
