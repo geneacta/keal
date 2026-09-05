@@ -4,11 +4,14 @@
 // ORDER the two things reach a place that holds both — a terminal, a log,
 // `2>&1` — because a snapshot of stderr has already thrown the other stream
 // away. `output_and_failure_arrive_in_the_order_they_happened` pins that.
+//
+// No `main()` at the end: the module loader appends that call, so a file that
+// makes it too runs its whole program TWICE. It is invisible in a fixture
+// like this one, where the first run dies before the second can start — which
+// is exactly how it survives.
 
 proc main() {
     println("before the failure")
     val missing: String? = null
     println(missing!!.length)
 }
-
-main()
