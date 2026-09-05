@@ -3,7 +3,7 @@
 <!-- keal-band:start -->
 <p align="center">
   <a href="https://github.com/geneacta/keal/releases"><img alt="version" src="https://img.shields.io/badge/version-1.2.0-blue?style=flat-square&labelColor=2b2b2b"></a>
-  <a href="https://github.com/search?q=extension%3Akeal%20user%3Ageneacta&type=code"><img alt=".keal files" src="https://img.shields.io/badge/.keal%20files-361-blue?style=flat-square&labelColor=2b2b2b"></a>
+  <a href="https://github.com/search?q=extension%3Akeal%20user%3Ageneacta&type=code"><img alt=".keal files" src="https://img.shields.io/badge/.keal%20files-365-blue?style=flat-square&labelColor=2b2b2b"></a>
 </p>
 <!-- keal-band:end -->
 
