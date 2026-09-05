@@ -2464,6 +2464,86 @@ fn emit_header_matches_snapshot() {
     assert_eq!(expected, out.stdout, "the generated header changed");
 }
 
+/// The emitted header is compiled by a companion, not just compared to a
+/// snapshot.
+///
+/// `emit_header_matches_snapshot` pins what the header SAYS. Nothing pinned
+/// that a `.c` file could include it and get a program that links — and for
+/// a `String` that is the whole question, because every other name in the
+/// runtime is `static`. Declaring `KealStr*` in a prototype is only honest
+/// if the other side can make one, read one and let it go, which is what the
+/// five `keal_abi_str_*` calls exist for.
+#[test]
+fn a_companion_can_use_the_emitted_header() {
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-companion-header");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+
+    std::fs::write(
+        dir.join("prog.keal"),
+        "func greet(who: String): String { return \"hello ${who}\" }\n\
+         func twice(n: Int): Int { return n * 2 }\n\
+         extern proc fromC() = \"from_c\"\n\
+         native \"\"\"\nvoid from_c(void);\n\"\"\"\n\
+         fromC()\n",
+    )
+    .expect("cannot write the program");
+
+    std::fs::write(
+        dir.join("companion.c"),
+        "#include <stdio.h>\n\
+         #include \"prog.h\"\n\
+         void from_c(void) {\n\
+         \x20   KealStr* who = keal_abi_str_new(\"world\", 5);\n\
+         \x20   KealStr* got = k_greet(who);\n\
+         \x20   printf(\"%.*s|%d|%lld\\n\", (int)keal_abi_str_len(got),\n\
+         \x20          keal_abi_str_bytes(got), (int)keal_abi_str_len(got),\n\
+         \x20          (long long)k_twice(21));\n\
+         \x20   keal_abi_str_release(who);\n\
+         \x20   keal_abi_str_release(got);\n\
+         }\n",
+    )
+    .expect("cannot write the companion");
+
+    let header = keal(&["emit-header", dir.join("prog.keal").to_str().unwrap()]);
+    assert!(header.success, "emit-header failed:\n{}", header.stderr);
+    assert!(
+        header.stdout.contains("KealStr* k_greet(KealStr* who);"),
+        "a `String` function should cross:\n{}",
+        header.stdout
+    );
+    assert!(
+        header.stdout.contains("keal_abi_str_new"),
+        "and the header should say how to make one:\n{}",
+        header.stdout
+    );
+    std::fs::write(dir.join("prog.h"), &header.stdout).expect("cannot write the header");
+
+    let built = Command::new(BIN)
+        .current_dir(&dir)
+        .args(["build", "prog.keal", "companion.c", "-o", "prog"])
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the companion did not build:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    let ran = Command::new(dir.join("prog")).output().expect("cannot run it");
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout).trim(),
+        "hello world|11|42",
+        "what the companion saw"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `keal bindgen` turns a C header into extern declarations, binding only
 /// what crosses the boundary exactly and skipping the rest with a reason.
 #[test]

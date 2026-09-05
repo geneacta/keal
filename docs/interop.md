@@ -91,6 +91,27 @@ extern func render(doc: Int): own String           // C hands us a malloc'd buff
   directions, and rejects a mode anywhere else — misuse is a checked error
   with a note saying what to write.
 
+**The other direction: a companion `.c` calling into Keal.** `keal
+emit-header` prints a `k_` prototype for every function that crosses, and a
+`String` crosses as an opaque `KealStr*`. Opaque needs a way to say
+something, so the header also declares the whole of it:
+
+```c
+typedef struct KealStr KealStr;
+KealStr* keal_abi_str_new(const char* bytes, int64_t len);
+const char* keal_abi_str_bytes(KealStr* s);
+int64_t keal_abi_str_len(KealStr* s);
+KealStr* keal_abi_str_retain(KealStr* s);
+void keal_abi_str_release(KealStr* s);
+```
+
+Five names, and the layout is not one of them — everything else in the
+emitted runtime is `static`, which is why a prototype mentioning `KealStr*`
+would otherwise be a declaration the other side could not use. Ownership is
+the rule the rest of this page follows: a Keal function **borrows** its
+arguments and **owns** what it answers, so a companion releases what it made
+and what it got back, and nothing else.
+
 **1b. Structs across the boundary — SHIPPED.** A `record` whose fields are
 all `Int`, `Float` or `Bool` crosses **by value**, no annotation needed: the
 generated C defines a headerless mirror `typedef struct Keal_Name { ... }`

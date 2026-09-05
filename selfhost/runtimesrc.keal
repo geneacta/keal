@@ -508,12 +508,44 @@ KEAL_FN int keal_str_cmp(KealStr* a, KealStr* b) {
     return a->len < b->len ? -1 : 1;
 }
 
+/* ---- the string ABI a companion translation unit gets ----------------- */
+
+/* Everything else in this runtime is `static`, deliberately: the emitted C is
+ * one self-contained translation unit and its internals are its own. But a
+ * `.c` file compiled beside it — `keal build prog.keal companion.c` — has to
+ * be able to say something to a Keal function that takes or answers a
+ * `String`, and `keal emit-header` cannot honestly declare `KealStr*` in a
+ * prototype unless the other side can also make one and read one.
+ *
+ * These five are that, and no more. `KealStr` stays OPAQUE across the
+ * boundary — the header declares the tag and not the layout — so what is
+ * promised is five names, not a struct that can never change again.
+ *
+ * Ownership is the same rule the rest of the boundary follows: a Keal
+ * function BORROWS its arguments and OWNS what it returns. So a companion
+ * releases what it made and what it got back, and nothing else. */
+KealStr* keal_abi_str_new(const char* bytes, int64_t len);
+const char* keal_abi_str_bytes(KealStr* s);
+int64_t keal_abi_str_len(KealStr* s);
+KealStr* keal_abi_str_retain(KealStr* s);
+void keal_abi_str_release(KealStr* s);
+
 KEAL_FN KealStr* keal_str_from_bytes(const char* bytes, int64_t len) {
     char* copy = (char*)keal_alloc((size_t)len + 1);
     memcpy(copy, bytes, (size_t)len);
     copy[len] = '\0';
     return keal_str_owning(copy, len);
 }
+
+/* The five definitions. Each is a thin call into the static one beside it, so
+ * a companion and the program agree by construction rather than by care. */
+KealStr* keal_abi_str_new(const char* bytes, int64_t len) {
+    return keal_str_from_bytes(bytes, len);
+}
+const char* keal_abi_str_bytes(KealStr* s) { return s == NULL ? "" : s->bytes; }
+int64_t keal_abi_str_len(KealStr* s) { return s == NULL ? 0 : s->len; }
+KealStr* keal_abi_str_retain(KealStr* s) { return keal_str_retain(s); }
+void keal_abi_str_release(KealStr* s) { keal_str_release(s); }
 
 KEAL_FN KealStr* keal_str_from_int(int64_t n) {
     char buf[32];

@@ -641,13 +641,18 @@ fn emit_header(path: &str) -> ExitCode {
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
         .collect();
 
-    // The scalar C type a written type maps to, when it crosses cleanly.
+    // The C type a written type maps to, when it crosses cleanly. `String`
+    // crosses as an opaque `KealStr*`, which a companion can make, read and
+    // release through the five `keal_abi_str_*` calls declared below — those
+    // exist so that this declaration is a usable one rather than a name the
+    // other side cannot say anything to.
     let scalar = |te: &TypeExpr| -> Option<&'static str> {
         match &te.kind {
             TypeExprKind::Named { name, args } if args.is_empty() => match name.as_str() {
                 "Int" => Some("int64_t"),
                 "Float" => Some("double"),
                 "Bool" => Some("bool"),
+                "String" => Some("KealStr*"),
                 _ => None,
             },
             _ => None,
@@ -744,6 +749,29 @@ fn emit_header(path: &str) -> ExitCode {
     if !any {
         out.push_str("/* no function of this program crosses the boundary yet */
 ");
+    }
+    // A `KealStr*` in a prototype is only a usable declaration if the other
+    // side can make one, read one and let it go. These five are the whole
+    // string ABI, and the type stays opaque: what is promised is the names,
+    // not a layout that could never change again.
+    if out.contains("KealStr*") {
+        let abi = "/* A Keal string, opaque: made, read and released through the five
+ * calls below and not otherwise. A Keal function BORROWS its arguments and
+ * OWNS what it answers, so release what you made and what you got back.
+ */
+typedef struct KealStr KealStr;
+KealStr* keal_abi_str_new(const char* bytes, int64_t len);
+const char* keal_abi_str_bytes(KealStr* s);
+int64_t keal_abi_str_len(KealStr* s);
+KealStr* keal_abi_str_retain(KealStr* s);
+void keal_abi_str_release(KealStr* s);
+
+";
+        let anchor = "#include <stdint.h>\n\n";
+        if let Some(at) = out.find(anchor) {
+            let at = at + anchor.len();
+            out.insert_str(at, abi);
+        }
     }
     out.push_str(&format!("
 #endif /* KEAL_{}_H */
