@@ -26,6 +26,7 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 
+#include <errno.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stdbool.h>
@@ -85,6 +86,20 @@
 __attribute__((constructor)) static void keal_stdio_is_bytes(void) {
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
+}
+#else
+#include <signal.h>
+/* A write to a closed pipe must be an ERROR, not a death.
+ *
+ * `prog | head` closes the pipe after ten lines. By default the eleventh
+ * write raises SIGPIPE and the kernel kills the process, so the program ends
+ * at 141 having said nothing. The interpreters do not: Rust's runtime ignores
+ * SIGPIPE, so the write returns EPIPE and the failure is reported the way
+ * every other failure is — "cannot write to standard output: Broken pipe",
+ * exit 1. The tree-walker is this language's specification, so the backend
+ * follows it here rather than following Unix tradition on its own. */
+__attribute__((constructor)) static void keal_pipe_is_an_error(void) {
+    signal(SIGPIPE, SIG_IGN);
 }
 #endif
 
@@ -640,12 +655,23 @@ KEAL_FN int64_t keal_str_length(KealStr* s) {
     return n;
 }
 
+/* What the interpreters say when standard output will not take a write, word
+ * for word, since the three engines answer the same question the same way. */
+static void keal_write_failed(void) {
+    char msg[160];
+    snprintf(msg, sizeof msg, "cannot write to standard output: %s (os error %d)",
+             strerror(errno), errno);
+    keal_panic(msg, 0);
+}
+
 KEAL_FN void keal_print(KealStr* s, bool newline) {
     if (!newline) {
         /* A `print` with no newline is usually a prompt, and a prompt sitting
          * in a buffer is a program that looks hung. */
-        fwrite(s->bytes, 1, (size_t)s->len, stdout);
-        fflush(stdout);
+        if (fwrite(s->bytes, 1, (size_t)s->len, stdout) != (size_t)s->len
+            || fflush(stdout) != 0) {
+            keal_write_failed();
+        }
         return;
     }
     /* ONE write, not two. `fwrite` and `fputc` each lock the stream, but not
@@ -659,9 +685,12 @@ KEAL_FN void keal_print(KealStr* s, bool newline) {
     char* buf = n + 1 <= sizeof small ? small : (char*)keal_alloc(n + 1);
     memcpy(buf, s->bytes, n);
     buf[n] = '\n';
-    fwrite(buf, 1, n + 1, stdout);
+    size_t wrote = fwrite(buf, 1, n + 1, stdout);
     if (buf != small) {
         free(buf);
+    }
+    if (wrote != n + 1) {
+        keal_write_failed();
     }
 }
 

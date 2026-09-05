@@ -1454,6 +1454,87 @@ fn output_and_failure_arrive_in_the_order_they_happened() {
     }
 }
 
+/// A closed pipe is an ERROR on every engine, not a death on one of them.
+///
+/// `prog | head` closes the pipe after ten lines. Unix tradition says the
+/// next write raises SIGPIPE and the kernel ends the process — 141, nothing
+/// on stderr — and that is what the compiled program used to do, while the
+/// interpreters reported "cannot write to standard output: Broken pipe" and
+/// exited 1. Rust's runtime ignores SIGPIPE and this backend did not.
+///
+/// The tree-walker is the specification, so the backend follows it. This
+/// pins that they end the same way, since the difference is in the exit
+/// status and in stderr, and the corpus comparison reads neither.
+#[test]
+fn a_closed_pipe_ends_every_engine_the_same_way() {
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-broken-pipe");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+    let src = dir.join("flood.keal");
+    std::fs::write(&src, "var i = 0\nwhile (i < 200000) { println(\"line ${i}\") i += 1 }\n")
+        .expect("cannot write the fixture");
+    let exe = dir.join("flood");
+    let built = Command::new(BIN)
+        .arg("build")
+        .arg(&src)
+        .arg("-o")
+        .arg(&exe)
+        .output()
+        .expect("cannot run keal build");
+    assert!(
+        built.status.success(),
+        "the fixture did not compile:\n{}",
+        String::from_utf8_lossy(&built.stderr)
+    );
+
+    // Read a little, then drop the pipe — which is what `head` does.
+    let run = |mut cmd: Command| -> (Option<i32>, String) {
+        let mut child = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("cannot start the program");
+        {
+            use std::io::Read;
+            let mut out = child.stdout.take().expect("no stdout");
+            let mut head = [0u8; 64];
+            let _ = out.read(&mut head);
+        }
+        let done = child.wait_with_output().expect("cannot wait");
+        (done.status.code(), String::from_utf8_lossy(&done.stderr).into_owned())
+    };
+
+    let (native_code, native_err) = run(Command::new(&exe));
+    for engine in ENGINES {
+        let mut cmd = Command::new(BIN);
+        cmd.args([engine, src.to_str().unwrap()]);
+        let (code, err) = run(cmd);
+        assert_eq!(
+            native_code, code,
+            "{} ends at {:?} where the compiled program ends at {:?}",
+            engine, code, native_code
+        );
+        let line = |s: &str| s.lines().next().unwrap_or("").to_string();
+        assert_eq!(
+            line(&native_err),
+            line(&err),
+            "{} and the compiled program say different things about it",
+            engine
+        );
+    }
+    assert_eq!(native_code, Some(1), "a closed pipe is an error, not a signal");
+    assert!(
+        native_err.contains("cannot write to standard output"),
+        "and it says so: {:?}",
+        native_err
+    );
+}
+
 /// Actors printing at once must not tear a line.
 ///
 /// `fwrite` and `fputc` each lock the stream and do not lock together, so the
