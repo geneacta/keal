@@ -133,6 +133,18 @@ two are the same case, so the substitution is invisible from here — which is
 what makes it a rule and not a reminder. **A control that does not share the
 form of what it controls is a control for a different question.**
 
+**And when the calibration does not bite, suspect the calibration.** A check
+that fails to fail looks exactly like a check that does not work, and the two
+call for opposite conclusions. The kealeb session tried twice to break its
+new link checker and got nothing both times, and read it first as the checker
+being blunt: the first attempt edited a line the generator STRIPS before
+converting, the second pointed at an anchor on a branch that discards
+anchors. Nothing was broken, so nothing was reported, and the checker was
+right on both. The third attempt bit, with the right message, in both
+directions. So the rule has a second half: before concluding an instrument is
+blunt, read what you actually broke — a calibration is a measurement too, and
+this file already says a measurement is not believed until it is checked.
+
 And the reporting half, which is not a courtesy: **saying which forms you
 asked in is part of having asked.** A test that attests nothing and a test
 whose attestation was never stated read identically from outside, and the
