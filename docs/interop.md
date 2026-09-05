@@ -296,6 +296,38 @@ story of the test suite stops at the boundary — JVM output is the JVM's.*
   day the Rust oracle does, or the fixed-point test fails.
 * **One manifest, eventually**: once link inputs exist, a `keal.toml`
   listing sources, libraries and flags replaces the growing command line.
+* **A C function must RETURN.** A callee that leaves by `longjmp` — which is
+  how PostgreSQL's `ereport`, some parsers and a few test frameworks report
+  errors — jumps over the Keal frames beneath it. Two things are skipped, and
+  only the first is obvious.
+
+  The releases the backend emitted at those scopes' ends never run, so the
+  values they held leak and their `deinit`s do not run. There is no double
+  free: the skipped releases do not run at all, and the foreign `setjmp`
+  returns into C, never back into the abandoned frame.
+
+  The one that bites is `keal_try_depth`. A `try` is emitted as `++` before
+  its body and `--` after; a `longjmp` out of the body skips the `--`, and
+  the counter stays raised on that thread for good. From then on `keal_panic`
+  believes a `catch` is waiting: instead of printing and ending the process
+  it records the message and RETURNS, and the caller uses the harmless value
+  that comes back. Measured, on a program with no `try` in it at all, so
+  nothing checks the unwinding flag either:
+
+      index out of bounds     ->  prints `0`, carries on, exits 0
+      the same, counter clean ->  prints the error, exits 1
+
+  So a foreign `longjmp` does not crash the program: it converts every later
+  failure into a wrong answer given quietly. That is worse than a leak, and
+  it does not need a `try` anywhere in the Keal code, because the counter is
+  consulted by the runtime rather than by emitted guards.
+
+  **The rule, then: catch it in the innermost C shim.** Wrap the call that
+  can jump (`PG_TRY`/`PG_CATCH`, or the library's own equivalent) and turn
+  the error into an ordinary return value, so no `longjmp` ever crosses a
+  Keal frame. If that is impossible, save `keal_try_depth` and
+  `keal_unwinding` before the call and restore them after the jump — both
+  are file-scope in the emitted C, so a `native` block sees them.
 
 ## Suggested order
 
