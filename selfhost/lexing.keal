@@ -5,6 +5,19 @@
 //
 // It produces structured tokens; `lexer.keal` derives the comparable dump,
 // `parser.keal` consumes them directly.
+//
+// PUBLIC SURFACE. Everything marked `public` below is promised to programs
+// outside this repository: `lexFile` and `lexFragment` to lex, `Token` and
+// `Part` to read what came back, `describeToken` and `tokenDumpLine` to say
+// it, and `lexErrorPrefix` to place an error in someone else's file. That is
+// what a tool needs to lex Keal source; the `Lexer` class itself stays
+// private, because a caller that drives it by hand is holding this file's
+// internals rather than its answers.
+//
+// The promise is the SHAPE, not the contents. `Token.kind` is a string whose
+// values are this compiler's, and a new one appearing is not a breaking
+// change — a consumer that matches on it needs an `else`, exactly as it would
+// for a token the language grows next year.
 
 func isDigit(c: String): Bool { c >= "0" and c <= "9" }
 
@@ -88,17 +101,17 @@ func endsStatement(kind: String): Bool {
 /// Prepended to the `L:C` of every lexing error. Empty for the single-file
 /// drivers; the checker's loader sets it to `path:` per file, and fragments
 /// lexed for interpolation holes inherit it automatically.
-package var lexErrorPrefix = ""
+public var lexErrorPrefix = ""
 
-record Part(package val isLit: Bool, package val text: String, package val line: Int, package val col: Int)
+public record Part(public val isLit: Bool, public val text: String, public val line: Int, public val col: Int)
 
 /// One token. `parts` is only ever filled for `str`.
-package record Token(
-    val kind: String,
-    package val text: String,
-    package val line: Int,
-    package val col: Int,
-    val parts: List<Part>
+public record Token(
+    public val kind: String,
+    public val text: String,
+    public val line: Int,
+    public val col: Int,
+    public val parts: List<Part>
 )
 
 class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShebang: Bool) {
@@ -642,21 +655,21 @@ func hexToInt(hex: String): Int? {
 
 
 /// Lexes a whole file.
-package func lexFile(source: String): List<Token> {
+public func lexFile(source: String): List<Token> {
     val lx = Lexer(source, 1, 1, true)
     lx.run()
     return lx.out
 }
 
 /// Lexes an interpolation hole, whose text starts at the given position.
-package func lexFragment(source: String, atLine: Int, atCol: Int): List<Token> {
+public func lexFragment(source: String, atLine: Int, atCol: Int): List<Token> {
     val lx = Lexer(source, atLine, atCol, false)
     lx.run()
     return lx.out
 }
 
 /// The one line `keal tokens` prints for this token.
-package func tokenDumpLine(t: Token): String {
+public func tokenDumpLine(t: Token): String {
     if (t.kind == "str") {
         var lineOut = "${t.line}:${t.col} str"
         for (p in t.parts) {
@@ -674,7 +687,7 @@ package func tokenDumpLine(t: Token): String {
 }
 
 /// How a token reads in an error message — `describe` in the reference.
-package func describeToken(t: Token): String {
+public func describeToken(t: Token): String {
     return when (t.kind) {
         "int" -> "integer `${t.text}`"
         "float" -> "float `${t.text}`"

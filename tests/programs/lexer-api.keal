@@ -1,0 +1,35 @@
+// The lexing library, used the way a program outside this repository uses it.
+//
+// `selfhost/lexing.keal` was `package`, so it could only be imported from
+// beside itself. A tool that wanted Keal's own tokens had to vendor a copy
+// and keep a diff script pointed at the original — which is a promise made
+// by hand, checked by hand, and broken quietly. The surface is `public` now.
+//
+// This test exists to make the promise a checked one: if a name here stops
+// being public, or a field disappears, this file stops compiling.
+
+import "../../selfhost/lexing.keal"
+
+val toks = lexFile("val x = 1 + 2")
+assert(toks.size == 8, "one token per piece, plus `;` and end of file: ${toks.size}")
+assert(toks[0].kind == "val", "the keyword")
+assert(toks[1].kind == "ident" and toks[1].text == "x", "the name and its text")
+assert(toks[3].line == 1 and toks[3].col == 9, "a position, in bytes")
+assert(toks[toks.size - 1].kind == "eof", "and the end")
+
+assert(tokenDumpLine(toks[1]) == "1:5 ident x", "the dump line `keal tokens` prints")
+assert(describeToken(toks[1]) == "`x`", "how a token reads in an error")
+assert(describeToken(toks[toks.size - 1]) == "end of file", "including the one with no text")
+
+// A string literal is a list of parts, so a consumer can see the holes.
+// The `\$` is escaped so that THIS file does not interpolate it before the
+// lexer ever sees it — which it did on the first try, and the count told me.
+val interp = lexFile("\"a\${1}b\"")
+assert(interp[0].kind == "str", "a string literal")
+assert(interp[0].parts.size == 3, "literal, hole, literal: ${interp[0].parts.size}")
+assert(interp[0].parts[0].isLit and interp[0].parts[0].text == "a", "the first part")
+assert(!interp[0].parts[1].isLit and interp[0].parts[1].text == "1", "the hole")
+
+// A fragment lexes from a position inside someone else's file.
+val frag = lexFragment("x + 1", 7, 12)
+assert(frag[0].line == 7 and frag[0].col == 12, "a fragment carries its origin")
