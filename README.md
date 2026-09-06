@@ -1,11 +1,11 @@
-<p align="center"><img src="assets/keal.png" alt="Keal" width="360"></p>
-
 <!-- keal-band:start -->
-<p align="center">
+<p align="right">
   <a href="https://github.com/geneacta/keal/releases"><img alt="version" src="https://img.shields.io/badge/version-1.2.0-blue?style=flat-square&labelColor=2b2b2b"></a>
   <a href="https://github.com/search?q=extension%3Akeal%20user%3Ageneacta&type=code"><img alt=".keal files" src="https://img.shields.io/badge/.keal%20files-369-blue?style=flat-square&labelColor=2b2b2b"></a>
 </p>
 <!-- keal-band:end -->
+
+<p align="center"><img src="assets/keal.png" alt="Keal" width="360"></p>
 
 # Keal — a statically typed language for programs that have to be predictable
 
