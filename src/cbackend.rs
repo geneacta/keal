@@ -5502,9 +5502,33 @@ impl CBackend {
             None => None,
         };
 
+        // A `when` that PRODUCES A VALUE and has no `else` was accepted by
+        // the checker, which means its arms cover the subject's type — a
+        // closed set: a `Bool`, a `Comp`, an enum. C cannot see that proof.
+        // It sees a chain of `if`s with no default and says the slot may be
+        // read uninitialised, which is true of the C and false of the
+        // program, in every file that uses the language's own exhaustiveness.
+        //
+        // So the last arm is emitted without its test. It is the arm that
+        // runs when nothing else matched, and nothing else CAN match — the
+        // test was a question whose answer was already known. The C compiler
+        // then sees the slot written on every path, and one comparison is
+        // saved on a path that always took it.
+        //
+        // Only when the shape makes it certain: a subject to match on, a
+        // value to produce, a last arm with no guard — a guard can fail —
+        // and not the `is C(a, b)` form, which binds and has its own shape.
+        let last_is_default = slot.is_some()
+            && subject_slot.is_some()
+            && arms.last().is_some_and(|a| {
+                a.guard.is_none()
+                    && !matches!(&a.pattern, WhenPattern::Is { binds: Some(_), .. })
+            });
+
         self.line("do {");
         self.indent += 1;
-        for arm in arms {
+        for (i, arm) in arms.iter().enumerate() {
+            let unconditional = last_is_default && i + 1 == arms.len();
             // `is C(a, b)` binds fields the guard and body both see, so it
             // cannot ride the plain condition chain; it gets its own shape.
             if let WhenPattern::Is { ty, negated: false, binds: Some(d) } = &arm.pattern {
@@ -5514,7 +5538,9 @@ impl CBackend {
             // The test gets a scope of its own, closed before the branch, so
             // anything it allocated — a string candidate, say — is released
             // whether or not the arm is taken. Only the boolean crosses over.
-            let cond = {
+            let cond = if unconditional {
+                None
+            } else {
                 self.open_scope();
                 let taken = self.arm_test(arm, subject_slot.as_ref());
                 let bound = taken.map(|c| {
@@ -5814,19 +5840,26 @@ impl CBackend {
             }
         }
         // `x == null` on a tagged value is a presence test, not a compare.
+        //
+        // The value is the one ALREADY emitted into `a` or `b`. Asking
+        // `self.expr` for it again emitted the whole side a second time:
+        // `maybe() == null` called `maybe` twice natively and once on both
+        // interpreters, so a subject with any effect at all — a counter, a
+        // read, a query — happened twice in a compiled program and once in
+        // an interpreted one. No corpus test could see it, because the only
+        // things compared against null there are pure.
         if matches!(op, BinOp::Eq | BinOp::Ne) {
-            let (opt_side, other_null) = if matches!(rhs.kind, ExprKind::Null) {
-                (Some(lhs), true)
+            let (opt_side, already) = if matches!(rhs.kind, ExprKind::Null) {
+                (Some(lhs), Some(a.clone()))
             } else if matches!(lhs.kind, ExprKind::Null) {
-                (Some(rhs), true)
+                (Some(rhs), Some(b.clone()))
             } else {
-                (None, false)
+                (None, None)
             };
-            if other_null {
+            if let Some(v) = already {
                 if let Some(side) = opt_side {
                     if let Some(Type::Nullable(inner)) = self.ety(side) {
                         if is_value_opt(&Type::Nullable(inner.clone())) {
-                            let v = self.expr(side);
                             let has = opt_has(&inner, &v);
                             return if op == BinOp::Eq {
                                 format!("(!{})", has)

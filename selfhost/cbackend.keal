@@ -5854,9 +5854,36 @@ class CBackend() {
             subjectTy = ty
         }
 
+        // A `when` that PRODUCES A VALUE and has no `else` was accepted by
+        // the checker, which means its arms cover the subject's type — a
+        // closed set: a `Bool`, a `Comp`, an enum. C cannot see that proof.
+        // It sees a chain of `if`s with no default and says the slot may be
+        // read uninitialised, which is true of the C and false of the
+        // program, in every file that uses the language's own exhaustiveness.
+        //
+        // So the last arm is emitted without its test. It is the arm that
+        // runs when nothing else matched, and nothing else CAN match — the
+        // test was a question whose answer was already known. The C compiler
+        // then sees the slot written on every path, and one comparison is
+        // saved on a path that always took it.
+        //
+        // Only when the shape makes it certain: a subject to match on, a
+        // value to produce, a last arm with no guard — a guard can fail —
+        // and not the `is C(a, b)` form, which binds and has its own shape.
+        var lastIsDefault = false
+        unless (slot == "" or subjectSlot == "" or e.arms.size == 0) {
+            val last = e.arms[e.arms.size - 1]
+            if (last.guard == null and not (last.patternKind == "is" and last.binds != null)) {
+                lastIsDefault = true
+            }
+        }
+
         this.line("do {")
         this.indent += 1
+        var armIndex = -1
         for (arm in e.arms) {
+            armIndex += 1
+            val unconditional = lastIsDefault and armIndex + 1 == e.arms.size
             // `is C(a, b)` binds fields the guard and body both see, so it
             // cannot ride the plain condition chain; it gets its own shape.
             val binds0 = arm.binds
@@ -5866,15 +5893,17 @@ class CBackend() {
             }
             // The test gets a scope of its own, closed before the branch;
             // only the boolean crosses over.
-            this.openScope()
-            val taken = this.armTest(arm, subjectSlot, subjectTy)
             var cond = ""
-            if (taken != "") {
-                val t = this.temp()
-                this.line("const bool ${t} = ${taken};")
-                cond = t
+            unless (unconditional) {
+                this.openScope()
+                val taken = this.armTest(arm, subjectSlot, subjectTy)
+                if (taken != "") {
+                    val t = this.temp()
+                    this.line("const bool ${t} = ${taken};")
+                    cond = t
+                }
+                this.closeScope()
             }
-            this.closeScope()
             unless (cond == "") {
                 this.openIf(cond)
                 this.indent += 1
@@ -6188,12 +6217,23 @@ class CBackend() {
             }
         }
         // `x == null` on a tagged value is a presence test, not a compare.
+        //
+        // The value is the one ALREADY emitted into `a` or `b`. Asking
+        // `expr` for it again emitted the whole side a second time:
+        // `maybe() == null` called `maybe` twice natively and once on both
+        // interpreters, so a subject with any effect at all — a counter, a
+        // read, a query — happened twice in a compiled program and once in
+        // an interpreted one. No corpus test could see it, because the only
+        // things compared against null there are pure.
         if (op == "==" or op == "!=") {
             var optSide: Ex? = null
+            var already = ""
             if (rhs.kind == "null") {
                 optSide = lhs
+                already = a
             } else if (lhs.kind == "null") {
                 optSide = rhs
+                already = b
             }
             val side = optSide
             if (side != null) {
@@ -6201,8 +6241,7 @@ class CBackend() {
                 if (st != null and st.kind == "Nullable") {
                     if (isValueOpt(st)) {
                         val inner = st.args[0]
-                        val v = this.expr(side)
-                        val has = optHas(inner, v)
+                        val has = optHas(inner, already)
                         if (op == "==") { return "(!${has})" }
                         return has
                     }
