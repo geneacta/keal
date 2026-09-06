@@ -235,3 +235,103 @@ SIDEBAR = {
         ("interop.html", "Interop : de C à Kotlin"),
     ],
 }
+
+# ------------------------------------------------------------ kealler ---
+# The IDE lives in a private repository; its binaries do not, because a
+# private repository's release assets need a token to download, which is no
+# way to hand somebody a program. They are cut as releases here, tagged
+# `kealler-vN` so they cannot be mistaken for a release of the language, and
+# this page points at them.
+#
+# Empty until the first one is cut. The page then says what Kealler is and
+# what it is waiting for, rather than offering a download that does not exist
+# — and setting this to a version is the whole of publishing it.
+KEALLER_VERSION = ""
+
+KEALLER_BUILDS = [
+    ("kealler-macos-arm64", "macOS", "Apple silicon"),
+    ("kealler-linux-x86_64", "Linux", "x86-64"),
+    ("kealler-windows-x86_64", "Windows", "x86-64"),
+]
+
+KEALLER = {
+    "en": {
+        "title": "Kealler — the Keal IDE",
+        "lede": "An editor for Keal, written in Keal and drawn by keal-view. There is no toolkit "
+                "under it: every pixel, the gutter and the syntax colours included, comes out of "
+                "a loop written in Keal.",
+        "h_get": "Download",
+        "waiting": "**Not released yet.** Kealler reads, colours and checks a Keal project today "
+                   "— what it cannot do is let you type into it, because keal-view is still "
+                   "growing text selection across more than one line. A download called an IDE "
+                   "that opens a file and refuses a keystroke would be a promise this page had no "
+                   "business making, so the first release waits for that.",
+        "h_what": "What it does",
+        "does": [
+            ("Coloured by the compiler, not by a copy of it",
+             "The highlighting is <code>keal tokens</code> — the lexer that compiles the file. A "
+             "second grammar written in regular expressions agrees with the compiler on the day "
+             "it is written and disagrees the first time the language grows."),
+            ("What the compiler thinks, where it happened",
+             "<code>keal check</code> runs on the file you are looking at, and each thing it "
+             "found is drawn on the line it names rather than in a list somewhere else."),
+            ("A preview that is the program's own output",
+             "Building a keal-view program and showing the frame it drew — with no display "
+             "involved, through <code>--snapshot</code>. No second renderer to keep in agreement "
+             "with the first, so the preview cannot be subtly wrong."),
+            ("A layout that survives being closed",
+             "Panels are dragged, split and tabbed, and where you left them is where they are. "
+             "An arrangement naming a panel that has gone is pruned rather than refused."),
+        ],
+        "h_needs": "What it needs",
+        "needs": "The Keal compiler, beside it or on your path — the colouring is <code>keal "
+                 "tokens</code>, the diagnostics are <code>keal check</code>, and building is "
+                 "<code>keal build</code>. With none it says so and keeps working: the tree, the "
+                 "source and the layout do not need one, the colouring goes plain, and nothing is "
+                 "checked. That is the honest state rather than a silent one.",
+        "h_platform": "Platform",
+        "h_arch": "Architecture",
+        "h_file": "File",
+    },
+    "fr": {
+        "title": "Kealler — l'IDE de Keal",
+        "lede": "Un éditeur pour Keal, écrit en Keal et dessiné par keal-view. Il n'y a aucune "
+                "boîte à outils dessous : chaque pixel, la gouttière et la coloration comprises, "
+                "sort d'une boucle écrite en Keal.",
+        "h_get": "Téléchargement",
+        "waiting": "**Pas encore publié.** Kealler lit, colore et vérifie un projet Keal "
+                   "aujourd'hui — ce qu'il ne sait pas faire, c'est vous laisser y taper, parce "
+                   "que keal-view apprend encore la sélection de texte sur plusieurs lignes. Un "
+                   "téléchargement appelé « IDE » qui ouvre un fichier et refuse une frappe "
+                   "serait une promesse que cette page n'a pas à faire, donc la première version "
+                   "attend cela.",
+        "h_what": "Ce qu'il fait",
+        "does": [
+            ("Coloré par le compilateur, pas par une copie de lui",
+             "La coloration est <code>keal tokens</code> — le lexer qui compile le fichier. Une "
+             "seconde grammaire écrite en expressions régulières est d'accord avec le compilateur "
+             "le jour où on l'écrit et en désaccord dès que le langage grandit."),
+            ("Ce que le compilateur pense, là où ça se passe",
+             "<code>keal check</code> tourne sur le fichier ouvert, et chaque chose trouvée est "
+             "dessinée sur la ligne qu'elle nomme plutôt que dans une liste ailleurs."),
+            ("Un aperçu qui est la sortie du programme lui-même",
+             "Compiler un programme keal-view et montrer l'image qu'il a dessinée — sans aucun "
+             "écran, par <code>--snapshot</code>. Pas de second moteur de rendu à tenir en accord "
+             "avec le premier, donc l'aperçu ne peut pas être subtilement faux."),
+            ("Une disposition qui survit à la fermeture",
+             "Les panneaux se traînent, se divisent et s'empilent en onglets, et là où vous les "
+             "avez laissés est là où ils sont. Un agencement qui nomme un panneau disparu est "
+             "élagué plutôt que refusé."),
+        ],
+        "h_needs": "Ce qu'il lui faut",
+        "needs": "Le compilateur Keal, à côté de lui ou dans votre chemin — la coloration est "
+                 "<code>keal tokens</code>, les diagnostics sont <code>keal check</code>, et la "
+                 "compilation est <code>keal build</code>. Sans aucun il le dit et continue : "
+                 "l'arborescence, la source et la disposition n'en ont pas besoin, la coloration "
+                 "s'éteint, et rien n'est vérifié. C'est l'état honnête plutôt que l'état "
+                 "silencieux.",
+        "h_platform": "Plateforme",
+        "h_arch": "Architecture",
+        "h_file": "Fichier",
+    },
+}

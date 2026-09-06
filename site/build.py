@@ -217,9 +217,11 @@ def markdown(text):
 NAV = {
     "en": [("index.html", "Home"), ("tour.html", "Tour"), ("docs.html", "Docs"),
            ("coming-from.html", "Coming from…"), ("stdlib.html", "Library"),
+           ("kealler.html", "Kealler"),
            ("https://geneacta.github.io/keal-view/", "keal-view")],
     "fr": [("index.html", "Accueil"), ("tour.html", "Le tour"), ("docs.html", "Docs"),
            ("coming-from.html", "Je viens de…"), ("stdlib.html", "Bibliothèque"),
+           ("kealler.html", "Kealler"),
            ("https://geneacta.github.io/keal-view/fr/", "keal-view")],
 }
 
@@ -519,6 +521,44 @@ def docs_index(lang):
     return page(lang, "docs.html", "Keal — " + title, lede, body, active="docs.html")
 
 
+def kealler_page(lang):
+    """The download page for Kealler, whose binaries are released here.
+
+    The IDE's source is in a private repository and its binaries cannot be,
+    because a private repository's release assets need a token to fetch. They
+    are cut against this one instead, tagged `kealler-vN`, and this page is
+    where somebody finds them.
+    """
+    L = C.KEALLER[lang]
+    cards = "".join('<div class="card"><h3>%s</h3><p>%s</p></div>' % (t, b) for t, b in L["does"])
+
+    if C.KEALLER_VERSION:
+        rows = []
+        for name, plat, arch in C.KEALLER_BUILDS:
+            url = ("https://github.com/geneacta/keal/releases/download/kealler-v%s/%s.tar.gz"
+                   % (C.KEALLER_VERSION, name))
+            rows.append("<tr><td><b>%s</b></td><td>%s</td><td><a href=\"%s\">%s.tar.gz</a></td></tr>"
+                        % (plat, arch, url, name))
+        get = ('<div class="tablewrap"><table><thead><tr><th>%s</th><th>%s</th><th>%s</th></tr>'
+               "</thead><tbody>%s</tbody></table></div>"
+               % (L["h_platform"], L["h_arch"], L["h_file"], "".join(rows)))
+    else:
+        # No download, and the reason said out loud. A page that offered a
+        # file that is not there would be worse than one that explains.
+        get = '<div class="callout"><span class="st">✦</span><p>%s</p></div>' % (
+            L["waiting"].replace("**", ""))
+
+    body = ('<section class="band"><h1>%s</h1><p class="lede">%s</p></section>'
+            '<section class="band"><h2>%s</h2>%s</section>'
+            '<section class="band"><h2>%s</h2></section>'
+            '<section class="cards">%s</section>'
+            '<section class="band"><h2>%s</h2><p class="lede">%s</p></section>'
+            % (L["title"], L["lede"], L["h_get"], get, L["h_what"], cards,
+               L["h_needs"], L["needs"]))
+    return page(lang, "kealler.html", L["title"], L["lede"][:180], body,
+                active="kealler.html")
+
+
 def coming_index(lang):
     title = "Coming from another language" if lang == "en" else "Je viens d'un autre langage"
     lede = ("What you already write, and what it becomes here — plus the handful of things that"
@@ -741,6 +781,7 @@ def main():
         written.append(write(lang, "tour.html", tour(lang)))
         written.append(write(lang, "docs.html", docs_index(lang)))
         written.append(write(lang, "coming-from.html", coming_index(lang)))
+        written.append(write(lang, "kealler.html", kealler_page(lang)))
         for L in CM.LANGS:
             written.append(write(lang, "from-%s.html" % L["key"], coming_page(lang, L)))
         for source, filename, t_en, t_fr, group in C.DOC_PAGES:

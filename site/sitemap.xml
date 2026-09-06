@@ -81,6 +81,11 @@
     <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/interop.html"/>
   </url>
   <url>
+    <loc>https://geneacta.github.io/keal/kealler.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/kealler.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/kealler.html"/>
+  </url>
+  <url>
     <loc>https://geneacta.github.io/keal/language.html</loc>
     <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/language.html"/>
     <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/language.html"/>
@@ -194,6 +199,11 @@
     <loc>https://geneacta.github.io/keal/fr/interop.html</loc>
     <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/interop.html"/>
     <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/interop.html"/>
+  </url>
+  <url>
+    <loc>https://geneacta.github.io/keal/fr/kealler.html</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/kealler.html"/>
+    <xhtml:link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/kealler.html"/>
   </url>
   <url>
     <loc>https://geneacta.github.io/keal/fr/language.html</loc>
