@@ -97,6 +97,11 @@ LANDING = {
              "https://geneacta.github.io/keal-view/fr/"),
             ("KealSql", "Un langage de schémas et de requêtes PostgreSQL, compilé vers SQL.",
              "https://github.com/geneacta/kealsql"),
+            # Le seul dont la page est ici plutôt que sur un site à lui : le
+            # dépôt de Kealler est privé, donc ses binaires sont produits par
+            # celui-ci et décrits sur ce site.
+            ("Kealler", "L'IDE — écrit en Keal, dessiné par keal-view.",
+             "kealler.html"),
         ],
         "start_h": "Opérationnel en une minute.",
         "start_after": "Puis faites le tour — 30 minutes, chaque extrait s'exécute →",
