@@ -1365,7 +1365,24 @@ impl CBackend {
         self.line("return 0;");
         self.end_function_unwind();
         let body = std::mem::take(&mut self.body).join("\n");
-        let _ = write!(self.defs, "\nint main(void) {{\n{}\n}}\n", body);
+        // The top level gets a NAME, so that a host loading this translation
+        // unit as a library can run it.
+        //
+        // Every top-level `val` and `var` is set by these statements, so
+        // before they run a global is a null pointer — which is what a
+        // PostgreSQL backend calling a `LANGUAGE C` function found. The
+        // answer is not to split the initialisers out: their order relative
+        // to the statements around them is the program's, and hoisting some
+        // of them would make that order observable and give the program two
+        // states where it has one. So the whole top level is named instead,
+        // and a host that wants the globals runs the program — which is the
+        // only thing that ever set them.
+        //
+        // `main` keeps its job: the process arguments, the runtime, and the
+        // exit status, which comes from `exit()` inside these statements
+        // when the program has a `main` that answers an `Int`.
+        let _ = write!(self.defs, "\nint keal_program_run(void) {{\n{}\n}}\n", body);
+        let _ = write!(self.defs, "\nint main(void) {{\n    return keal_program_run();\n}}\n");
     }
 
     fn function(&mut self, f: &FunDecl) {

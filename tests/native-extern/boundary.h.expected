@@ -8,6 +8,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Loading this program as a library rather than running it: `keal_runtime_init`
+ * prepares the runtime, and `keal_program_run` runs the program's top level —
+ * which is where every top-level `val` and `var` is set, so before it a global
+ * is a null pointer. A host that wants them runs the program.
+ */
+void keal_runtime_init(void);
+int keal_program_run(void);
+
 #ifndef KEAL_MIRROR_Vec2
 #define KEAL_MIRROR_Vec2
 typedef struct Keal_Vec2 {

@@ -105,6 +105,30 @@ KealStr* keal_abi_str_retain(KealStr* s);
 void keal_abi_str_release(KealStr* s);
 ```
 
+**Loading the program instead of running it.** The header declares two more:
+
+```c
+void keal_runtime_init(void);   /* prepare the runtime: literals, and no more */
+int  keal_program_run(void);    /* run the program's top level */
+```
+
+`main` calls both, in that order, so a program run the ordinary way never has
+to think about them. A host that never calls `main` — PostgreSQL loading a
+`LANGUAGE C` function, a JNI `.so`, a Python extension — has to call the
+first, or every string literal is still a null pointer and the first read of
+one ends the process. It is idempotent.
+
+The second is the one to think about. **Every top-level `val` and `var` is
+set by the top-level statements**, so before they run a global is a null
+pointer, and a host that only initialised the runtime will find it so. There
+is no smaller thing to call: the initialisers are statements among the other
+statements, and their order relative to those is the program's own. Splitting
+them out would make that order observable and give the program two states
+where it has one. So the top level has a name, and a host that wants the
+globals runs it — which is the only thing that ever set them. Until then, a
+global written `var x: String? = null` is honest: C's zero is exactly what a
+nullable means.
+
 Five names, and the layout is not one of them — everything else in the
 emitted runtime is `static`, which is why a prototype mentioning `KealStr*`
 would otherwise be a declaration the other side could not use. Ownership is
