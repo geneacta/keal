@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keal — pas à pas</title>
+<meta name="description" content="Installer Keal et exécuter votre premier programme, une étape à la fois.">
+<link rel="canonical" href="https://geneacta.github.io/keal/fr/steps.html">
+<link rel="alternate" hreflang="en" href="https://geneacta.github.io/keal/steps.html">
+<link rel="alternate" hreflang="fr" href="https://geneacta.github.io/keal/fr/steps.html">
+<link rel="alternate" hreflang="x-default" href="https://geneacta.github.io/keal/steps.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Keal">
+<meta property="og:locale" content="fr_FR">
+<meta property="og:title" content="Keal — pas à pas">
+<meta property="og:description" content="Installer Keal et exécuter votre premier programme, une étape à la fois.">
+<meta property="og:url" content="https://geneacta.github.io/keal/fr/steps.html">
+<meta property="og:image" content="https://geneacta.github.io/keal/assets/keal.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Keal — pas à pas">
+<meta name="twitter:description" content="Installer Keal et exécuter votre premier programme, une étape à la fois.">
+<meta name="twitter:image" content="https://geneacta.github.io/keal/assets/keal.png">
+<link rel="icon" type="image/png" href="../assets/keal3.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="wrap">
+<nav class="nav">
+  <div class="nav-left">
+    <a href="index.html"><img class="nav-logo" src="../assets/keal.png" alt="Keal"></a>
+    <div class="nav-links"><a href="index.html">Accueil</a><a href="steps.html" class="tab-active">Pas à pas</a><a href="tour.html">Le tour</a><a href="docs.html">Docs</a><a href="coming-from.html">Je viens de…</a><a href="stdlib.html">Bibliothèque</a><a href="kealler.html">Kealler</a></div>
+  </div>
+  <div class="nav-right">
+    <span class="badge">v1.2.0</span>
+    <a class="btn-lang" href="../steps.html">English</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
+</nav>
+
+<div class="tourgrid">
+  <aside class="tournav"><a class="tch" href="#s1"><span class="n">1</span>Récupérer le compilateur</a><a class="tch" href="#s2"><span class="n">2</span>Vérifier qu&#x27;il est bien là</a><a class="tch" href="#s3"><span class="n">3</span>Écrire le fichier</a><a class="tch" href="#s4"><span class="n">4</span>L&#x27;exécuter</a><a class="tch" href="#s5"><span class="n">5</span>Quand ça ne va pas</a><a class="tch" href="#s6"><span class="n">6</span>Le même fichier, trois façons</a><a class="tch" href="#s7"><span class="n">7</span>Un fichier directement exécutable</a><a class="tch" href="#s8"><span class="n">8</span>Où aller ensuite</a></aside>
+  <div class="tourmain prose">
+    <h1>Pas à pas</h1>
+    <p class="lede">De rien d'installé à votre propre programme, en huit étapes. Chaque commande est écrite en entier, et chaque sortie est ce que la commande imprime réellement.</p>
+    <section class="chapter" id="s1"><h2>1. Récupérer le compilateur</h2><p class="lede">Keal est un seul binaire. Il porte le prélude et le runtime C en lui, il n'y a donc rien à installer à côté. Prenez l'archive de votre machine dans la <a href="https://github.com/geneacta/keal/releases/latest">dernière version publiée</a>, décompressez-la, et placez le fichier <code>keal</code> quelque part dans votre <code>PATH</code>.<br><br><strong>Linux</strong> demande la glibc 2.34 ou plus récente — Ubuntu 22.04, Debian 12, RHEL 9 et suivantes. Les téléchargements <strong>macOS</strong> ne sont pas signés : il faut retirer l'attribut de quarantaine une fois. Il n'existe pas d'archive pour <strong>Linux sur ARM</strong> ; sur cette machine, et sur toute plateforme absente de la liste, compilez depuis les sources — c'est l'étape ci-dessous et elle marche partout où Rust marche.</p><div class="cwin"><div class="cwin-bar"><span class="f">macOS — once, after unpacking</span></div><pre>xattr -d com.apple.quarantine keal</pre></div><div class="cwin"><div class="cwin-bar"><span class="f">Building from source, anywhere Rust runs</span></div><pre>git clone https://github.com/geneacta/keal.git
+cd keal
+cargo build --release
+cargo install --path .</pre></div></section><section class="chapter" id="s2"><h2>2. Vérifier qu&#x27;il est bien là</h2><p class="lede">Deux commandes, et elles répondent à des questions différentes. <code>keal version</code> dit que le binaire est dans votre <code>PATH</code> et qu'il s'exécute. <code>keal doctor</code> dit ce qu'il sait faire sur cette machine : un compilateur C débloque <code>keal build</code>, le reste sert à parler aux autres langages. Rien de tout cela n'est requis pour exécuter un programme — les quatre premières étapes n'en ont besoin d'aucun.</p><div class="cwin"><div class="cwin-bar"><span class="f">keal version</span><span class="run">▶ Exécuter</span></div><pre>keal version</pre><div class="cwin-out"><pre>keal 1.2.0</pre></div></div><div class="cwin"><div class="cwin-bar"><span class="f">keal doctor</span><span class="run">▶ Exécuter</span></div><pre>keal doctor</pre><div class="cwin-out"><pre>keal doctor — the interop toolchains on this machine
+
+  cc       cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+             verified against: Apple clang 21.0.0
+             unlocks: keal build (required for native)
+
+  cargo    cargo 1.98.0 (797e8a9bc 2026-08-05)
+             verified against: rustc 1.98.0
+             unlocks: building the toolchain (required)
+
+  go       MISSING            — Go interop (c-archive)</pre></div></div></section><section class="chapter" id="s3"><h2>3. Écrire le fichier</h2><p class="lede">Un fichier est un programme. Aucune classe à déclarer, aucun <code>main</code> à écrire, aucun projet à créer d'abord : les instructions de premier niveau s'exécutent dans l'ordre où elles sont écrites. Mettez ceci dans un fichier nommé <code>hello.keal</code>, où vous voulez.</p><div class="cwin"><div class="cwin-bar"><span class="f">hello.keal</span></div><pre>println(&quot;hello, world&quot;)</pre></div></section><section class="chapter" id="s4"><h2>4. L&#x27;exécuter</h2><p class="lede">Voilà tout le cycle : écrire, exécuter. Pas d'étape de compilation, pas de fichier de configuration, pas d'arborescence imposée par l'outil.</p><div class="cwin"><div class="cwin-bar"><span class="f">keal hello.keal</span><span class="run">▶ Exécuter</span></div><pre>keal hello.keal</pre><div class="cwin-out"><pre>hello, world</pre></div></div></section><section class="chapter" id="s5"><h2>5. Quand ça ne va pas</h2><p class="lede">Tôt plutôt que tard, et c'est bien l'intention. Keal est typé statiquement : l'erreur ci-dessous est attrapée avant que quoi que ce soit ne s'exécute, et <code>keal check</code> demande cette vérification sans exécuter le programme du tout. L'erreur nomme le fichier, la ligne, la colonne, ce qu'elle a trouvé et ce qu'elle attendait.</p><div class="cwin"><div class="cwin-bar"><span class="f">oops.keal</span></div><pre>val n: Int = &quot;quarante-deux&quot;
+println(n)</pre></div><div class="cwin"><div class="cwin-bar"><span class="f">keal check oops.keal</span><span class="run">▶ Exécuter</span></div><pre>keal check oops.keal</pre><div class="cwin-out"><pre>error: initializer has type `String`, but `Int` was expected
+  --&gt; oops.keal:1:14
+  |
+1 | val n: Int = &quot;quarante-deux&quot;
+  |              ^
+1 error found</pre></div></div></section><section class="chapter" id="s6"><h2>6. Le même fichier, trois façons</h2><p class="lede">Keal a trois moteurs, et les trois exécutent la source que vous venez d'écrire. <code>keal</code> seul utilise la machine virtuelle à bytecode — le défaut, et le moyen rapide d'exécuter quelque chose tout de suite. <code>--ast</code> utilise l'interprète à parcours d'arbre, qui est la spécification contre laquelle les deux autres sont vérifiés. <code>keal build</code> compile en passant par C vers un vrai exécutable qui n'a besoin d'aucun Keal installé pour tourner — celui-là, et lui seul, demande un compilateur C.<br><br>Les trois doivent imprimer les mêmes octets. Ce n'est pas un slogan : c'est ce que la suite de tests vérifie sur chaque programme qu'elle possède, et c'est ainsi que presque tous les défauts de ce compilateur ont été trouvés — un moteur en désaccord avec les deux autres.</p><div class="cwin"><div class="cwin-bar"><span class="f">The three engines, one file</span><span class="run">▶ Exécuter</span></div><pre>keal hello.keal          # the bytecode VM, the default
+keal --ast hello.keal    # the tree-walking interpreter
+keal build hello.keal    # a native executable, through C
+./hello</pre><div class="cwin-out"><pre>hello, world
+hello, world
+hello
+hello, world</pre></div></div></section><section class="chapter" id="s7"><h2>7. Un fichier directement exécutable</h2><p class="lede">Un fichier Keal peut nommer son propre interprète sur la première ligne, ce qui en fait un exécutable ordinaire sur macOS et Linux. Rien d'autre ne change : c'est le même langage et le même fichier, et <code>keal build</code> en fera toujours un binaire le jour où vous en voudrez un.</p><div class="cwin"><div class="cwin-bar"><span class="f">script.keal</span></div><pre>#!/usr/bin/env keal
+println(&quot;hello from a script&quot;)</pre></div><div class="cwin"><div class="cwin-bar"><span class="f">Make it executable, then run it</span><span class="run">▶ Exécuter</span></div><pre>chmod +x script.keal
+./script.keal</pre><div class="cwin-out"><pre>hello from a script</pre></div></div></section><section class="chapter" id="s8"><h2>8. Où aller ensuite</h2><p class="lede">Le <a href="tour.html">tour</a> fait quinze chapitres et environ une demi-heure, chaque extrait étant un vrai programme avec sa vraie sortie. <a href="docs.html">Les docs</a> sont la référence quand vous voudrez les règles plutôt que le goût du langage. <code>keal repl</code> ouvre une invite pour essayer une ligne à la fois. Et si vous connaissez déjà un autre langage, les guides <a href="coming-from.html">je viens de…</a> partent de ce que vous savez déjà.</p><div class="cwin"><div class="cwin-bar"><span class="f">keal repl</span></div><pre>keal repl</pre></div></section>
+  </div>
+</div>
+
+<footer class="foot">
+  <div class="foot-l">Un langage de programmation typé statiquement et auto-hébergé. Construit par Geneacta.</div>
+  <div class="foot-r">
+    <a href="https://github.com/geneacta/keal">Les sources sur GitHub</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CONTRIBUTING.md">Contribuer</a>
+    <a href="https://github.com/geneacta/keal/blob/main/CODE_OF_CONDUCT.md">Code de conduite</a>
+    <a href="https://github.com/geneacta/keal/blob/main/SECURITY.md">Sécurité</a>
+    <a href="../index.html#built">Écrit en Keal</a>
+  </div>
+</footer>
+</div>
+<script src="../site.js"></script>
+</body>
+</html>

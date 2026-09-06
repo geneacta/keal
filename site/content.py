@@ -377,3 +377,164 @@ KEALLER = {
         "h_file": "Fichier",
     },
 }
+
+
+# ---- the step-by-step page -----------------------------------------------
+# A first Keal program, from nothing installed to a native binary, for a
+# reader who has never seen the language and may never have used a compiler.
+#
+# (title_en, title_fr, body_en, body_fr, [(label, code, output_or_None), ...])
+#
+# Every transcript below was run on a real machine before it was written
+# down; `{version}` is filled in from Cargo.toml at build time so the page
+# cannot drift past the compiler it describes. What cannot be verified from
+# here — the download, the PATH, another platform's C compiler — is written
+# as an instruction and never as an output.
+
+STEPS_LEDE = {
+    "en": "Nothing installed to a program of your own, in eight steps. Every command is"
+          " written out in full, and every output is what the command actually prints.",
+    "fr": "De rien d'installé à votre propre programme, en huit étapes. Chaque commande est"
+          " écrite en entier, et chaque sortie est ce que la commande imprime réellement.",
+}
+
+STEPS = [
+    ("Get the compiler", "Récupérer le compilateur",
+     "Keal is one binary. It carries the prelude and the C runtime inside it, so there is nothing"
+     " to install beside it. Take the archive for your machine from the"
+     " <a href=\"https://github.com/geneacta/keal/releases/latest\">latest release</a>, unpack it,"
+     " and put the <code>keal</code> file somewhere on your <code>PATH</code>."
+     "<br><br><strong>Linux</strong> needs glibc 2.34 or newer — Ubuntu 22.04, Debian 12, RHEL 9"
+     " and later. <strong>macOS</strong> downloads are unsigned, so clear the quarantine flag once."
+     " There is no prebuilt archive for <strong>Linux on ARM</strong>; on that machine, and on any"
+     " platform not in the list, build from source instead — it is the step below and it works"
+     " everywhere Rust does.",
+     "Keal est un seul binaire. Il porte le prélude et le runtime C en lui, il n'y a donc rien à"
+     " installer à côté. Prenez l'archive de votre machine dans la"
+     " <a href=\"https://github.com/geneacta/keal/releases/latest\">dernière version publiée</a>,"
+     " décompressez-la, et placez le fichier <code>keal</code> quelque part dans votre"
+     " <code>PATH</code>."
+     "<br><br><strong>Linux</strong> demande la glibc 2.34 ou plus récente — Ubuntu 22.04,"
+     " Debian 12, RHEL 9 et suivantes. Les téléchargements <strong>macOS</strong> ne sont pas"
+     " signés : il faut retirer l'attribut de quarantaine une fois. Il n'existe pas d'archive"
+     " pour <strong>Linux sur ARM</strong> ; sur cette machine, et sur toute plateforme absente"
+     " de la liste, compilez depuis les sources — c'est l'étape ci-dessous et elle marche partout"
+     " où Rust marche.",
+     [("macOS — once, after unpacking", "xattr -d com.apple.quarantine keal", None),
+      ("Building from source, anywhere Rust runs",
+       "git clone https://github.com/geneacta/keal.git\n"
+       "cd keal\n"
+       "cargo build --release\n"
+       "cargo install --path .", None)]),
+
+    ("Check it is really there", "Vérifier qu'il est bien là",
+     "Two commands, and they answer different questions. <code>keal version</code> says the binary"
+     " is on your <code>PATH</code> and runs. <code>keal doctor</code> says what it can do on this"
+     " machine: a C compiler unlocks <code>keal build</code>, and the rest are for talking to other"
+     " languages. Nothing here is required to run a program — the first four steps need none of it.",
+     "Deux commandes, et elles répondent à des questions différentes. <code>keal version</code> dit"
+     " que le binaire est dans votre <code>PATH</code> et qu'il s'exécute. <code>keal doctor</code>"
+     " dit ce qu'il sait faire sur cette machine : un compilateur C débloque <code>keal build</code>,"
+     " le reste sert à parler aux autres langages. Rien de tout cela n'est requis pour exécuter un"
+     " programme — les quatre premières étapes n'en ont besoin d'aucun.",
+     [("keal version", "keal version", "keal {version}"),
+      ("keal doctor", "keal doctor",
+       "keal doctor — the interop toolchains on this machine\n"
+       "\n"
+       "  cc       cc (Ubuntu 15.2.0-16ubuntu1) 15.2.0\n"
+       "             verified against: Apple clang 21.0.0\n"
+       "             unlocks: keal build (required for native)\n"
+       "\n"
+       "  cargo    cargo 1.98.0 (797e8a9bc 2026-08-05)\n"
+       "             verified against: rustc 1.98.0\n"
+       "             unlocks: building the toolchain (required)\n"
+       "\n"
+       "  go       MISSING            — Go interop (c-archive)")]),
+
+    ("Write the file", "Écrire le fichier",
+     "A file is a program. There is no class to declare, no <code>main</code> to write, no project"
+     " to create first: statements at the top level run in the order they are written. Put this in"
+     " a file called <code>hello.keal</code>, anywhere you like.",
+     "Un fichier est un programme. Aucune classe à déclarer, aucun <code>main</code> à écrire,"
+     " aucun projet à créer d'abord : les instructions de premier niveau s'exécutent dans l'ordre"
+     " où elles sont écrites. Mettez ceci dans un fichier nommé <code>hello.keal</code>, où vous"
+     " voulez.",
+     [("hello.keal", 'println("hello, world")', None)]),
+
+    ("Run it", "L'exécuter",
+     "That is the whole cycle: write, run. No build step, no configuration file, no directory"
+     " layout the tool insists on.",
+     "Voilà tout le cycle : écrire, exécuter. Pas d'étape de compilation, pas de fichier de"
+     " configuration, pas d'arborescence imposée par l'outil.",
+     [("keal hello.keal", "keal hello.keal", "hello, world")]),
+
+    ("When it is wrong", "Quand ça ne va pas",
+     "Sooner rather than later, and that is the point. Keal is statically typed: the mistake below"
+     " is caught before anything runs, and <code>keal check</code> asks for that check without"
+     " running the program at all. The error names the file, the line, the column, what it found"
+     " and what it expected.",
+     "Tôt plutôt que tard, et c'est bien l'intention. Keal est typé statiquement : l'erreur"
+     " ci-dessous est attrapée avant que quoi que ce soit ne s'exécute, et <code>keal check</code>"
+     " demande cette vérification sans exécuter le programme du tout. L'erreur nomme le fichier,"
+     " la ligne, la colonne, ce qu'elle a trouvé et ce qu'elle attendait.",
+     [("oops.keal", 'val n: Int = "quarante-deux"\nprintln(n)', None),
+      ("keal check oops.keal", "keal check oops.keal",
+       "error: initializer has type `String`, but `Int` was expected\n"
+       "  --> oops.keal:1:14\n"
+       "  |\n"
+       "1 | val n: Int = \"quarante-deux\"\n"
+       "  |              ^\n"
+       "1 error found")]),
+
+    ("The same file, three ways", "Le même fichier, trois façons",
+     "Keal has three engines, and all three run the source you just wrote. <code>keal</code> alone"
+     " uses the bytecode VM — the default, and the fast way to run something now."
+     " <code>--ast</code> uses the tree-walking interpreter, which is the specification the other"
+     " two are checked against. <code>keal build</code> compiles through C to a real executable"
+     " that needs no Keal installed to run — that one, and only that one, needs a C compiler."
+     "<br><br>They must print the same bytes. That is not a slogan: it is what the test suite"
+     " checks on every program it has, and it is how nearly every defect in this compiler has been"
+     " found — one engine disagreeing with the other two.",
+     "Keal a trois moteurs, et les trois exécutent la source que vous venez d'écrire."
+     " <code>keal</code> seul utilise la machine virtuelle à bytecode — le défaut, et le moyen"
+     " rapide d'exécuter quelque chose tout de suite. <code>--ast</code> utilise l'interprète à"
+     " parcours d'arbre, qui est la spécification contre laquelle les deux autres sont vérifiés."
+     " <code>keal build</code> compile en passant par C vers un vrai exécutable qui n'a besoin"
+     " d'aucun Keal installé pour tourner — celui-là, et lui seul, demande un compilateur C."
+     "<br><br>Les trois doivent imprimer les mêmes octets. Ce n'est pas un slogan : c'est ce que"
+     " la suite de tests vérifie sur chaque programme qu'elle possède, et c'est ainsi que presque"
+     " tous les défauts de ce compilateur ont été trouvés — un moteur en désaccord avec les deux"
+     " autres.",
+     [("The three engines, one file",
+       "keal hello.keal          # the bytecode VM, the default\n"
+       "keal --ast hello.keal    # the tree-walking interpreter\n"
+       "keal build hello.keal    # a native executable, through C\n"
+       "./hello",
+       "hello, world\nhello, world\nhello\nhello, world")]),
+
+    ("A file you can just execute", "Un fichier directement exécutable",
+     "A Keal file can name its own interpreter on the first line, which makes it an ordinary"
+     " executable on macOS and Linux. Nothing else changes: it is the same language and the same"
+     " file, and <code>keal build</code> still turns it into a binary the day you want one.",
+     "Un fichier Keal peut nommer son propre interprète sur la première ligne, ce qui en fait un"
+     " exécutable ordinaire sur macOS et Linux. Rien d'autre ne change : c'est le même langage et"
+     " le même fichier, et <code>keal build</code> en fera toujours un binaire le jour où vous en"
+     " voudrez un.",
+     [("script.keal", '#!/usr/bin/env keal\nprintln("hello from a script")', None),
+      ("Make it executable, then run it",
+       "chmod +x script.keal\n./script.keal", "hello from a script")]),
+
+    ("Where to go from here", "Où aller ensuite",
+     "The <a href=\"tour.html\">tour</a> is fifteen chapters and about half an hour, every snippet"
+     " a real program with its real output. <a href=\"docs.html\">The docs</a> are the reference"
+     " once you want the rules rather than the taste of it. <code>keal repl</code> gives you a"
+     " prompt to try one line at a time. And if you already know another language, the"
+     " <a href=\"coming-from.html\">coming from…</a> guides start from what you already do.",
+     "Le <a href=\"tour.html\">tour</a> fait quinze chapitres et environ une demi-heure, chaque"
+     " extrait étant un vrai programme avec sa vraie sortie. <a href=\"docs.html\">Les docs</a>"
+     " sont la référence quand vous voudrez les règles plutôt que le goût du langage."
+     " <code>keal repl</code> ouvre une invite pour essayer une ligne à la fois. Et si vous"
+     " connaissez déjà un autre langage, les guides"
+     " <a href=\"coming-from.html\">je viens de…</a> partent de ce que vous savez déjà.",
+     [("keal repl", "keal repl", None)]),
+]

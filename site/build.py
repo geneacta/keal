@@ -236,10 +236,12 @@ def markdown(text):
 # by scrolling to a card on the landing page, is a download page nobody lands
 # on.
 NAV = {
-    "en": [("index.html", "Home"), ("tour.html", "Tour"), ("docs.html", "Docs"),
+    "en": [("index.html", "Home"), ("steps.html", "Step by step"), ("tour.html", "Tour"),
+           ("docs.html", "Docs"),
            ("coming-from.html", "Coming from…"), ("stdlib.html", "Library"),
            ("kealler.html", "Kealler")],
-    "fr": [("index.html", "Accueil"), ("tour.html", "Le tour"), ("docs.html", "Docs"),
+    "fr": [("index.html", "Accueil"), ("steps.html", "Pas à pas"), ("tour.html", "Le tour"),
+           ("docs.html", "Docs"),
            ("coming-from.html", "Je viens de…"), ("stdlib.html", "Bibliothèque"),
            ("kealler.html", "Kealler")],
 }
@@ -260,6 +262,20 @@ SWITCH = {"en": ("fr/", "Français"), "fr": ("../", "English")}
 # page cannot work out which of the two languages it is looking at, nor
 # that the other one exists, from relative links alone.
 BASE_URL = "https://geneacta.github.io/keal/"
+
+# The version the pages quote, taken from Cargo.toml rather than repeated.
+# `steps.html` shows what `keal version` prints; written down by hand it would
+# be right on the day it was typed and wrong from the next release on.
+def _version():
+    with open(os.path.join(ROOT, "Cargo.toml"), encoding="utf-8") as f:
+        for line in f:
+            m = re.match(r'\s*version\s*=\s*"([^"]+)"', line)
+            if m:
+                return m.group(1)
+    raise SystemExit("site: Cargo.toml has no version line")
+
+
+VERSION = _version()
 
 
 def page(lang, filename, title, description, body, active=None, sidebar=None, toc=None):
@@ -497,6 +513,51 @@ def tour(lang):
 """ % {"nav": "".join(nav), "title": "Tour of Keal" if lang == "en" else "Le tour de Keal",
        "intro": intro, "chapters": "".join(chapters)}
     return page(lang, "tour.html", title, desc, body, active="tour.html")
+
+
+def steps(lang):
+    """From nothing installed to a native binary, one numbered step at a time.
+
+    The tour shows what the language is like; this shows how to get a program
+    of your own to run, for a reader who may never have used a compiler. The
+    two are different questions and a reader who wants this one bounces off
+    the other.
+    """
+    en = lang == "en"
+    title = "Keal — step by step" if en else "Keal — pas à pas"
+    desc = ("Install Keal and run your first program, one step at a time."
+            if en else
+            "Installer Keal et exécuter votre premier programme, une étape à la fois.")
+    h1 = "Step by step" if en else "Pas à pas"
+    run = "Run" if en else "Exécuter"
+    sections = []
+    nav = []
+    for i, st in enumerate(C.STEPS, start=1):
+        t_en, t_fr, b_en, b_fr, blocks = st
+        t = t_en if en else t_fr
+        b = b_en if en else b_fr
+        nav.append('<a class="tch" href="#s%d"><span class="n">%d</span>%s</a>'
+                   % (i, i, html.escape(t)))
+        wins = "".join(
+            code_window(label, code, None if out is None else out.replace("{version}", VERSION), run)
+            for label, code, out in blocks
+        )
+        sections.append(
+            '<section class="chapter" id="s%d"><h2>%d. %s</h2><p class="lede">%s</p>%s</section>'
+            % (i, i, html.escape(t), b, wins)
+        )
+    body = """
+<div class="tourgrid">
+  <aside class="tournav">%(nav)s</aside>
+  <div class="tourmain prose">
+    <h1>%(h1)s</h1>
+    <p class="lede">%(lede)s</p>
+    %(sections)s
+  </div>
+</div>
+""" % {"nav": "".join(nav), "h1": html.escape(h1),
+       "lede": C.STEPS_LEDE[lang], "sections": "".join(sections)}
+    return page(lang, "steps.html", title, desc, body, active="steps.html")
 
 
 def sidebar_for(lang):
@@ -815,6 +876,7 @@ def main():
     written = []
     for lang in ("en", "fr"):
         written.append(write(lang, "index.html", landing(lang)))
+        written.append(write(lang, "steps.html", steps(lang)))
         written.append(write(lang, "tour.html", tour(lang)))
         written.append(write(lang, "docs.html", docs_index(lang)))
         written.append(write(lang, "coming-from.html", coming_index(lang)))

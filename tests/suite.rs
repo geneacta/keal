@@ -821,7 +821,12 @@ fn the_site_is_what_its_generator_would_write() {
     // Windows wants Developer Mode or elevation, and this is a few hundred
     // kilobytes — a test that skips on a platform is a test that platform
     // does not have.
-    for name in ["docs", "README.md", "TUTORIAL.md", "CONTRIBUTING.md"] {
+    // Everything the generator reads that does not live under `site/`.
+    // `Cargo.toml` is here because `steps.html` shows what `keal version`
+    // prints, and the generator takes that number from the manifest rather
+    // than repeating it: a version written down by hand is right on the day
+    // it is typed and wrong from the next release on.
+    for name in ["docs", "README.md", "TUTORIAL.md", "CONTRIBUTING.md", "Cargo.toml"] {
         copy_into(&root().join(name), &dir.join(name));
     }
     let built = Command::new(&python)
