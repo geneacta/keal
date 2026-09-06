@@ -1710,8 +1710,18 @@ fn native_agrees_with_the_interpreters() {
 /// One fault per `-Werror` name the check below relies on: the smallest C
 /// that commits exactly that mistake. Their only job is to be rejected — a
 /// flag that rejects nothing lets everything through.
-const FAULTS: [(&str, &str); 9] = [
+const FAULTS: [(&str, &str); 12] = [
     ("comment", "/* a /* b */\nint main(void){return 0;}\n"),
+    // The three below are what a runtime emitted whole into every program
+    // leaves lying about, and the barrier was not asking. A consumer put
+    // `-Wall` on the C this backend gives it and reported one by name:
+    // `unused variable 'keal_ti_list'`. Chasing the rest turned up a real
+    // defect — `maybe() == null` evaluated its subject twice, natively only
+    // — which is why an unused name is worth a flag: it is where a value
+    // computed and dropped shows up.
+    ("unused-variable", "int main(void){ int x = 1; return 0; }\n"),
+    ("unused-const-variable", "static const int k = 1;\nint main(void){return 0;}\n"),
+    ("unused-function", "static int f(void){return 0;}\nint main(void){return 0;}\n"),
     // An assignment used as a condition, which GCC and clang both reject
     // under this name. The doubled-equality form `if ((a==b))` was the
     // original probe and was a compiler assumption: it is clang's
@@ -1909,12 +1919,29 @@ fn the_generated_c_compiles_without_warnings() {
         vec!["-std=c11".to_string(), "-fsyntax-only".to_string()];
     flags.extend(proven.iter().map(|n| format!("-Werror={}", n)));
 
-    // Every program the native corpus has, not just the one written for
-    // this: a warning names a shape, and the shape can arrive from anywhere.
-    for file in keal_files("tests/native") {
+    // Every program either corpus has, not just the one written for this: a
+    // warning names a shape, and the shape can arrive from anywhere. It read
+    // `tests/native` alone until a sweep by hand found four shapes in
+    // `tests/programs` that it could not see — an unused binding a `catch`
+    // ignores, a `val` the program never reads — so the flags were proven
+    // against a corpus narrower than the one the backend actually compiles.
+    let mut corpus = keal_files("tests/native");
+    corpus.extend(keal_files("tests/programs"));
+    for file in corpus {
         let path = relative(&file);
         let emitted = keal(&["emit-c", &path]);
-        assert!(emitted.success, "{} did not emit C:\n{}", path, emitted.stderr);
+        if !emitted.success {
+            // The wider corpus holds programs the backend refuses by name,
+            // which is correct behaviour and not something to compile.
+            assert!(
+                emitted.stderr.contains("cannot compile"),
+                "{} did not emit C, and not because the backend said what it \
+                 cannot do:\n{}",
+                path,
+                emitted.stderr
+            );
+            continue;
+        }
         std::fs::write(&csrc, &emitted.stdout).expect("cannot write the generated C");
 
         let built = Command::new(&cc)

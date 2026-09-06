@@ -5,31 +5,28 @@ from the compiler itself.
 
 ## Installing
 
-The extension is not on the marketplace. Run the installer from the repository
-root, then restart the editor:
+The extension is not on the marketplace. Run the installer, then restart the
+editor:
 
 ```sh
 ./editors/vscode/install.sh
 ```
 
-It links this folder into `~/.vscode/extensions` under the name VS Code gives
-an installed extension, `geneacta.keal-<version>`. That name is the whole point
-of the script. A link called plain `keal` works until the version in
-`package.json` moves: VS Code then reads the folder as a stale install, writes
-the id into `~/.vscode/extensions/.obsolete`, and drops the extension from its
-scan — grammar included, which reaches you as a `.keal` file with no colour at
-all rather than as an error. Re-run the installer after a version bump and the
-name follows it.
+It packages the folder into a `.vsix` and hands that to VS Code, which is the
+only route that sticks. Linking the folder into `~/.vscode/extensions` by hand
+does not: VS Code treats `extensions.json` as the record of what is installed,
+and a folder that turns up on disk without a matching entry — symlink or not —
+is read as a leftover. It writes the id into `.obsolete` and drops the
+extension from its scan, grammar included, so the failure reaches you as a
+`.keal` file with no colour at all rather than as an error.
 
-On Windows, from the repository root in PowerShell:
+The cost of going through a `.vsix` is that the installed extension is a copy.
+Re-run the installer after editing the grammar.
 
-```powershell
-$v = (Get-Content editors\vscode\package.json | ConvertFrom-Json).version
-New-Item -ItemType SymbolicLink -Path "$HOME\.vscode\extensions\geneacta.keal-$v" -Target "$PWD\editors\vscode"
-```
-
-Open any `.keal` file to check it took. A file starting with
-`#!/usr/bin/env keal` is recognised even without the extension.
+Open any `.keal` file to check it took; the status bar should say **Keal**. If
+it says Plain Text, look at the extension in the Extensions view — this is an
+unverified publisher, and recent VS Code holds such an extension until you
+trust the publisher.
 
 ## Errors in the editor
 

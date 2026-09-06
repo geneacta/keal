@@ -113,9 +113,16 @@ __attribute__((constructor)) static void keal_pipe_is_an_error(void) {
  * consumer's build. The promise above was written for the functions and the
  * data was left out of it. */
 #define KEAL_VAL __attribute__((unused)) static
+/* And the same for a variable the PROGRAM declared. Keal has no rule
+ * against a binding nobody reads — `val boom = f()` for its effect, a
+ * `catch (e)` whose handler ignores the message — so the C it emits should
+ * not invent one. This says the compiler may keep quiet, not that the
+ * variable is useless. */
+#define KEAL_LOCAL __attribute__((unused))
 #else
 #define KEAL_FN static
 #define KEAL_VAL static
+#define KEAL_LOCAL
 #endif
 
 /* ---- what weak references change --------------------------------------- */

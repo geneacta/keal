@@ -2363,10 +2363,10 @@ impl CBackend {
                 }
                 let value = self.coerced_to(init, &ty);
                 if Self::counted(&ty) {
-                    self.line(format!("{} {} = {};", c, var, Self::retained(&ty, &value)));
+                    self.line(format!("KEAL_LOCAL {} {} = {};", c, var, Self::retained(&ty, &value)));
                     self.own(&var, &ty);
                 } else {
-                    self.line(format!("{} {} = {};", c, var, value));
+                    self.line(format!("KEAL_LOCAL {} {} = {};", c, var, value));
                 }
             }
             StmtKind::Expr(e) => {
@@ -2530,14 +2530,14 @@ impl CBackend {
                             self.line(format!("KealAny {} = {};", a, src));
                             let Some(payload) = self.any_payload(t, &a, c.span) else { return };
                             let Some(ct) = self.ctype(t, c.span) else { return };
-                            self.line(format!("{} {} = {};", ct, e_var, payload));
+                            self.line(format!("KEAL_LOCAL {} {} = {};", ct, e_var, payload));
                             self.own(&e_var, t);
                             self.declare_local(&c.name, t, false);
                         }
                         None => {
                             let src =
                                 if caught { "keal_unwind_take()" } else { "keal_str_empty()" };
-                            self.line(format!("KealStr* {} = {};", e_var, src));
+                            self.line(format!("KEAL_LOCAL KealStr* {} = {};", e_var, src));
                             self.own(&e_var, &Type::Str);
                             self.declare_local(&c.name, &Type::Str, false);
                         }
@@ -3226,9 +3226,20 @@ impl CBackend {
                 }
             }
             if all_copyable {
+                // `env` is the source of the fields being copied, so it is
+                // only read when there are fields. A handler that captures
+                // nothing still needs a copy function — the actor system
+                // calls one for every closure it moves — and declaring a
+                // pointer nobody reads is what `-Wall` calls out by name.
+                let from = if lines.is_empty() {
+                    "    (void)c;\n".to_string()
+                } else {
+                    format!("    {n}* env = ({n}*)c;\n", n = env_name)
+                };
                 let mut f = format!(
-                    "static KealClosure* {n}_copy(KealClosure* c) {{\n    {n}* env = ({n}*)c;\n    {n}* out = ({n}*)keal_alloc(sizeof({n}));\n    out->head.rc = 1;\n    out->head.fn = (KealCode){n}_call;\n    out->head.drop = {n}_drop;\n    out->head.copy = {n}_copy;\n",
-                    n = env_name
+                    "static KealClosure* {n}_copy(KealClosure* c) {{\n{from}    {n}* out = ({n}*)keal_alloc(sizeof({n}));\n    out->head.rc = 1;\n    out->head.fn = (KealCode){n}_call;\n    out->head.drop = {n}_drop;\n    out->head.copy = {n}_copy;\n",
+                    n = env_name,
+                    from = from
                 );
                 for l in &lines {
                     f.push_str(l);
@@ -5629,7 +5640,13 @@ impl CBackend {
         for (bind, (fname, fty)) in d.binds.iter().zip(fields.iter()) {
             let Some(bname) = bind else { continue };
             let Some(ct) = self.ctype(fty, te.span) else { continue };
-            self.line(format!("const {} {} = {}->{};", ct, mangle(bname), p, mangle(fname)));
+            self.line(format!(
+                "KEAL_LOCAL const {} {} = {}->{};",
+                ct,
+                mangle(bname),
+                p,
+                mangle(fname)
+            ));
             self.declare_local(bname, fty, false);
         }
         let guard = arm.guard.as_ref().map(|g| {

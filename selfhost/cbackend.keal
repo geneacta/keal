@@ -3078,10 +3078,10 @@ class CBackend() {
             }
             val value = this.coercedTo(init, ty)
             if (countedC(ty)) {
-                this.line("${c} ${varName} = ${retained(ty, value)};")
+                this.line("KEAL_LOCAL ${c} ${varName} = ${retained(ty, value)};")
                 this.own(varName, ty)
             } else {
-                this.line("${c} ${varName} = ${value};")
+                this.line("KEAL_LOCAL ${c} ${varName} = ${value};")
             }
             return
         }
@@ -3244,12 +3244,12 @@ class CBackend() {
                     if (payload == null) { return }
                     val ct = this.ctype(target!!, s.file, c.line, c.col)
                     if (ct == null) { return }
-                    this.line("${ct} ${eVar} = ${payload};")
+                    this.line("KEAL_LOCAL ${ct} ${eVar} = ${payload};")
                     this.own(eVar, target!!)
                     this.declareLocal(c.name, target!!, false)
                 } else {
                     val src = if (caught) { "keal_unwind_take()" } else { "keal_str_empty()" }
-                    this.line("KealStr* ${eVar} = ${src};")
+                    this.line("KEAL_LOCAL KealStr* ${eVar} = ${src};")
                     this.own(eVar, Ty("Str"))
                     this.declareLocal(c.name, Ty("Str"), false)
                 }
@@ -3907,7 +3907,14 @@ class CBackend() {
                 }
             }
             if (allCopyable) {
-                var cf = "static KealClosure* ${envName}_copy(KealClosure* c) {\n    ${envName}* env = (${envName}*)c;\n    ${envName}* out = (${envName}*)keal_alloc(sizeof(${envName}));\n    out->head.rc = 1;\n    out->head.fn = (KealCode)${envName}_call;\n    out->head.drop = ${envName}_drop;\n    out->head.copy = ${envName}_copy;\n"
+                // `env` is the source of the fields being copied, so it is
+                // only read when there are fields. A handler that captures
+                // nothing still needs a copy function — the actor system
+                // calls one for every closure it moves — and declaring a
+                // pointer nobody reads is what `-Wall` calls out by name.
+                var from = "    ${envName}* env = (${envName}*)c;\n"
+                if (copyLines.size == 0) { from = "    (void)c;\n" }
+                var cf = "static KealClosure* ${envName}_copy(KealClosure* c) {\n${from}    ${envName}* out = (${envName}*)keal_alloc(sizeof(${envName}));\n    out->head.rc = 1;\n    out->head.fn = (KealCode)${envName}_call;\n    out->head.drop = ${envName}_drop;\n    out->head.copy = ${envName}_copy;\n"
                 for (l in copyLines) { cf += l }
                 cf += "    return &out->head;\n}\n"
                 copyFnText = cf
@@ -5980,7 +5987,7 @@ class CBackend() {
             unless (bname == "_") {
                 val ct = this.ctype(f.ty, te.file, te.line, te.col)
                 if (ct != null) {
-                    this.line("const ${ct} ${mangle(bname)} = ${p}->${mangle(f.name)};")
+                    this.line("KEAL_LOCAL const ${ct} ${mangle(bname)} = ${p}->${mangle(f.name)};")
                     this.declareLocal(bname, f.ty, false)
                 }
             }
