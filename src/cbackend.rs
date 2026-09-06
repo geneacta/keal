@@ -1329,6 +1329,14 @@ impl CBackend {
 
     /// The program's top level becomes `main`.
     fn main(&mut self, program: &Program) {
+        // Declared beside the `k_*` prototypes, which is BEFORE the `native`
+        // blocks. Its definition is at the very end of the file, so a
+        // `native` block calling it saw an implicit declaration — an error
+        // under `-std=gnu11` — and a host writing the prototype by hand got
+        // it wrong on the first try, with `void` for `int`. The header
+        // promises this name; the translation unit that carries it should
+        // say the same thing to the code sitting inside it.
+        let _ = writeln!(self.decls, "int keal_program_run(void);");
         self.body.clear();
         self.indent = 1;
         self.begin_function_unwind("int64_t");

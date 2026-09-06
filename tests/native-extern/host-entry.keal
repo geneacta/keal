@@ -1,0 +1,32 @@
+// The two entry points a host uses, named from inside the translation unit
+// that carries them.
+//
+// `keal_runtime_init` and `keal_program_run` are what `keal emit-header`
+// promises to a companion `.c`. A host that lives in a `native` block is in
+// the SAME translation unit, and there the promise has to be kept by the
+// emitted C itself: `keal_program_run` is defined at the very end of the
+// file, so a `native` block calling it saw an implicit declaration — an
+// error under `-std=gnu11` — and the KealSql session's hand-written
+// prototype was wrong on the first try, `void` where it is `int`.
+//
+// Both are declared beside the `k_*` prototypes now, which come before the
+// `native` blocks. This file names them and would stop compiling if either
+// declaration went away.
+
+native """
+static int64_t entry_points_are_in_scope(void) {
+    /* Neither is CALLED here — `keal_program_run` from inside the program is
+       the program running itself, and a host does that once, from outside.
+       Taking their addresses needs the declarations and nothing more, which
+       is exactly what was missing. */
+    void (*a)(void) = keal_runtime_init;
+    int (*b)(void) = keal_program_run;
+    return (a != 0 && b != 0) ? 1 : 0;
+}
+"""
+
+extern func entryPointsAreInScope(): Int = "entry_points_are_in_scope"
+
+val greeting = "set by the top level"
+println("both declared: ${entryPointsAreInScope() == 1}")
+println("and the top level ran: ${greeting}")

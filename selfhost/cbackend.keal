@@ -2056,6 +2056,14 @@ class CBackend() {
 
     /// The program's top level becomes `main`.
     proc emitMain(program: ProgramN) {
+        // Declared beside the `k_*` prototypes, which is BEFORE the `native`
+        // blocks. Its definition is at the very end of the file, so a
+        // `native` block calling it saw an implicit declaration — an error
+        // under `-std=gnu11` — and a host writing the prototype by hand got
+        // it wrong on the first try, with `void` for `int`. The header
+        // promises this name; the translation unit that carries it should
+        // say the same thing to the code sitting inside it.
+        this.decls += "int keal_program_run(void);\n"
         this.body = []
         this.indent = 1
         this.beginFunctionUnwind("int64_t")
