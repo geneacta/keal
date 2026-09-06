@@ -5,6 +5,7 @@ mod astdump;
 mod bindgen;
 mod fetch;
 mod jbind;
+mod kealsql;
 mod manifest;
 mod doctor;
 mod kealdoc;

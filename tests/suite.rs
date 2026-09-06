@@ -2550,6 +2550,117 @@ fn a_companion_can_use_the_emitted_header() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `import "./x.kealsql"` reads the module its compiler writes.
+///
+/// The real compiler is a separate project, so this plants a stand-in and
+/// checks the loader's half: that the running commands generate, that they
+/// generate AGAIN when the source is newer, that they do not when it is not,
+/// that the dump commands never do, and that a missing tool says what to
+/// install. None of that needs the real one, and waiting for it would leave
+/// the whole mechanism untested.
+#[test]
+fn a_kealsql_import_reads_what_its_compiler_writes() {
+    let dir = std::env::temp_dir().join("keal-kealsql-import");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a directory");
+
+    // A stand-in that writes a module naming the run that made it, so a
+    // regeneration is visible in the program's own output.
+    let tool = if cfg!(windows) { dir.join("gen.cmd") } else { dir.join("gen.sh") };
+    let script = if cfg!(windows) {
+        "@echo off\r\n\
+         if not exist \"%2\" mkdir \"%2\"\r\n\
+         echo public func answer(): String { return \"made %RANDOM%%TIME%\" } > \"%2\\blog.client.keal\"\r\n"
+            .to_string()
+    } else {
+        "#!/bin/sh\nmkdir -p \"$2\"\n\
+         echo \"public func answer(): String { return \\\"made $(date +%s%N)\\\" }\" \
+         > \"$2/blog.client.keal\"\n"
+            .to_string()
+    };
+    std::fs::write(&tool, script).expect("cannot write the stand-in");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755))
+            .expect("cannot make it executable");
+    }
+
+    let source = dir.join("blog.kealsql");
+    std::fs::write(&source, "table post { Id }\n").expect("cannot write the source");
+    let app = dir.join("app.keal");
+    std::fs::write(&app, "import \"./blog.kealsql\"\nprintln(answer())\n")
+        .expect("cannot write the program");
+    let client = dir.join(".kealsql").join("blog.client.keal");
+
+    let run = |args: &[&str], with_tool: bool| -> Output {
+        let mut cmd = Command::new(BIN);
+        cmd.args(args);
+        if with_tool {
+            cmd.env("KEALSQL", &tool);
+        } else {
+            cmd.env("KEALSQL", dir.join("not-installed"));
+        }
+        let out = cmd.output().expect("cannot run keal");
+        Output {
+            success: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        }
+    };
+
+    // A dump command reads what is on disk and says so rather than running
+    // anything — the rule that keeps the self-hosting corpora comparable.
+    let dumped = run(&["types", app.to_str().unwrap()], true);
+    assert!(!dumped.success, "`types` should not generate:\n{}", dumped.stdout);
+    assert!(
+        dumped.stdout.contains("reads the module its compiler writes"),
+        "and should say why:\n{}",
+        dumped.stdout
+    );
+    assert!(!client.exists(), "`types` generated a module");
+
+    let first = run(&["run", app.to_str().unwrap()], true);
+    assert!(first.success, "the first run should generate:\n{}", first.stderr);
+    assert!(client.exists(), "and leave the module behind");
+    let made = first.stdout.clone();
+
+    let again = run(&["run", app.to_str().unwrap()], true);
+    assert_eq!(again.stdout, made, "a current module is not regenerated");
+
+    // A file system with one-second resolution needs the source to be
+    // visibly newer, not merely written after.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(&source, "table post { Id\n  title: Text\n}\n").expect("cannot rewrite");
+    let stale = run(&["run", app.to_str().unwrap()], true);
+    assert!(stale.success, "a newer source should regenerate:\n{}", stale.stderr);
+    assert_ne!(stale.stdout, made, "and the program should see the new module");
+
+    // A CURRENT module builds with no compiler installed at all, and that is
+    // the whole reason the directory is committed. The first version of this
+    // test asserted the opposite and failed — the code was right and the
+    // expectation was wrong, which is the shape worth writing down.
+    let committed = run(&["run", app.to_str().unwrap()], false);
+    assert!(
+        committed.success,
+        "a current module should not need the compiler:\n{}",
+        committed.stderr
+    );
+
+    // It is needed again the moment the source moves ahead of it.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(&source, "table post { Id\n  title: Text\n  body: Text\n}\n")
+        .expect("cannot rewrite");
+    let missing = run(&["run", app.to_str().unwrap()], false);
+    assert!(!missing.success, "a stale module with no compiler should stop the run");
+    assert!(
+        missing.stderr.contains("is not installed") && missing.stderr.contains("KEALSQL"),
+        "and say what to install and how to point at it:\n{}",
+        missing.stderr
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `keal bindgen` turns a C header into extern declarations, binding only
 /// what crosses the boundary exactly and skipping the rest with a reason.
 #[test]

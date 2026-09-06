@@ -203,6 +203,19 @@ fn load_file(
         return Ok(*id);
     }
 
+    // A KealSql client is regenerated when its `.kealsql` is newer, not only
+    // when it is absent, so `ensure_client` is asked on every load rather
+    // than only on a missing file.
+    if generate && path.parent().map(|d| d.ends_with(".kealsql")).unwrap_or(false) {
+        if let Err(reason) = crate::kealsql::ensure_client(path) {
+            let msg = format!("cannot generate `{}`: {}", shown(path), reason);
+            return Err(match imported_from {
+                Some(span) => Diag::new(span, msg),
+                None => Diag::new(Span::default(), msg),
+            });
+        }
+    }
+
     if generate && !path.exists() && path.parent().map(|d| d.ends_with(".jbind")).unwrap_or(false)
     {
         if let Err(reason) = crate::jbind::ensure_cache(path) {
@@ -222,6 +235,8 @@ fn load_file(
                 && path.to_string_lossy().contains(".keal")
             {
                 format!("{} -- a `dep:` import reads what is on disk: run `keal fetch` to put this project's dependencies in place", msg)
+            } else if path.parent().map(|d| d.ends_with(".kealsql")).unwrap_or(false) {
+                format!("{} -- an `import \"./x.kealsql\"` reads the module its compiler writes: `keal run`, `check` and `build` generate it, the dump commands read what is on disk. Run `kealsql --client .kealsql x.kealsql`, or commit the directory", msg)
             } else if path.parent().map(|d| d.ends_with(".jbind")).unwrap_or(false) {
                 format!("{} -- `import java.time.LocalDate`-style modules are generated: run `keal jbind --cache` for this import, or run/build with a JDK installed", msg)
             } else {
@@ -290,7 +305,12 @@ fn unreadable(e: &std::io::Error) -> &'static str {
 /// commits its `.keal/deps/` builds with no network and no git at all.
 fn resolve_import(rel: &str, dir: &Path, importer: &Path) -> Result<PathBuf, String> {
     let Some(rest) = rel.strip_prefix("dep:") else {
-        return Ok(normalise(&dir.join(rel)));
+        let path = normalise(&dir.join(rel));
+        // `import "./blog.kealsql"` reads the module its compiler writes.
+        // Desugared HERE rather than in the parser, so that `keal ast` shows
+        // the import as it was written and the self-hosted front end has
+        // nothing to learn: what it never sees, it can never disagree about.
+        return Ok(crate::kealsql::client_of(&path).unwrap_or(path));
     };
     let rest = rest.trim_start_matches('/');
     if rest.is_empty() {

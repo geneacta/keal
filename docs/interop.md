@@ -335,6 +335,41 @@ story of the test suite stops at the boundary — JVM output is the JVM's.*
 
 ---
 
+## KealSql: a `.kealsql` is a Keal module
+
+```keal
+import "./blog.kealsql"
+
+for (p in byAuthor("ada")) { println(p.title) }
+```
+
+[KealSql](https://github.com/geneacta/kealsql) describes a PostgreSQL schema
+and its queries; its compiler answers a Keal module in which those queries
+are already typed. Importing the `.kealsql` itself is the point: **a column
+renamed in the schema breaks the program where it is compiled, not the query
+where it runs.**
+
+The import desugars to `.kealsql/<stem>.client.keal` beside the file, and
+that is the same shape `.jbind/` uses, on purpose:
+
+* `keal run`, `check` and `build` generate the module when it is missing **or
+  when the `.kealsql` is newer**. That second half differs from `.jbind/`,
+  which only generates what is absent, and it differs deliberately: a Java
+  class changes when somebody upgrades a dependency, a schema changes while
+  you are writing it.
+* The dump commands — `tokens`, `ast`, `types`, `cgen` — never generate. They
+  read what is on disk, or the self-hosted front end and the Rust one would
+  be comparing different inputs. A missing module there says what to run.
+* **Commit the directory.** A current module needs no KealSql installed at
+  all, which is what makes a checkout build anywhere. The compiler is only
+  reached for when the source has moved ahead of it.
+* The compiler is `$KEALSQL` when set, `kealsql` on the path otherwise, and a
+  missing one says where to get it.
+* Linking is yours: `keal build app.keal -lpq -I$(pg_config --includedir)`,
+  the same way the JVM's flags are passed. Nothing in `keal build` runs
+  `pg_config` for you — a build driver that knew about PostgreSQL would owe
+  the next project the same favour.
+
 ## Cross-cutting rules (all tiers)
 
 * **Ownership is written down, never guessed** — `borrow`/`own` at the
