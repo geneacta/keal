@@ -2658,6 +2658,21 @@ fn a_kealsql_import_reads_what_its_compiler_writes() {
         "and say what to install and how to point at it:\n{}",
         missing.stderr
     );
+
+    // An EMPTY `KEALSQL` is an unset one. A shell profile that clears a
+    // variable by emptying it is ordinary, and taking `""` as a path made the
+    // failure name nothing at all: "`` is not installed".
+    let emptied = Command::new(BIN)
+        .args(["run", app.to_str().unwrap()])
+        .env("KEALSQL", "")
+        .output()
+        .expect("cannot run keal");
+    let said = String::from_utf8_lossy(&emptied.stderr);
+    assert!(
+        said.contains("`kealsql` is not installed"),
+        "an empty KEALSQL should fall back to the name on the path:\n{}",
+        said
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

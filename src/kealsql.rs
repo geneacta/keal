@@ -47,7 +47,15 @@ fn mtime(p: &Path) -> Option<SystemTime> {
 /// Named rather than searched for, so that a project pinning a build of it
 /// says so in one place.
 fn compiler() -> String {
-    std::env::var("KEALSQL").unwrap_or_else(|_| "kealsql".to_string())
+    // An EMPTY variable counts as unset. `env::var` answers `Ok("")` for
+    // `KEALSQL=`, which a plain `unwrap_or_else` takes as a path — and the
+    // failure then says "`` is not installed", naming nothing. A shell
+    // profile that unsets a variable by emptying it is ordinary, and this is
+    // what every other tool does with an empty `JAVA_HOME`.
+    match std::env::var("KEALSQL") {
+        Ok(v) if !v.trim().is_empty() => v,
+        _ => "kealsql".to_string(),
+    }
 }
 
 /// Generates `client` from its `.kealsql` when it is missing or older than
