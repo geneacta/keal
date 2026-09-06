@@ -223,11 +223,25 @@ def markdown(text):
 # bar and two in a card, and adding the others would grow the bar with every
 # program somebody writes in the language, which is a bar that goes wrong on
 # its own.
+#
+# `kealler.html` is in the bar, and it is the rule that puts it there rather
+# than an exception to it: it IS a page of this site. kealeb, keal-view and
+# KealSql each have a site of their own and the card points away; Kealler's
+# repository is private, so its downloads are cut against this one and
+# described here. The bar cannot grow with every program written in the
+# language, because the others are not pages here and cannot become them.
+#
+# The practical proof that it belongs: the owner published it, went looking
+# for it, and could not find it. A download page for the IDE, reachable only
+# by scrolling to a card on the landing page, is a download page nobody lands
+# on.
 NAV = {
     "en": [("index.html", "Home"), ("tour.html", "Tour"), ("docs.html", "Docs"),
-           ("coming-from.html", "Coming from…"), ("stdlib.html", "Library")],
+           ("coming-from.html", "Coming from…"), ("stdlib.html", "Library"),
+           ("kealler.html", "Kealler")],
     "fr": [("index.html", "Accueil"), ("tour.html", "Le tour"), ("docs.html", "Docs"),
-           ("coming-from.html", "Je viens de…"), ("stdlib.html", "Bibliothèque")],
+           ("coming-from.html", "Je viens de…"), ("stdlib.html", "Bibliothèque"),
+           ("kealler.html", "Kealler")],
 }
 
 FOOTER = {
