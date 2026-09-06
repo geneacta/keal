@@ -2753,6 +2753,15 @@ impl CBackend {
     /// correctness first.
     fn expr(&mut self, e: &Expr) -> String {
         match &e.kind {
+            // `INT64_C(-9223372036854775808)` is not that value in C: the
+            // minus is an operator, `9223372036854775808` does not fit a
+            // signed type, so it is unsigned, and negating it gives a
+            // conversion the standard leaves to the implementation. It
+            // happens to be right everywhere real, and clang says so under
+            // `-Wall`. `INT64_MIN` is spelled the way C spells it.
+            ExprKind::Int(n) if *n == i64::MIN => {
+                "(-INT64_C(9223372036854775807) - INT64_C(1))".to_string()
+            }
             ExprKind::Int(n) => format!("INT64_C({})", n),
             // The ordinal, and a comment so the C reads as the program did.
             ExprKind::Variant { enm, name, ordinal } => {

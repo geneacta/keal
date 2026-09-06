@@ -113,8 +113,15 @@ __attribute__((constructor)) static void keal_pipe_is_an_error(void) {
  * rest must not draw warnings from a caller building with -Wall. */
 #if defined(__GNUC__) || defined(__clang__)
 #define KEAL_FN __attribute__((unused)) static
+/* The same mark for the tables. `KEAL_FN` says FN, and these are data: a
+ * program with no `Any` in it never reads the type-info rows, and `-Wall`
+ * called them out by name — `unused variable 'keal_ti_list'` — in a
+ * consumer's build. The promise above was written for the functions and the
+ * data was left out of it. */
+#define KEAL_VAL __attribute__((unused)) static
 #else
 #define KEAL_FN static
+#define KEAL_VAL static
 #endif
 
 /* ---- what weak references change --------------------------------------- */
@@ -2148,16 +2155,16 @@ static bool keal_any_ti_eq_str(KealWord a, KealWord b) {
  * enjoys is the checker's rewrite to `equals`, which `Any` never takes. */
 KEAL_FN bool keal_any_ptr_eq(KealWord a, KealWord b) { return a.p == b.p; }
 
-static const KealTypeInfo keal_ti_int = {
+KEAL_VAL const KealTypeInfo keal_ti_int = {
     "Int", NULL, NULL, keal_any_ti_show_int, keal_any_ti_eq_word
 };
-static const KealTypeInfo keal_ti_float = {
+KEAL_VAL const KealTypeInfo keal_ti_float = {
     "Float", NULL, NULL, keal_any_ti_show_float, keal_any_ti_eq_float
 };
-static const KealTypeInfo keal_ti_bool = {
+KEAL_VAL const KealTypeInfo keal_ti_bool = {
     "Bool", NULL, NULL, keal_any_ti_show_bool, keal_any_ti_eq_word
 };
-static const KealTypeInfo keal_ti_str = {
+KEAL_VAL const KealTypeInfo keal_ti_str = {
     "String", keal_any_ti_retain_str, keal_any_ti_release_str,
     keal_any_ti_show_str, keal_any_ti_eq_str
 };
@@ -2183,7 +2190,7 @@ static KealStr* keal_any_ti_show_list(KealWord w) {
 static bool keal_any_ti_eq_list(KealWord a, KealWord b) {
     return keal_list_eq((KealList*)a.p, (KealList*)b.p, keal_any_box_eq);
 }
-static const KealTypeInfo keal_ti_list = {
+KEAL_VAL const KealTypeInfo keal_ti_list = {
     "List", keal_any_ti_retain_list, keal_any_ti_release_list,
     keal_any_ti_show_list, keal_any_ti_eq_list
 };
