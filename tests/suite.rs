@@ -106,6 +106,36 @@ fn c_driver() -> String {
     "cc".to_string()
 }
 
+/// The Python this machine has, or `None` — `python3` first, then `python`.
+///
+/// Checking that the process merely RAN is not enough on Windows. A
+/// python.org install lays down `python.exe` and no `python3.exe`, so
+/// `python3` reaches the Microsoft Store stub, which starts perfectly well,
+/// prints "Python was not found; run without arguments to install from the
+/// Microsoft Store" and exits. A guard written as `output().is_err()` sees a
+/// process that ran and lets the test through, which then fails much later on
+/// a message naming neither Python nor the reason — and a check for the word
+/// "Python" in the output believes the stub too, because the stub says it.
+///
+/// So the version string has to look like one: `Python` followed by a digit.
+fn python_driver() -> Option<String> {
+    for name in ["python3", "python"] {
+        let Ok(out) = Command::new(name).arg("--version").output() else {
+            continue;
+        };
+        let said = String::from_utf8_lossy(&out.stdout).into_owned()
+            + &String::from_utf8_lossy(&out.stderr);
+        let said = said.trim();
+        if out.status.success()
+            && said.starts_with("Python ")
+            && said["Python ".len()..].starts_with(|c: char| c.is_ascii_digit())
+        {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
 /// Where the JDK is, or `None`.
 ///
 /// `JAVA_HOME` first, because it is the portable answer and the one a
@@ -763,10 +793,10 @@ fn the_native_audit_says_what_the_interpreters_say() {
 /// without the binary the standard-library page is built from.
 #[test]
 fn the_site_is_what_its_generator_would_write() {
-    if Command::new("python3").arg("--version").output().is_err() {
-        eprintln!("skipping: no `python3`");
+    let Some(python) = python_driver() else {
+        eprintln!("skipping: no Python");
         return;
-    }
+    };
     let dir = std::env::temp_dir().join("keal-site-drift");
     let _ = std::fs::remove_dir_all(&dir);
     let site = dir.join("site");
@@ -794,7 +824,7 @@ fn the_site_is_what_its_generator_would_write() {
     for name in ["docs", "README.md", "TUTORIAL.md", "CONTRIBUTING.md"] {
         copy_into(&root().join(name), &dir.join(name));
     }
-    let built = Command::new("python3")
+    let built = Command::new(&python)
         .arg(site.join("build.py"))
         .arg(root().join("target/release/keal"))
         .output()
@@ -840,7 +870,8 @@ fn the_site_is_what_its_generator_would_write() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(
         changed.is_empty(),
-        "these pages say something the generator would not write; run `python3 site/build.py`: {}",
+        "these pages say something the generator would not write; run `{} site/build.py`: {}",
+        python,
         changed.join(", ")
     );
     assert!(
@@ -3255,12 +3286,11 @@ fn kealdoc_matches_snapshot() {
 /// the page's own source of snippets.
 #[test]
 fn the_site_tour_prints_what_it_promises() {
-    let python = "python3";
-    if Command::new(python).arg("--version").output().is_err() {
-        eprintln!("skipping: no `{}` to read the tour with", python);
+    let Some(python) = python_driver() else {
+        eprintln!("skipping: no Python to read the tour with");
         return;
-    }
-    let out = Command::new(python)
+    };
+    let out = Command::new(&python)
         .current_dir(root())
         .arg("site/checktour.py")
         .arg(BIN)
