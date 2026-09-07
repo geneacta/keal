@@ -1,0 +1,24 @@
+3
+a
+empty
+[10, 20, 30]
+[1, 2]
+first=7
+first=x
+Boxed(value=42, tag=1)
+43
+Boxed(value="hello", tag=2)
+Pair(first=1, second="one")
+Boxed(value=Pair(first=1, second=2), tag=3)
+true
+false
+true
+3 remainder 2
+(1, "one")
+1
+true
+7
+[Boxed(value=1, tag=0), Boxed(value=2, tag=0)]
+1
+2
+[2, 4]

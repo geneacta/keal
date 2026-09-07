@@ -1,0 +1,16 @@
+hello, Ada!
+hi, Ada!
+hello, Ada?
+yo, Alan!
+9
+12
+Account(owner="Ada", balance=0)
+Account(owner="Grace", balance=100)
+Account(owner="X", balance=5)
+11
+[1, 0, 0]
+["a", "?", "?", "?", "?"]
+99
+0
+1
+1

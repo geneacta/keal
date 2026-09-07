@@ -6,6 +6,7 @@ mod bindgen;
 mod fetch;
 mod jbind;
 mod kealsql;
+mod testrun;
 mod manifest;
 mod doctor;
 mod kealdoc;
@@ -47,6 +48,16 @@ usage:
     keal run <file.keal>      run a program
     keal check <file.keal>    type-check without running
     keal layout <file.keal>   show how the program's values are laid out
+    keal test [paths...]      run the Keal programs under `tests` (or the
+                              paths given) on both engines and require them
+                              to agree. A test is a program: alone it must
+                              end at 0 having printed nothing; with a
+                              `<name>.expected` beside it, it must answer
+                              exactly that — what it printed if it succeeded,
+                              why it stopped if it failed. --ast, --vm,
+                              --native choose the engines, --update writes
+                              the snapshots, --timeout <seconds> says when a
+                              program is stuck
     keal tokens <file.keal>   dump the token stream (the self-hosting oracle)
     keal ast <file.keal>      dump the parse tree (likewise)
     keal types <file.keal>    dump the checked, typed tree (likewise)
@@ -134,11 +145,19 @@ fn is_subcommand(word: &str) -> bool {
         "run" | "check" | "layout" | "emit-c" | "build" | "repl" | "version" | "help"
             | "tokens" | "ast" | "types" | "cgen" | "emit-header" | "bindgen" | "doc"
             | "doctor" | "jbind" | "fetch" | "search" | "add" | "index" | "lsp"
+            | "test"
     )
 }
 
 fn real_main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // Before the flag pass below, because `--ast` and `--vm` mean something
+    // else here: to `keal` they choose the engine this process runs on, and
+    // to `keal test` they choose which engines the programs under test are
+    // run on. The pass would eat them and leave the runner nothing to read.
+    if args.first().map(|a| a.as_str()) == Some("test") {
+        return testrun::run(&args[1..]);
+    }
     let mut engine = Engine::Bytecode;
     let mut audit = false;
     // These belong to `keal`, and only before the file does: everything from

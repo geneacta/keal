@@ -3351,3 +3351,122 @@ fn version_is_printed() {
     assert!(out.success);
     assert!(out.stdout.starts_with("keal "), "unexpected version output: {}", out.stdout);
 }
+
+/// `keal test` on this repository's own program corpora.
+///
+/// The runner has one rule with two halves — a program alone must end at zero
+/// having printed nothing, and a program with a `<name>.expected` beside it
+/// must answer exactly that, its output when it succeeded and its reason when
+/// it failed. All four corpora below were written years apart and obey it
+/// without a line changing, which is the evidence that the rule was
+/// discovered here rather than invented.
+///
+/// This also gives `tests/native`'s snapshots a reader. Until it existed they
+/// were compared against nothing: `native_agrees_with_the_interpreters` holds
+/// the engines to each other, so a change all three made together would have
+/// passed it.
+#[test]
+fn keal_test_runs_this_repository() {
+    for dir in ["tests/programs", "tests/errors", "tests/runtime", "tests/native"] {
+        let out = keal(&["test", dir]);
+        assert!(out.success, "`keal test {}` failed:\n{}{}", dir, out.stdout, out.stderr);
+        assert!(
+            out.stdout.contains("all passed"),
+            "`keal test {}` did not say so:\n{}",
+            dir,
+            out.stdout
+        );
+    }
+}
+
+/// The three ways a file can be wrong, on files written to be wrong in
+/// exactly one way each. A runner is a checker, and the first run of a checker
+/// says something about the checker: these are what say it reports rather than
+/// waves through.
+#[test]
+fn keal_test_catches_what_it_is_for() {
+    let dir = std::env::temp_dir().join("keal-test-runner-corpus");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a corpus directory");
+
+    // Prints, with nothing beside it saying it should.
+    std::fs::write(dir.join("chatty.keal"), "println(\"hello\")\n").expect("cannot write");
+    // Fails, with nothing beside it saying it should.
+    std::fs::write(dir.join("broken.keal"), "assert(1 == 2, \"no\")\n").expect("cannot write");
+    // Says the wrong thing.
+    std::fs::write(dir.join("drifted.keal"), "println(\"now\")\n").expect("cannot write");
+    std::fs::write(dir.join("drifted.expected"), "then\n").expect("cannot write");
+    // Says nothing, and is right to.
+    std::fs::write(dir.join("quiet.keal"), "assert(1 == 1, \"yes\")\n").expect("cannot write");
+
+    let path = dir.to_string_lossy().into_owned();
+    let out = keal(&["test", &path]);
+    assert!(!out.success, "the runner passed a corpus written to fail:\n{}", out.stdout);
+    for (file, said) in [
+        ("chatty.keal", "printed something"),
+        ("broken.keal", "no `"),
+        ("drifted.keal", "is not what"),
+    ] {
+        assert!(
+            out.stdout.contains(file) && out.stdout.contains(said),
+            "the runner did not report {} as `{}`:\n{}",
+            file,
+            said,
+            out.stdout
+        );
+    }
+    assert!(!out.stdout.contains("quiet.keal"), "the runner failed a good file:\n{}", out.stdout);
+    assert!(out.stdout.contains("4 file(s), 3 failed"), "wrong tally:\n{}", out.stdout);
+
+    // `--update` writes down what it found, and a second run is then clean —
+    // for the two that only lacked a snapshot. The one that fails still fails,
+    // because a snapshot records what a program says and not whether it
+    // should have said it.
+    let out = keal(&["test", "--update", &path]);
+    assert!(!out.success, "`--update` should not bless a failing program:\n{}", out.stdout);
+    assert!(out.stdout.contains("2 snapshot(s) written"), "wrong count:\n{}", out.stdout);
+    assert_eq!(
+        std::fs::read_to_string(dir.join("drifted.expected")).unwrap_or_default(),
+        "now\n",
+        "`--update` did not rewrite the drifted snapshot"
+    );
+
+    // An empty snapshot means neither thing, and is refused rather than
+    // guessed at.
+    std::fs::write(dir.join("quiet.expected"), "").expect("cannot write");
+    let out = keal(&["test", &path]);
+    assert!(
+        out.stdout.contains("quiet.keal") && out.stdout.contains("is empty"),
+        "an empty snapshot was not refused:\n{}",
+        out.stdout
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A program that never ends must not take the run down with it: it is
+/// stopped, said to be stuck, and the files after it are still tested.
+#[test]
+fn keal_test_stops_a_program_that_does_not() {
+    let dir = std::env::temp_dir().join("keal-test-runner-stuck");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a corpus directory");
+    std::fs::write(dir.join("aloop.keal"), "while (true) { }\n").expect("cannot write");
+    std::fs::write(dir.join("zafter.keal"), "assert(1 == 1, \"yes\")\n").expect("cannot write");
+
+    let path = dir.to_string_lossy().into_owned();
+    let out = keal(&["test", "--ast", "--timeout", "2", &path]);
+    assert!(!out.success, "a stuck program passed:\n{}", out.stdout);
+    assert!(
+        out.stdout.contains("still running after 2s"),
+        "the runner did not say it stopped anything:\n{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains("2 file(s), 1 failed"),
+        "the file after the stuck one was not tested:\n{}",
+        out.stdout
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

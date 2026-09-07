@@ -144,6 +144,7 @@ The rest of the commands:
 keal check src/main.keal        # type-check without running
 keal layout src/main.keal       # show how the program's values are laid out
 keal build src/main.keal        # compile to a native executable
+keal test                       # run the programs under tests/ on both engines
 keal emit-c src/main.keal       # print the C that build would compile
 keal repl                       # interactive session
 keal --ast program.keal         # run on the tree-walker instead of the VM
@@ -187,6 +188,37 @@ checked by the test suite.
 `cargo test` runs the whole suite: self-checking programs, every example, the
 tutorial, and snapshot tests for the diagnostics — each on **both** execution
 engines, which must agree on every byte they print.
+
+**Testing your own project** is the same thing without the `cargo`:
+
+```sh
+keal test                       # every .keal under tests/, on both engines
+keal test --native              # add the compiled engine
+keal test --update              # write down what the programs say now
+```
+
+There is no framework, and that is the design. **A test is a program** —
+nothing to register, nothing to annotate, no name the runner has to be taught
+to find. One rule, in two halves:
+
+* **Alone, a program must end at zero having printed nothing.** That is what
+  `assert` already gives you.
+* **With a `name.expected` beside it, it must answer exactly that** — and a
+  program's answer depends on how it ended: *one that succeeded is judged on
+  what it printed, one that failed is judged on why.* Output in the first
+  case, the error in the second.
+
+Both engines run every file and must agree, which is the property this
+language is built on; `--native` adds the third. A program that never ends is
+stopped, reported as stuck, and the run continues — the one result a test
+runner must never produce is no result.
+
+The rule was not invented for the command. This repository's four corpora were
+written years apart and all four obey it unchanged: `tests/programs` pins
+silence, `tests/errors` and `tests/runtime` pin a failure, `tests/native` pins
+an output. What is new is that a project outside this one can have it without
+writing the harness again — and three had already written it again, which is
+the whole argument for the command existing.
 
 ## What the language has
 

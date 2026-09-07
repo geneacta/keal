@@ -1,0 +1,23 @@
+{"ada": 36, "grace": 45}
+2
+36
+-1
+{"ada": 36, "grace": 45, "alan": 41}
+37
+3
+true
+true
+false
+["ada", "grace", "alan"]
+[37, 45, 41]
+123
+{1: "red", 2: "green"}
+red
+null
+green
+yes
+light
+[{"a": 1}, {"b": 2}]
+Config(values={"x": 10})
+10
+{"a": 3, "b": 1}
