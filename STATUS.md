@@ -1,6 +1,6 @@
 # STATUS — where the work stands, and how to resume it
 
-*Updated: 2026-09-04 (version 1.2.0). This file is the hand-off: if a session dies, the next
+*Updated: 2026-09-07 (version 1.3.0). This file is the hand-off: if a session dies, the next
 one reads this and continues without archaeology. Keep it current at every
 commit that leaves work in flight.*
 
@@ -392,6 +392,43 @@ not ours".
   (`examples/interop/java/`). Plan in `docs/interop.md`.
 
 ## IN FLIGHT
+
+**1.3.0 IS BEING CUT (2026-09-07).** New surface, nothing taken away, so the
+version rule is followed rather than excepted this time. Seven things a
+program can now do that it could not: `with` on records, `Nothing` compiling
+natively, named arguments on a method call natively, `runCommand` with an
+input, `keal_runtime_init` and `keal_program_run` for a host that loads Keal
+as a library, `import "./x.kealsql"`, and the self-hosted lexer made public.
+Six fixes a correct program can see: a closed pipe ending the same way on
+every engine, lines no longer torn by two actors printing, output and
+failure arriving in the order they happened, a record with an `Int?` field
+that would not compile, an enum in a record that panicked where it printed,
+and `maybe() == null` evaluating its subject once rather than twice.
+
+Three consumers pinned commits for want of a tag. KealSql had `2790611` in
+its `keal.toml`.
+
+**OPEN, and measured rather than guessed:** five pages of the site are wider
+than a 320-point window — `docs.html` and `packages.html` at 354 and 377 in
+both languages, and `fr/kealler.html` at 318. Everything fits from 400 points
+up, so it is a horizontal scroll on a narrow phone and not a broken page.
+
+What stopped the search: the probe that names the offending element reports
+nothing on `docs.html` while the document measures 354, and on
+`packages.html` it names a `code` inside a `pre` that scrolls — which is a
+scroller doing its job, not a defect. Content inside an `overflow-x: auto`
+box legitimately extends past the viewport, so a probe has to skip it; skip
+it and the real cause is not among what is left. The search is looking in
+the wrong place and I stopped rather than keep guessing at a stylesheet.
+
+HOW TO MEASURE IT, because the obvious way is wrong: an iframe of fixed
+width inside a page Chrome will agree to open, reading the framed document's
+`scrollWidth` against its `clientWidth`. Chrome will not make a window below
+500 points — `--window-size=320` renders at 485 and says nothing — so a
+measurement taken that way reports a phone width it never rendered, and a
+screenshot of it is a crop that looks identical before a fix and after.
+Both halves of that are the keal-view and kealeb sessions', which hit it
+first and said so.
 
 **1.2.0 IS BEING CUT (2026-09-04).** `Comp` is a primitive, maps index
 instead of scanning, `<==>` exists, floats print alike on all three engines,

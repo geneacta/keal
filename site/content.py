@@ -45,7 +45,7 @@ LANDING = {
             ("keal-view", "A GUI framework — rasteriser, TrueType, layout, widgets.",
              "https://geneacta.github.io/keal-view/"),
             ("KealSql", "A language for PostgreSQL schemas and queries, compiled to SQL.",
-             "https://github.com/geneacta/kealsql"),
+             "https://geneacta.github.io/kealsql/"),
             # The only one whose page is here rather than on a site of its
             # own: Kealler's repository is private, so its downloads are cut
             # against this one and described on this site.
@@ -96,7 +96,7 @@ LANDING = {
             ("keal-view", "Un cadriciel graphique — rastériseur, TrueType, mise en page, widgets.",
              "https://geneacta.github.io/keal-view/fr/"),
             ("KealSql", "Un langage de schémas et de requêtes PostgreSQL, compilé vers SQL.",
-             "https://github.com/geneacta/kealsql"),
+             "https://geneacta.github.io/kealsql/fr/"),
             # Le seul dont la page est ici plutôt que sur un site à lui : le
             # dépôt de Kealler est privé, donc ses binaires sont produits par
             # celui-ci et décrits sur ce site.
