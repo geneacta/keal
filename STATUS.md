@@ -408,27 +408,47 @@ and `maybe() == null` evaluating its subject once rather than twice.
 Three consumers pinned commits for want of a tag. KealSql had `2790611` in
 its `keal.toml`.
 
-**OPEN, and measured rather than guessed:** five pages of the site are wider
-than a 320-point window — `docs.html` and `packages.html` at 354 and 377 in
-both languages, and `fr/kealler.html` at 318. Everything fits from 400 points
-up, so it is a horizontal scroll on a narrow phone and not a broken page.
+**OPEN, and measured rather than guessed:** `packages.html` is 377 points
+wide in a 320-point window, in both languages. Every other page fits, and
+everything fits from 400 points up, so this is a horizontal scroll on a
+narrow phone and not a broken page.
 
-What stopped the search: the probe that names the offending element reports
-nothing on `docs.html` while the document measures 354, and on
-`packages.html` it names a `code` inside a `pre` that scrolls — which is a
-scroller doing its job, not a defect. Content inside an `overflow-x: auto`
-box legitimately extends past the viewport, so a probe has to skip it; skip
-it and the real cause is not among what is left. The search is looking in
-the wrong place and I stopped rather than keep guessing at a stylesheet.
+Three of the five that were open closed once the probe was pointed properly,
+and what it found was not what the shape of the problem suggested: the
+heading. "Documentation" set at 40px is 314 points wide in a column that is
+225 at a phone's width. Nothing was wrong with the word — the size never
+came down, because only `.hero h1` had a rule in the breakpoint. A long word
+looks like a text problem and was a typography one.
 
-HOW TO MEASURE IT, because the obvious way is wrong: an iframe of fixed
-width inside a page Chrome will agree to open, reading the framed document's
-`scrollWidth` against its `clientWidth`. Chrome will not make a window below
-500 points — `--window-size=320` renders at 485 and says nothing — so a
-measurement taken that way reports a phone width it never rendered, and a
-screenshot of it is a crop that looks identical before a fix and after.
-Both halves of that are the keal-view and kealeb sessions', which hit it
-first and said so.
+WHAT IS STILL WRONG ON `packages.html` is unknown, and the honest part is
+that the probe cannot see it. `.dmain.prose` overflows by 72 points; every
+descendant fits its own box; the long code block is inside a `.prose pre`
+that already has `overflow-x: auto` and does scroll. I stopped rather than
+keep changing a stylesheet to see what moves.
+
+HOW TO MEASURE IT, because three obvious ways are wrong, and each was found
+by a session that first got a confident wrong answer from it:
+
+* Chrome will not make a window below 500 points. `--window-size=320`
+  renders at 485 and says nothing, so a measurement taken that way reports a
+  phone width it never rendered — and a screenshot of it is a crop that
+  looks identical before a fix and after. Measure inside an IFRAME of fixed
+  width in a page Chrome will open.
+* Read the answer out of the `<title>`, not by grepping the dumped DOM:
+  `--dump-dom` prints a script's SOURCE as well as its result, and a loose
+  pattern matches the source and reports whatever the absence of digits
+  means to it. The keal-view session's tool declared 24 pages clean this way
+  while one of them was 605 wide.
+* Write the instrumented copy BESIDE the page, not in a temporary
+  directory: a page links its stylesheet by a relative path, and an unstyled
+  page is wide. That tool reported 12 pages of 24 overflowing when none was.
+  An instrument has to be given the same world as the thing it measures.
+
+Serve over `http://` rather than `file://` if the page loads remote fonts:
+`document.fonts.ready` does not resolve in a `file://` iframe, and a page
+measured in its fallback font is narrower than the one a reader gets. It did
+not change the numbers here, which is worth knowing and is not a reason to
+skip it.
 
 **1.2.0 IS BEING CUT (2026-09-04).** `Comp` is a primitive, maps index
 instead of scanning, `<==>` exists, floats print alike on all three engines,

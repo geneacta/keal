@@ -303,6 +303,14 @@ footer .base { margin: 0 0 14px; font: 400 13px/1.6 Sora, sans-serif; color: var
 @media (max-width: 900px) {
   .hero, .duo, .cards4, .cards3, .tgrid, .dgrid, footer { grid-template-columns: 1fr; display: grid; }
   .hero h1 { font-size: 38px; }
+  /* A heading does not shrink on its own, and one word cannot be broken:
+     "Documentation" at 40px is 314 points wide, in a column that is 225 at a
+     phone's width. Nothing was wrong with the word — the size never came
+     down. `break-word` is the backstop for a word that is long even at this
+     size. */
+  .band h1 { font-size: 30px; }
+  .band h2 { font-size: 26px; }
+  h1, h2, h3 { overflow-wrap: break-word; }
   /* The bar wrapped, and the row of links inside it did not — seven names
      and their gaps are 500 points wide on their own, which is what held
      every page 572 points wide in a 485-point window however much the
