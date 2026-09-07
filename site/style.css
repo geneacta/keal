@@ -17,7 +17,19 @@ a { text-decoration: none; color: inherit; }
 .nav { display: flex; align-items: center; justify-content: space-between;
        padding: 16px 40px; border-bottom: 1px solid var(--line); }
 .nav-left { display: flex; align-items: center; gap: 36px; }
-.nav-logo { display: block; height: 36px; width: auto; }
+/* The mark: the K as an image, the name as text, and the sign after it drawn
+   in CSS. Only the letter is a file — a wordmark that is text can be
+   selected, searched and read aloud, which a picture of a word cannot. */
+.mark { display: flex; align-items: center; gap: 9px; }
+.mark-k { display: block; width: 30px; height: 30px; object-fit: contain; }
+.wordmark { font: 700 22px Sora, sans-serif; letter-spacing: -.02em; color: var(--ink); }
+.wordmark .suffix { color: var(--accent); font-weight: 500; }
+/* Keal's sign is the foot of its own K, laid flat. Each site in the family
+   has its own — an open cell, a filled pixel, a round dot — and the shape
+   says which one you are on before the name is read. */
+.wordmark::after { content: ""; display: inline-block; width: 14px; height: 7px;
+                   margin-left: 7px; vertical-align: 3px; border-radius: 99px;
+                   background: var(--accent); }
 .nav-links { display: flex; gap: 26px; font: 500 14px Sora, sans-serif; }
 .nav-links a { color: var(--dim); }
 .nav-links a:hover { color: var(--ink); }
@@ -339,3 +351,17 @@ a.card:hover { border-color: var(--accent); }
        border-radius: 6px; padding: 2px 8px; }
 .run:hover, .run.on { border-color: var(--accent); color: var(--accent); }
 .dtoc-items a.on { color: var(--accent); }
+
+/* ---- Kealler ------------------------------------------------------------
+   The IDE lives on this site and belongs to the family at once. It keeps
+   Keal's ground, panels and Sora, and keeps MINT for code — the language it
+   edits is still Keal — while the periwinkle of the family is what the page
+   itself uses: buttons, the active tab, the errors it draws. The K is
+   bicolour and the sign is a gradient because both are true at the same
+   time. */
+.kealler { --accent: #A1A7FF; --accent-h: #ADB4FF; --mint: #CCD2FF; }
+.kealler .hero { background: linear-gradient(135deg, rgba(53,200,168,.07),
+                             transparent 45%, rgba(161,167,255,.07)); }
+.kealler .wordmark::after { background: linear-gradient(90deg, #35C8A8, #A1A7FF); }
+/* Code stays the language's own colours, not the page's. */
+.kealler .win pre, .kealler pre { --kw: #63D3B4; --ty: #A9EBCD; }

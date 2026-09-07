@@ -5,7 +5,7 @@
 </p>
 <!-- keal-band:end -->
 
-<p align="center"><img src="assets/keal.png" alt="Keal" width="360"></p>
+<p align="center"><img src="assets/k.png" alt="Keal" width="120"></p>
 
 # Keal — a statically typed language for programs that have to be predictable
 

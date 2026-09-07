@@ -246,6 +246,14 @@ NAV = {
            ("kealler.html", "Kealler")],
 }
 
+# The brand each page wears. The K is a file, the wordmark is text, and the
+# sign after the name is drawn in CSS — so the only image is the letter, and
+# a name that is text can be selected, searched and read aloud.
+MARKS = {
+    "keal": {"k": "assets/k.png", "suffix": ""},
+    "kealler": {"k": "assets/k-kealler.png", "suffix": '<span class="suffix">ler</span>'},
+}
+
 FOOTER = {
     "en": ("A statically typed, self-hosting programming language. Built by Geneacta.",
            "Source on GitHub", "Contribute", "Code of conduct", "Security",
@@ -278,8 +286,15 @@ def _version():
 VERSION = _version()
 
 
-def page(lang, filename, title, description, body, active=None, sidebar=None, toc=None):
-    """One complete HTML page, in the site's dress."""
+def page(lang, filename, title, description, body, active=None, sidebar=None, toc=None,
+         body_class="", mark="keal"):
+    """One complete HTML page, in the site's dress.
+
+    `mark` names the brand the page wears: the K, the wordmark and the sign
+    after it. Keal's is the mint pill — the foot of its own K — and Kealler's
+    is the same drawing in two colours with `ler` in periwinkle, because it
+    lives on this site and belongs to the family at the same time.
+    """
     prefix = "" if lang == "en" else "../"
     nav_links = []
     for href, label in NAV[lang]:
@@ -331,17 +346,20 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
 <meta name="twitter:title" content="%(title)s">
 <meta name="twitter:description" content="%(desc)s">
 <meta name="twitter:image" content="%(image)s">
-<link rel="icon" type="image/png" href="%(prefix)sassets/keal3.png">
+<link rel="icon" type="image/png" href="%(prefix)s%(mark_k)s">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="%(prefix)sstyle.css">
 </head>
-<body>
+<body%(body_attr)s>
 <div class="wrap">
 <nav class="nav">
   <div class="nav-left">
-    <a href="%(home)s"><img class="nav-logo" src="%(prefix)sassets/keal.png" alt="Keal"></a>
+    <a class="mark" href="%(home)s">
+      <img class="mark-k" src="%(prefix)s%(mark_k)s" alt="">
+      <span class="wordmark">keal%(mark_suffix)s</span>
+    </a>
     <div class="nav-links">%(links)s</div>
   </div>
   <div class="nav-right">
@@ -370,11 +388,17 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
         "title": html.escape(title),
         "desc": html.escape(description),
         "prefix": prefix,
+        "body_attr": ' class="%s"' % body_class if body_class else "",
+        "mark_k": MARKS[mark]["k"],
+        "mark_suffix": MARKS[mark]["suffix"],
         "canonical": BASE_URL + ("" if lang == "en" else "fr/") + filename,
         "alt_en": BASE_URL + filename,
         "alt_fr": BASE_URL + "fr/" + filename,
         "locale": "en_GB" if lang == "en" else "fr_FR",
-        "image": BASE_URL + "assets/keal.png",
+        # The share card is the K, like the tab icon and the nav: the
+        # wordmark image the site used to carry is gone, and a name that is
+        # text has no picture to share.
+        "image": BASE_URL + "assets/k.png",
         "home": "index.html",
         "links": "".join(nav_links),
         "other": other,
@@ -654,7 +678,7 @@ def kealler_page(lang):
             % (L["title"], L["lede"], L["h_get"], get, L["h_what"], cards,
                L["h_needs"], L["needs"]))
     return page(lang, "kealler.html", L["title"], L["lede"][:180], body,
-                active="kealler.html")
+                active="kealler.html", body_class="kealler", mark="kealler")
 
 
 def coming_index(lang):
