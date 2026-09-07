@@ -249,6 +249,16 @@ NAV = {
 # The brand each page wears. The K is a file, the wordmark is text, and the
 # sign after the name is drawn in CSS — so the only image is the letter, and
 # a name that is text can be selected, searched and read aloud.
+def keal_version():
+    """From `Cargo.toml`, which is where the version actually lives."""
+    import re as _re
+    text = open(os.path.join(ROOT, "Cargo.toml"), encoding="utf-8").read()
+    m = _re.search(r'^version\s*=\s*"([^"]+)"', text, _re.M)
+    if not m:
+        raise SystemExit("site: Cargo.toml has no version for the badge to carry")
+    return m.group(1)
+
+
 MARKS = {
     "keal": {"k": "assets/k.png", "suffix": ""},
     "kealler": {"k": "assets/k-kealler.png", "suffix": '<span class="suffix">ler</span>'},
@@ -363,7 +373,7 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
     <div class="nav-links">%(links)s</div>
   </div>
   <div class="nav-right">
-    <span class="badge">v1.2.0</span>
+    <span class="badge">v%(version)s</span>
     <a class="btn-lang" href="%(other)s">%(other_label)s</a>
     <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
   </div>
@@ -389,6 +399,11 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
         "desc": html.escape(description),
         "prefix": prefix,
         "body_attr": ' class="%s"' % body_class if body_class else "",
+        # The version the page is ABOUT, not the one this file was written
+        # beside: the Kealler page carries Kealler's. It was a literal here,
+        # which is a number nobody would think to change and which would have
+        # been wrong on the day the language moved.
+        "version": C.KEALLER_VERSION if mark == "kealler" else keal_version(),
         "mark_k": MARKS[mark]["k"],
         "mark_suffix": MARKS[mark]["suffix"],
         "canonical": BASE_URL + ("" if lang == "en" else "fr/") + filename,

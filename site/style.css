@@ -120,6 +120,24 @@ a { text-decoration: none; color: inherit; }
         border: 1px solid rgba(169,235,205,.2); border-radius: 6px; padding: 3px 8px; }
 .card pre { margin: 0; font: 12.5px/1.7 'JetBrains Mono', monospace; color: var(--code); white-space: pre; }
 
+/* ---- a band: a heading and a lede, between the sections around it ----
+   `.band` and `.lede` had no rules at all, so four pages laid them out as
+   bare blocks — browser-default headings, no padding, text running to the
+   window's edge. It is the same thing `.cards` had: a class used by the
+   generator and never given a shape, which looks like a decision until you
+   look for the rule and there is none. */
+.band { padding: 56px 40px 22px; }
+.band h1 { margin: 0 0 18px; font: 700 40px/1.15 Sora, sans-serif;
+           letter-spacing: -.02em; color: var(--ink); }
+.band h2 { margin: 0 0 14px; font: 700 34px/1.2 Sora, sans-serif;
+           letter-spacing: -.015em; color: var(--ink); }
+.band .lede { margin: 0; font: 400 16.5px/1.7 Sora, sans-serif; color: var(--dim);
+              max-width: 68ch; }
+/* The last one carries the page's bottom margin, since nothing follows it
+   to supply one. */
+.band:last-of-type { padding-bottom: 64px; }
+.band .tablewrap, .band .callout { margin-top: 22px; }
+
 /* ---- two-column sections ---- */
 .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; padding: 64px 40px;
        border-top: 1px solid var(--line); align-items: center; }

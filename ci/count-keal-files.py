@@ -101,16 +101,6 @@ def count(repo):
                if e["type"] == "blob" and e["path"].endswith(EXT))
 
 
-def colour(n):
-    if n >= TARGET:
-        return "brightgreen"
-    if n >= TARGET // 2:
-        return "green"
-    if n >= TARGET // 10:
-        return "blue"
-    return "lightgrey"
-
-
 def version():
     m = re.search(r'^version\s*=\s*"([^"]+)"', open(CARGO, encoding="utf-8").read(), re.M)
     if not m:
@@ -120,18 +110,22 @@ def version():
 
 def shield(label, message, col, href, alt):
     return ('  <a href="%s"><img alt="%s" src="https://img.shields.io/badge/'
-            '%s-%s-%s?style=flat-square&labelColor=2b2b2b"></a>'
+            '%s-%s-%s?style=flat&labelColor=2b2b2b"></a>'
             % (href, alt, urllib.parse.quote(label), urllib.parse.quote(message), col))
 
 
 def band(n):
     search = ("https://github.com/search?q=" +
               urllib.parse.quote("extension:keal user:" + OWNER) + "&type=code")
+    # Two badges, two fixed colours. The file count used to pick its own from
+    # how far it had come toward Linguist's threshold — green at half, blue at
+    # a tenth — which made the badge carry a second meaning nobody had asked
+    # it to carry and nothing explained. A count is a count.
     return "\n".join([
-        "<p align=\"center\">",
+        "<p align=\"right\">",
         shield("version", version(), "blue",
                "https://github.com/%s/keal/releases" % OWNER, "version"),
-        shield(".keal files", str(n), colour(n), search, ".keal files"),
+        shield(".keal files", str(n), "brightgreen", search, ".keal files"),
         "</p>",
     ])
 
