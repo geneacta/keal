@@ -1561,12 +1561,22 @@ fn a_closed_pipe_ends_every_engine_the_same_way() {
             "{} ends at {:?} where the compiled program ends at {:?}",
             engine, code, native_code
         );
-        let line = |s: &str| s.lines().next().unwrap_or("").to_string();
-        assert_eq!(
-            line(&native_err),
-            line(&err),
-            "{} and the compiled program say different things about it",
-            engine
+        // What must match is that both call it a failure to write, not the
+        // words the operating system puts on it. On Unix both sides ask
+        // `strerror(EPIPE)` and say "Broken pipe"; on Windows the runtime
+        // Rust talks to and the one C talks to report the same closed pipe
+        // differently — "Invalid argument (os error 22)" against "The pipe is
+        // being closed. (os error 232)". Neither is wrong, and neither is
+        // this language's to choose.
+        let said = |s: &str| s.contains("cannot write to standard output");
+        assert!(
+            said(&native_err) && said(&err),
+            "{} and the compiled program should both name the failed write.\n  \
+             compiled: {:?}\n  {}: {:?}",
+            engine,
+            native_err.lines().next().unwrap_or(""),
+            engine,
+            err.lines().next().unwrap_or("")
         );
     }
     assert_eq!(native_code, Some(1), "a closed pipe is an error, not a signal");
@@ -1746,7 +1756,7 @@ fn native_agrees_with_the_interpreters() {
 /// One fault per `-Werror` name the check below relies on: the smallest C
 /// that commits exactly that mistake. Their only job is to be rejected — a
 /// flag that rejects nothing lets everything through.
-const FAULTS: [(&str, &str); 12] = [
+const FAULTS: [(&str, &str); 11] = [
     ("comment", "/* a /* b */\nint main(void){return 0;}\n"),
     // The three below are what a runtime emitted whole into every program
     // leaves lying about, and the barrier was not asking. A consumer put
@@ -1756,8 +1766,14 @@ const FAULTS: [(&str, &str); 12] = [
     // — which is why an unused name is worth a flag: it is where a value
     // computed and dropped shows up.
     ("unused-variable", "int main(void){ int x = 1; return 0; }\n"),
-    ("unused-const-variable", "static const int k = 1;\nint main(void){return 0;}\n"),
     ("unused-function", "static int f(void){return 0;}\nint main(void){return 0;}\n"),
+    // `unused-const-variable` is NOT here, and its absence is the rule
+    // working rather than a gap being ignored. clang has it and rejects a
+    // `static const` nobody reads; GCC and the Windows compiler take the
+    // name, say nothing, and exit 0 — so the fault cannot be written to bite
+    // on all three, and a flag proven on one bench is a flag proven nowhere.
+    // The runtime's type-info tables carry `KEAL_VAL` for that shape; what is
+    // missing is the barrier policing it, not the fix.
     // An assignment used as a condition, which GCC and clang both reject
     // under this name. The doubled-equality form `if ((a==b))` was the
     // original probe and was a compiler assumption: it is clang's
