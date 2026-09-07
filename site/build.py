@@ -249,6 +249,25 @@ NAV = {
 # The brand each page wears. The K is a file, the wordmark is text, and the
 # sign after the name is drawn in CSS — so the only image is the letter, and
 # a name that is text can be selected, searched and read aloud.
+def asset_tag(rel):
+    """`assets/k.png?v=<eight hex>` — the file's own content, in its URL.
+
+    The mark was replaced at a URL that had already been served for weeks,
+    so every browser that had seen the site kept showing the old one, and a
+    favicon is cached far past the ten minutes the header asks for. A URL
+    that changes when the bytes change is the only thing that reaches a
+    reader who has been here before; telling them to reload is not a fix,
+    it is a request.
+    """
+    import hashlib as _h
+    path = os.path.join(SITE, rel)
+    try:
+        with open(path, "rb") as f:
+            return "%s?v=%s" % (rel, _h.sha256(f.read()).hexdigest()[:8])
+    except OSError:
+        return rel
+
+
 def keal_version():
     """From `Cargo.toml`, which is where the version actually lives."""
     import re as _re
@@ -404,7 +423,7 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
         # which is a number nobody would think to change and which would have
         # been wrong on the day the language moved.
         "version": C.KEALLER_VERSION if mark == "kealler" else keal_version(),
-        "mark_k": MARKS[mark]["k"],
+        "mark_k": asset_tag(MARKS[mark]["k"]),
         "mark_suffix": MARKS[mark]["suffix"],
         "canonical": BASE_URL + ("" if lang == "en" else "fr/") + filename,
         "alt_en": BASE_URL + filename,
@@ -1066,6 +1085,11 @@ def check_links(written):
             if href.startswith(("http://", "https://", "mailto:", "data:", "#")):
                 continue
             target, _, anchor = href.partition("#")
+            # A cache-busting `?v=…` names the same file. Strip it before
+            # looking for one, or every marked asset reads as missing — which
+            # this checker said about 100 of them the moment they were
+            # marked, correctly by its own rule and wrongly about the site.
+            target = target.partition("?")[0]
             if not target:
                 continue
             dest = os.path.normpath(os.path.join(here, target)).replace(os.sep, "/")
