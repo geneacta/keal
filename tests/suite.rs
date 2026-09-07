@@ -1756,7 +1756,7 @@ fn native_agrees_with_the_interpreters() {
 /// One fault per `-Werror` name the check below relies on: the smallest C
 /// that commits exactly that mistake. Their only job is to be rejected — a
 /// flag that rejects nothing lets everything through.
-const FAULTS: [(&str, &str); 11] = [
+const FAULTS: [(&str, &str); 10] = [
     ("comment", "/* a /* b */\nint main(void){return 0;}\n"),
     // The three below are what a runtime emitted whole into every program
     // leaves lying about, and the barrier was not asking. A consumer put
@@ -1766,14 +1766,23 @@ const FAULTS: [(&str, &str); 11] = [
     // — which is why an unused name is worth a flag: it is where a value
     // computed and dropped shows up.
     ("unused-variable", "int main(void){ int x = 1; return 0; }\n"),
-    ("unused-function", "static int f(void){return 0;}\nint main(void){return 0;}\n"),
-    // `unused-const-variable` is NOT here, and its absence is the rule
-    // working rather than a gap being ignored. clang has it and rejects a
-    // `static const` nobody reads; GCC and the Windows compiler take the
-    // name, say nothing, and exit 0 — so the fault cannot be written to bite
-    // on all three, and a flag proven on one bench is a flag proven nowhere.
-    // The runtime's type-info tables carry `KEAL_VAL` for that shape; what is
-    // missing is the barrier policing it, not the fix.
+    // Two names that belong to this family are NOT here, and their absence
+    // is this test's own rule working rather than a gap being ignored.
+    //
+    // `unused-const-variable`: clang has it and rejects a `static const`
+    // nobody reads. GCC and the Windows compiler take the name, say nothing
+    // and exit 0.
+    // `unused-function`: clang rejects an unused `static` function under
+    // `-fsyntax-only`; GCC does not do that analysis without generating
+    // code, so it takes the name and exits 0 too.
+    //
+    // Both were added after a sweep on ONE machine and both broke the
+    // four-platform build, which is the only thing here that could have said
+    // so. A flag proven on one bench is a flag proven nowhere. The runtime
+    // marks its unused functions `KEAL_FN` and its unused tables `KEAL_VAL`,
+    // so both shapes are fixed in the artifact; what is missing is the
+    // barrier policing them, and that is worth saying rather than leaving a
+    // reader to assume the coverage is there.
     // An assignment used as a condition, which GCC and clang both reject
     // under this name. The doubled-equality form `if ((a==b))` was the
     // original probe and was a compiler assumption: it is clang's
