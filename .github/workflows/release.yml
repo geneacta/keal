@@ -35,6 +35,20 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             name: keal-linux-x86_64
+          # Linux on ARM is the leg the matrix was missing, and the only one
+          # that can tell an ISA problem apart from an OS problem: every
+          # other pairing changes both at once. It earned its place — the
+          # suite was first run there on 2026-09-02 and found a warning
+          # barrier that assumed clang, a JDK probe with no answer on Linux,
+          # and a `-Werror` self-check that GCC accepts in silence.
+          #
+          # The label is pinned because there is no `ubuntu-latest-arm` to
+          # pin to: GitHub publishes `ubuntu-22.04-arm` and `ubuntu-24.04-arm`
+          # and no floating alias. A leg whose runner never comes is a
+          # release that never opens, so this one is written out.
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            name: keal-linux-arm64
           # Windows is held to the same standard as the rest, and blocks
           # like the rest. What it needs beyond the others is a C compiler
           # that is not MSVC — see the step below, and `docs/interop.md`

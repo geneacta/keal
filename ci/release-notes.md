@@ -13,18 +13,21 @@ are compiled into the binary, so there is nothing to install beside it. A
 C compiler is only needed for `keal build`, and `keal doctor` reports
 whether one is there.
 
-The Linux build needs **glibc 2.34 or newer** — RHEL 9, Ubuntu 22.04, Debian
-12 and anything later. Ubuntu 20.04 and Debian 11 are 2.31 and will not load
-it. The floor is set by `pthread_create` and its neighbours, which the actor
-runtime needs; nothing exotic pins it.
+There are two Linux archives, `x86_64` and `arm64`. Both need **glibc 2.34 or
+newer** — RHEL 9, Ubuntu 22.04, Debian 12 and anything later. Ubuntu 20.04 and
+Debian 11 are 2.31 and will not load either. The floor is set by
+`pthread_create` and its neighbours, which the actor runtime needs; nothing
+exotic pins it, and it is the same floor on both architectures — checked on
+each, not assumed from one.
 
 That number is worth stating carefully, because the tidy way of finding it is
-wrong. The highest `GLIBC_` string in the binary is 2.39, and reading that as
-the requirement would put the floor five minor versions too high and rule out
-distributions that run it perfectly well. The two 2.39 symbols are WEAK: the
+wrong. The highest `GLIBC_` string in either binary is 2.39, and reading that
+as the requirement would put the floor five minor versions too high and rule
+out distributions that run it perfectly well. The two 2.39 symbols —
+`pidfd_getpid` and `pidfd_spawnp`, on both architectures — are WEAK: the
 loader resolves them to null when they are absent and the program starts
 anyway, because they are an optional fast path with a fallback behind them.
-Only the strong symbols set a floor.
+Only the strong symbols set a floor, and on both they stop at 2.34.
 
 On macOS the download is unsigned, so clear the quarantine flag once:
 

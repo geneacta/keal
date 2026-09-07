@@ -24,16 +24,16 @@ there is one copy.
 | workflow | when | what |
 |---|---|---|
 | `check.yml` | every push to `main`, every pull request | the suite and the bootstrap, on **Linux** |
-| `smoke.yml` | a release is published, or by hand with a tag | downloads the PUBLISHED archive on each of the four platforms, unpacks it, and asks that binary to run a program and then compile one |
+| `smoke.yml` | a release is published, or by hand with a tag | downloads the PUBLISHED archive on each of the five platforms, unpacks it, and asks that binary to run a program and then compile one |
 | `pages.yml` | every push touching `site/` | publishes to GitHub Pages |
-| `release.yml` | a `v*` tag, or **Actions → release → Run workflow** with a tag | builds for macOS (arm64, x86_64), Linux and Windows, runs the suite and the bootstrap on each, and opens a release with the binaries attached |
+| `release.yml` | a `v*` tag, or **Actions → release → Run workflow** with a tag | builds for macOS (arm64, x86_64), Linux (x86_64, arm64) and Windows, runs the suite and the bootstrap on each, and opens a release with the binaries attached |
 
 `pages.yml` also needs the repository setting **Settings → Pages →
 Source: GitHub Actions**, once.
 
 ### Why `check.yml` is Linux
 
-The four-platform suite runs only on a tag, so between releases the only
+The five-platform suite runs only on a tag, so between releases the only
 machines that ever ran it were the ones a person happened to be sitting at.
 On 2026-09-01 that meant `keal build` had been broken on Linux for a day —
 `-std=c11` makes glibc withhold the POSIX half of `<time.h>` while Apple's
@@ -44,6 +44,36 @@ Linux is the leg to run per push because it is the one nobody develops on:
 macOS and Windows each have a person watching them. It is also the strictest
 of the three about what a header declares, which is the failure it just
 caught.
+
+### Why there is a Linux ARM leg
+
+Every other pair of legs changes two things at once. macOS ARM against macOS
+Intel changes the ISA and holds the OS; Linux x86_64 against macOS x86_64
+changes the OS and holds the ISA — but until this leg existed there was no
+way to ask whether a Linux failure was Linux or was ARM, because no machine
+ran both.
+
+It is not a hypothetical. The suite was first run on Linux aarch64 on
+2026-09-02 and three things came back that no other platform could have
+said:
+
+- `-Werror=parentheses` is a clang diagnostic for the fault the barrier
+  wrote for it. GCC accepts the name, says nothing, and exits 0 — so the
+  self-check that proves the barrier bites was itself the thing that broke,
+  and it broke silently.
+- `java_home` read `JAVA_HOME`, then `/usr/libexec/java_home`, which is
+  macOS. On Linux there was no third answer, so every Linux machine with a
+  working JDK put four tests to sleep while printing `ok`.
+- `actors_are_clean_under_thread_sanitizer` died on SIGILL — a BTI
+  landing-pad fault in glibc's `__sigsetjmp`, reached from ThreadSanitizer's
+  own `pthread_cond_wait` interceptor, in fifteen lines of pthread code with
+  no Keal in them. Clean on macOS ARM. The ISA was not the variable; the
+  GNU/Linux toolchain was.
+
+The label is `ubuntu-24.04-arm` and not a floating alias because GitHub
+publishes none: `ubuntu-22.04-arm` and `ubuntu-24.04-arm` exist, and
+`ubuntu-latest-arm` does not. See **When a runner label goes away** below —
+this leg is the one most likely to need that page.
 
 ### Why `smoke.yml` exists
 

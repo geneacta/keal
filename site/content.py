@@ -308,8 +308,21 @@ KEALLER = {
                    "growing text selection across more than one line. A download called an IDE "
                    "that opens a file and refuses a keystroke would be a promise this page had no "
                    "business making, so the first release waits for that.",
+        "macos": "<b>On macOS, fetch it with <code>curl</code> rather than through this page.</b> "
+                 "macOS quarantines what a browser downloads and Gatekeeper reads that attribute, "
+                 "not the file — and this build is signed only ad-hoc, so it will object. "
+                 "<code>curl</code> sets no such attribute, so there is nothing to override: "
+                 "<code>curl -L -o kealler.tar.gz &lt;the link below&gt; &amp;&amp; tar xzf "
+                 "kealler.tar.gz &amp;&amp; ./kealler</code>. If you already downloaded it here, "
+                 "<code>xattr -dr com.apple.quarantine kealler</code> removes it.",
         "h_what": "What it does",
         "does": [
+            ("Open, edit, save",
+             "A file tree with a filter that matches letters in order — <code>apk</code> finds "
+             "<code>app.keal</code>. Undo grouped the way an editor groups, so undoing a word "
+             "takes one press and not five. Find across every file in the tree, with the matches "
+             "painted over the syntax rather than instead of it. A file's line endings are kept: "
+             "a Windows file opened here stays a Windows file."),
             ("Coloured by the compiler, not by a copy of it",
              "The highlighting is <code>keal tokens</code> — the lexer that compiles the file. A "
              "second grammar written in regular expressions agrees with the compiler on the day "
@@ -347,8 +360,23 @@ KEALLER = {
                    "téléchargement appelé « IDE » qui ouvre un fichier et refuse une frappe "
                    "serait une promesse que cette page n'a pas à faire, donc la première version "
                    "attend cela.",
+        "macos": "<b>Sur macOS, récupérez-le avec <code>curl</code> plutôt que par cette "
+                 "page.</b> macOS met en quarantaine ce qu'un navigateur télécharge, et "
+                 "Gatekeeper lit cet attribut, pas le fichier — et ce binaire n'est signé qu'en "
+                 "ad-hoc, donc il protestera. <code>curl</code> ne pose aucun attribut, donc il "
+                 "n'y a rien à outrepasser : <code>curl -L -o kealler.tar.gz &lt;le lien "
+                 "ci-dessous&gt; &amp;&amp; tar xzf kealler.tar.gz &amp;&amp; ./kealler</code>. "
+                 "Si vous l'avez déjà téléchargé ici, <code>xattr -dr com.apple.quarantine "
+                 "kealler</code> le retire.",
         "h_what": "Ce qu'il fait",
         "does": [
+            ("Ouvrir, éditer, enregistrer",
+             "Un arbre de fichiers avec un filtre qui prend les lettres dans l'ordre — "
+             "<code>apk</code> trouve <code>app.keal</code>. Une annulation groupée comme un "
+             "éditeur groupe : annuler un mot demande une pression et non cinq. Une recherche "
+             "dans tous les fichiers de l'arbre, les correspondances peintes par-dessus la "
+             "syntaxe et non à sa place. Les fins de ligne d'un fichier sont conservées : un "
+             "fichier Windows ouvert ici reste un fichier Windows."),
             ("Coloré par le compilateur, pas par une copie de lui",
              "La coloration est <code>keal tokens</code> — le lexer qui compile le fichier. Une "
              "seconde grammaire écrite en expressions régulières est d'accord avec le compilateur "

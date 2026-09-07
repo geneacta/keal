@@ -1,6 +1,6 @@
 # Runs the suite on Linux on every push. Nothing else does.
 #
-# Why Linux, and why this file exists at all: the four-platform suite runs
+# Why Linux, and why this file exists at all: the five-platform suite runs
 # only when a version tag is pushed, so between releases the only machines
 # that ever ran it were the ones a person happened to be sitting at. On
 # 2026-09-01 that turned out to mean `keal build` had been broken on Linux

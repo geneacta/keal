@@ -699,7 +699,8 @@ def kealler_page(lang):
                         % (plat, arch, url, name))
         get = ('<div class="tablewrap"><table><thead><tr><th>%s</th><th>%s</th><th>%s</th></tr>'
                "</thead><tbody>%s</tbody></table></div>"
-               % (L["h_platform"], L["h_arch"], L["h_file"], "".join(rows)))
+               '<div class="callout"><span class="st">✦</span><p>%s</p></div>'
+               % (L["h_platform"], L["h_arch"], L["h_file"], "".join(rows), L["macos"]))
     else:
         # No download, and the reason said out loud. A page that offered a
         # file that is not there would be worse than one that explains.

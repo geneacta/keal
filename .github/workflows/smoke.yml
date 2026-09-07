@@ -33,6 +33,12 @@ jobs:
             asset: keal-macos-x86_64.tar.gz
           - os: ubuntu-latest
             asset: keal-linux-x86_64.tar.gz
+          # The archive this file exists for: a Linux ARM build that no
+          # person on this project has a machine for. Shipping it without a
+          # smoke leg would recreate exactly the situation described above,
+          # on the one platform where it is least likely to be noticed.
+          - os: ubuntu-24.04-arm
+            asset: keal-linux-arm64.tar.gz
           - os: windows-latest
             asset: keal-windows-x86_64.tar.gz
     runs-on: ${{ matrix.os }}
