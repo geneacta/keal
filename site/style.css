@@ -57,8 +57,29 @@ a { text-decoration: none; color: inherit; }
 .cta-line:hover { border-color: rgba(140,220,196,.45); }
 
 /* ---- hero ---- */
+/* Two columns: the words, and the code window. The five parts of the left
+   half used to be direct children of this grid, so they filled it row by row
+   — the heading landed in the right column, the code window under the pill,
+   and the two buttons became one because the row that holds them is `.ctas`
+   while `.cta` is the filled button itself. The stylesheet and the generator
+   had drifted apart on three class names at once, and each was right about
+   its own half. */
 .hero { display: grid; grid-template-columns: 1fr 1fr; gap: 56px;
         padding: 72px 40px 64px; align-items: center; }
+/* A grid column does not go below the width of its own content unless it is
+   told it may, and a `pre` does not fold — so a code window makes the whole
+   PAGE wider than the window instead of scrolling inside itself. Every grid
+   here had it: measured against a 485-point viewport, the documents came out
+   572, 595, 572, 601 and 780 points wide, the last one 60% over.
+   `overflow-x: auto` on the block cannot help while the column refuses to
+   shrink, because the grid measures the content and not the box.
+   Found by the keal-view session, which measured `scrollWidth` rather than
+   looking at a picture — and a picture would not have shown it, since
+   headless Chrome clamps its window to 500 points and hands back a crop. */
+.hero > *, .cards > *, .cards3 > *, .cards4 > *, .duo > *, .tgrid > *,
+.dgrid > *, .tourgrid > *, .sgrid > *, footer > * { min-width: 0; }
+/* And the code itself scrolls inside its own frame rather than pushing. */
+.win pre, .cwin pre, .card pre, .term pre { overflow-x: auto; }
 .pill { display: inline-flex; align-items: center; gap: 8px;
         font: 600 12px 'JetBrains Mono', monospace; color: var(--mint);
         border: 1px solid rgba(169,235,205,.25); border-radius: 99px;
@@ -265,7 +286,15 @@ footer .base { margin: 0 0 14px; font: 400 13px/1.6 Sora, sans-serif; color: var
 @media (max-width: 900px) {
   .hero, .duo, .cards4, .cards3, .tgrid, .dgrid, footer { grid-template-columns: 1fr; display: grid; }
   .hero h1 { font-size: 38px; }
+  /* The bar wrapped, and the row of links inside it did not — seven names
+     and their gaps are 500 points wide on their own, which is what held
+     every page 572 points wide in a 485-point window however much the
+     content below was allowed to shrink. A flex row keeps its children on
+     one line until it is told otherwise. */
   .nav { flex-wrap: wrap; gap: 12px; }
+  .nav-left { flex-wrap: wrap; gap: 16px 24px; }
+  .nav-links { flex-wrap: wrap; gap: 10px 18px; }
+  .nav-right { flex-wrap: wrap; }
   .dtoc { display: none; }
 }
 

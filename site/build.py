@@ -462,12 +462,14 @@ def landing(lang):
     )
     body = """
 <section class="hero">
-  <div class="pill">%(pill)s</div>
-  <h1>%(h1)s</h1>
-  <p class="lede">%(sub)s</p>
-  <div class="cta">
-    <a class="btn-primary" href="tour.html">%(cta1)s</a>
-    <a class="btn-ghost" href="docs.html">%(cta2)s</a>
+  <div class="herotext">
+    <div class="pill">%(pill)s</div>
+    <h1>%(h1)s</h1>
+    <p class="sub">%(sub)s</p>
+    <div class="ctas">
+      <a class="cta" href="tour.html">%(cta1)s</a>
+      <a class="cta-line" href="docs.html">%(cta2)s</a>
+    </div>
   </div>
   %(hero)s
 </section>
