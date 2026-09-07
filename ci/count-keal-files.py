@@ -108,26 +108,36 @@ def version():
     return m.group(1)
 
 
-def shield(label, message, col, href, alt):
-    return ('  <a href="%s"><img alt="%s" src="https://img.shields.io/badge/'
-            '%s-%s-%s?style=flat&labelColor=2b2b2b"></a>'
-            % (href, alt, urllib.parse.quote(label), urllib.parse.quote(message), col))
+# What the band looks like the first time it is written, and never again.
+DEFAULT_BAND = """<p align="right">
+  <a href="https://github.com/%(owner)s/keal/releases"><img alt="version" src="https://img.shields.io/badge/version-%(version)s-blue?style=flat"></a>
+  <a href="%(search)s"><img alt=".keal files" src="https://img.shields.io/badge/.keal%%20files-%(count)d-brightgreen?style=flat"></a>
+</p>"""
 
 
-def band(n):
+def band(existing, n):
+    """The band with today's two numbers in it, and nothing else touched.
+
+    This script counts. It does not decide how the count is drawn — and it
+    used to: it rebuilt the whole band from its own opinion of the style,
+    the colour and the alignment. Tony changed those by hand in `47a94c3`
+    (right rather than centre, `flat` rather than `flat-square`, no
+    `labelColor`) and the next run put its own back, twice. A generator that
+    overwrites a decision is a generator nobody can work around, and the
+    person it fights is the one who owns the file.
+
+    So the numbers are substituted into whatever is there. Anyone may restyle
+    the badges, move them, or add a third; the count and the version stay
+    true because that is the only thing this knows.
+    """
     search = ("https://github.com/search?q=" +
               urllib.parse.quote("extension:keal user:" + OWNER) + "&type=code")
-    # Two badges, two fixed colours. The file count used to pick its own from
-    # how far it had come toward Linguist's threshold — green at half, blue at
-    # a tenth — which made the badge carry a second meaning nobody had asked
-    # it to carry and nothing explained. A count is a count.
-    return "\n".join([
-        "<p align=\"right\">",
-        shield("version", version(), "blue",
-               "https://github.com/%s/keal/releases" % OWNER, "version"),
-        shield(".keal files", str(n), "brightgreen", search, ".keal files"),
-        "</p>",
-    ])
+    if "img.shields.io" not in existing:
+        return DEFAULT_BAND % {"owner": OWNER, "version": version(),
+                               "search": search, "count": n}
+    out = re.sub(r"(badge/version-)[^-?]*(-)", r"\g<1>%s\g<2>" % version(), existing, count=1)
+    out = re.sub(r"(badge/\.keal%20files-)[^-?]*(-)", r"\g<1>%d\g<2>" % n, out, count=1)
+    return out
 
 
 def main():
@@ -143,9 +153,9 @@ def main():
     text = open(README, encoding="utf-8").read()
     if START not in text or END not in text:
         sys.exit("README.md has no %s / %s markers to write between." % (START, END))
-    new = re.sub(re.escape(START) + r".*?" + re.escape(END),
-                 START + "\n" + band(total) + "\n" + END,
-                 text, count=1, flags=re.S)
+    here = re.search(re.escape(START) + r"(.*?)" + re.escape(END), text, re.S)
+    new = text[: here.start()] + START + "\n" + band(here.group(1).strip(), total).strip() \
+        + "\n" + END + text[here.end() :]
     if new == text:
         print("band already current")
         return

@@ -1,7 +1,7 @@
 <!-- keal-band:start -->
 <p align="right">
-  <a href="https://github.com/geneacta/keal/releases"><img alt="version" src="https://img.shields.io/badge/version-1.2.0-blue?style=flat&labelColor=2b2b2b"></a>
-  <a href="https://github.com/search?q=extension%3Akeal%20user%3Ageneacta&type=code"><img alt=".keal files" src="https://img.shields.io/badge/.keal%20files-374-brightgreen?style=flat&labelColor=2b2b2b"></a>
+  <a href="https://github.com/geneacta/keal/releases"><img alt="version" src="https://img.shields.io/badge/version-1.2.0-blue?style=flat"></a>
+  <a href="https://github.com/search?q=extension%3Akeal%20user%3Ageneacta&type=code"><img alt=".keal files" src="https://img.shields.io/badge/.keal%20files-374-brightgreen?style=flat"></a>
 </p>
 <!-- keal-band:end -->
 
