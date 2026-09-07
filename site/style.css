@@ -78,8 +78,22 @@ a { text-decoration: none; color: inherit; }
    headless Chrome clamps its window to 500 points and hands back a crop. */
 .hero > *, .cards > *, .cards3 > *, .cards4 > *, .duo > *, .tgrid > *,
 .dgrid > *, .tourgrid > *, .sgrid > *, footer > * { min-width: 0; }
-/* And the code itself scrolls inside its own frame rather than pushing. */
-.win pre, .cwin pre, .card pre, .term pre { overflow-x: auto; }
+/* And the code itself scrolls inside its own frame rather than pushing.
+   Every `pre`, not a list of the four wrappers I happened to think of: the
+   documentation column has bare ones, and `packages.html` had a block
+   reaching 614 points inside a 305-point window because it was not on that
+   list. A selector that names the cases it knows misses the one nobody
+   thought to name. */
+pre { overflow-x: auto; }
+/* An inline `code` in a sentence is one word to the line breaker, and
+   `.keal/deps/geometry/shapes.keal` has nowhere to break. `break-word` only
+   splits a token that does not fit a line ON ITS OWN, so anything shorter
+   than the column is never split and the column widens to hold it — which is
+   how three pages were still 40 points over at a 320-point width while
+   passing at 400. `anywhere` lets the break happen where it has to.
+   Found by the keal-view session, which measured below the smallest window
+   Chrome will make: 500 points is its floor, and a phone is 320. */
+.prose code, .dmain code, .band code, .card p code, .hero .sub code { overflow-wrap: anywhere; }
 .pill { display: inline-flex; align-items: center; gap: 8px;
         font: 600 12px 'JetBrains Mono', monospace; color: var(--mint);
         border: 1px solid rgba(169,235,205,.25); border-radius: 99px;
@@ -89,7 +103,10 @@ a { text-decoration: none; color: inherit; }
            letter-spacing: -.02em; text-wrap: pretty; }
 .hero .sub { margin: 0 0 34px; font: 400 18px/1.65 Sora, sans-serif;
              color: var(--dim); max-width: 52ch; }
-.ctas { display: flex; gap: 14px; align-items: center; margin-bottom: 26px; }
+/* Wrapping, because the same two buttons are longer in French: "Lire la
+   documentation" reached 367 points in a 305-point window while the English
+   pair fitted. A row sized for one language is a row measured once. */
+.ctas { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 26px; }
 .cmd { display: inline-flex; align-items: center; gap: 12px;
        font: 500 13.5px 'JetBrains Mono', monospace; color: var(--mint);
        background: var(--panel); border: 1px solid rgba(140,220,196,.14);
@@ -329,7 +346,9 @@ footer .base { margin: 0 0 14px; font: 400 13px/1.6 Sora, sans-serif; color: var
 .prose hr { border: 0; border-top: 1px solid var(--line); margin: 34px 0; }
 .prose strong { color: var(--ink); font-weight: 600; }
 
-.tablewrap { overflow-x: auto; margin: 18px 0; }
+/* The scroller has to be bounded by its column, or the 460-point floor
+   below pushes the page instead of scrolling inside it. */
+.tablewrap { overflow-x: auto; margin: 18px 0; max-width: 100%; }
 .tablewrap table { border-collapse: collapse; width: 100%; min-width: 460px; }
 .tablewrap th { text-align: left; font: 600 11px 'JetBrains Mono', monospace; color: var(--faint);
                 letter-spacing: .09em; text-transform: uppercase; padding: 8px 14px 8px 0;
