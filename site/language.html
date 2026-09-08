@@ -727,6 +727,8 @@ println(localNow().inUtc() == utcNow())  // true — one moment, two clocks</cod
   |              ^
   = note: use `?.`, `!!`, or check for null first</code></pre>
 <p>At run time, the failures the type system cannot rule out — division by zero, an index out of range, <code>!!</code> on null, runaway recursion — abort with a message and a call stack.</p>
+<p><strong>On all three engines, and byte for byte.</strong> That sentence was true of the two interpreters long before it was true of a compiled program, which printed the message and <code>at line 16</code> and nothing else — no file, no column, no quoted source, no hint, no stack. A compiled binary cannot read its own source when it fails, so it is given what it needs while it is being built: the <code>--&gt;</code> line, the quoted line and the caret are rendered at compile time by the same code that renders these diagnostics, and travel in the binary as text. The cost is bytes rather than a second renderer that would agree today.</p>
+<p>Runaway recursion stops at the same depth on all three, and stopping is a panic rather than a crash, so <code>try</code> can catch it and the program can carry on. What a depth limit still cannot promise is a function whose <em>frames</em> are large enough to exhaust the C stack before the count is reached; that is a crash on any engine that has a real stack.</p>
 <h3 id="throw-and-catch">throw and catch</h3>
 <p><code>throw</code> raises any value; <code>try</code> runs a block and <code>catch</code> takes what it raised:</p>
 <pre class="lang-keal"><code>record Refused(val why: String, val at: Int)

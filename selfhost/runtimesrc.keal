@@ -191,7 +191,11 @@ typedef struct KealRunState {
     int64_t workers;
     int stop;
     int panicked;
-    int64_t panic_line;
+    /* Both are static strings in the program's own text, so a panic caught
+     * on a worker and rethrown on the thread that called `run` still carries
+     * its location and its hint across the handover. */
+    const char* panic_at;
+    const char* panic_note;
     char panic_msg[1024];
     /* One flag per actor: whether a worker is inside its handler right now.
      * An actor handles its messages one at a time and in order, and that is
@@ -405,18 +409,134 @@ static _Thread_local char keal_unwind_msg[1024];
  * builds a `String` for the interpreters, so `catch (e: String)` catches
  * an overflow on all three engines. */
 static _Thread_local bool keal_unwind_has_value = false;
-/* The line too, so a panic carried across threads — an actor's, rethrown
- * on the thread that called `run` — still names its source line. */
-static _Thread_local int64_t keal_unwind_line = 0;
+/* Where it happened, and the hint that goes under it, so a panic carried
+ * across threads — an actor's, rethrown on the thread that called `run` —
+ * still says as much there as it would have said at home. */
+static _Thread_local const char* keal_unwind_at = NULL;
+static _Thread_local const char* keal_unwind_note = NULL;
 
-KEAL_FN void keal_panic(const char* what, int64_t line) {
+/* ---- what a failure says --------------------------------------------- */
+
+/* A compiled program answers a failure with what the interpreters answer:
+ * the message, the line it happened on quoted with a caret under it, the
+ * hint if the error has one, and the call stack. `docs/language.md` has
+ * promised exactly that since before it was true of this engine.
+ *
+ * None of it is rendered here. `--> file:line:col`, the gutter, the caret
+ * and each `in `f` at ...` line are produced at COMPILE time by the same
+ * `Sources::render` that writes the interpreters' diagnostics, and reach the
+ * program as static strings. Two engines cannot drift apart over a padding
+ * rule they do not each own — and a caret placed by counting Unicode scalars
+ * is a second implementation of a thing that was already right.
+ *
+ * The cost of that choice is bytes in the binary rather than code, which is
+ * the trade this project takes every time it is offered. */
+
+/* Innermost last, one static string per frame.
+ *
+ * Everything about this is shaped by a measurement rather than a preference,
+ * and the measurement was taken twice because the first shape was wrong both
+ * times. On a program that does nothing but call — `fib(30)` three times, 8
+ * million calls — the cost per call went 1.6ns (nothing here at all), 10ns,
+ * 4.4ns, and then to what it is now.
+ *
+ * What the two mistakes were, since neither is obvious from the outside:
+ *
+ * 1. `depth`, `n` and the array as three separate thread-locals, with the
+ *    two operations out of line. A thread-local read is not a load on this
+ *    platform, it is a call through a thunk, and there were six per Keal
+ *    call. One object behind one symbol, read once, inlined: 10ns to 4.4ns.
+ *
+ * 2. Folding a repeated frame AT THE PUSH, so a runaway recursion would hold
+ *    one entry with a count instead of ten thousand entries. That is a real
+ *    saving of memory that is never scarce, bought with a compare and a
+ *    branch on **every call a program ever makes**. The fold belongs where
+ *    its output is read: `(x9999)` is printed by walking equal neighbours at
+ *    print time, which happens once, in a program that is already ending.
+ *
+ * What is left is what a frame costs at minimum: one bounds check, one
+ * store, one increment, and one decrement on the way out. `depth` is gone
+ * because it was `n` all along.
+ *
+ * And with no actors there is no second thread to keep a stack for, so there
+ * is no thread-local at all: `KEAL_ACTORS` is already the switch that makes
+ * this runtime's counts atomic, and it makes this one static. */
+#define KEAL_MAX_DEPTH 10000
+typedef struct {
+    int64_t n;
+    const char* at[KEAL_MAX_DEPTH];
+} KealStack;
+#ifdef KEAL_ACTORS
+static _Thread_local KealStack keal_stack;
+#else
+static KealStack keal_stack;
+#endif
+
+KEAL_FN void keal_panic(const char* what, const char* note, const char* at);
+
+/* Out of line and never inlined into `keal_enter`: it runs at most once in a
+ * program's life, and a cold branch that carries a 1KB function into every
+ * call site is how the fast path stops being fast. */
+static void keal_too_deep(const char* at) {
+    keal_panic(
+        "maximum call depth exceeded",
+        "this usually means a recursive call with no base case",
+        at);
+}
+
+/* Entering a Keal call, from the caller's side: the frame names the callee
+ * and points at the call, which is what a stack trace is made of.
+ *
+ * This is also where a runaway recursion stops. `MAX_DEPTH` is the
+ * interpreters' limit and this is the same number, so a program that ends
+ * with `maximum call depth exceeded` on `--ast` ends the same way compiled —
+ * where it used to run until the operating system took the process down, or
+ * simply run. Being a panic rather than a crash, it is catchable, which a
+ * segfault never was. */
+static inline void keal_enter(const char* frame, const char* at) {
+    KealStack* s = &keal_stack;
+    if (__builtin_expect(s->n >= KEAL_MAX_DEPTH, 0)) {
+        keal_too_deep(at);
+        return;
+    }
+    s->at[s->n++] = frame;
+}
+
+static inline void keal_leave(void) {
+    KealStack* s = &keal_stack;
+    if (__builtin_expect(s->n > 0, 1)) {
+        s->n--;
+    }
+}
+
+/* The trace, innermost first, with equal neighbours folded the way the
+ * interpreters fold them: ten thousand identical frames are one line and a
+ * count. Done here, once, rather than on every call. */
+static void keal_print_frames(void) {
+    int64_t i = keal_stack.n - 1;
+    while (i >= 0) {
+        int64_t j = i;
+        while (j > 0 && keal_stack.at[j - 1] == keal_stack.at[i]) {
+            j--;
+        }
+        fputs(keal_stack.at[i], stderr);
+        if (i - j > 0) {
+            fprintf(stderr, " (x%" PRId64 ")", i - j + 1);
+        }
+        fputc('\n', stderr);
+        i = j - 1;
+    }
+}
+
+KEAL_FN void keal_panic(const char* what, const char* note, const char* at) {
     if (keal_try_depth > 0) {
         /* A panic while already unwinding keeps the first message. */
         if (!keal_unwinding) {
             keal_unwinding = true;
             keal_unwind_has_value = false;
             snprintf(keal_unwind_msg, sizeof keal_unwind_msg, "%s", what);
-            keal_unwind_line = line;
+            keal_unwind_at = at;
+            keal_unwind_note = note;
         }
         return;
     }
@@ -429,9 +549,13 @@ KEAL_FN void keal_panic(const char* what, int64_t line) {
      * it, which is why it survived: it is only wrong where they meet. */
     fflush(stdout);
     fprintf(stderr, "runtime error: %s\n", what);
-    if (line > 0) {
-        fprintf(stderr, "  at line %" PRId64 "\n", line);
+    if (at != NULL) {
+        fputs(at, stderr);
     }
+    if (note != NULL) {
+        fprintf(stderr, "  = note: %s\n", note);
+    }
+    keal_print_frames();
     exit(1);
 }
 
@@ -713,7 +837,7 @@ static void keal_write_failed(void) {
     char msg[160];
     snprintf(msg, sizeof msg, "cannot write to standard output: %s (os error %d)",
              strerror(errno), errno);
-    keal_panic(msg, 0);
+    keal_panic(msg, NULL, NULL);
 }
 
 KEAL_FN void keal_print(KealStr* s, bool newline) {
@@ -762,7 +886,7 @@ KEAL_FN int64_t keal_str_char_byte(KealStr* s, int64_t n) {
     return s->len;
 }
 
-KEAL_FN KealStr* keal_str_substring(KealStr* s, int64_t a, int64_t b, int64_t line) {
+KEAL_FN KealStr* keal_str_substring(KealStr* s, int64_t a, int64_t b, const char* at) {
     int64_t len = keal_str_length(s);
     int64_t ca = a < 0 ? 0 : a;
     int64_t cb = b < 0 ? 0 : b;
@@ -771,7 +895,7 @@ KEAL_FN KealStr* keal_str_substring(KealStr* s, int64_t a, int64_t b, int64_t li
         snprintf(msg, sizeof msg,
                  "substring(%" PRId64 ", %" PRId64 ") is out of range for a string of length %" PRId64,
                  ca, cb, len);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return NULL;
     }
     int64_t from = keal_str_char_byte(s, ca);
@@ -839,9 +963,9 @@ KEAL_FN int64_t keal_str_index_of(KealStr* s, KealStr* needle) {
     return chars;
 }
 
-KEAL_FN KealStr* keal_str_replace(KealStr* s, KealStr* old, KealStr* newer, int64_t line) {
+KEAL_FN KealStr* keal_str_replace(KealStr* s, KealStr* old, KealStr* newer, const char* at) {
     if (old->len == 0) {
-        keal_panic("`replace` needs a non-empty search string", line);
+        keal_panic("`replace` needs a non-empty search string", NULL, at);
         return NULL;
     }
     /* KealBuf is declared later in this file, so the bytes are collected by
@@ -879,11 +1003,11 @@ KEAL_FN KealStr* keal_str_replace(KealStr* s, KealStr* old, KealStr* newer, int6
     return r;
 }
 
-KEAL_FN KealStr* keal_str_repeat(KealStr* s, int64_t n, int64_t line) {
+KEAL_FN KealStr* keal_str_repeat(KealStr* s, int64_t n, const char* at) {
     if (n < 0) {
         char msg[96];
         snprintf(msg, sizeof msg, "`repeat` needs a non-negative count, got %" PRId64, n);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return NULL;
     }
     int64_t total = s->len * n;
@@ -919,12 +1043,12 @@ KEAL_FN int64_t keal_str_code(KealStr* s) {
     return b0;
 }
 
-KEAL_FN KealStr* keal_int_to_char(int64_t n, int64_t line) {
+KEAL_FN KealStr* keal_int_to_char(int64_t n, const char* at) {
     bool valid = n >= 0 && n <= 0x10FFFF && !(n >= 0xD800 && n <= 0xDFFF);
     if (!valid) {
         char msg[96];
         snprintf(msg, sizeof msg, "%" PRId64 " is not a valid character code", n);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return NULL;
     }
     char buf[4];
@@ -973,11 +1097,11 @@ KEAL_FN int64_t keal_int_abs(int64_t n) {
     return n;
 }
 
-KEAL_FN int64_t keal_int_pow(int64_t n, int64_t e, int64_t line) {
+KEAL_FN int64_t keal_int_pow(int64_t n, int64_t e, const char* at) {
     if (e < 0) {
         char msg[96];
         snprintf(msg, sizeof msg, "`Int.pow` needs a non-negative exponent, got %" PRId64, e);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return 0;
     }
     int64_t r = 1;
@@ -985,7 +1109,7 @@ KEAL_FN int64_t keal_int_pow(int64_t n, int64_t e, int64_t line) {
         if (__builtin_mul_overflow(r, n, &r)) {
             char msg[96];
             snprintf(msg, sizeof msg, "integer overflow in %" PRId64 ".pow(%" PRId64 ")", n, e);
-            keal_panic(msg, line);
+            keal_panic(msg, NULL, at);
             return 0;
         }
     }
@@ -994,15 +1118,15 @@ KEAL_FN int64_t keal_int_pow(int64_t n, int64_t e, int64_t line) {
 
 /* The integer d-th root: the largest r >= 0 with r**d <= n — the inverse
  * of `**` on the whole numbers, shared by `^/`, `^/=` and `Int.root`. */
-KEAL_FN int64_t keal_int_root(int64_t n, int64_t d, int64_t line) {
+KEAL_FN int64_t keal_int_root(int64_t n, int64_t d, const char* at) {
     if (d <= 0) {
         char msg[96];
         snprintf(msg, sizeof msg, "`root` needs a positive degree, got %" PRId64, d);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return 0;
     }
     if (n < 0) {
-        keal_panic("cannot take the root of a negative number", line);
+        keal_panic("cannot take the root of a negative number", NULL, at);
         return 0;
     }
     if (n == 0) {
@@ -1068,14 +1192,14 @@ KEAL_FN KealStr* keal_str_adopt(char* bytes) {
 
 /* `s[i]` and `s.get(i)`: one character, as a string. Negative counts from
  * the end. */
-KEAL_FN KealStr* keal_str_get(KealStr* s, int64_t i, int64_t line) {
+KEAL_FN KealStr* keal_str_get(KealStr* s, int64_t i, const char* at) {
     int64_t len = keal_str_length(s);
     int64_t idx = i < 0 ? i + len : i;
     if (idx < 0 || idx >= len) {
         char msg[128];
         snprintf(msg, sizeof msg,
                  "index %" PRId64 " is out of bounds for a string of length %" PRId64, i, len);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return NULL;
     }
     int64_t from = keal_str_char_byte(s, idx);
@@ -1187,38 +1311,38 @@ KEAL_FN void keal_list_push(KealList* l, KealWord w) {
 }
 
 /* Negative indices count from the end, as everywhere in the language. */
-KEAL_FN int64_t keal_list_index(KealList* l, int64_t i, int64_t line) {
-    int64_t at = i < 0 ? i + l->len : i;
-    if (at < 0 || at >= l->len) {
+KEAL_FN int64_t keal_list_index(KealList* l, int64_t i, const char* at) {
+    int64_t k = i < 0 ? i + l->len : i;
+    if (k < 0 || k >= l->len) {
         char msg[96];
         snprintf(msg, sizeof msg,
                  "index %" PRId64 " is out of bounds for a list of %" PRId64 " element(s)", i,
                  l->len);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return 0;
     }
-    return at;
+    return k;
 }
 
-KEAL_FN KealWord keal_list_get(KealList* l, int64_t i, int64_t line) {
-    int64_t at = keal_list_index(l, i, line);
+KEAL_FN KealWord keal_list_get(KealList* l, int64_t i, const char* at) {
+    int64_t k = keal_list_index(l, i, at);
     if (keal_unwinding) {
         KealWord none = {0};
         return none;
     }
-    return l->data[at];
+    return l->data[k];
 }
 
 /* The old element is handed back to the caller, which knows its type and
  * releases it — the runtime only stores. */
-KEAL_FN KealWord keal_list_set(KealList* l, int64_t i, KealWord w, int64_t line) {
-    int64_t at = keal_list_index(l, i, line);
+KEAL_FN KealWord keal_list_set(KealList* l, int64_t i, KealWord w, const char* at) {
+    int64_t k = keal_list_index(l, i, at);
     if (keal_unwinding) {
         KealWord none = {0};
         return none;
     }
-    KealWord old = l->data[at];
-    l->data[at] = w;
+    KealWord old = l->data[k];
+    l->data[k] = w;
     return old;
 }
 
@@ -1238,13 +1362,13 @@ KEAL_FN KealList* keal_list_snapshot(KealList* l) {
 
 /* Removal hands the element's reference to the caller, which knows the type
  * and owns it from here. */
-KEAL_FN KealWord keal_list_remove_at(KealList* l, int64_t i, int64_t line) {
+KEAL_FN KealWord keal_list_remove_at(KealList* l, int64_t i, const char* at) {
     int64_t idx = i < 0 ? i + l->len : i;
     if (idx < 0 || idx >= l->len) {
         char msg[96];
         snprintf(msg, sizeof msg,
                  "index %" PRId64 " is out of bounds for a list of %" PRId64, i, l->len);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         KealWord none = {0};
         return none;
     }
@@ -1256,12 +1380,12 @@ KEAL_FN KealWord keal_list_remove_at(KealList* l, int64_t i, int64_t line) {
 }
 
 /* Takes ownership of the word, like push. */
-KEAL_FN void keal_list_insert_at(KealList* l, int64_t i, KealWord w, int64_t line) {
+KEAL_FN void keal_list_insert_at(KealList* l, int64_t i, KealWord w, const char* at) {
     if (i < 0 || i > l->len) {
         char msg[96];
         snprintf(msg, sizeof msg,
                  "cannot insert at index %" PRId64 " in a list of %" PRId64, i, l->len);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return;
     }
     keal_list_push(l, w);
@@ -1275,13 +1399,13 @@ KEAL_FN void keal_list_insert_at(KealList* l, int64_t i, KealWord w, int64_t lin
  * one `keal_list_index` gives for `xs[i]`. The interpreters draw the same
  * line, so the runtime does too. The displaced element is handed back to
  * the caller, which knows its type and releases it. */
-KEAL_FN KealWord keal_list_set_at(KealList* l, int64_t i, KealWord w, int64_t line) {
+KEAL_FN KealWord keal_list_set_at(KealList* l, int64_t i, KealWord w, const char* at) {
     int64_t idx = i < 0 ? i + l->len : i;
     if (idx < 0 || idx >= l->len) {
         char msg[96];
         snprintf(msg, sizeof msg,
                  "index %" PRId64 " is out of bounds for a list of %" PRId64, i, l->len);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         KealWord none = {0};
         return none;
     }
@@ -1477,12 +1601,12 @@ KEAL_FN void keal_list_sort_by_i64(KealList* items, KealList* keys) {
  * that will not fit fails here rather than quietly turning negative — and
  * with the interpreters' wording, so a `catch` reads the same message on
  * all three engines. */
-KEAL_FN int64_t keal_list_sum_i64(KealList* l, int64_t line) {
+KEAL_FN int64_t keal_list_sum_i64(KealList* l, const char* at) {
     int64_t total = 0;
     for (int64_t i = 0; i < l->len; i++) {
         int64_t r;
         if (__builtin_add_overflow(total, l->data[i].i, &r)) {
-            keal_panic("integer overflow in `sum`", line);
+            keal_panic("integer overflow in `sum`", NULL, at);
             return 0;
         }
         total = r;
@@ -1931,7 +2055,7 @@ typedef struct KealClosure {
 
 KEAL_FN KealClosure* keal_fn_copy_captures(KealClosure* c) {
     if (c == NULL || c->copy == NULL) {
-        keal_panic("this handler's captures do not copy", 0);
+        keal_panic("this handler's captures do not copy", NULL, NULL);
         return NULL;
     }
     return c->copy(c);
@@ -2849,12 +2973,12 @@ KEAL_FN double keal_random(void) {
 
 /* `randomInt(lo, hi)` — `lo` included, `hi` excluded, and an empty range is
  * the interpreters' error in the interpreters' words. */
-KEAL_FN int64_t keal_random_int(int64_t lo, int64_t hi, int64_t line) {
+KEAL_FN int64_t keal_random_int(int64_t lo, int64_t hi, const char* at) {
     if (hi <= lo) {
         char msg[96];
         snprintf(msg, sizeof msg,
                  "randomInt(%" PRId64 ", %" PRId64 ") has an empty range", lo, hi);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return lo;
     }
     return lo + (int64_t)(keal_random() * (double)(hi - lo));
@@ -3598,40 +3722,40 @@ cleanup_words:
 /* The interpreter and the VM both refuse to wrap, so native code must not
  * either: a program that overflows should fail the same way whichever engine
  * runs it. */
-KEAL_FN int64_t keal_add(int64_t a, int64_t b, int64_t line) {
+KEAL_FN int64_t keal_add(int64_t a, int64_t b, const char* at) {
     int64_t r;
     if (__builtin_add_overflow(a, b, &r)) {
-        keal_panic("integer overflow", line);
+        keal_panic("integer overflow", NULL, at);
         return 0;
     }
     return r;
 }
 
-KEAL_FN int64_t keal_sub(int64_t a, int64_t b, int64_t line) {
+KEAL_FN int64_t keal_sub(int64_t a, int64_t b, const char* at) {
     int64_t r;
     if (__builtin_sub_overflow(a, b, &r)) {
-        keal_panic("integer overflow", line);
+        keal_panic("integer overflow", NULL, at);
         return 0;
     }
     return r;
 }
 
-KEAL_FN int64_t keal_mul(int64_t a, int64_t b, int64_t line) {
+KEAL_FN int64_t keal_mul(int64_t a, int64_t b, const char* at) {
     int64_t r;
     if (__builtin_mul_overflow(a, b, &r)) {
-        keal_panic("integer overflow", line);
+        keal_panic("integer overflow", NULL, at);
         return 0;
     }
     return r;
 }
 
-KEAL_FN int64_t keal_div(int64_t a, int64_t b, int64_t line) {
+KEAL_FN int64_t keal_div(int64_t a, int64_t b, const char* at) {
     if (b == 0) {
-        keal_panic("division by zero", line);
+        keal_panic("division by zero", NULL, at);
         return 0;
     }
     if (a == INT64_MIN && b == -1) {
-        keal_panic("integer overflow", line);
+        keal_panic("integer overflow", NULL, at);
         return 0;
     }
     return a / b;
@@ -3651,29 +3775,29 @@ KEAL_FN int64_t keal_div(int64_t a, int64_t b, int64_t line) {
  *
  * All three go through uint64_t: shifting a signed value past its sign bit
  * is undefined in C, and `>>` on a negative one is implementation-defined. */
-KEAL_FN bool keal_shift_ok(int64_t by, const char* op, int64_t line) {
+KEAL_FN bool keal_shift_ok(int64_t by, const char* op, const char* at) {
     if (by < 0) {
         char msg[96];
         snprintf(msg, sizeof msg, "`%s` needs a shift count of 0 or more, got %" PRId64, op, by);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return false;
     }
     if (by > 63) {
         char msg[96];
         snprintf(msg, sizeof msg, "`%s` cannot shift an Int by %" PRId64 ": it has 64 bits", op, by);
-        keal_panic(msg, line);
+        keal_panic(msg, NULL, at);
         return false;
     }
     return true;
 }
 
-KEAL_FN int64_t keal_shl(int64_t a, int64_t b, int64_t line) {
-    if (!keal_shift_ok(b, "shl", line)) { return 0; }
+KEAL_FN int64_t keal_shl(int64_t a, int64_t b, const char* at) {
+    if (!keal_shift_ok(b, "shl", at)) { return 0; }
     return (int64_t)((uint64_t)a << b);
 }
 
-KEAL_FN int64_t keal_shr(int64_t a, int64_t b, int64_t line) {
-    if (!keal_shift_ok(b, "shr", line)) { return 0; }
+KEAL_FN int64_t keal_shr(int64_t a, int64_t b, const char* at) {
+    if (!keal_shift_ok(b, "shr", at)) { return 0; }
     /* Arithmetic: the sign is carried in at the top, so `-8 shr 1` is `-4`
      * the way `-8 / 2` is. */
     if (a < 0) {
@@ -3682,14 +3806,14 @@ KEAL_FN int64_t keal_shr(int64_t a, int64_t b, int64_t line) {
     return (int64_t)((uint64_t)a >> b);
 }
 
-KEAL_FN int64_t keal_ushr(int64_t a, int64_t b, int64_t line) {
-    if (!keal_shift_ok(b, "ushr", line)) { return 0; }
+KEAL_FN int64_t keal_ushr(int64_t a, int64_t b, const char* at) {
+    if (!keal_shift_ok(b, "ushr", at)) { return 0; }
     return (int64_t)((uint64_t)a >> b);
 }
 
-KEAL_FN int64_t keal_rem(int64_t a, int64_t b, int64_t line) {
+KEAL_FN int64_t keal_rem(int64_t a, int64_t b, const char* at) {
     if (b == 0) {
-        keal_panic("remainder by zero", line);
+        keal_panic("remainder by zero", NULL, at);
         return 0;
     }
     if (a == INT64_MIN && b == -1) {
@@ -3759,12 +3883,12 @@ static _Thread_local KealAny keal_unwind_value;
  * `Any` machinery — and its rendering is the message a `catch (e)` reads,
  * the same text the interpreters give since both take it from `display`.
  * Uncaught, this ends the program printing that message, like any panic. */
-KEAL_FN void keal_throw_value(KealAny v, int64_t line) {
+KEAL_FN void keal_throw_value(KealAny v, const char* at) {
     KealStr* m = keal_any_display(v);
     /* Only a fresh unwind adopts the value: one already unwinding keeps
      * the first, which is the rule the message already follows. */
     bool fresh = keal_try_depth > 0 && !keal_unwinding;
-    keal_panic(m->bytes, line);
+    keal_panic(m->bytes, NULL, at);
     if (fresh) {
         keal_unwind_value = keal_any_retain(v);
         keal_unwind_has_value = true;

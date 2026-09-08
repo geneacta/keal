@@ -440,10 +440,14 @@ fn drain<R: std::io::Read + Send + 'static>(
     })
 }
 
-/// Builds the program and runs it. A refusal the backend names is not a
-/// failure of the test: the language says what it cannot compile, and a
-/// program that uses one of those is interpreted only. It is reported as a
-/// skip so that the absence is visible rather than counted as a pass.
+/// Builds the program and runs it.
+///
+/// A refusal the backend names — "the C backend cannot compile a method used
+/// as a value yet" — is reported as a failure, and deliberately. It is not a
+/// defect in the program, and on a run that did not ask for `--native` the
+/// file passes. But someone who asked for the compiled engine asked a
+/// question this file cannot answer, and the honest reply is red with the
+/// refusal quoted, not a green that reads as coverage.
 fn compiled(me: &Path, file: &Path, limit: Duration) -> Result<Ran, String> {
     let dir = std::env::temp_dir().join("keal-test-native");
     if let Err(e) = std::fs::create_dir_all(&dir) {

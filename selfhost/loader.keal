@@ -13,7 +13,10 @@ import "./parsing.keal"
 import "./preludesrc.keal"
 
 /// The paths the loader registered, by file id. `paths()[0]` is `<prelude>`.
-class Loaded(package val program: ProgramN, package val paths: List<String>)
+/// `texts` runs beside `paths`: the C backend quotes a source line into the
+/// program it emits, so a compiled failure can point at the code the way the
+/// interpreters do, and it needs the text while the text is still here.
+class Loaded(package val program: ProgramN, package val paths: List<String>, package val texts: List<String>)
 
 /// Collapses `.` and `..` segments so the same file is never loaded twice
 /// under two spellings. Does not need the file to exist.
@@ -96,6 +99,7 @@ package func dirOf(path: String): String {
 
 package class Loader() {
     package var paths: List<String> = []
+    package var texts: List<String> = []
     /// The file id each path was read under, so a second importer records an
     /// edge without reading the file again.
     var seen: Map<String, Int> = {}
@@ -105,6 +109,7 @@ package class Loader() {
     package func load(entry: String): Loaded {
         // The prelude parses under its own file id, 0.
         this.paths.add("<prelude>")
+        this.texts.add(preludeSource())
         lexErrorPrefix = "<prelude>:"
         val pp = Parser(lexFile(preludeSource()))
         pp.errorPrefix = "<prelude>:"
@@ -118,7 +123,7 @@ package class Loader() {
         val program = ProgramN()
         program.items = this.items
         program.imports = this.imports
-        return Loaded(program, this.paths)
+        return Loaded(program, this.paths, this.texts)
     }
 
     /// Appends the call to `main`, if the entry file declared one.
@@ -224,6 +229,7 @@ package class Loader() {
 
         val file = this.paths.size
         this.paths.add(path)
+        this.texts.add(text)
         this.seen[path] = file
         lexErrorPrefix = path + ":"
         val parser = Parser(lexFile(text))

@@ -704,8 +704,11 @@ were the last thing on this list to be half-done, and are not anymore:
   and why. Running the suite there is what turned up the line endings, the
   path separators, an error message written in the operating system's own
   language, and a site generator that deleted a page on its way out.
-* Smaller items: native `try` catching C stack exhaustion (the VM's depth
-  panic is catchable, a native segfault is not), a register-based VM if the
+* Smaller items: a native `try` around a single frame big enough to exhaust
+  the C stack (runaway recursion itself now stops at the interpreters' depth
+  on all three engines, as a catchable panic rather than a crash — what is
+  left is the frame so large that the stack ends before the count does), a
+  register-based VM if the
   bytecode engine ever needs to be faster than it is, and enum variants
   that carry data — refused for now because they would be this language's
   first subtyping relation, and staged so they can arrive as an addition

@@ -89,7 +89,7 @@ static bool keal_jvm_check(const char* what) {
         }
         char msg[512];
         snprintf(msg, sizeof msg, "%s threw: %s", what, text);
-        keal_panic(msg, 0);
+        keal_panic(msg, NULL, NULL);
         return true;
     }
     return false;
@@ -103,21 +103,21 @@ static bool keal_jvm_need(void) {
         return true;
     }
     if (keal_jvm_vm == NULL) {
-        keal_panic("the JVM is not running; call jvmStart first", 0);
+        keal_panic("the JVM is not running; call jvmStart first", NULL, NULL);
         return false;
     }
     JNIEnv* env = NULL;
     jint got = (*keal_jvm_vm)->GetEnv(keal_jvm_vm, (void**)&env, JNI_VERSION_1_8);
     if (got == JNI_EDETACHED) {
         if ((*keal_jvm_vm)->AttachCurrentThread(keal_jvm_vm, (void**)&env, NULL) != JNI_OK) {
-            keal_panic("could not attach this thread to the JVM", 0);
+            keal_panic("could not attach this thread to the JVM", NULL, NULL);
             return false;
         }
         pthread_once(&keal_jvm_detach_once, keal_jvm_detach_key_make);
         pthread_setspecific(keal_jvm_detach_key, (void*)1);
     }
     if (env == NULL) {
-        keal_panic("the JVM is not running; call jvmStart first", 0);
+        keal_panic("the JVM is not running; call jvmStart first", NULL, NULL);
         return false;
     }
     keal_jvm_env = env;
@@ -158,7 +158,7 @@ static int64_t keal_jvm_class_impl(const char* name) {
 
 static void keal_jvm_push(jvalue v) {
     if (keal_jvm_argc >= KEAL_JVM_MAX_ARGS) {
-        keal_panic("too many JVM call arguments (16 at most)", 0);
+        keal_panic("too many JVM call arguments (16 at most)", NULL, NULL);
     }
     keal_jvm_args[keal_jvm_argc] = v;
     keal_jvm_argc++;

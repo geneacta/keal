@@ -820,6 +820,23 @@ func mapCopyTy(m: Map<String, Ty>): Map<String, Ty> {
 // ---- the backend --------------------------------------------------------
 
 class CBackend() {
+    // The source, so a failure's location can be rendered while the source
+    // is still here to read. A compiled program cannot go and look, so it is
+    // told: `paths[file]` and `texts[file]` are what the loader kept.
+    var paths: List<String> = []
+    var texts: List<String> = []
+    /// Rendered location to the C name holding it, so the same line quoted
+    /// by ten failures is one string in the binary.
+    var siteNames: Map<String, String> = {}
+    /// First-asked order, so the emitted table does not move between runs.
+    var siteOrder: List<String> = []
+    var siteTexts: List<String> = []
+    /// Each file cut into lines once, not once per failure site.
+    var lineCache: Map<Int, List<String>> = {}
+    /// The name each location already has, by span. A span renders to one
+    /// string and one only, so asking twice — every call site asks once for
+    /// its panic and once for its frame — should render once.
+    var siteAt: Map<String, String> = {}
     var decls: String = ""
     var defs: String = ""
     var body: List<String> = []
@@ -1343,7 +1360,7 @@ class CBackend() {
         val name = "kcopy_" + mangleType(t)
         if (this.copyFns.contains(name)) { return name }
         this.copyFns[name] = true
-        val cap = "if (depth > 10000) { keal_panic(\"`copy` went 10000 levels deep; is the value cyclic?\", 0); return NULL; }"
+        val cap = "if (depth > 10000) { keal_panic(\"`copy` went 10000 levels deep; is the value cyclic?\", NULL, NULL); return NULL; }"
         if (t.kind == "List") {
             val elemTy = t.args[0]
             val elem = this.elemKind(elemTy, file, atLine, col)
@@ -2014,7 +2031,7 @@ class CBackend() {
                     f += "    if (${fieldAccess} == NULL || ${fieldAccess}->rc == 0) {\n        keal_buf_lit(&b, \"null\");\n    } else {\n        keal_buf_str(&b, ${present});\n    }\n"
                 } else {
                     val bail = if (this.catchMode) { "    return keal_buf_finish(&b);\n" } else { "" }
-                    f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, 0);\n" + bail
+                    f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, NULL, NULL);\n" + bail
                 }
                 i += 1
                 continue
@@ -2036,7 +2053,7 @@ class CBackend() {
                     f += "    if (${absent}) {\n        keal_buf_lit(&b, \"null\");\n    } else {\n        keal_buf_str(&b, ${present});\n    }\n"
                 } else {
                     val bail = if (this.catchMode) { "    return keal_buf_finish(&b);\n" } else { "" }
-                    f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, 0);\n" + bail
+                    f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, NULL, NULL);\n" + bail
                 }
                 i += 1
                 continue
@@ -2046,7 +2063,7 @@ class CBackend() {
                 f += "    keal_buf_str(&b, ${rendered});\n"
             } else {
                 val bail = if (this.catchMode) { "    return keal_buf_finish(&b);\n" } else { "" }
-                f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, 0);\n" + bail
+                f += "    keal_panic(${cString("cannot render a value of type `" + tyShow(fty) + "` natively")}, NULL, NULL);\n" + bail
             }
             i += 1
         }
@@ -2492,7 +2509,7 @@ class CBackend() {
             t += "            if (keal_unwinding) {\n"
             t += "                keal_unwinding = false;\n"
             t += "                keal_actor_lock();\n"
-            t += "                if (!a->st->panicked) { a->st->panicked = 1; a->st->panic_line = keal_unwind_line; snprintf(a->st->panic_msg, sizeof a->st->panic_msg, \"%s\", keal_unwind_msg); }\n"
+            t += "                if (!a->st->panicked) { a->st->panicked = 1; a->st->panic_at = keal_unwind_at; a->st->panic_note = keal_unwind_note; snprintf(a->st->panic_msg, sizeof a->st->panic_msg, \"%s\", keal_unwind_msg); }\n"
             t += "                a->st->stop = 1;\n"
             t += "                keal_actor_unlock();\n"
             t += "            }\n"
@@ -2521,7 +2538,7 @@ class CBackend() {
         var b = "    int64_t n = self->k_handlers->len;\n"
         b += "    if (n == 0) { return; }\n"
         b += "    KealRunState st;\n"
-        b += "    st.workers = 0; st.stop = 0; st.panicked = 0; st.panic_line = 0; st.panic_msg[0] = '\\0';\n"
+        b += "    st.workers = 0; st.stop = 0; st.panicked = 0; st.panic_at = NULL; st.panic_note = NULL; st.panic_msg[0] = '\\0';\n"
         b += "    st.actors = n; st.next = 0;\n"
         b += "    st.busy = (int8_t*)keal_alloc((size_t)n * sizeof(int8_t));\n"
         b += "    for (int64_t i = 0; i < n; i++) { st.busy[i] = 0; }\n"
@@ -2549,7 +2566,7 @@ class CBackend() {
         b += "    free(ctxs);\n"
         b += "    free(ts);\n"
         b += "    if (st.panicked) {\n"
-        b += "        keal_panic(st.panic_msg, st.panic_line);\n"
+        b += "        keal_panic(st.panic_msg, st.panic_note, st.panic_at);\n"
         b += "        return;\n"
         b += "    }\n"
         return b
@@ -3178,11 +3195,11 @@ class CBackend() {
             val ety = this.ety(s.ex!!)
             if (ety != null and ety.kind == "Str") {
                 val m = this.expr(s.ex!!)
-                this.line("keal_panic(${m}->bytes, ${s.line});")
+                this.line("keal_panic(${m}->bytes, NULL, ${this.whereOf(s.file, s.line, s.col)});")
             } else {
                 val v = this.expr(s.ex!!)
                 val any = this.anyOf(ety, v, s.file, s.ex!!.line, s.ex!!.col)
-                this.line("keal_throw_value(${any}, ${s.line});")
+                this.line("keal_throw_value(${any}, ${this.whereOf(s.file, s.line, s.col)});")
             }
             this.checkUnwind()
             return
@@ -3597,7 +3614,7 @@ class CBackend() {
                 val v = this.expr(inner)
                 val t = this.temp()
                 this.line("const KealAny ${t} = ${v};")
-                this.line("if (${t}.ti == NULL) { keal_panic(\"`!!` was applied to a null value\", ${e.line}); }")
+                this.line("if (${t}.ti == NULL) { keal_panic(\"`!!` was applied to a null value\", \"handle the null case with `?:` or an `if` instead\", ${this.whereOf(e.file, e.line, e.col)}); }")
                 this.checkUnwind()
                 return t
             }
@@ -3605,13 +3622,13 @@ class CBackend() {
                 if (isValueOpt(it0)) {
                     val it = it0.args[0]
                     val v = this.expr(inner)
-                    this.line("if (!${optHas(it, v)}) { keal_panic(\"`!!` was applied to a null value\", ${e.line}); }")
+                    this.line("if (!${optHas(it, v)}) { keal_panic(\"`!!` was applied to a null value\", \"handle the null case with `?:` or an `if` instead\", ${this.whereOf(e.file, e.line, e.col)}); }")
                     this.checkUnwind()
                     return optGet(it, v)
                 }
             }
             val v = this.expr(inner)
-            this.line("if (${v} == NULL) { keal_panic(\"`!!` was applied to a null value\", ${e.line}); }")
+            this.line("if (${v} == NULL) { keal_panic(\"`!!` was applied to a null value\", \"handle the null case with `?:` or an `if` instead\", ${this.whereOf(e.file, e.line, e.col)}); }")
             this.checkUnwind()
             return v
         }
@@ -4331,13 +4348,13 @@ class CBackend() {
                     else -> "keal_rem"
                 }
                 val t = this.temp()
-                this.line("const int64_t ${t} = ${f}(${a}, ${b}, ${e.line});")
+                this.line("const int64_t ${t} = ${f}(${a}, ${b}, ${this.whereOf(e.file, e.line, e.col)});")
                 return t
             }
             if (name == "negate" and n == 0) {
                 val a = this.expr(obj)
                 val t = this.temp()
-                this.line("const int64_t ${t} = keal_sub(INT64_C(0), ${a}, ${e.line});")
+                this.line("const int64_t ${t} = keal_sub(INT64_C(0), ${a}, ${this.whereOf(e.file, e.line, e.col)});")
                 return t
             }
             if (name == "equals" and n == 1) {
@@ -4442,7 +4459,7 @@ class CBackend() {
             val s = this.expr(obj)
             val a = this.expr(e.args[0].value)
             val b = this.expr(e.args[1].value)
-            return this.ownTemp("keal_str_substring(${s}, ${a}, ${b}, ${e.line})")
+            return this.ownTemp("keal_str_substring(${s}, ${a}, ${b}, ${this.whereOf(e.file, e.line, e.col)})")
         }
         if ((name == "take" or name == "drop") and n == 1) {
             val s = this.expr(obj)
@@ -4473,12 +4490,12 @@ class CBackend() {
             val s = this.expr(obj)
             val old = this.expr(e.args[0].value)
             val newer = this.expr(e.args[1].value)
-            return this.ownTemp("keal_str_replace(${s}, ${old}, ${newer}, ${e.line})")
+            return this.ownTemp("keal_str_replace(${s}, ${old}, ${newer}, ${this.whereOf(e.file, e.line, e.col)})")
         }
         if (name == "repeat" and n == 1) {
             val s = this.expr(obj)
             val cnt = this.expr(e.args[0].value)
-            return this.ownTemp("keal_str_repeat(${s}, ${cnt}, ${e.line})")
+            return this.ownTemp("keal_str_repeat(${s}, ${cnt}, ${this.whereOf(e.file, e.line, e.col)})")
         }
         if (name == "split" and n == 1) {
             val s = this.expr(obj)
@@ -4492,7 +4509,7 @@ class CBackend() {
         if (name == "get" and n == 1) {
             val s = this.expr(obj)
             val i = this.expr(e.args[0].value)
-            return this.ownTemp("keal_str_get(${s}, ${i}, ${e.line})")
+            return this.ownTemp("keal_str_get(${s}, ${i}, ${this.whereOf(e.file, e.line, e.col)})")
         }
         if (name == "code" and n == 0) {
             val s = this.expr(obj)
@@ -4550,7 +4567,7 @@ class CBackend() {
         }
         if (name == "toChar" and n == 0) {
             val v = this.expr(obj)
-            return this.ownTemp("keal_int_to_char(${v}, ${e.line})")
+            return this.ownTemp("keal_int_to_char(${v}, ${this.whereOf(e.file, e.line, e.col)})")
         }
         if (name == "abs" and n == 0) {
             val v = this.expr(obj)
@@ -4563,7 +4580,7 @@ class CBackend() {
             val b = this.expr(e.args[0].value)
             val f = if (name == "pow") { "keal_int_pow" } else { "keal_int_root" }
             val t = this.temp()
-            this.line("const int64_t ${t} = ${f}(${a}, ${b}, ${e.line});")
+            this.line("const int64_t ${t} = ${f}(${a}, ${b}, ${this.whereOf(e.file, e.line, e.col)});")
             this.checkUnwind()
             return t
         }
@@ -4647,7 +4664,7 @@ class CBackend() {
             val l = this.expr(obj)
             val i = this.expr(e.args[0].value)
             val w = this.temp()
-            this.line("const KealWord ${w} = keal_list_remove_at(${l}, ${i}, ${e.line});")
+            this.line("const KealWord ${w} = keal_list_remove_at(${l}, ${i}, ${this.whereOf(e.file, e.line, e.col)});")
             this.checkUnwind()
             val value = elemUnword(elem, w)
             if (countedC(elemTy)) {
@@ -4682,7 +4699,7 @@ class CBackend() {
             } else {
                 retained(elemTy, v)
             }
-            this.line("keal_list_insert_at(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+            this.line("keal_list_insert_at(${l}, ${i}, ${elemWord(elem, stored)}, ${this.whereOf(e.file, e.line, e.col)});")
             this.checkUnwind()
             if (this.catchMode and countedC(elemTy)) {
                 this.line("${stored} = NULL;")
@@ -4706,7 +4723,7 @@ class CBackend() {
             val release = releaseFn(elemTy)
             if (release != null) {
                 val old = this.temp()
-                this.line("const KealWord ${old} = keal_list_set_at(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+                this.line("const KealWord ${old} = keal_list_set_at(${l}, ${i}, ${elemWord(elem, stored)}, ${this.whereOf(e.file, e.line, e.col)});")
                 this.checkUnwind()
                 if (this.catchMode) {
                     if (elemTy.kind == "Any") {
@@ -4723,7 +4740,7 @@ class CBackend() {
                 }
             } else {
                 // Nothing to release, so the displaced word is discarded.
-                this.line("(void)keal_list_set_at(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+                this.line("(void)keal_list_set_at(${l}, ${i}, ${elemWord(elem, stored)}, ${this.whereOf(e.file, e.line, e.col)});")
                 this.checkUnwind()
             }
             return "0"
@@ -5071,7 +5088,7 @@ class CBackend() {
             if (elemTy.kind == "Float") {
                 this.line("const double ${t} = keal_list_sum_f64(${l});")
             } else {
-                this.line("const int64_t ${t} = keal_list_sum_i64(${l}, ${e.line});")
+                this.line("const int64_t ${t} = keal_list_sum_i64(${l}, ${this.whereOf(e.file, e.line, e.col)});")
                 this.checkUnwind()
             }
             return t
@@ -5285,7 +5302,7 @@ class CBackend() {
         if (ot != null and ot.kind == "Str") {
             val s = this.expr(obj)
             val i = this.expr(index)
-            return this.ownTemp("keal_str_get(${s}, ${i}, ${e.line})")
+            return this.ownTemp("keal_str_get(${s}, ${i}, ${this.whereOf(e.file, e.line, e.col)})")
         }
         if (ot == null or ot.kind != "List") {
             this.unsupported(e.file, e.line, e.col, "indexing anything but a list or a map")
@@ -5297,7 +5314,7 @@ class CBackend() {
         val l = this.expr(obj)
         val i = this.expr(index)
         val w = this.temp()
-        this.line("const KealWord ${w} = keal_list_get(${l}, ${i}, ${e.line});")
+        this.line("const KealWord ${w} = keal_list_get(${l}, ${i}, ${this.whereOf(e.file, e.line, e.col)});")
         this.checkUnwind()
         val value = elemUnword(elem, w)
         if (countedC(elemTy)) {
@@ -5756,7 +5773,7 @@ class CBackend() {
                 for (a in e.args) { rendered0.add(this.expr(a.value)) }
                 val call0 = this.callClosure(fieldTy, c, rendered0, e.file, e.line, e.col)
                 if (call0 == null) { return "0" }
-                return this.finishCall(e, call0)
+                return this.finishCall(e, call0, name)
             }
         }
 
@@ -6195,7 +6212,7 @@ class CBackend() {
                 "ushr" -> "keal_ushr"
                 else -> "keal_rem"
             }
-            this.line("const int64_t ${t} = ${helper}(${a}, ${b}, ${e.line});")
+            this.line("const int64_t ${t} = ${helper}(${a}, ${b}, ${this.whereOf(e.file, e.line, e.col)});")
             this.checkUnwind()
             return t
         }
@@ -6760,9 +6777,15 @@ class CBackend() {
                 for (a in args) {
                     rendered.add(this.expr(a.value))
                 }
+                // A closure carries the name it was created under, which the
+                // interpreters read off the value at run time. Statically the
+                // best that can be known is what the call spells, so a call
+                // through a name uses that name and one through an
+                // expression contributes no frame rather than a wrong one.
+                val who = callee.kind == "ident" ? callee.text : ""
                 val call = this.callClosure(ct, c, rendered, e.file, e.line, e.col)
                 if (call == null) { return "0" }
-                return this.finishCall(e, call)
+                return this.finishCall(e, call, who)
             }
         }
         unless (callee.kind == "ident") {
@@ -6832,7 +6855,7 @@ class CBackend() {
             val lo = this.expr(args[0].value)
             val hi = this.expr(args[1].value)
             val t = this.temp()
-            this.line("const int64_t ${t} = keal_random_int(${lo}, ${hi}, ${e.line});")
+            this.line("const int64_t ${t} = keal_random_int(${lo}, ${hi}, ${this.whereOf(e.file, e.line, e.col)});")
             this.checkUnwind()
             return t
         }
@@ -6873,7 +6896,7 @@ class CBackend() {
             // unwinds through the program rather than leaving through the C
             // library.
             val m = this.expr(args[0].value)
-            this.line("keal_panic(${m}->bytes, ${e.line});")
+            this.line("keal_panic(${m}->bytes, NULL, ${this.whereOf(e.file, e.line, e.col)});")
             this.checkUnwind()
             return "0"
         }
@@ -6973,9 +6996,9 @@ class CBackend() {
             val c = this.expr(args[0].value)
             if (args.size == 2) {
                 val m = this.expr(args[1].value)
-                this.line("if (!(${c})) { keal_panic(${m}->bytes, ${e.line}); }")
+                this.line("if (!(${c})) { keal_panic(${m}->bytes, NULL, ${this.whereOf(e.file, e.line, e.col)}); }")
             } else {
-                this.line("if (!(${c})) { keal_panic(\"assertion failed\", ${e.line}); }")
+                this.line("if (!(${c})) { keal_panic(\"assertion failed\", NULL, ${this.whereOf(e.file, e.line, e.col)}); }")
             }
             this.checkUnwind()
             return "0"
@@ -7123,7 +7146,7 @@ class CBackend() {
                 if (mode == "own") {
                     // C hands the buffer over; adopting it makes it a
                     // counted string that frees the bytes at the end.
-                    return this.finishCall(e, "keal_str_adopt(${call})")
+                    return this.finishCall(e, "keal_str_adopt(${call})", "")
                 }
                 if (inner.kind == "named" and inner.args.size == 0) {
                     val fields = this.shapes[inner.name]
@@ -7142,7 +7165,7 @@ class CBackend() {
                     }
                 }
             }
-            return this.finishCall(e, call)
+            return this.finishCall(e, call, "")
         }
         var cname = mangle(name)
         val calleeSubst: List<SubstPair> = []
@@ -7168,7 +7191,7 @@ class CBackend() {
         val rendered = this.renderArgsWithDefaults(declParams, calleeSubst, args, e.file, e.line, e.col, "")
         if (rendered == null) { return "0" }
         val call = "${cname}(${rendered.join(", ")})"
-        return this.finishCall(e, call)
+        return this.finishCall(e, call, name)
     }
 
     /// Renders a call's arguments against the declaration's parameters:
@@ -7291,11 +7314,23 @@ class CBackend() {
     }
 
     /// Binds a call's result according to its type, or emits it for effect.
-    func finishCall(e: Ex, call: String): String {
+    /// `who` names the Keal function being entered, and is `""` for a call
+    /// that is not one — an `extern` C function has no Keal frame, exactly as
+    /// it has none on the interpreters, which cannot enter it at all.
+    func finishCall(e: Ex, call: String, who: String): String {
+        var frame = ""
+        unless (who == "") {
+            frame = this.frameOf(who, e.file, e.line, e.col)
+            // The location too: this is where the call stops when it is the
+            // ten-thousandth, and a depth panic points at the call that was
+            // one too many.
+            this.line("keal_enter(${frame}, ${this.whereOf(e.file, e.line, e.col)});")
+        }
         val ty = this.ety(e)
         if (ty == null) { return call }
         if (ty.kind == "Unit" or ty.kind == "Never") {
             this.line("${call};")
+            unless (frame == "") { this.line("keal_leave();") }
             this.checkUnwind()
             // Arguments were borrowed; anything owned for the call is
             // released by whichever block created it.
@@ -7309,9 +7344,14 @@ class CBackend() {
         // to the top of the block for the unwind label's sake.
         val qualifier = if (countedC(ty) or this.catchMode) { "" } else { "const " }
         this.line("${qualifier}${c} ${t} = ${call};")
+        // After `own`, never before: in catch mode a counted result hoists
+        // its declaration to the top of the block, and hoisting reads the
+        // last line emitted. A `keal_leave()` standing there is the line it
+        // would try to hoist.
         if (countedC(ty)) {
             this.own(t, ty)
         }
+        unless (frame == "") { this.line("keal_leave();") }
         this.checkUnwind()
         return t
     }
@@ -7368,7 +7408,7 @@ class CBackend() {
             val release = releaseFn(elemTy)
             if (release != null) {
                 val old = this.temp()
-                this.line("const KealWord ${old} = keal_list_set(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+                this.line("const KealWord ${old} = keal_list_set(${l}, ${i}, ${elemWord(elem, stored)}, ${this.whereOf(e.file, e.line, e.col)});")
                 this.checkUnwind()
                 if (this.catchMode) {
                     if (elemTy.kind == "Any") {
@@ -7385,7 +7425,7 @@ class CBackend() {
                 }
             } else {
                 // Nothing to release; the displaced word is discarded.
-                this.line("(void)keal_list_set(${l}, ${i}, ${elemWord(elem, stored)}, ${e.line});")
+                this.line("(void)keal_list_set(${l}, ${i}, ${elemWord(elem, stored)}, ${this.whereOf(e.file, e.line, e.col)});")
                 this.checkUnwind()
             }
             return
@@ -7497,6 +7537,81 @@ class CBackend() {
 
     // ---- assembly ------------------------------------------------------
 
+    /// Interns one rendered string and answers the C name holding it.
+    func internSite(prefix: String, text: String): String {
+        val had = this.siteNames[text]
+        if (had != null) { return had }
+        val name = "${prefix}${this.siteOrder.size}"
+        this.siteNames[text] = name
+        this.siteOrder.add(name)
+        this.siteTexts.add(text)
+        return name
+    }
+
+    /// One line of a file, or `null` past its end.
+    ///
+    /// The split is kept. Without the cache this cut the whole file into
+    /// lines once per location asked for, which is once per place the
+    /// program can fail — quadratic in the size of the file, and measurable:
+    /// it more than doubled the compiler's own running time before anything
+    /// it emitted had run at all.
+    func lineText(file: Int, line: Int): String? {
+        if (file < 0 or file >= this.texts.size) { return null }
+        var lines = this.lineCache[file]
+        if (lines == null) {
+            lines = this.texts[file].split("\n")
+            this.lineCache[file] = lines!!
+        }
+        val ls = lines!!
+        if (line < 1 or line > ls.size) { return null }
+        return ls[line - 1]
+    }
+
+    /// Where something is, and what it looks like there: the `-->` line and
+    /// the quoted source under a caret. The oracle renders this from
+    /// `Sources::locate`, and every rule here is one of its rules — the tab
+    /// worth four columns, the caret placed by counting characters rather
+    /// than bytes, the gutter as wide as the line number.
+    func locate(file: Int, line: Int, col: Int): String {
+        var out = "  --> ${this.paths[file]}:${line}:${col}\n"
+        val src = this.lineText(file, line)
+        if (src != null) {
+            val num = "${line}"
+            var pad = ""
+            var k = 0
+            while (k < num.length) { pad += " " k += 1 }
+            out += "${pad} |\n"
+            out += "${num} | ${src.replace("\t", "    ")}\n"
+            var prefix = ""
+            val cs = src.chars()
+            var i = 0
+            while (i < cs.size and i < col - 1) {
+                prefix += cs[i] == "\t" ? "    " : " "
+                i += 1
+            }
+            out += "${pad} | ${prefix}^\n"
+        }
+        return out
+    }
+
+    /// Where a failure happens, ready to print. A span with no line — a
+    /// failure the program cannot point at — answers `NULL`, which the
+    /// runtime skips.
+    func whereOf(file: Int, line: Int, col: Int): String {
+        if (line == 0) { return "NULL" }
+        val key = "${file}:${line}:${col}"
+        val had = this.siteAt[key]
+        if (had != null) { return had }
+        val name = this.internSite("KL", this.locate(file, line, col))
+        this.siteAt[key] = name
+        return name
+    }
+
+    /// One line of a stack trace: who was called, and from where.
+    func frameOf(name: String, file: Int, line: Int, col: Int): String {
+        return this.internSite("KF", "  in `${name}` at ${this.paths[file]}:${line}:${col}")
+    }
+
     func finish(): String {
         var out = ""
         out += "/* Generated by the Keal compiler. Do not edit. */\n"
@@ -7515,6 +7630,19 @@ class CBackend() {
         }
         out += runtimeSource()
         out += "\n"
+
+        if (this.siteOrder.size > 0) {
+            out += "\n/* Where this program can fail, and what its source looks like there.\n"
+            out += " * Rendered at compile time by the same code that renders the\n"
+            out += " * interpreters' diagnostics, so the three engines cannot drift apart\n"
+            out += " * over a caret. `KF` lines are stack frames. */\n"
+            var si = 0
+            while (si < this.siteOrder.size) {
+                out += "static const char ${this.siteOrder[si]}[] = ${cString(this.siteTexts[si])};\n"
+                si += 1
+            }
+            out += "\n"
+        }
 
         var i = 0
         while (i < this.stringLiterals.size) {
@@ -7873,6 +8001,8 @@ func programUsesWeak(program: ProgramN): Bool {
 }
 
 val backend = CBackend()
+backend.paths = loaded.paths
+backend.texts = loaded.texts
 backend.catchMode = programHasTry(loaded.program)
 for (item in loaded.program.items) {
     val cd = item.classDecl

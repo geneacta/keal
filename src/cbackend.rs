@@ -24,8 +24,12 @@ use crate::types::Type;
 /// and the handful of built-ins the supported subset needs.
 const RUNTIME: &str = include_str!("runtime.c");
 
-pub fn emit(program: &Program, shapes: &[ClassShape]) -> Result<String, Vec<Diag>> {
-    emit_with(program, shapes, false)
+pub fn emit(
+    program: &Program,
+    shapes: &[ClassShape],
+    sources: &crate::span::Sources,
+) -> Result<String, Vec<Diag>> {
+    emit_with(program, shapes, sources, false)
 }
 
 /// The same, with the switches a build can turn on that a program cannot ask
@@ -35,9 +39,11 @@ pub fn emit(program: &Program, shapes: &[ClassShape]) -> Result<String, Vec<Diag
 pub fn emit_with(
     program: &Program,
     shapes: &[ClassShape],
+    sources: &crate::span::Sources,
     audit: bool,
 ) -> Result<String, Vec<Diag>> {
     let mut b = CBackend::new();
+    b.source = sources.clone();
     b.audit_mode = audit;
     b.catch_mode = program_has_try(program);
     // A `weak` field observes *when* its target dies, exactly as `deinit`
@@ -116,6 +122,21 @@ struct Owned {
     release: String,
 }
 
+/// The locations a compiled program can name when it fails, each rendered
+/// once and given a C name.
+#[derive(Default)]
+struct Sites {
+    /// Rendered text to the name holding it, so the same line quoted by ten
+    /// failures is one string in the binary.
+    named: std::collections::HashMap<String, String>,
+    /// First-asked order, so the emitted table does not move between runs.
+    order: Vec<(String, String)>,
+    /// The name each location already has, by span. A span renders to one
+    /// string and one only, so asking twice — every call site asks once for
+    /// its panic and once for its frame — should render once.
+    at: std::collections::HashMap<(u32, u32, u32), String>,
+}
+
 struct CBackend {
     decls: String,
     defs: String,
@@ -129,6 +150,15 @@ struct CBackend {
     /// unwind checks, labels and hoisted declarations below exist —
     /// a program without one compiles byte-for-byte as before.
     catch_mode: bool,
+    /// The source, kept whole so a failure's location can be rendered while
+    /// the source is still here to read. A compiled program cannot go and
+    /// look, so it is told.
+    source: crate::span::Sources,
+    /// What it was told, interned. Behind a `RefCell` for one reason: a
+    /// location is asked for from inside the `format!` that builds the very
+    /// call that needs it, where `self` is already borrowed to emit. Nothing
+    /// but this table is touched through it.
+    sites: std::cell::RefCell<Sites>,
     /// Innermost last: the label a failed `keal_unwinding` check jumps to.
     /// The bottom entry is the function's own; a `try` body pushes its
     /// catch label; every open scope pushes its chain label. The flag
@@ -266,6 +296,8 @@ impl CBackend {
             unwind_targets: Vec::new(),
             unwind_marks: Vec::new(),
             next_unwind: 0,
+            source: crate::span::Sources::new(),
+            sites: std::cell::RefCell::new(Sites::default()),
             poison: String::new(),
             drop_mode: false,
             actors_mode: false,
@@ -361,6 +393,48 @@ impl CBackend {
     fn line(&mut self, s: impl AsRef<str>) {
         let pad = "    ".repeat(self.indent);
         self.body.push(format!("{}{}", pad, s.as_ref()));
+    }
+
+    /// Interns one rendered string and answers the C name holding it.
+    fn intern_site(&self, prefix: &str, text: &str) -> String {
+        let mut sites = self.sites.borrow_mut();
+        if let Some(name) = sites.named.get(text) {
+            return name.clone();
+        }
+        let name = format!("{}{}", prefix, sites.order.len());
+        sites.named.insert(text.to_string(), name.clone());
+        sites.order.push((name.clone(), text.to_string()));
+        name
+    }
+
+    /// Where a failure happens, ready to print: the `-->` line and the source
+    /// quoted under a caret, rendered by the same `Sources::locate` that
+    /// writes the interpreters' diagnostics. A span with no line — a failure
+    /// the program cannot point at — answers `NULL`, which the runtime skips.
+    fn where_of(&self, span: Span) -> String {
+        if span.line == 0 {
+            return "NULL".to_string();
+        }
+        let key = (span.file, span.line, span.col);
+        if let Some(name) = self.sites.borrow().at.get(&key) {
+            return name.clone();
+        }
+        self.source.index_lines(span.file);
+        let name = self.intern_site("KL", &self.source.locate(span));
+        self.sites.borrow_mut().at.insert(key, name.clone());
+        name
+    }
+
+    /// One line of a stack trace: who was called, and from where.
+    fn frame_of(&self, name: &str, span: Span) -> String {
+        let text = format!(
+            "  in `{}` at {}:{}:{}",
+            name,
+            self.source.path(span.file),
+            span.line,
+            span.col
+        );
+        self.intern_site("KF", &text)
     }
 
     fn temp(&mut self) -> String {
@@ -1264,7 +1338,7 @@ impl CBackend {
                         let bail = if self.catch_mode { "    return keal_buf_finish(&b);\n" } else { "" };
                         let _ = write!(
                             f,
-                            "    keal_panic({}, 0);\n{}",
+                            "    keal_panic({}, NULL, NULL);\n{}",
                             c_string(&format!("cannot render a value of type `{}` natively", ty)),
                             bail
                         );
@@ -1297,7 +1371,7 @@ impl CBackend {
                         let bail = if self.catch_mode { "    return keal_buf_finish(&b);\n" } else { "" };
                         let _ = write!(
                             f,
-                            "    keal_panic({}, 0);\n{}",
+                            "    keal_panic({}, NULL, NULL);\n{}",
                             c_string(&format!(
                                 "cannot render a value of type `{}` natively",
                                 ty
@@ -1316,7 +1390,7 @@ impl CBackend {
                     let bail = if self.catch_mode { "    return keal_buf_finish(&b);\n" } else { "" };
                     let _ = write!(
                         f,
-                        "    keal_panic({}, 0);\n{}",
+                        "    keal_panic({}, NULL, NULL);\n{}",
                         c_string(&format!("cannot render a value of type `{}` natively", ty)),
                         bail
                     );
@@ -1780,7 +1854,7 @@ impl CBackend {
                     let _ = writeln!(t, "                keal_actor_lock();");
                     let _ = writeln!(
                         t,
-                        "                if (!a->st->panicked) {{ a->st->panicked = 1; a->st->panic_line = keal_unwind_line; snprintf(a->st->panic_msg, sizeof a->st->panic_msg, \"%s\", keal_unwind_msg); }}"
+                        "                if (!a->st->panicked) {{ a->st->panicked = 1; a->st->panic_at = keal_unwind_at; a->st->panic_note = keal_unwind_note; snprintf(a->st->panic_msg, sizeof a->st->panic_msg, \"%s\", keal_unwind_msg); }}"
                     );
                     let _ = writeln!(t, "                a->st->stop = 1;");
                     let _ = writeln!(t, "                keal_actor_unlock();");
@@ -1811,7 +1885,7 @@ impl CBackend {
                 let _ = writeln!(b, "    int64_t n = self->k_handlers->len;");
                 let _ = writeln!(b, "    if (n == 0) {{ return; }}");
                 let _ = writeln!(b, "    KealRunState st;");
-                let _ = writeln!(b, "    st.workers = 0; st.stop = 0; st.panicked = 0; st.panic_line = 0; st.panic_msg[0] = '\\0';");
+                let _ = writeln!(b, "    st.workers = 0; st.stop = 0; st.panicked = 0; st.panic_at = NULL; st.panic_note = NULL; st.panic_msg[0] = '\\0';");
                 let _ = writeln!(b, "    st.actors = n; st.next = 0;");
                 let _ = writeln!(b, "    st.busy = (int8_t*)keal_alloc((size_t)n * sizeof(int8_t));");
                 let _ = writeln!(b, "    for (int64_t i = 0; i < n; i++) {{ st.busy[i] = 0; }}");
@@ -1850,7 +1924,7 @@ impl CBackend {
                 let _ = writeln!(b, "    free(ctxs);");
                 let _ = writeln!(b, "    free(ts);");
                 let _ = writeln!(b, "    if (st.panicked) {{");
-                let _ = writeln!(b, "        keal_panic(st.panic_msg, st.panic_line);");
+                let _ = writeln!(b, "        keal_panic(st.panic_msg, st.panic_note, st.panic_at);");
                 let _ = writeln!(b, "        return;");
                 let _ = writeln!(b, "    }}");
                 Some(b)
@@ -2459,12 +2533,12 @@ impl CBackend {
                 // `catch (e)` reads the same text either way.
                 if matches!(self.ety(e), Some(Type::Str)) {
                     let m = self.expr(e);
-                    self.line(format!("keal_panic({}->bytes, {});", m, s.span.line));
+                    self.line(format!("keal_panic({}->bytes, NULL, {});", m, self.where_of(s.span)));
                 } else {
                     let ty = self.ety(e);
                     let v = self.expr(e);
                     let any = self.any_of(ty.as_ref(), v, e.span);
-                    self.line(format!("keal_throw_value({}, {});", any, s.span.line));
+                    self.line(format!("keal_throw_value({}, {});", any, self.where_of(s.span)));
                 }
                 self.check_unwind();
             }
@@ -2880,8 +2954,8 @@ impl CBackend {
                     let t = self.temp();
                     self.line(format!("const KealAny {} = {};", t, v));
                     self.line(format!(
-                        "if ({}.ti == NULL) {{ keal_panic(\"`!!` was applied to a null value\", {}); }}",
-                        t, e.span.line
+                        "if ({}.ti == NULL) {{ keal_panic(\"`!!` was applied to a null value\", \"handle the null case with `?:` or an `if` instead\", {}); }}",
+                        t, self.where_of(e.span)
                     ));
                     self.check_unwind();
                     return t;
@@ -2890,9 +2964,9 @@ impl CBackend {
                     if is_value_opt(&Type::Nullable(it.clone())) {
                         let v = self.expr(inner);
                         self.line(format!(
-                            "if (!{}) {{ keal_panic(\"`!!` was applied to a null value\", {}); }}",
+                            "if (!{}) {{ keal_panic(\"`!!` was applied to a null value\", \"handle the null case with `?:` or an `if` instead\", {}); }}",
                             opt_has(&it, &v),
-                            e.span.line
+                            self.where_of(e.span)
                         ));
                         self.check_unwind();
                         return opt_get(&it, &v);
@@ -2900,8 +2974,8 @@ impl CBackend {
                 }
                 let v = self.expr(inner);
                 self.line(format!(
-                    "if ({} == NULL) {{ keal_panic(\"`!!` was applied to a null value\", {}); }}",
-                    v, e.span.line
+                    "if ({} == NULL) {{ keal_panic(\"`!!` was applied to a null value\", \"handle the null case with `?:` or an `if` instead\", {}); }}",
+                    v, self.where_of(e.span)
                 ));
                 self.check_unwind();
                 v
@@ -3797,7 +3871,7 @@ impl CBackend {
                     let t = self.temp();
                     self.line(format!(
                         "const int64_t {} = {}({}, {}, {});",
-                        t, f, a, b, e.span.line
+                        t, f, a, b, self.where_of(e.span)
                     ));
                     Some(t)
                 }
@@ -3806,7 +3880,7 @@ impl CBackend {
                     let t = self.temp();
                     self.line(format!(
                         "const int64_t {} = keal_sub(INT64_C(0), {}, {});",
-                        t, a, e.span.line
+                        t, a, self.where_of(e.span)
                     ));
                     Some(t)
                 }
@@ -3929,7 +4003,7 @@ impl CBackend {
                 let b = self.expr(&args[1].value);
                 Some(self.own_temp(format!(
                     "keal_str_substring({}, {}, {}, {})",
-                    s, a, b, e.span.line
+                    s, a, b, self.where_of(e.span)
                 )))
             }
             ("take", 1) | ("drop", 1) => {
@@ -3963,13 +4037,13 @@ impl CBackend {
                 let new = self.expr(&args[1].value);
                 Some(self.own_temp(format!(
                     "keal_str_replace({}, {}, {}, {})",
-                    s, old, new, e.span.line
+                    s, old, new, self.where_of(e.span)
                 )))
             }
             ("repeat", 1) => {
                 let s = self.expr(obj);
                 let n = self.expr(&args[0].value);
-                Some(self.own_temp(format!("keal_str_repeat({}, {}, {})", s, n, e.span.line)))
+                Some(self.own_temp(format!("keal_str_repeat({}, {}, {})", s, n, self.where_of(e.span))))
             }
             ("split", 1) => {
                 let s = self.expr(obj);
@@ -3986,7 +4060,7 @@ impl CBackend {
             ("get", 1) => {
                 let s = self.expr(obj);
                 let i = self.expr(&args[0].value);
-                Some(self.own_temp(format!("keal_str_get({}, {}, {})", s, i, e.span.line)))
+                Some(self.own_temp(format!("keal_str_get({}, {}, {})", s, i, self.where_of(e.span))))
             }
             ("code", 0) => {
                 let s = self.expr(obj);
@@ -4045,7 +4119,7 @@ impl CBackend {
             }
             ("toChar", 0) => {
                 let v = self.expr(obj);
-                Some(self.own_temp(format!("keal_int_to_char({}, {})", v, e.span.line)))
+                Some(self.own_temp(format!("keal_int_to_char({}, {})", v, self.where_of(e.span))))
             }
             ("abs", 0) => {
                 let v = self.expr(obj);
@@ -4060,7 +4134,7 @@ impl CBackend {
                 let t = self.temp();
                 self.line(format!(
                     "const int64_t {} = {}({}, {}, {});",
-                    t, f, a, b, e.span.line
+                    t, f, a, b, self.where_of(e.span)
                 ));
                 self.check_unwind();
                 Some(t)
@@ -4158,7 +4232,7 @@ impl CBackend {
                 let w = self.temp();
                 self.line(format!(
                     "const KealWord {} = keal_list_remove_at({}, {}, {});",
-                    w, l, i, e.span.line
+                    w, l, i, self.where_of(e.span)
                 ));
                 self.check_unwind();
                 let value = elem.unword(&w);
@@ -4197,7 +4271,7 @@ impl CBackend {
                     l,
                     i,
                     elem.word(&stored),
-                    e.span.line
+                    self.where_of(e.span)
                 ));
                 self.check_unwind();
                 if self.catch_mode && Self::counted(elem_ty) {
@@ -4227,7 +4301,7 @@ impl CBackend {
                             l,
                             i,
                             elem.word(&stored),
-                            e.span.line
+                            self.where_of(e.span)
                         ));
                         self.check_unwind();
                         if self.catch_mode {
@@ -4251,7 +4325,7 @@ impl CBackend {
                             l,
                             i,
                             elem.word(&stored),
-                            e.span.line
+                            self.where_of(e.span)
                         ));
                         self.check_unwind();
                     }
@@ -4674,7 +4748,7 @@ impl CBackend {
                 } else {
                     self.line(format!(
                         "const int64_t {} = keal_list_sum_i64({}, {});",
-                        t, l, e.span.line
+                        t, l, self.where_of(e.span)
                     ));
                     self.check_unwind();
                 }
@@ -4932,7 +5006,7 @@ impl CBackend {
         if matches!(self.ety(obj), Some(Type::Str)) {
             let s = self.expr(obj);
             let i = self.expr(index);
-            return self.own_temp(format!("keal_str_get({}, {}, {})", s, i, e.span.line));
+            return self.own_temp(format!("keal_str_get({}, {}, {})", s, i, self.where_of(e.span)));
         }
         let Some(Type::List(elem_ty)) = self.ety(obj) else {
             self.unsupported(e.span, "indexing anything but a list or a map");
@@ -4944,7 +5018,7 @@ impl CBackend {
         let w = self.temp();
         self.line(format!(
             "const KealWord {} = keal_list_get({}, {}, {});",
-            w, l, i, e.span.line
+            w, l, i, self.where_of(e.span)
         ));
         self.check_unwind();
         let value = elem.unword(&w);
@@ -5407,7 +5481,7 @@ impl CBackend {
                 let Some(call) = self.call_closure(&ft, &c, &rendered, e.span) else {
                     return "0".to_string();
                 };
-                return self.finish_call(e, call);
+                return self.finish_call(e, call, Some(name));
             }
         }
 
@@ -5831,7 +5905,7 @@ impl CBackend {
                 helper,
                 a,
                 b,
-                e.span.line
+                self.where_of(e.span)
             ));
             self.check_unwind();
             return t;
@@ -6606,7 +6680,7 @@ impl CBackend {
             return Some(name);
         }
         self.copy_fns.insert(name.clone());
-        let cap = "if (depth > 10000) { keal_panic(\"`copy` went 10000 levels deep; is the value cyclic?\", 0); return NULL; }";
+        let cap = "if (depth > 10000) { keal_panic(\"`copy` went 10000 levels deep; is the value cyclic?\", NULL, NULL); return NULL; }";
         match ty {
             Type::List(elem_ty) => {
                 let elem_ty = (**elem_ty).clone();
@@ -6732,6 +6806,15 @@ impl CBackend {
                     || crate::builtins::global_sig(n, &[None, None]).is_some()));
         if !named {
             if let Some(Type::Fun(ft)) = self.ety(callee) {
+                // A closure carries the name it was created under, which the
+                // interpreters read off the value at run time. Statically the
+                // best that can be known is what the call spells, so a call
+                // through a name uses that name and one through an
+                // expression contributes no frame rather than a wrong one.
+                let who = match &callee.kind {
+                    ExprKind::Ident(n) => Some(n.to_string()),
+                    _ => None,
+                };
                 let c = self.expr(callee);
                 let mut rendered = Vec::new();
                 for a in args {
@@ -6740,7 +6823,7 @@ impl CBackend {
                 let Some(call) = self.call_closure(&ft, &c, &rendered, e.span) else {
                     return "0".to_string();
                 };
-                return self.finish_call(e, call);
+                return self.finish_call(e, call, who.as_deref());
             }
         }
         let ExprKind::Ident(name) = &callee.kind else {
@@ -6823,7 +6906,7 @@ impl CBackend {
             let t = self.temp();
             self.line(format!(
                 "const int64_t {} = keal_random_int({}, {}, {});",
-                t, lo, hi, e.span.line
+                t, lo, hi, self.where_of(e.span)
             ));
             self.check_unwind();
             return t;
@@ -6859,7 +6942,7 @@ impl CBackend {
             // unwinds through the program rather than leaving through the C
             // library.
             let m = self.expr(&args[0].value);
-            self.line(format!("keal_panic({}->bytes, {});", m, e.span.line));
+            self.line(format!("keal_panic({}->bytes, NULL, {});", m, self.where_of(e.span)));
             self.check_unwind();
             return "0".to_string();
         }
@@ -6972,14 +7055,14 @@ impl CBackend {
                 Some(a) => {
                     let m = self.expr(&a.value);
                     self.line(format!(
-                        "if (!({})) {{ keal_panic({}->bytes, {}); }}",
-                        c, m, e.span.line
+                        "if (!({})) {{ keal_panic({}->bytes, NULL, {}); }}",
+                        c, m, self.where_of(e.span)
                     ));
                 }
                 None => {
                     self.line(format!(
-                        "if (!({})) {{ keal_panic(\"assertion failed\", {}); }}",
-                        c, e.span.line
+                        "if (!({})) {{ keal_panic(\"assertion failed\", NULL, {}); }}",
+                        c, self.where_of(e.span)
                     ));
                 }
             }
@@ -7115,7 +7198,7 @@ impl CBackend {
                 if mode == Some("own") {
                     // C hands the buffer over; adopting it makes it a
                     // counted string that frees the bytes at the end.
-                    return self.finish_call(e, format!("keal_str_adopt({})", call));
+                    return self.finish_call(e, format!("keal_str_adopt({})", call), None);
                 }
                 if let TypeExprKind::Named { name: rec, args: targs } = &inner.kind {
                     if targs.is_empty() && self.shapes.contains_key(rec) {
@@ -7130,7 +7213,7 @@ impl CBackend {
                     }
                 }
             }
-            return self.finish_call(e, call);
+            return self.finish_call(e, call, None);
         }
         let (cname, callee_subst) = match &e.inst {
             Some(inst) => {
@@ -7166,7 +7249,7 @@ impl CBackend {
         };
         let call = format!("{}({})", cname, rendered.join(", "));
 
-        self.finish_call(e, call)
+        self.finish_call(e, call, Some(name))
     }
 
     /// Renders a call's arguments against the declaration's parameters:
@@ -7281,10 +7364,24 @@ impl CBackend {
     }
 
     /// Binds a call's result according to its type, or emits it for effect.
-    fn finish_call(&mut self, e: &Expr, call: String) -> String {
+    /// `who` names the Keal function being entered, and is `None` for a call
+    /// that is not one — an `extern` C function has no Keal frame, exactly as
+    /// it has none on the interpreters, which cannot enter it at all.
+    fn finish_call(&mut self, e: &Expr, call: String, who: Option<&str>) -> String {
+        let frame = who.map(|n| self.frame_of(n, e.span));
+        if let Some(f) = &frame {
+            // The location too: this is where the call stops when it is the
+            // ten-thousandth, and a depth panic points at the call that was
+            // one too many.
+            let at = self.where_of(e.span);
+            self.line(format!("keal_enter({}, {});", f, at));
+        }
         let Some(ty) = self.ety(e) else { return call };
         if ty == Type::Unit || ty == Type::Never {
             self.line(format!("{};", call));
+            if frame.is_some() {
+                self.line("keal_leave();");
+            }
             self.check_unwind();
             // Arguments were borrowed, so anything owned for the call is
             // released by whichever block created it.
@@ -7297,8 +7394,15 @@ impl CBackend {
         // to the top of the block for the unwind label's sake.
         let qualifier = if Self::counted(&ty) || self.catch_mode { "" } else { "const " };
         self.line(format!("{}{} {} = {};", qualifier, c, t, call));
+        // After `own`, never before: in catch mode a counted result hoists
+        // its declaration to the top of the block, and hoisting reads the
+        // last line emitted. A `keal_leave()` standing there is the line it
+        // would try to hoist.
         if Self::counted(&ty) {
             self.own(&t, &ty);
+        }
+        if frame.is_some() {
+            self.line("keal_leave();");
         }
         self.check_unwind();
         t
@@ -7357,7 +7461,7 @@ impl CBackend {
                         l,
                         i,
                         elem.word(&stored),
-                        span.line
+                        self.where_of(span)
                     ));
                     self.check_unwind();
                     if self.catch_mode {
@@ -7381,7 +7485,7 @@ impl CBackend {
                         l,
                         i,
                         elem.word(&stored),
-                        span.line
+                        self.where_of(span)
                     ));
                     self.check_unwind();
                 }
@@ -7521,6 +7625,17 @@ impl CBackend {
         }
         out.push_str(RUNTIME);
         out.push('\n');
+
+        if !self.sites.borrow().order.is_empty() {
+            out.push_str("\n/* Where this program can fail, and what its source looks like there.\n");
+            out.push_str(" * Rendered at compile time by the same code that renders the\n");
+            out.push_str(" * interpreters' diagnostics, so the three engines cannot drift apart\n");
+            out.push_str(" * over a caret. `KF` lines are stack frames. */\n");
+            for (name, text) in &self.sites.borrow().order {
+                let _ = writeln!(out, "static const char {}[] = {};", name, c_string(text));
+            }
+            out.push('\n');
+        }
 
         for (i, s) in self.string_literals.iter().enumerate() {
             let _ = writeln!(

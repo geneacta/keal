@@ -29,7 +29,7 @@ fn compile_with(path: &str, audit: bool) -> Result<String, ExitCode> {
         return Err(ExitCode::FAILURE);
     }
 
-    cbackend::emit_with(&program, &checker.class_shapes(), audit).map_err(|diags| {
+    cbackend::emit_with(&program, &checker.class_shapes(), &sources, audit).map_err(|diags| {
         for d in &diags {
             eprint!("{}", sources.render("error", d));
         }

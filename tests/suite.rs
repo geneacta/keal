@@ -3470,3 +3470,97 @@ fn keal_test_stops_a_program_that_does_not() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A compiled program says what the interpreters say when it fails.
+///
+/// `docs/language.md` has promised for as long as it has existed that a
+/// runtime failure aborts "with a message and a call stack". That was true of
+/// the two interpreters and not of the engine anybody ships: a compiled
+/// binary printed the message and `at line 16`, with no file, no column, no
+/// quoted source, no hint and no stack. Nothing noticed, because the corpus
+/// that pins failure messages had never been run on the backend — the one
+/// engine left out of the comparison was the one that mattered most.
+///
+/// So it is compared here, against the same snapshots, byte for byte. What
+/// the binary embeds is rendered at compile time by `Sources::locate`, the
+/// same code that renders the interpreters' diagnostics, so this test is
+/// checking that the right string reached the right place rather than that
+/// two renderers still agree.
+#[test]
+fn a_compiled_failure_reads_like_an_interpreted_one() {
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let mut checked = 0;
+    for file in keal_files("tests/runtime") {
+        let path = relative(&file);
+        // The one file whose subject IS the difference: `extern` is refused
+        // by an interpreter and works natively, so it fails on two engines
+        // out of three by design.
+        if path.contains("extern_on_interpreter") {
+            continue;
+        }
+        let dir = std::env::temp_dir().join(format!(
+            "keal-runtime-native-{}",
+            file.file_stem().unwrap().to_string_lossy()
+        ));
+        std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+        let bin = dir.join("out");
+        let built = keal(&["build", &path, "-o", &bin.to_string_lossy()]);
+        assert!(built.success, "{} did not build:\n{}", path, built.stderr);
+
+        let ran = Command::new(&bin).output().expect("cannot run the built binary");
+        assert!(!ran.status.success(), "{} was expected to fail natively", path);
+        let said = String::from_utf8_lossy(&ran.stderr).into_owned();
+        check_snapshot(&file, &said);
+        checked += 1;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    // A loop that silently ran zero times would pass. This corpus is the
+    // whole evidence for the claim above, so its size is asserted rather
+    // than assumed.
+    assert!(checked >= 8, "only {} runtime failures were compiled", checked);
+}
+
+/// Runaway recursion ends, compiled, and says so.
+///
+/// It used to run until the operating system stopped the process, or simply
+/// run: `MAX_DEPTH` was a limit the interpreters had and the backend did not.
+/// Measured before the fix, `deep_recursion.keal` compiled was still going
+/// after ten seconds. The interesting half is that it is a *panic* and not a
+/// crash, so a `try` can catch it — which a segfault never could.
+#[test]
+fn a_compiled_program_stops_recursing_and_can_catch_itself() {
+    let cc = c_driver();
+    if Command::new(&cc).arg("--version").output().is_err() {
+        eprintln!("skipping: no C compiler found as `{}`", cc);
+        return;
+    }
+    let dir = std::env::temp_dir().join("keal-depth-catchable");
+    std::fs::create_dir_all(&dir).expect("cannot make a build directory");
+    let src = dir.join("caught.keal");
+    std::fs::write(
+        &src,
+        "func forever(n: Int): Int { return forever(n + 1) }\n\
+         proc main() {\n\
+         \x20   try { forever(0) } catch (e: String) { assert(e == \"maximum call depth exceeded\", e) }\n\
+         \x20   // and the stack is usable again afterwards\n\
+         \x20   assert(forever2(0) == 3, \"after\")\n\
+         }\n\
+         func forever2(n: Int): Int { return n >= 3 ? n : forever2(n + 1) }\n\
+         main()\n",
+    )
+    .expect("cannot write");
+    let bin = dir.join("out");
+    let built = keal(&["build", &src.to_string_lossy(), "-o", &bin.to_string_lossy()]);
+    assert!(built.success, "the depth program did not build:\n{}", built.stderr);
+    let ran = Command::new(&bin).output().expect("cannot run the built binary");
+    assert!(
+        ran.status.success(),
+        "a caught depth panic should leave the program running:\n{}",
+        String::from_utf8_lossy(&ran.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

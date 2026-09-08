@@ -611,7 +611,7 @@ fn dump_cgen(path: &str) -> ExitCode {
     for d in &checker.warnings {
         println!("{}", compact_warning(&sources, d));
     }
-    match cbackend::emit(&program, &checker.class_shapes()) {
+    match cbackend::emit(&program, &checker.class_shapes(), &sources) {
         Ok(c) => {
             print!("{}", c);
             ExitCode::SUCCESS

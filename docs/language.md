@@ -1779,6 +1779,21 @@ At run time, the failures the type system cannot rule out — division by zero,
 an index out of range, `!!` on null, runaway recursion — abort with a message
 and a call stack.
 
+**On all three engines, and byte for byte.** That sentence was true of the two
+interpreters long before it was true of a compiled program, which printed the
+message and `at line 16` and nothing else — no file, no column, no quoted
+source, no hint, no stack. A compiled binary cannot read its own source when
+it fails, so it is given what it needs while it is being built: the `-->`
+line, the quoted line and the caret are rendered at compile time by the same
+code that renders these diagnostics, and travel in the binary as text. The
+cost is bytes rather than a second renderer that would agree today.
+
+Runaway recursion stops at the same depth on all three, and stopping is a
+panic rather than a crash, so `try` can catch it and the program can carry
+on. What a depth limit still cannot promise is a function whose *frames* are
+large enough to exhaust the C stack before the count is reached; that is a
+crash on any engine that has a real stack.
+
 ### throw and catch
 
 `throw` raises any value; `try` runs a block and `catch` takes what it
