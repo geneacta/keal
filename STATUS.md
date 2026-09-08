@@ -434,8 +434,28 @@ which is the same rule seen from the other side. My +4.6% (the compiler
 compiling itself) was a true number on a real workload and it understates a
 rasteriser by four times.
 
+**Their reading and this isolation agree on one row and not on another, and
+that is the lesson rather than a footnote.** Steady state at 5000 lines: they
+read +12-18% across 1.2.0 -> 1.3.0, the isolation says +19%. Same row, same
+answer. But the *unfolded* 5000-line row: they read +22-27% and the isolation
+says **+11%** — because their own code changed between their two readings too
+(a held caret, `adoptCaret` moved into `caretIn`, a skip flag). One row was
+this change; one row was partly theirs. **From outside, nothing says which.**
+I told them their caveat was superfluous because half the data matched; they
+refused that half of the compliment, and were right to. A version-to-version
+delta is not the cost of a feature unless only the feature moved.
+
 Not closed, and not mine to close: a tenth of a 60Hz budget is a language
-decision. The one idea worth trying if it must come down — **a call to a
+decision. Two more facts for it, from the consumer:
+* **60Hz leaves margin here; 120Hz does not.** Steady repaints sit at 8-11ms
+  against a 16.7ms budget, on that machine, that font, that window. Halve the
+  budget and the margin is gone.
+* **The transitive analysis would probably gain little on that profile.**
+  Their hot functions are `penFor`, `advanceOf`, `over`, `mix` and the colour
+  accessors, and every one of them does arithmetic — shifts, masks,
+  multiplications. Keal checks overflow, so almost none is infallible and
+  almost every one would still need its frame. That is a measurement of the
+  idea before writing it, which is the whole reason not to start on a hunch. The one idea worth trying if it must come down — **a call to a
 function that can never panic needs no frame**, since it can appear in no
 trace. Transitive, whole-program, mirrored in the twin, and the gain depends
 entirely on how many hot little functions are genuinely infallible. Keal
