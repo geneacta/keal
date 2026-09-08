@@ -415,6 +415,33 @@ nothing to do with what it emits. Separating them gave +136% on `fib` and
 compiler produces, every measurement measures both unless it is built not
 to.** The control has to hold one of them still.
 
+**A consumer's profile beat all three of my benchmarks, and it is four times
+my headline.** keal-view kept a paint bench, `tests/paintcost.keal`, offscreen
+and runnable from here. Two builds of MY revisions — `v1.3.0` in a worktree
+against HEAD, so only the frame stack differs — six alternating passes,
+minimum:
+
+| | first | steady | after a keystroke |
+|---|---|---|---|
+| 100 lines | +24% | **+35%** | +25% |
+| 1000 lines | +15% | +21% | +17% |
+| 5000 lines | +6% | +19% | +7% |
+
+One rule reads off it: **the more work a call does, the less its frame
+costs.** Text wrapping is heavy per call and dilutes it; a steady repaint is
+dense in small calls and pays. A small document pays MORE than a large one,
+which is the same rule seen from the other side. My +4.6% (the compiler
+compiling itself) was a true number on a real workload and it understates a
+rasteriser by four times.
+
+Not closed, and not mine to close: a tenth of a 60Hz budget is a language
+decision. The one idea worth trying if it must come down — **a call to a
+function that can never panic needs no frame**, since it can appear in no
+trace. Transitive, whole-program, mirrored in the twin, and the gain depends
+entirely on how many hot little functions are genuinely infallible. Keal
+checks overflow, so almost any arithmetic can panic: a pure accessor
+qualifies, a span filler probably does not. Not started on a hunch.
+
 **`fib` is not a benchmark, it is the worst case.** A comparison and an
 addition between two calls is the densest call a program can make. Quoting
 +136% would have been true and useless. Quoting +4.6% alone would have hidden
