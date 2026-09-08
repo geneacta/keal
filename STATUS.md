@@ -393,6 +393,54 @@ not ours".
 
 ## IN FLIGHT
 
+**A compiled failure now says what an interpreted one says (2026-09-08).**
+Committed, not tagged. What is worth keeping is not the feature.
+
+**The engine that was left out of the comparison was the one that mattered.**
+`tests/runtime` pins what a failure prints; it had never been run on the
+backend. So the sentence in `docs/language.md` — a failure aborts "with a
+message and a call stack" — had been false of the shipped engine for as long
+as the backend existed, and every test passed. This is rung 1 of the ladder
+above, applied to a whole engine rather than a snapshot: nothing consumed
+that output. It was `keal test --native`, one day old, that read it.
+
+**Two costs added together look like one cost.** Measuring the frame stack I
+got `+546%` and `+154%` and nearly put stack traces behind a build flag. They
+were different things: the emitted program's RUN time and the compiler's OWN
+time. The second was `lineText` cutting a whole file into lines once per
+location asked for — my own new code, quadratic, in the compiler, having
+nothing to do with what it emits. Separating them gave +136% on `fib` and
++4.6% on a real workload, which is a different decision.
+    The general form: **when a change touches both the compiler and what the
+compiler produces, every measurement measures both unless it is built not
+to.** The control has to hold one of them still.
+
+**`fib` is not a benchmark, it is the worst case.** A comparison and an
+addition between two calls is the densest call a program can make. Quoting
++136% would have been true and useless. Quoting +4.6% alone would have hidden
+that a call-dense consumer might see much worse — which is why the message to
+keal-view carries both numbers and asks them to say which one they see.
+
+**A thread-local read is a call, not a load.** Three thread-locals and two
+out-of-line functions per Keal call cost 6.5x. One object behind one symbol,
+read once, inlined: back to 1.4x. And with no actors there is no second
+thread, so there is no thread-local at all.
+
+**An optimisation on the hot path paid for by the cold path.** Folding
+repeated frames AT THE PUSH saves memory that is never scarce, and costs a
+compare and a branch on every call a program ever makes. The fold belongs
+where its output is read — once, in a program that is already ending.
+
+**A shared machine where one session builds another's working tree.** The
+keal-view session built this tree mid-refactor, found real defects, and
+reported them as "keal 1.3.0 emits C that will not compile". The tag was
+fine; the uncommitted delta was not. `keal version` prints the last release
+whatever the tree holds, so it cannot tell a build apart from a release —
+`git describe` can. They now print `v1.3.0-3-g9cb65e1-dirty` before building
+and kept building against this tree rather than the tag, which is the right
+call: a consumer that pins the tag stops finding regressions.
+
+
 **1.3.0 IS BEING CUT (2026-09-07).** New surface, nothing taken away, so the
 version rule is followed rather than excepted this time. Seven things a
 program can now do that it could not: `with` on records, `Nothing` compiling
