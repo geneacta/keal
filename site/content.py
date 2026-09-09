@@ -293,6 +293,7 @@ KEALLER_VERSION = "0.1.0"
 KEALLER_BUILDS = [
     ("kealler-macos-arm64", "macOS", "Apple silicon"),
     ("kealler-linux-x86_64", "Linux", "x86-64"),
+    ("kealler-linux-arm64", "Linux", "ARM64"),
     ("kealler-windows-x86_64", "Windows", "x86-64"),
 ]
 
@@ -308,6 +309,12 @@ KEALLER = {
                    "growing text selection across more than one line. A download called an IDE "
                    "that opens a file and refuses a keystroke would be a promise this page had no "
                    "business making, so the first release waits for that.",
+        "windows": "<b>On Windows, fetch it with <code>curl</code> rather than through this "
+                   "page.</b> Windows marks what a browser downloads and SmartScreen reads that "
+                   "mark, not the file, so an unsigned program gets <i>“Windows protected your "
+                   "PC”</i> with the way through hidden behind “More info”. A terminal fetch "
+                   "attaches no mark. If you already downloaded it here, "
+                   "<code>Unblock-File .\\kealler.exe</code> in PowerShell removes it.",
         "macos": "<b>On macOS, fetch it with <code>curl</code> rather than through this page.</b> "
                  "macOS quarantines what a browser downloads and Gatekeeper reads that attribute, "
                  "not the file — and this build is signed only ad-hoc, so it will object. "
@@ -360,6 +367,13 @@ KEALLER = {
                    "téléchargement appelé « IDE » qui ouvre un fichier et refuse une frappe "
                    "serait une promesse que cette page n'a pas à faire, donc la première version "
                    "attend cela.",
+        "windows": "<b>Sur Windows, récupérez-le avec <code>curl</code> plutôt que par cette "
+                   "page.</b> Windows marque ce qu'un navigateur télécharge et SmartScreen lit "
+                   "cette marque, pas le fichier — donc un programme non signé reçoit "
+                   "<i>« Windows a protégé votre ordinateur »</i>, la sortie étant cachée "
+                   "derrière « Informations complémentaires ». Une récupération en terminal ne "
+                   "pose aucune marque. Si vous l'avez déjà téléchargé ici, "
+                   "<code>Unblock-File .\\kealler.exe</code> dans PowerShell la retire.",
         "macos": "<b>Sur macOS, récupérez-le avec <code>curl</code> plutôt que par cette "
                  "page.</b> macOS met en quarantaine ce qu'un navigateur télécharge, et "
                  "Gatekeeper lit cet attribut, pas le fichier — et ce binaire n'est signé qu'en "
