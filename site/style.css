@@ -450,6 +450,24 @@ a.card:hover { border-color: var(--accent); }
    bicolour and the sign is a gradient because both are true at the same
    time. */
 .kealler { --accent: #A1A7FF; --accent-h: #ADB4FF; --mint: #CCD2FF; }
+/* The way back to Keal, worn by the one child that lives on this domain.
+   The same button its siblings carry on their own sites — the parent's mint
+   as a foot in front of its name, which is the one green a child's page is
+   allowed and the only mark of whose family this is. */
+.btn-keal { display: inline-flex; align-items: center; gap: 8px;
+            font: 600 13px Sora, sans-serif; color: var(--ink);
+            border: 1px solid var(--line2); border-radius: 8px; padding: 7px 14px; }
+.btn-keal::before { content: ""; display: block; width: 10px; height: 5px;
+                    border-radius: 99px; background: #35C8A8; }
+.btn-keal:hover { border-color: var(--accent); color: var(--accent-h); }
+/* The archives look like what they are. `a` inherits its colour everywhere
+   on this site and only `.prose a` takes it back, so the download table —
+   which is not prose — was showing the one thing a visitor came to click as
+   plain text. Scoped to this table rather than loosened site-wide: every
+   other link here is inside prose already and reads correctly. */
+.kealler table a { color: var(--mint); text-decoration: underline;
+                   text-underline-offset: 3px; }
+.kealler table a:hover { color: var(--accent); }
 .kealler .hero { background: linear-gradient(135deg, rgba(53,200,168,.07),
                              transparent 45%, rgba(161,167,255,.07)); }
 .kealler .wordmark::after { background: linear-gradient(90deg, #35C8A8, #A1A7FF); }

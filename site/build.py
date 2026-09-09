@@ -294,6 +294,23 @@ FOOTER = {
 
 SWITCH = {"en": ("fr/", "Français"), "fr": ("../", "English")}
 
+# Kealler wears this site's dress and its own name, and the bar is where the
+# difference between the two used to be invisible. It IS a page here — its
+# repository is private, so its downloads are cut against this one — but a
+# reader who arrives on it has come for an editor, not for a language, and
+# the bar was showing them Keal's table of contents.
+#
+# So on that page the bar is Kealler's: the mark goes to Kealler rather than
+# home, the links are Kealler's own sections, and the way back to Keal is a
+# button that says so. That is exactly what kealeb, keal-view and KealSql do
+# from their own domains, and there is no reason the one child that lives
+# here should feel less like itself for it.
+#
+# The labels are not written here. They are the page's own headings, read
+# from `content.py`, so a heading renamed in one language cannot leave the
+# bar saying the old thing in either.
+KEAL_HOME = {"en": "Keal", "fr": "Keal"}
+
 # Where the site is served from. Canonical links, the language alternates
 # and the sitemap all need an absolute address; a search engine reading a
 # page cannot work out which of the two languages it is looking at, nor
@@ -316,7 +333,7 @@ VERSION = _version()
 
 
 def page(lang, filename, title, description, body, active=None, sidebar=None, toc=None,
-         body_class="", mark="keal"):
+         body_class="", mark="keal", nav=None, home=None, parent=False):
     """One complete HTML page, in the site's dress.
 
     `mark` names the brand the page wears: the K, the wordmark and the sign
@@ -326,7 +343,7 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
     """
     prefix = "" if lang == "en" else "../"
     nav_links = []
-    for href, label in NAV[lang]:
+    for href, label in (nav if nav is not None else NAV[lang]):
         cls = ' class="tab-active"' if href == active else ""
         nav_links.append('<a href="%s"%s>%s</a>' % (href, cls, label))
     other_href, other_label = SWITCH[lang]
@@ -394,8 +411,7 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
   <div class="nav-right">
     <span class="badge">v%(version)s</span>
     <a class="btn-lang" href="%(other)s">%(other_label)s</a>
-    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
-  </div>
+%(right)s  </div>
 </nav>
 %(body)s
 <footer class="foot">
@@ -433,12 +449,23 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
         # wordmark image the site used to carry is gone, and a name that is
         # text has no picture to share.
         "image": BASE_URL + "assets/k.png",
-        "home": "index.html",
+        "home": home or "index.html",
+        # A page that is its own site says how to leave it, and does not
+        # offer a repository that is not its own. Kealler's source is
+        # private: a `GitHub` button here would reach Keal's, which is the
+        # one thing the rest of this bar is trying not to say. The download
+        # table below already links the files.
+        # `index.html`, with no prefix, in both languages: the French pages
+        # live in `fr/` and reach each other from there, exactly as every
+        # other link in this bar does.
+        "right": ('    <a class="btn-keal" href="index.html">%s</a>\n' % KEAL_HOME[lang]
+                  if parent else
+                  '    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>\n'),
         "links": "".join(nav_links),
         "other": other,
         "other_label": other_label,
         "body": layout,
-        "foot0": foot[0],
+        "foot0": C.KEALLER_FOOT[lang] if mark == "kealler" else foot[0],
         "foot1": foot[1],
         "foot2": foot[2],
         "foot3": foot[3],
@@ -710,14 +737,19 @@ def kealler_page(lang):
             L["waiting"].replace("**", ""))
 
     body = ('<section class="band"><h1>%s</h1><p class="lede">%s</p></section>'
-            '<section class="band"><h2>%s</h2>%s</section>'
-            '<section class="band"><h2>%s</h2></section>'
+            '<section class="band" id="get"><h2>%s</h2>%s</section>'
+            '<section class="band" id="does"><h2>%s</h2></section>'
             '<section class="cards">%s</section>'
-            '<section class="band"><h2>%s</h2><p class="lede">%s</p></section>'
+            '<section class="band" id="needs"><h2>%s</h2><p class="lede">%s</p></section>'
             % (L["title"], L["lede"], L["h_get"], get, L["h_what"], cards,
                L["h_needs"], L["needs"]))
+    # Kealler's own bar, from Kealler's own headings, with the way back to
+    # Keal beside it. The mark points at this page rather than home, because
+    # on this page this page IS home.
+    nav = [("#get", L["h_get"]), ("#does", L["h_what"]), ("#needs", L["h_needs"])]
     return page(lang, "kealler.html", L["title"], L["lede"][:180], body,
-                active="kealler.html", body_class="kealler", mark="kealler")
+                body_class="kealler", mark="kealler",
+                nav=nav, home="kealler.html", parent=True)
 
 
 def coming_index(lang):

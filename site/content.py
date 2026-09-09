@@ -586,3 +586,14 @@ STEPS = [
      " <a href=\"coming-from.html\">je viens de…</a> partent de ce que vous savez déjà.",
      [("keal repl", "keal repl", None)]),
 ]
+
+
+# The line under Kealler's page. The site's own says "a statically typed,
+# self-hosting programming language", which is true of Keal and not of an
+# editor — and on a page wearing Kealler's bar it was the one place still
+# saying whose site this really is. It names Kealler and then says where
+# Kealler belongs, which is the honest version of both.
+KEALLER_FOOT = {
+    "en": "Kealler — an editor for Keal, written in Keal. Part of the Keal project, by Geneacta.",
+    "fr": "Kealler — un éditeur pour Keal, écrit en Keal. Fait partie du projet Keal, par Geneacta.",
+}
