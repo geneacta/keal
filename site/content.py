@@ -288,12 +288,18 @@ SIDEBAR = {
 # Empty until the first one is cut. The page then says what Kealler is and
 # what it is waiting for, rather than offering a download that does not exist
 # — and setting this to a version is the whole of publishing it.
-KEALLER_VERSION = "0.1.0"
+KEALLER_VERSION = "0.1.1"
 
 KEALLER_BUILDS = [
     ("kealler-macos-arm64", "macOS", "Apple silicon"),
     ("kealler-linux-x86_64", "Linux", "x86-64"),
-    ("kealler-linux-arm64", "Linux", "ARM64"),
+    # Linux on ARM belongs here and is not here yet. 0.1.1's arm64 job failed
+    # and was allowed to fail so the other three could be published, so the
+    # file does not exist and this row would offer a 404 — worse than a page
+    # that says to wait, because the reader spends their trust before finding
+    # out. `site/checkdownloads.py` asks GitHub about every row and refuses
+    # exactly this. Put it back the moment the archive is attached.
+    # ("kealler-linux-arm64", "Linux", "ARM64"),
     ("kealler-windows-x86_64", "Windows", "x86-64"),
 ]
 
