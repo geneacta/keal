@@ -393,6 +393,41 @@ not ours".
 
 ## IN FLIGHT
 
+**`s[i]` costs the length of the string, every time (2026-09-09).** Reported
+by the Kealler and keal-view sessions; confirmed here on macOS, and one of
+their two claims came out the other way round.
+
+`keal_str_get` walks the whole string **three** times per access —
+`keal_str_length` for the bound, then `keal_str_char_byte(idx)` and
+`keal_str_char_byte(idx + 1)` to cut — plus an allocation. The interpreters
+are O(n) too: `src/native.rs:530` collects a fresh `Vec<char>` on every string
+method. **Nothing caches anywhere**, which is why the quadratic shape is
+identical on all three engines, and which is what a cache-shaped fix would
+have to face in three places.
+
+Regex scan, `zqx[0-9]+` findAll over text that never matches, string
+construction measured separately and subtracted (it is 3-9ms):
+
+| | 10 000 | 20 000 | 40 000 | |
+|---|---|---|---|---|
+| VM | 0.063s | 0.220s | 0.900s | x3.5 x4.1 |
+| tree-walker | 0.086s | 0.258s | 0.995s | x3.0 x3.9 |
+| native | 0.085s | 0.355s | 1.459s | x4.2 x4.1 |
+
+**The shape confirms them. The direction does not.** Linux had native at
+0.96x the VM — barely faster, which they flagged as odd enough to want a
+second machine. Here native is **1.62x the VM**, meaning clearly slower, and
+consistently so across three sizes. So the anomaly is real and macOS shows it
+more plainly; it is the three walks against the interpreters' one.
+
+Measured apart rather than left to contaminate: the call-frame change is
++9%/+6%/+1% of that (v1.3.0 against HEAD, same probe). Native was already
+1.62x the VM before it.
+
+Nothing here is touched. The fix is `run()`'s signature in `lib/regex.keal`
+and its callers, or the string representation, and it is Tony's call.
+
+
 **A compiled failure now says what an interpreted one says (2026-09-08).**
 Committed, not tagged. What is worth keeping is not the feature.
 
