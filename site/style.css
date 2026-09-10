@@ -331,6 +331,15 @@ footer .base { margin: 0 0 14px; font: 400 13px/1.6 Sora, sans-serif; color: var
             border-radius: 8px; padding: 6px 12px; }
 .btn-lang:hover { color: var(--ink); border-color: var(--accent); }
 
+/* The button back to Keal keeps the parent's mint, as the foot of its K. It is
+ * the only green on this site, and it is there to say where this came from. */
+.btn-keal { display: inline-flex; align-items: center; gap: 8px;
+            font: 600 12px Sora, sans-serif; color: var(--ink);
+            border: 1px solid rgba(254,170,169,.28); border-radius: 99px; padding: 6px 12px; }
+.btn-keal::before { content: ""; width: 10px; height: 5px; border-radius: 99px;
+                    background: var(--keal-mint); flex: none; }
+.btn-keal:hover { border-color: var(--accent); }
+
 /* Long-form prose, shared by the docs, the tour and the coming-from pages. */
 .prose { max-width: 780px; }
 .prose h1 { font: 700 38px Sora, sans-serif; letter-spacing: -.015em; margin: 0 0 14px; }
