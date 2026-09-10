@@ -5,6 +5,10 @@
   --ink: #E4F1EC; --dim: #8CA69F; --prose: #9FB8B1; --faint: #567870;
   --accent: #35C8A8; --accent-h: #4ADBB5; --mint: #A9EBCD;
   --kw: #63D3B4; --ty: #A9EBCD; --str: #D9C98B; --code: #C7DAD4;
+  /* Keal's green, under a name a child cannot move. `--mint` is redefined on
+     `.kealler` and would take the parent's own colour with it, which is the
+     one thing the button back to Keal is there to show. */
+  --keal-mint: #35C8A8;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -94,11 +98,13 @@ pre { overflow-x: auto; }
    Found by the keal-view session, which measured below the smallest window
    Chrome will make: 500 points is its floor, and a phone is 320. */
 .prose code, .dmain code, .band code, .card p code, .hero .sub code { overflow-wrap: anywhere; }
-.pill { display: inline-flex; align-items: center; gap: 8px;
+/* The pill above the heading: what this page is, in one line, in mono. */
+.pill { display: inline-flex; align-items: center; gap: 9px; margin-bottom: 26px;
         font: 600 12px 'JetBrains Mono', monospace; color: var(--mint);
         border: 1px solid rgba(169,235,205,.25); border-radius: 99px;
-        padding: 6px 14px; margin-bottom: 26px; }
-.pill .dot { width: 6px; height: 6px; border-radius: 99px; background: var(--accent); }
+        padding: 6px 14px; }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%;
+                background: var(--accent); flex: none; }
 .hero h1 { margin: 0 0 20px; font: 700 54px/1.12 Sora, sans-serif;
            letter-spacing: -.02em; text-wrap: pretty; }
 .hero .sub { margin: 0 0 34px; font: 400 18px/1.65 Sora, sans-serif;
@@ -335,17 +341,10 @@ footer .base { margin: 0 0 14px; font: 400 13px/1.6 Sora, sans-serif; color: var
  * the only green on this site, and it is there to say where this came from. */
 .btn-keal { display: inline-flex; align-items: center; gap: 8px;
             font: 600 12px Sora, sans-serif; color: var(--ink);
-            border: 1px solid rgba(254,170,169,.28); border-radius: 99px; padding: 6px 12px; }
+            border: 1px solid rgba(161,167,255,.28); border-radius: 99px; padding: 6px 12px; }
 .btn-keal::before { content: ""; width: 10px; height: 5px; border-radius: 99px;
                     background: var(--keal-mint); flex: none; }
 .btn-keal:hover { border-color: var(--accent); }
-
-/* The pill above the heading: what this page is, in one line, in mono. */
-.pill { display: inline-flex; align-items: center; gap: 9px; margin-bottom: 26px;
-        font: 600 12px 'JetBrains Mono', monospace; color: var(--mint);
-        border: 1px solid rgba(255,195,194,.25); border-radius: 99px; padding: 6px 14px; }
-.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%;
-                background: var(--accent); flex: none; }
 
 /* Long-form prose, shared by the docs, the tour and the coming-from pages. */
 .prose { max-width: 780px; }
@@ -450,16 +449,6 @@ a.card:hover { border-color: var(--accent); }
    bicolour and the sign is a gradient because both are true at the same
    time. */
 .kealler { --accent: #A1A7FF; --accent-h: #ADB4FF; --mint: #CCD2FF; }
-/* The way back to Keal, worn by the one child that lives on this domain.
-   The same button its siblings carry on their own sites — the parent's mint
-   as a foot in front of its name, which is the one green a child's page is
-   allowed and the only mark of whose family this is. */
-.btn-keal { display: inline-flex; align-items: center; gap: 8px;
-            font: 600 13px Sora, sans-serif; color: var(--ink);
-            border: 1px solid var(--line2); border-radius: 8px; padding: 7px 14px; }
-.btn-keal::before { content: ""; display: block; width: 10px; height: 5px;
-                    border-radius: 99px; background: #35C8A8; }
-.btn-keal:hover { border-color: var(--accent); color: var(--accent-h); }
 /* The archives look like what they are. `a` inherits its colour everywhere
    on this site and only `.prose a` takes it back, so the download table —
    which is not prose — was showing the one thing a visitor came to click as

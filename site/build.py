@@ -410,8 +410,9 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
   </div>
   <div class="nav-right">
     <span class="badge">v%(version)s</span>
-    <a class="btn-lang" href="%(other)s">%(other_label)s</a>
-%(right)s  </div>
+%(back)s    <a class="btn-lang" href="%(other)s">%(other_label)s</a>
+    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>
+  </div>
 </nav>
 %(body)s
 <footer class="foot">
@@ -450,17 +451,17 @@ def page(lang, filename, title, description, body, active=None, sidebar=None, to
         # text has no picture to share.
         "image": BASE_URL + "assets/k.png",
         "home": home or "index.html",
-        # A page that is its own site says how to leave it, and does not
-        # offer a repository that is not its own. Kealler's source is
-        # private: a `GitHub` button here would reach Keal's, which is the
-        # one thing the rest of this bar is trying not to say. The download
-        # table below already links the files.
-        # `index.html`, with no prefix, in both languages: the French pages
+        # The way back, in the place kealeb puts it: after the version and
+        # before the language, so a reader coming from a sibling's site finds
+        # the same button in the same spot.
+        #
+        # `index.html`, with no prefix, in both languages. The French pages
         # live in `fr/` and reach each other from there, exactly as every
-        # other link in this bar does.
-        "right": ('    <a class="btn-keal" href="index.html">%s</a>\n' % KEAL_HOME[lang]
-                  if parent else
-                  '    <a class="btn-gh" href="https://github.com/geneacta/keal">GitHub</a>\n'),
+        # other link in this bar does — an absolute address would send a
+        # French reader to the English home and would not work at all on a
+        # local preview.
+        "back": ('    <a class="btn-keal" href="index.html">%s</a>\n' % KEAL_HOME[lang]
+                 if parent else ""),
         "links": "".join(nav_links),
         "other": other,
         "other_label": other_label,
