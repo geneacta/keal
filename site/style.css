@@ -340,6 +340,13 @@ footer .base { margin: 0 0 14px; font: 400 13px/1.6 Sora, sans-serif; color: var
                     background: var(--keal-mint); flex: none; }
 .btn-keal:hover { border-color: var(--accent); }
 
+/* The pill above the heading: what this page is, in one line, in mono. */
+.pill { display: inline-flex; align-items: center; gap: 9px; margin-bottom: 26px;
+        font: 600 12px 'JetBrains Mono', monospace; color: var(--mint);
+        border: 1px solid rgba(255,195,194,.25); border-radius: 99px; padding: 6px 14px; }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%;
+                background: var(--accent); flex: none; }
+
 /* Long-form prose, shared by the docs, the tour and the coming-from pages. */
 .prose { max-width: 780px; }
 .prose h1 { font: 700 38px Sora, sans-serif; letter-spacing: -.015em; margin: 0 0 14px; }
