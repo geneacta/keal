@@ -288,7 +288,7 @@ SIDEBAR = {
 # Empty until the first one is cut. The page then says what Kealler is and
 # what it is waiting for, rather than offering a download that does not exist
 # — and setting this to a version is the whole of publishing it.
-KEALLER_VERSION = "0.5.2"
+KEALLER_VERSION = "0.6.1"
 
 KEALLER_BUILDS = [
     ("kealler-macos-arm64", "macOS", "Apple silicon"),
@@ -340,6 +340,16 @@ KEALLER = {
              "The highlighting is <code>keal tokens</code> — the lexer that compiles the file. A "
              "second grammar written in regular expressions agrees with the compiler on the day "
              "it is written and disagrees the first time the language grows."),
+            ("And thirteen other file types coloured by a table that says so",
+             "Java, Kotlin, Go, Rust, C, C++, Python, SQL, JavaScript, TypeScript, JSON, "
+             "shell, TOML and YAML. This one <i>is</i> a second grammar, which is the wrong "
+             "answer everywhere else here and the only answer where there is no first grammar "
+             "to defer to: <code>javac</code> hands out no token stream. Asked about five of "
+             "these, <code>keal tokens</code> refuses at the first unfamiliar character and "
+             "returns nothing, so borrowing Keal's lexer does not stretch — measured, and each "
+             "of those five characters is now a test. What the table is allowed to do is "
+             "narrow: it colours and decides nothing. No outline, no definition, no "
+             "completion comes from it."),
             ("What the compiler thinks, where it happened",
              "<code>keal check</code> runs on the file you are looking at, and each thing it "
              "found is drawn on the line it names rather than in a list somewhere else."),
@@ -420,6 +430,16 @@ KEALLER = {
              "La coloration est <code>keal tokens</code> — le lexer qui compile le fichier. Une "
              "seconde grammaire écrite en expressions régulières est d'accord avec le compilateur "
              "le jour où on l'écrit et en désaccord dès que le langage grandit."),
+            ("Et treize autres types de fichiers colorés par une table qui le dit",
+             "Java, Kotlin, Go, Rust, C, C++, Python, SQL, JavaScript, TypeScript, JSON, "
+             "shell, TOML et YAML. Celle-ci <i>est</i> une seconde grammaire, ce qui est la "
+             "mauvaise réponse partout ailleurs ici et la seule réponse là où il n'y a pas de "
+             "première grammaire à qui déférer : <code>javac</code> ne donne aucun flux de "
+             "jetons. Interrogé sur cinq de ces langages, <code>keal tokens</code> refuse au "
+             "premier caractère inconnu et ne rend rien — donc emprunter le lexer de Keal ne "
+             "s'étend pas, c'est mesuré, et chacun de ces cinq caractères est devenu un test. "
+             "Ce que la table a le droit de faire est étroit : elle colore et ne décide rien. "
+             "Aucun plan, aucune définition, aucune complétion n'en sort."),
             ("Ce que le compilateur pense, là où ça se passe",
              "<code>keal check</code> tourne sur le fichier ouvert, et chaque chose trouvée est "
              "dessinée sur la ligne qu'elle nomme plutôt que dans une liste ailleurs."),
