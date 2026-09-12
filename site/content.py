@@ -288,7 +288,7 @@ SIDEBAR = {
 # Empty until the first one is cut. The page then says what Kealler is and
 # what it is waiting for, rather than offering a download that does not exist
 # — and setting this to a version is the whole of publishing it.
-KEALLER_VERSION = "0.6.1"
+KEALLER_VERSION = "0.7.0"
 
 KEALLER_BUILDS = [
     ("kealler-macos-arm64", "macOS", "Apple silicon"),
@@ -368,6 +368,16 @@ KEALLER = {
              "tool accepts. The toolchain is probed while you type the name, so a missing "
              "compiler is said there rather than two steps later, with one command to fix it. "
              "Nothing is installed for you."),
+            ("A toolchain fetched, with the checksum as the feature",
+             "Go, for now, from <i>Nouveau projet</i> when it is missing. The source must "
+             "publish its checksum as plain text at a URL derived from the archive's own, "
+             "fetched separately and before the archive — so a wrong version, a wrong "
+             "platform, a truncated download or a substituted mirror all end the same way: "
+             "the hash does not match, the file is deleted, nothing is unpacked. Then the "
+             "binary runs its own <code>version</code> before anything calls it installed. "
+             "Java is absent because Temurin's link and checksum live in the <i>same</i> JSON "
+             "document, so a parse that picks the wrong asset picks its matching checksum and "
+             "the check passes — that fails open. Nothing touches your PATH."),
             ("git in the margin and in the tree",
              "<code>M</code>, <code>?</code> and <code>D</code> beside the files, and the diff "
              "in the gutter: green added, amber changed, red removed. Refreshed on open and on "
@@ -458,6 +468,17 @@ KEALLER = {
              "outil accepte. La chaîne d'outils est sondée pendant que vous tapez le nom, donc un "
              "compilateur absent se dit là plutôt que deux étapes plus loin, avec une commande "
              "pour y remédier. Rien n'est installé à votre place."),
+            ("Une chaîne d'outils téléchargée, la somme de contrôle pour fonctionnalité",
+             "Go, pour l'instant, depuis <i>Nouveau projet</i> quand il manque. La source doit "
+             "publier sa somme en texte brut à une URL dérivée de celle de l'archive, "
+             "récupérée séparément et avant l'archive — donc une mauvaise version, une "
+             "mauvaise plateforme, un téléchargement tronqué ou un miroir substitué finissent "
+             "tous pareil : la somme ne correspond pas, le fichier est supprimé, rien n'est "
+             "ouvert. Ensuite le binaire exécute son propre <code>version</code> avant que quoi "
+             "que ce soit le déclare installé. Java est absent parce que le lien de Temurin et "
+             "sa somme vivent dans le <i>même</i> document JSON : une analyse qui choisit le "
+             "mauvais fichier choisit la somme qui va avec et la vérification passe — cette "
+             "chaîne échoue ouverte. Rien ne touche votre PATH."),
             ("git dans la marge et dans l'arbre",
              "<code>M</code>, <code>?</code> et <code>D</code> à côté des fichiers, et le diff "
              "dans la gouttière : vert ajouté, ambre modifié, rouge supprimé. Rafraîchi à "
