@@ -288,7 +288,7 @@ SIDEBAR = {
 # Empty until the first one is cut. The page then says what Kealler is and
 # what it is waiting for, rather than offering a download that does not exist
 # — and setting this to a version is the whole of publishing it.
-KEALLER_VERSION = "0.2.1"
+KEALLER_VERSION = "0.5.2"
 
 KEALLER_BUILDS = [
     ("kealler-macos-arm64", "macOS", "Apple silicon"),
@@ -343,6 +343,25 @@ KEALLER = {
             ("What the compiler thinks, where it happened",
              "<code>keal check</code> runs on the file you are looking at, and each thing it "
              "found is drawn on the line it names rather than in a list somewhere else."),
+            ("The type under the caret, and completion that knows imports",
+             "The status bar says what the thing under the caret <i>is</i> — "
+             "<code>helper : (String) -&gt; Int</code> — and completion offers names with their "
+             "signatures, including names declared in another file. This was planned as a "
+             "language server and is not one: <code>keal types</code> prints the checked typed "
+             "tree, follows imports, and answers in 40&nbsp;ms on a thousand lines. It is asked "
+             "when the file is opened and when it is saved, never while you type — the compiler "
+             "reads the file on disk, and a type that lags the text beside it is worse than no "
+             "type."),
+            ("A project that compiles before you have written anything",
+             "Ten templates — Keal, Keal with a window, Java, Kotlin, Go, Rust, C, C++, Python, "
+             "Spring Boot — each laid out the way that language expects, with a manifest its "
+             "tool accepts. The toolchain is probed while you type the name, so a missing "
+             "compiler is said there rather than two steps later, with one command to fix it. "
+             "Nothing is installed for you."),
+            ("git in the margin and in the tree",
+             "<code>M</code>, <code>?</code> and <code>D</code> beside the files, and the diff "
+             "in the gutter: green added, amber changed, red removed. Refreshed on open and on "
+             "save, not while you type, for the same reason the types are."),
             ("A preview that is the program's own output",
              "Building a keal-view program and showing the frame it drew — with no display "
              "involved, through <code>--snapshot</code>. No second renderer to keep in agreement "
@@ -404,6 +423,26 @@ KEALLER = {
             ("Ce que le compilateur pense, là où ça se passe",
              "<code>keal check</code> tourne sur le fichier ouvert, et chaque chose trouvée est "
              "dessinée sur la ligne qu'elle nomme plutôt que dans une liste ailleurs."),
+            ("Le type sous le curseur, et une complétion qui connaît les imports",
+             "La barre d'état dit ce qu'<i>est</i> la chose sous le curseur — "
+             "<code>helper : (String) -&gt; Int</code> — et la complétion propose les noms avec "
+             "leur signature, y compris ceux déclarés dans un autre fichier. C'était prévu comme "
+             "un serveur de langage et n'en est pas un : <code>keal types</code> imprime l'arbre "
+             "typé vérifié, suit les imports, et répond en 40&nbsp;ms sur mille lignes. Il est "
+             "interrogé à l'ouverture et à l'enregistrement, jamais pendant la frappe — le "
+             "compilateur lit le fichier sur le disque, et un type en retard d'une frappe sur le "
+             "texte d'à côté est pire que pas de type du tout."),
+            ("Un projet qui compile avant que vous ayez écrit quoi que ce soit",
+             "Dix modèles — Keal, Keal avec une fenêtre, Java, Kotlin, Go, Rust, C, C++, Python, "
+             "Spring Boot — chacun disposé comme ce langage l'attend, avec un manifeste que son "
+             "outil accepte. La chaîne d'outils est sondée pendant que vous tapez le nom, donc un "
+             "compilateur absent se dit là plutôt que deux étapes plus loin, avec une commande "
+             "pour y remédier. Rien n'est installé à votre place."),
+            ("git dans la marge et dans l'arbre",
+             "<code>M</code>, <code>?</code> et <code>D</code> à côté des fichiers, et le diff "
+             "dans la gouttière : vert ajouté, ambre modifié, rouge supprimé. Rafraîchi à "
+             "l'ouverture et à l'enregistrement, pas pendant la frappe, pour la même raison que "
+             "les types."),
             ("Un aperçu qui est la sortie du programme lui-même",
              "Compiler un programme keal-view et montrer l'image qu'il a dessinée — sans aucun "
              "écran, par <code>--snapshot</code>. Pas de second moteur de rendu à tenir en accord "
