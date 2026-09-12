@@ -998,6 +998,14 @@ impl Checker {
             self.error(en.span, format!("enum `{}` is declared twice", en.name));
             return;
         }
+        for v in &en.variants {
+            if !v.fields.is_empty() {
+                self.error(
+                    v.span,
+                    format!("enum variant `{}` carries fields, which is parsed but not yet checked", v.name),
+                );
+            }
+        }
         let variants: Vec<Rc<str>> = en.variants.iter().map(|v| Rc::from(v.name.as_str())).collect();
         self.enums.insert(
             en.name.clone(),

@@ -488,10 +488,15 @@ impl Parser {
             }
             let vspan = self.span();
             let (vname, _) = self.expect_ident("a variant name")?;
-            if self.at(&Tok::LParen) {
-                return Err(Diag::new(vspan, "an enum variant cannot have fields")
-                    .with_note("a variant that carries something is a `record`"));
-            }
+            // A variant's fields are read here and refused by the checker, so
+            // that both compilers agree on the parse tree before either can run
+            // one. `keal ast` shows them; `keal types` says they are not ready.
+            // `param_list` opens and closes the parentheses itself.
+            let fields = if self.at(&Tok::LParen) {
+                self.param_list()?
+            } else {
+                Vec::new()
+            };
             if self.at(&Tok::Assign) {
                 return Err(Diag::new(vspan, "an enum variant cannot have a value")
                     .with_note("write a function with a `when` over the enum: the day a variant is added, that function is an error rather than a wrong number"));
@@ -503,7 +508,7 @@ impl Parser {
                 return Err(Diag::new(vspan, "`values` cannot name a variant")
                     .with_note("`values()` is the list of an enum's variants"));
             }
-            variants.push(Variant { name: vname, span: vspan });
+            variants.push(Variant { name: vname, fields, span: vspan });
             self.skip_semis();
             let _ = self.eat(&Tok::Comma);
         }

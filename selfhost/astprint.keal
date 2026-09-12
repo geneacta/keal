@@ -132,7 +132,9 @@ func pTParam(tp: TParamN): String {
 func pEnum(en: EnumN): String {
     var out = "${visPrefix(en.vis)}enum ${en.name} ${en.line}:${en.col}"
     for (v in en.variants) {
-        out += "\n" + indentBlock("variant ${v.name} ${v.line}:${v.col}")
+        var node = "variant ${v.name} ${v.line}:${v.col}"
+        for (p in v.fields) { node += "\n" + indentBlock(pParam(p)) }
+        out += "\n" + indentBlock(node)
     }
     return out
 }

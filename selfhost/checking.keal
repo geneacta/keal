@@ -1098,6 +1098,12 @@ package class Checker() {
                     this.error(en.file, en.line, en.col, "enum `${en.name}` is declared twice")
                     continue
                 }
+                for (v in en.variants) {
+                    if (v.fields.size > 0) {
+                        this.error(v.file, v.line, v.col,
+                            "enum variant `${v.name}` carries fields, which is parsed but not yet checked")
+                    }
+                }
                 val names: List<String> = []
                 for (v in en.variants) { names.add(v.name) }
                 this.enums[en.name] = names

@@ -228,6 +228,9 @@ package class EnumN(package var name: String, package val line: Int, package val
 
 package class VariantN(package val name: String, package val line: Int, package val col: Int) {
     package var file: Int = 0
+    /// `Circle(r: Float)` — what the variant carries. Empty for a plain
+    /// variant, which is every variant the engines can run today.
+    package var fields: List<ParamN> = []
 }
 
 /// `macro name(a, b) { ... }` — a named piece of syntax, expanded where it

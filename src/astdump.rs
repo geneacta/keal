@@ -300,7 +300,11 @@ fn block_node(tag: &str, b: &Block) -> String {
 fn enum_node(en: &EnumDecl) -> String {
     let mut out = format!("{}enum {} {}", vis_prefix(en.vis), en.name, at(en.span));
     for v in &en.variants {
-        out.push_str(&format!("\n{}", indent(&format!("variant {} {}", v.name, at(v.span)))));
+        let mut node = format!("variant {} {}", v.name, at(v.span));
+        for p in &v.fields {
+            node.push_str(&format!("\n{}", indent(&param_node(p))));
+        }
+        out.push_str(&format!("\n{}", indent(&node)));
     }
     out
 }

@@ -505,13 +505,12 @@ package class Parser(val toks: List<Token>) {
             if (this.at("}") or this.at("eof")) { break }
             val vt = this.peek()
             val vname = this.expectIdent("a variant name")
-            if (this.at("(")) {
-                this.failNote(
-                    vt.line, vt.col,
-                    "an enum variant cannot have fields",
-                    "a variant that carries something is a `record`"
-                )
-            }
+            // A variant's fields are read here and refused by the checker, so
+            // that both compilers agree on the parse tree before either can run
+            // one. `keal ast` shows them; `keal types` says they are not ready.
+            // `paramList` opens and closes the parentheses itself.
+            var fields: List<ParamN> = []
+            if (this.at("(")) { fields = this.paramList() }
             if (this.at("=")) {
                 this.failNote(
                     vt.line, vt.col,
@@ -533,7 +532,9 @@ package class Parser(val toks: List<Token>) {
                     "`values()` is the list of an enum's variants"
                 )
             }
-            en.variants.add(VariantN(vname, vt.line, vt.col))
+            val variant = VariantN(vname, vt.line, vt.col)
+            variant.fields = fields
+            en.variants.add(variant)
             this.skipSemis()
             val _comma = this.eat(",")
         }

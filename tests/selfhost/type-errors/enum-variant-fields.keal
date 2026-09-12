@@ -1,0 +1,7 @@
+// A variant's fields parse — both compilers must build the same tree for
+// them — and the checker refuses them until an engine can run one. The two
+// halves land apart on purpose: a grammar that only one compiler knows
+// breaks the fixed point on every file, so it goes in first and alone.
+enum Shape { Circle(r: Float), Square(s: Float), Point }
+val p = Shape.Point
+println(p)

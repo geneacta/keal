@@ -136,6 +136,9 @@ pub struct EnumDecl {
 #[derive(Clone, Debug)]
 pub struct Variant {
     pub name: String,
+    /// `Circle(r: Float)` — what the variant carries. Empty for a plain
+    /// variant, which is every variant the engines can run today.
+    pub fields: Vec<Param>,
     pub span: Span,
 }
 
