@@ -288,7 +288,7 @@ SIDEBAR = {
 # Empty until the first one is cut. The page then says what Kealler is and
 # what it is waiting for, rather than offering a download that does not exist
 # — and setting this to a version is the whole of publishing it.
-KEALLER_VERSION = "0.7.0"
+KEALLER_VERSION = "0.8.0"
 
 KEALLER_BUILDS = [
     ("kealler-macos-arm64", "macOS", "Apple silicon"),
@@ -382,6 +382,15 @@ KEALLER = {
              "<code>M</code>, <code>?</code> and <code>D</code> beside the files, and the diff "
              "in the gutter: green added, amber changed, red removed. Refreshed on open and on "
              "save, not while you type, for the same reason the types are."),
+            ("Run it without freezing the editor, and see a web app's routes",
+             "Every program is started detached, its output streaming into the Journal, with a "
+             "way to stop it — because a server or any other program that does not end used to "
+             "hang the window until it was killed from outside. A kealeb application also gets "
+             "its routes as its outline, read from <code>keal tokens</code> rather than from a "
+             "scan of the text, and the address to open in a browser comes from the line the "
+             "server itself printed rather than from a port the editor picked. What it will "
+             "never do is draw the page: kealeb emits HTML for a browser engine, and a picture "
+             "that is <i>nearly</i> the page is wrong exactly where it is interesting."),
             ("A preview that is the program's own output",
              "Building a keal-view program and showing the frame it drew — with no display "
              "involved, through <code>--snapshot</code>. No second renderer to keep in agreement "
@@ -484,6 +493,16 @@ KEALLER = {
              "dans la gouttière : vert ajouté, ambre modifié, rouge supprimé. Rafraîchi à "
              "l'ouverture et à l'enregistrement, pas pendant la frappe, pour la même raison que "
              "les types."),
+            ("L'exécuter sans geler l'éditeur, et voir les routes d'une application web",
+             "Tout programme est lancé détaché, sa sortie arrivant au fil de l'eau dans le "
+             "Journal, avec de quoi l'arrêter — parce qu'un serveur, ou tout programme qui ne "
+             "se termine pas, bloquait la fenêtre jusqu'à ce qu'on le tue de l'extérieur. Une "
+             "application kealeb obtient aussi ses routes pour plan, lues depuis "
+             "<code>keal tokens</code> et non depuis un balayage du texte, et l'adresse à "
+             "ouvrir dans un navigateur vient de la ligne que le serveur a lui-même imprimée, "
+             "pas d'un port choisi par l'éditeur. Ce qu'il ne fera jamais : dessiner la page. "
+             "kealeb produit du HTML pour un moteur de navigateur, et une image <i>presque</i> "
+             "la page est fausse exactement là où c'est intéressant."),
             ("Un aperçu qui est la sortie du programme lui-même",
              "Compiler un programme keal-view et montrer l'image qu'il a dessinée — sans aucun "
              "écran, par <code>--snapshot</code>. Pas de second moteur de rendu à tenir en accord "
