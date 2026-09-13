@@ -544,7 +544,7 @@ impl CBackend {
     }
 
     /// The function that takes a reference to a value of this type.
-    fn retain_fn(ty: &Type) -> Option<String> {
+    fn retain_fn(&self, ty: &Type) -> Option<String> {
         match ty {
             Type::Str => Some("keal_str_retain".to_string()),
             Type::Class(name, args) => Some(format!("{}_retain", struct_name_of(name, args))),
@@ -554,13 +554,13 @@ impl CBackend {
             Type::Any => Some("keal_any_retain".to_string()),
             // Retain and release both accept null, so a nullable needs no
             // special case beyond reaching through it.
-            Type::Nullable(inner) => Self::retain_fn(inner),
+            Type::Nullable(inner) => self.retain_fn(inner),
             _ => None,
         }
     }
 
     /// The function that gives one back.
-    fn release_fn(ty: &Type) -> Option<String> {
+    fn release_fn(&self, ty: &Type) -> Option<String> {
         match ty {
             Type::Str => Some("keal_str_release".to_string()),
             Type::Class(name, args) => Some(format!("{}_release", struct_name_of(name, args))),
@@ -568,7 +568,7 @@ impl CBackend {
             Type::Fun(_) => Some("keal_fn_release".to_string()),
             Type::Map(_, _) => Some("keal_map_release".to_string()),
             Type::Any => Some("keal_any_release".to_string()),
-            Type::Nullable(inner) => Self::release_fn(inner),
+            Type::Nullable(inner) => self.release_fn(inner),
             _ => None,
         }
     }
@@ -599,8 +599,8 @@ impl CBackend {
     }
 
     /// Wraps an expression in a retain, where the type needs one.
-    fn retained(ty: &Type, expr: &str) -> String {
-        match Self::retain_fn(ty) {
+    fn retained(&self, ty: &Type, expr: &str) -> String {
+        match self.retain_fn(ty) {
             Some(f) => format!("{}({})", f, expr),
             None => expr.to_string(),
         }
@@ -892,7 +892,7 @@ impl CBackend {
                 return format!("{}_weak_retain({})", target, v);
             }
         }
-        Self::retained(ty, v)
+        self.retained(ty, v)
     }
 
     /// The class a weak field points at, as its C struct name.
@@ -1235,7 +1235,7 @@ impl CBackend {
                 }
                 continue;
             }
-            if let Some(f) = Self::release_fn(ty) {
+            if let Some(f) = self.release_fn(ty) {
                 let _ = writeln!(rel, "    {}(o->{});", f, mangle(fname));
             }
         }
@@ -1789,7 +1789,7 @@ impl CBackend {
             // process at the panic site, message and line intact.
             ("ActorSystem", "run") => {
                 let ref_sn = self.instantiate_class("ActorRef", std::slice::from_ref(&m_ty), span)?;
-                let rel_msg = Self::release_fn(&m_ty);
+                let rel_msg = self.release_fn(&m_ty);
                 let _ = writeln!(
                     self.types,
                     "typedef struct {sn}_actctx {{ {sn}* sys; KealRunState* st; }} {sn}_actctx;",
@@ -2319,7 +2319,7 @@ impl CBackend {
     }
 
     fn own(&mut self, name: &str, ty: &Type) {
-        let Some(release) = Self::release_fn(ty) else { return };
+        let Some(release) = self.release_fn(ty) else { return };
         self.hoist_declaration(name);
         let o = Owned { name: name.to_string(), release };
         if let Some(mark) = self.unwind_marks.last_mut() {
@@ -2418,7 +2418,7 @@ impl CBackend {
                     self.declare_local(name, &ty, *mutable);
                     let _ = writeln!(self.global_decls, "static {} {};", c, var);
                     let value = self.coerced_to(init, &ty);
-                    self.line(format!("{} = {};", var, Self::retained(&ty, &value)));
+                    self.line(format!("{} = {};", var, self.retained(&ty, &value)));
                     return;
                 }
                 self.declare_local(name, &ty, *mutable);
@@ -2430,14 +2430,14 @@ impl CBackend {
                     self.line(format!("KealCell* {} = keal_cell_new({});", var, thunk));
                     self.own_cell(&var);
                     let value = self.expr(init);
-                    let stored = Self::retained(&ty, &value);
+                    let stored = self.retained(&ty, &value);
                     self.line(format!("{}->w = {};", var, kind.word(&stored)));
                     self.celled.insert(name.clone(), (ty, kind));
                     return;
                 }
                 let value = self.coerced_to(init, &ty);
                 if Self::counted(&ty) {
-                    self.line(format!("KEAL_LOCAL {} {} = {};", c, var, Self::retained(&ty, &value)));
+                    self.line(format!("KEAL_LOCAL {} {} = {};", c, var, self.retained(&ty, &value)));
                     self.own(&var, &ty);
                 } else {
                     self.line(format!("KEAL_LOCAL {} {} = {};", c, var, value));
@@ -2486,7 +2486,7 @@ impl CBackend {
                             v.clone()
                         } else {
                             let t = self.temp();
-                            self.line(format!("{} {} = {};", c, t, Self::retained(&ty, &v)));
+                            self.line(format!("{} {} = {};", c, t, self.retained(&ty, &v)));
                             t
                         };
                         let depth = self.scopes.len();
@@ -2674,7 +2674,7 @@ impl CBackend {
                     let Some(ct) = self.ctype(fty, pattern.span) else { return };
                     self.declare_local(name, fty, false);
                     let access = format!("{}->{}", v, mangle(fname));
-                    let value = Self::retained(fty, &access);
+                    let value = self.retained(fty, &access);
                     self.line(format!("{} {} = {};", ct, mangle(name), value));
                     if Self::counted(fty) {
                         self.own(&mangle(name), fty);
@@ -2888,7 +2888,7 @@ impl CBackend {
                                 return "0".to_string();
                             };
                             if Self::counted(&t) {
-                                let call = Self::retained(&t, &read);
+                                let call = self.retained(&t, &read);
                                 return self.own_temp_of(&t, call);
                             }
                             return read;
@@ -2898,7 +2898,7 @@ impl CBackend {
                 if let Some((ty, kind)) = self.celled.get(name).cloned() {
                     let access = kind.unword(&format!("{}->w", self.var_ref(name)));
                     if Self::counted(&ty) {
-                        let call = Self::retained(&ty, &access);
+                        let call = self.retained(&ty, &access);
                         return self.own_temp_of(&ty, call);
                     }
                     return access;
@@ -2920,7 +2920,7 @@ impl CBackend {
                 let v = self.var_ref(name);
                 match self.ety(e) {
                     Some(ty) if Self::counted(&ty) => {
-                        let call = Self::retained(&ty, &v);
+                        let call = self.retained(&ty, &v);
                         self.own_temp_of(&ty, call)
                     }
                     _ => v,
@@ -3164,7 +3164,7 @@ impl CBackend {
             let rel = if *is_cell {
                 Some("keal_cell_release".to_string())
             } else {
-                Self::release_fn(ty)
+                self.release_fn(ty)
             };
             if let Some(rel) = rel {
                 let _ = write!(drop, "    {}(env->{});\n", rel, mangle(name));
@@ -3366,7 +3366,7 @@ impl CBackend {
             let v = if *is_cell {
                 format!("keal_cell_retain({})", source)
             } else {
-                Self::retained(ty, &source)
+                self.retained(ty, &source)
             };
             self.line(format!("{t}_env->{f} = {v};", t = t, f = mangle(name), v = v));
         }
@@ -3594,7 +3594,7 @@ impl CBackend {
                 let raw = vk.unword(&format!("{}->data[2 * {} + 1]", m, at));
                 let vcb = self.ctype(&vt, e.span)?;
                 self.line(format!("{} {} = {};", vcb, held, raw));
-                let wrapped = opt_wrap(&vt, &Self::retained(&vt, &held));
+                let wrapped = opt_wrap(&vt, &self.retained(&vt, &held));
                 self.line(format!("{} = {};", t, wrapped));
                 self.indent -= 1;
                 self.line("} else {");
@@ -3613,8 +3613,8 @@ impl CBackend {
             "set" => {
                 let key = self.expr(&args[0].value);
                 let value = self.coerced_to(&args[1].value, &vt);
-                let sk = Self::retained(&kt, &key);
-                let sv = Self::retained(&vt, &value);
+                let sk = self.retained(&kt, &key);
+                let sv = self.retained(&vt, &value);
                 self.line(format!(
                     "keal_map_set({}, {}, {});",
                     m,
@@ -3665,7 +3665,7 @@ impl CBackend {
                 let offset =
                     if val_slot { format!("2 * {} + 1", i) } else { format!("2 * {}", i) };
                 let item = kind.unword(&format!("{}->data[{}]", m, offset));
-                let stored = Self::retained(&ty, &item);
+                let stored = self.retained(&ty, &item);
                 self.line(format!("keal_list_push({}, {});", out, kind.word(&stored)));
                 self.indent -= 1;
                 self.line("}");
@@ -3725,7 +3725,7 @@ impl CBackend {
                     self.line(format!("const {} {} = {};", ct, t, call));
                     t
                 };
-                let stored = Self::retained(&out_ty, &v);
+                let stored = self.retained(&out_ty, &v);
                 self.line(format!("keal_list_push({}, {});", out, out_elem.word(&stored)));
                 self.close_scope();
                 self.indent -= 1;
@@ -3750,7 +3750,7 @@ impl CBackend {
                 let call = self.call_closure(&ft, &f, &[item.clone()], e.span)?;
                 self.open_if(&call);
                 self.indent += 1;
-                let stored = Self::retained(elem_ty, &item);
+                let stored = self.retained(elem_ty, &item);
                 self.line(format!("keal_list_push({}, {});", out, elem.word(&stored)));
                 self.indent -= 1;
                 self.line("}");
@@ -3764,7 +3764,7 @@ impl CBackend {
                 let init = self.expr(&args[0].value);
                 let f = self.expr(&args[1].value);
                 let acc = self.temp();
-                self.line(format!("{} {} = {};", acc_c, acc, Self::retained(&acc_ty, &init)));
+                self.line(format!("{} {} = {};", acc_c, acc, self.retained(&acc_ty, &init)));
                 if Self::counted(&acc_ty) {
                     self.own(&acc, &acc_ty);
                 }
@@ -3785,7 +3785,7 @@ impl CBackend {
                 // released before the name moves on to it.
                 let next = self.temp();
                 self.line(format!("{} {} = {};", acc_c, next, call));
-                if let Some(rel) = Self::release_fn(&acc_ty) {
+                if let Some(rel) = self.release_fn(&acc_ty) {
                     self.line(format!("{}({});", rel, acc));
                 }
                 self.line(format!("{} = {};", acc, next));
@@ -4262,9 +4262,9 @@ impl CBackend {
                     // The insert can panic before it takes the reference;
                     // owning it in a temp keeps the unwind path exact, and
                     // a clean call transfers it by NULLing the temp.
-                    self.own_temp_of(elem_ty, Self::retained(elem_ty, &v))
+                    self.own_temp_of(elem_ty, self.retained(elem_ty, &v))
                 } else {
-                    Self::retained(elem_ty, &v)
+                    self.retained(elem_ty, &v)
                 };
                 self.line(format!(
                     "keal_list_insert_at({}, {}, {}, {});",
@@ -4288,11 +4288,11 @@ impl CBackend {
                     // The set can panic before it takes the reference;
                     // owning it in a temp keeps the unwind path exact, and
                     // a clean call transfers it by NULLing the temp.
-                    self.own_temp_of(elem_ty, Self::retained(elem_ty, &v))
+                    self.own_temp_of(elem_ty, self.retained(elem_ty, &v))
                 } else {
-                    Self::retained(elem_ty, &v)
+                    self.retained(elem_ty, &v)
                 };
-                match Self::release_fn(elem_ty) {
+                match self.release_fn(elem_ty) {
                     Some(release) => {
                         let old = self.temp();
                         self.line(format!(
@@ -4405,7 +4405,7 @@ impl CBackend {
                 self.line(format!(
                     "{} = {};",
                     t,
-                    opt_wrap(elem_ty, &Self::retained(elem_ty, &item))
+                    opt_wrap(elem_ty, &self.retained(elem_ty, &item))
                 ));
                 self.indent -= 1;
                 self.line("}");
@@ -4564,7 +4564,7 @@ impl CBackend {
                 let call = self.call_closure(&ft, &f, &[item.clone()], e.span)?;
                 self.open_if(&call);
                 self.indent += 1;
-                let hit = opt_wrap(&inner, &Self::retained(&inner, &item));
+                let hit = opt_wrap(&inner, &self.retained(&inner, &item));
                 self.line(format!("{} = {};", t, hit));
                 self.line("break;");
                 self.indent -= 1;
@@ -4668,7 +4668,7 @@ impl CBackend {
                         self.line(format!("const {} {} = {};", ct, t, call));
                         t
                     };
-                    let stored = Self::retained(&ret_ty, &v);
+                    let stored = self.retained(&ret_ty, &v);
                     self.line(format!("keal_list_push({}, {});", out, out_elem.word(&stored)));
                 }
                 self.close_scope();
@@ -4731,7 +4731,7 @@ impl CBackend {
                 ));
                 self.indent += 1;
                 let sorted_item = elem.unword(&format!("{}->data[{}]", snap, j));
-                let stored = Self::retained(elem_ty, &sorted_item);
+                let stored = self.retained(elem_ty, &sorted_item);
                 self.line(format!("keal_list_push({}, {});", out, elem.word(&stored)));
                 self.indent -= 1;
                 self.line("}");
@@ -4809,7 +4809,7 @@ impl CBackend {
                 ));
                 self.indent += 1;
                 let sorted_item = elem.unword(&format!("{}->data[{}]", snap, j));
-                let stored = Self::retained(elem_ty, &sorted_item);
+                let stored = self.retained(elem_ty, &sorted_item);
                 self.line(format!("keal_list_push({}, {});", out, elem.word(&stored)));
                 self.indent -= 1;
                 self.line("}");
@@ -4870,8 +4870,8 @@ impl CBackend {
         for (k, v) in entries {
             let kv = self.expr(k);
             let vv = self.coerced_to(v, &vt);
-            let sk = Self::retained(&kt, &kv);
-            let sv = Self::retained(&vt, &vv);
+            let sk = self.retained(&kt, &kv);
+            let sv = self.retained(&vt, &vv);
             self.line(format!("keal_map_set({}, {}, {});", t, kk.word(&sk), vk.word(&sv)));
         }
         t
@@ -4992,7 +4992,7 @@ impl CBackend {
             let v = self.coerced_to(item, &elem_ty);
             // The list takes its own reference; the temp the element came
             // from is still released by this block.
-            let stored = Self::retained(&elem_ty, &v);
+            let stored = self.retained(&elem_ty, &v);
             self.line(format!("keal_list_push({}, {});", t, elem.word(&stored)));
         }
         t
@@ -5023,7 +5023,7 @@ impl CBackend {
         self.check_unwind();
         let value = elem.unword(&w);
         if Self::counted(&elem_ty) {
-            let call = Self::retained(&elem_ty, &value);
+            let call = self.retained(&elem_ty, &value);
             return self.own_temp_of(&elem_ty, call);
         }
         value
@@ -5091,13 +5091,13 @@ impl CBackend {
                 }
                 self.line(format!("if ({} >= 0) {{", at));
                 self.indent += 1;
-                self.line(format!("{} = {};", slot, Self::retained(&vt, &hit)));
+                self.line(format!("{} = {};", slot, self.retained(&vt, &hit)));
                 self.indent -= 1;
                 self.line("} else {");
                 self.indent += 1;
                 self.open_scope();
                 let fv = self.coerced_to(fb, &vt);
-                self.line(format!("{} = {};", slot, Self::retained(&vt, &fv)));
+                self.line(format!("{} = {};", slot, self.retained(&vt, &fv)));
                 self.close_scope();
                 self.indent -= 1;
                 self.line("}");
@@ -5123,7 +5123,7 @@ impl CBackend {
                 self.line(format!(
                     "{} = {};",
                     slot,
-                    opt_wrap(&vt, &Self::retained(&vt, &hit))
+                    opt_wrap(&vt, &self.retained(&vt, &hit))
                 ));
                 self.indent -= 1;
                 self.line("}");
@@ -5202,13 +5202,13 @@ impl CBackend {
         }
         self.line(format!("if ({} != NULL) {{", a));
         self.indent += 1;
-        self.line(format!("{} = {};", slot, Self::retained(&ty, &a)));
+        self.line(format!("{} = {};", slot, self.retained(&ty, &a)));
         self.indent -= 1;
         self.line("} else {");
         self.indent += 1;
         self.open_scope();
         let b = self.expr(rhs);
-        self.line(format!("{} = {};", slot, Self::retained(&ty, &b)));
+        self.line(format!("{} = {};", slot, self.retained(&ty, &b)));
         self.close_scope();
         self.indent -= 1;
         self.line("}");
@@ -5340,7 +5340,7 @@ impl CBackend {
         }
         match self.ety(e) {
             Some(ty) if Self::counted(&ty) => {
-                let call = Self::retained(&ty, &access);
+                let call = self.retained(&ty, &access);
                 self.own_temp_of(&ty, call)
             }
             _ => access,
@@ -5362,7 +5362,7 @@ impl CBackend {
         }
         self.line(format!("if ({} != NULL) {{", receiver));
         self.indent += 1;
-        let value = opt_wrap(&inner, &Self::retained(&ty, &access));
+        let value = opt_wrap(&inner, &self.retained(&ty, &access));
         self.line(format!("{} = {};", slot, value));
         self.indent -= 1;
         self.line("}");
@@ -5386,7 +5386,7 @@ impl CBackend {
             if let Some(elem) = self.elem_kind(&elem_ty, e.span) {
                 let l = self.expr(obj);
                 let v = self.coerced_to(&args[0].value, &elem_ty);
-                let stored = Self::retained(&elem_ty, &v);
+                let stored = self.retained(&elem_ty, &v);
                 self.line(format!("keal_list_push({}, {});", l, elem.word(&stored)));
                 return "0".to_string();
             }
@@ -6428,7 +6428,7 @@ impl CBackend {
             // otherwise the value keeps its type's retain, as before.
             let ty = if *slot_ty == Type::Any { Some(Type::Any) } else { self.ety(e) };
             match ty {
-                Some(ty) => self.line(format!("{} = {};", t, Self::retained(&ty, &v))),
+                Some(ty) => self.line(format!("{} = {};", t, self.retained(&ty, &v))),
                 None => self.line(format!("{} = {};", t, v)),
             }
         } else {
@@ -7428,8 +7428,8 @@ impl CBackend {
                 let m = self.expr(obj);
                 let k = self.expr(index);
                 let v = self.coerced_to(value, &vt);
-                let sk = Self::retained(&kt, &k);
-                let sv = Self::retained(&vt, &v);
+                let sk = self.retained(&kt, &k);
+                let sv = self.retained(&vt, &v);
                 self.line(format!(
                     "keal_map_set({}, {}, {});",
                     m,
@@ -7457,11 +7457,11 @@ impl CBackend {
                 // The set can panic before it takes the reference; owning
                 // it in a temp keeps the unwind path exact, and a clean
                 // call transfers it by NULLing the temp.
-                self.own_temp_of(&elem_ty, Self::retained(&elem_ty, &v))
+                self.own_temp_of(&elem_ty, self.retained(&elem_ty, &v))
             } else {
-                Self::retained(&elem_ty, &v)
+                self.retained(&elem_ty, &v)
             };
-            match Self::release_fn(&elem_ty) {
+            match self.release_fn(&elem_ty) {
                 Some(release) => {
                     let old = self.temp();
                     self.line(format!(
@@ -7523,10 +7523,10 @@ impl CBackend {
                 let cell = self.var_ref(name);
                 if matches!(kind, Elem::Any) {
                     self.line(format!("keal_any_box_release({}->w.p);", cell));
-                } else if let Some(rel) = Self::release_fn(&cty) {
+                } else if let Some(rel) = self.release_fn(&cty) {
                     self.line(format!("{}({});", rel, kind.unword(&format!("{}->w", cell))));
                 }
-                let stored = Self::retained(&cty, &v);
+                let stored = self.retained(&cty, &v);
                 self.line(format!("{}->w = {};", cell, kind.word(&stored)));
                 return;
             }
@@ -7582,9 +7582,9 @@ impl CBackend {
                 };
                 match ty.as_ref().filter(|t| Self::counted(t)) {
                     Some(t) => {
-                        let release = Self::release_fn(t).expect("a counted type releases");
+                        let release = self.release_fn(t).expect("a counted type releases");
                         self.line(format!("{}({});", release, var));
-                        self.line(format!("{} = {};", var, Self::retained(t, &v)));
+                        self.line(format!("{} = {};", var, self.retained(t, &v)));
                     }
                     None => self.line(format!("{} = {};", var, v)),
                 }
@@ -7604,9 +7604,9 @@ impl CBackend {
                 let v = self.expr(&synthetic);
                 match ty.as_ref().filter(|t| Self::counted(t)) {
                     Some(t) => {
-                        let release = Self::release_fn(t).expect("a counted type releases");
+                        let release = self.release_fn(t).expect("a counted type releases");
                         self.line(format!("{}({});", release, var));
-                        self.line(format!("{} = {};", var, Self::retained(t, &v)));
+                        self.line(format!("{} = {};", var, self.retained(t, &v)));
                     }
                     None => self.line(format!("{} = {};", var, v)),
                 }

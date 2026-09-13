@@ -316,33 +316,7 @@ func countedC(t: Ty): Bool {
     }
 }
 
-/// The function that takes a reference to a value of this type.
-func retainFn(t: Ty): String? {
-    return when (t.kind) {
-        "Str" -> "keal_str_retain"
-        "Class" -> structNameOf(t.name, t.args) + "_retain"
-        "List" -> "keal_list_retain"
-        "Fun" -> "keal_fn_retain"
-        "Map" -> "keal_map_retain"
-        "Any" -> "keal_any_retain"
-        "Nullable" -> retainFn(t.args[0])
-        else -> null
-    }
-}
 
-/// The function that gives one back.
-func releaseFn(t: Ty): String? {
-    return when (t.kind) {
-        "Str" -> "keal_str_release"
-        "Class" -> structNameOf(t.name, t.args) + "_release"
-        "List" -> "keal_list_release"
-        "Fun" -> "keal_fn_release"
-        "Map" -> "keal_map_release"
-        "Any" -> "keal_any_release"
-        "Nullable" -> releaseFn(t.args[0])
-        else -> null
-    }
-}
 
 /// The walk that follows the same edges `releaseFn` releases. One name per
 /// shape, and the same name the runtime gives its own, so a container's
@@ -369,12 +343,6 @@ func markLine(t: Ty, expr: String): String? {
     return "${f}(${expr});"
 }
 
-/// Wraps an expression in a retain, where the type needs one.
-func retained(t: Ty, expr: String): String {
-    val f = retainFn(t)
-    if (f == null) { return expr }
-    return "${f}(${expr})"
-}
 
 /// True when `T?` needs the tagged form rather than a pointer.
 func isValueOpt(t: Ty): Bool {
@@ -1003,6 +971,41 @@ class CBackend() {
 
     /// The C type a Keal type is emitted as, or null when this backend
     /// cannot represent it.
+    /// The function that takes a reference to a value of this type.
+    func retainFn(t: Ty): String? {
+        return when (t.kind) {
+            "Str" -> "keal_str_retain"
+            "Class" -> structNameOf(t.name, t.args) + "_retain"
+            "List" -> "keal_list_retain"
+            "Fun" -> "keal_fn_retain"
+            "Map" -> "keal_map_retain"
+            "Any" -> "keal_any_retain"
+            "Nullable" -> this.retainFn(t.args[0])
+            else -> null
+        }
+    }
+
+    /// The function that gives one back.
+    func releaseFn(t: Ty): String? {
+        return when (t.kind) {
+            "Str" -> "keal_str_release"
+            "Class" -> structNameOf(t.name, t.args) + "_release"
+            "List" -> "keal_list_release"
+            "Fun" -> "keal_fn_release"
+            "Map" -> "keal_map_release"
+            "Any" -> "keal_any_release"
+            "Nullable" -> this.releaseFn(t.args[0])
+            else -> null
+        }
+    }
+
+    /// Wraps an expression in a retain, where the type needs one.
+    func retained(t: Ty, expr: String): String {
+        val f = this.retainFn(t)
+        if (f == null) { return expr }
+        return "${f}(${expr})"
+    }
+
     func ctype(t: Ty, file: Int, atLine: Int, col: Int): String? {
         if (t.kind == "Int") { return "int64_t" }
         // One word holding an ordinal. With nothing to carry beside the
@@ -1136,7 +1139,7 @@ class CBackend() {
             val target = this.weakTargetOf(t, file, atLine, col)
             if (target != null) { return "${target}_weak_retain(${v})" }
         }
-        return retained(t, v)
+        return this.retained(t, v)
     }
 
     /// The static type-info an `Any` tags this type's values with — what
@@ -1942,7 +1945,7 @@ class CBackend() {
                     rel += "    ${target}_weak_release(o->${mangle(f.name)});\n"
                 }
             } else {
-                val rf = releaseFn(f.ty)
+                val rf = this.releaseFn(f.ty)
                 if (rf != null) {
                     rel += "    ${rf}(o->${mangle(f.name)});\n"
                 }
@@ -2455,7 +2458,7 @@ class CBackend() {
         margs.add(mTy)
         val refSn = this.instantiateClass("ActorRef", margs, file, atLine, col)
         if (refSn == null) { return null }
-        val relMsg = releaseFn(mTy)
+        val relMsg = this.releaseFn(mTy)
         this.typesOut += "typedef struct ${sn}_actctx { ${sn}* sys; KealRunState* st; } ${sn}_actctx;\n"
         // One worker, not one actor. It looks for an actor with a message
         // and nobody inside it, takes one message, runs it, and lets go —
@@ -2918,7 +2921,7 @@ class CBackend() {
     }
 
     proc own(name: String, t: Ty) {
-        val release = releaseFn(t)
+        val release = this.releaseFn(t)
         if (release == null) { return }
         this.hoistDeclaration(name)
         val o = OwnedC(name, release)
@@ -3075,7 +3078,7 @@ class CBackend() {
                 this.declareLocal(s.name, ty, s.mutable)
                 this.globalDecls += "static ${c} ${varName};\n"
                 val value = this.coercedTo(init, ty)
-                this.line("${varName} = ${retained(ty, value)};")
+                this.line("${varName} = ${this.retained(ty, value)};")
                 return
             }
             this.declareLocal(s.name, ty, s.mutable)
@@ -3088,14 +3091,14 @@ class CBackend() {
                 this.line("KealCell* ${varName} = keal_cell_new(${thunk});")
                 this.ownCell(varName)
                 val value = this.expr(init)
-                val stored = retained(ty, value)
+                val stored = this.retained(ty, value)
                 this.line("${varName}->w = ${elemWord(kind, stored)};")
                 this.celled[s.name] = CellInfo(ty, kind)
                 return
             }
             val value = this.coercedTo(init, ty)
             if (countedC(ty)) {
-                this.line("KEAL_LOCAL ${c} ${varName} = ${retained(ty, value)};")
+                this.line("KEAL_LOCAL ${c} ${varName} = ${this.retained(ty, value)};")
                 this.own(varName, ty)
             } else {
                 this.line("KEAL_LOCAL ${c} ${varName} = ${value};")
@@ -3143,7 +3146,7 @@ class CBackend() {
                     var out = v
                     unless (owned) {
                         val t = this.temp()
-                        this.line("${c} ${t} = ${retained(ty, v)};")
+                        this.line("${c} ${t} = ${this.retained(ty, v)};")
                         out = t
                     }
                     val depth = this.scopes.size
@@ -3347,7 +3350,7 @@ class CBackend() {
             if (ct == null) { return }
             this.declareLocal(bind, fty, false)
             val access = "${v}->${mangle(fields[i].name)}"
-            val value = retained(fty, access)
+            val value = this.retained(fty, access)
             this.line("${ct} ${mangle(bind)} = ${value};")
             if (countedC(fty)) {
                 this.own(mangle(bind), fty)
@@ -3548,7 +3551,7 @@ class CBackend() {
                     val read = this.anyPayload(t, v, e.file, e.line, e.col)
                     if (read == null) { return "0" }
                     if (countedC(t)) {
-                        val call = retained(t, read)
+                        val call = this.retained(t, read)
                         return this.ownTempOf(t, call)
                     }
                     return read
@@ -3558,7 +3561,7 @@ class CBackend() {
             if (cell != null) {
                 val access = elemUnword(cell.elem, "${this.varRef(name)}->w")
                 if (countedC(cell.ty)) {
-                    val call = retained(cell.ty, access)
+                    val call = this.retained(cell.ty, access)
                     return this.ownTempOf(cell.ty, call)
                 }
                 return access
@@ -3582,7 +3585,7 @@ class CBackend() {
             val v = this.varRef(name)
             val ty = identTy
             if (ty != null and countedC(ty)) {
-                val call = retained(ty, v)
+                val call = this.retained(ty, v)
                 return this.ownTempOf(ty, call)
             }
             return v
@@ -3783,7 +3786,7 @@ class CBackend() {
         var dropText = "static void ${envName}_drop(KealClosure* c) {\n    ${envName}* env = (${envName}*)c;\n"
         for (cap in captures) {
             var rel: String? = "keal_cell_release"
-            unless (cap.isCell) { rel = releaseFn(cap.ty) }
+            unless (cap.isCell) { rel = this.releaseFn(cap.ty) }
             val r = rel
             if (r != null) {
                 dropText += "    ${r}(env->${mangle(cap.name)});\n"
@@ -3968,7 +3971,7 @@ class CBackend() {
             val v = if (cap.isCell) {
                 "keal_cell_retain(${source})"
             } else {
-                retained(cap.ty, source)
+                this.retained(cap.ty, source)
             }
             this.line("${t}_env->${mangle(cap.name)} = ${v};")
         }
@@ -4136,8 +4139,8 @@ class CBackend() {
         if (name == "set") {
             val key = this.expr(e.args[0].value)
             val value = this.coercedTo(e.args[1].value, vt)
-            val sk = retained(kt, key)
-            val sv = retained(vt, value)
+            val sk = this.retained(kt, key)
+            val sv = this.retained(vt, value)
             this.line("keal_map_set(${m}, ${elemWord(kk, sk)}, ${elemWord(vk, sv)});")
             return "0"
         }
@@ -4181,7 +4184,7 @@ class CBackend() {
             val vcb = this.ctype(vt, e.file, e.line, e.col)
             if (vcb == null) { return null }
             this.line("${vcb} ${held} = ${elemUnword(vk, "${m}->data[2 * ${at} + 1]")};")
-            this.line("${t} = ${optWrap(vt, retained(vt, held))};")
+            this.line("${t} = ${optWrap(vt, this.retained(vt, held))};")
             this.indent -= 1
             this.line("} else {")
             this.indent += 1
@@ -4204,7 +4207,7 @@ class CBackend() {
         this.indent += 1
         val offset = if (valSlot) { "2 * ${i} + 1" } else { "2 * ${i}" }
         val item = elemUnword(kind, "${m}->data[${offset}]")
-        val stored = retained(ty, item)
+        val stored = this.retained(ty, item)
         this.line("keal_list_push(${out}, ${elemWord(kind, stored)});")
         this.indent -= 1
         this.line("}")
@@ -4253,7 +4256,7 @@ class CBackend() {
                 this.line("const ${ct} ${t} = ${call};")
                 t
             }
-            val stored = retained(outTy, v)
+            val stored = this.retained(outTy, v)
             this.line("keal_list_push(${out}, ${elemWord(outElem, stored)});")
             this.closeScope()
             this.indent -= 1
@@ -4276,7 +4279,7 @@ class CBackend() {
             if (call == null) { return null }
             this.openIf(call)
             this.indent += 1
-            val stored = retained(elemTy, item)
+            val stored = this.retained(elemTy, item)
             this.line("keal_list_push(${out}, ${elemWord(elem, stored)});")
             this.indent -= 1
             this.line("}")
@@ -4292,7 +4295,7 @@ class CBackend() {
             val init = this.expr(e.args[0].value)
             val f = this.expr(e.args[1].value)
             val acc = this.temp()
-            this.line("${accC} ${acc} = ${retained(accTy, init)};")
+            this.line("${accC} ${acc} = ${this.retained(accTy, init)};")
             if (countedC(accTy)) {
                 this.own(acc, accTy)
             }
@@ -4308,7 +4311,7 @@ class CBackend() {
             // released before the name moves on to it.
             val next = this.temp()
             this.line("${accC} ${next} = ${call};")
-            val rel = releaseFn(accTy)
+            val rel = this.releaseFn(accTy)
             if (rel != null) {
                 this.line("${rel}(${acc});")
             }
@@ -4695,9 +4698,9 @@ class CBackend() {
                 // The insert can panic before it takes the reference;
                 // owning it in a temp keeps the unwind path exact, and
                 // a clean call transfers it by NULLing the temp.
-                this.ownTempOf(elemTy, retained(elemTy, v))
+                this.ownTempOf(elemTy, this.retained(elemTy, v))
             } else {
-                retained(elemTy, v)
+                this.retained(elemTy, v)
             }
             this.line("keal_list_insert_at(${l}, ${i}, ${elemWord(elem, stored)}, ${this.whereOf(e.file, e.line, e.col)});")
             this.checkUnwind()
@@ -4716,11 +4719,11 @@ class CBackend() {
                 // The set can panic before it takes the reference; owning
                 // it in a temp keeps the unwind path exact, and a clean
                 // call transfers it by NULLing the temp.
-                this.ownTempOf(elemTy, retained(elemTy, v))
+                this.ownTempOf(elemTy, this.retained(elemTy, v))
             } else {
-                retained(elemTy, v)
+                this.retained(elemTy, v)
             }
-            val release = releaseFn(elemTy)
+            val release = this.releaseFn(elemTy)
             if (release != null) {
                 val old = this.temp()
                 this.line("const KealWord ${old} = keal_list_set_at(${l}, ${i}, ${elemWord(elem, stored)}, ${this.whereOf(e.file, e.line, e.col)});")
@@ -4805,7 +4808,7 @@ class CBackend() {
             var at = "0"
             if (name == "last") { at = "${l}->len - 1" }
             val item = elemUnword(elem, "${l}->data[${at}]")
-            this.line("${t} = ${optWrap(elemTy, retained(elemTy, item))};")
+            this.line("${t} = ${optWrap(elemTy, this.retained(elemTy, item))};")
             this.indent -= 1
             this.line("}")
             return t
@@ -4933,7 +4936,7 @@ class CBackend() {
             if (call == null) { return null }
             this.openIf(call)
             this.indent += 1
-            this.line("${t} = ${optWrap(inner, retained(inner, item))};")
+            this.line("${t} = ${optWrap(inner, this.retained(inner, item))};")
             this.line("break;")
             this.indent -= 1
             this.line("}")
@@ -5024,7 +5027,7 @@ class CBackend() {
                     this.line("const ${ct} ${t} = ${call};")
                     t
                 }
-                val stored = retained(retTy, v)
+                val stored = this.retained(retTy, v)
                 this.line("keal_list_push(${out}, ${elemWord(outElem, stored)});")
             }
             this.closeScope()
@@ -5073,7 +5076,7 @@ class CBackend() {
             this.line("for (int64_t ${j} = 0; ${j} < ${snap}->len; ${j}++) {")
             this.indent += 1
             val sortedItem = elemUnword(elem, "${snap}->data[${j}]")
-            val stored = retained(elemTy, sortedItem)
+            val stored = this.retained(elemTy, sortedItem)
             this.line("keal_list_push(${out}, ${elemWord(elem, stored)});")
             this.indent -= 1
             this.line("}")
@@ -5136,7 +5139,7 @@ class CBackend() {
             this.line("for (int64_t ${j} = 0; ${j} < ${snap}->len; ${j}++) {")
             this.indent += 1
             val sortedItem = elemUnword(elem, "${snap}->data[${j}]")
-            val stored = retained(elemTy, sortedItem)
+            val stored = this.retained(elemTy, sortedItem)
             this.line("keal_list_push(${out}, ${elemWord(elem, stored)});")
             this.indent -= 1
             this.line("}")
@@ -5188,8 +5191,8 @@ class CBackend() {
         while (i < e.keys.size) {
             val kv = this.expr(e.keys[i])
             val vv = this.coercedTo(e.values[i], vt)
-            val sk = retained(kt, kv)
-            val sv = retained(vt, vv)
+            val sk = this.retained(kt, kv)
+            val sv = this.retained(vt, vv)
             this.line("keal_map_set(${t}, ${elemWord(kk, sk)}, ${elemWord(vk, sv)});")
             i += 1
         }
@@ -5287,7 +5290,7 @@ class CBackend() {
             val v = this.coercedTo(item, elemTy)
             // The list takes its own reference; the temp the element came
             // from is still released by this block.
-            val stored = retained(elemTy, v)
+            val stored = this.retained(elemTy, v)
             this.line("keal_list_push(${t}, ${elemWord(elem, stored)});")
         }
         return t
@@ -5318,7 +5321,7 @@ class CBackend() {
         this.checkUnwind()
         val value = elemUnword(elem, w)
         if (countedC(elemTy)) {
-            val call = retained(elemTy, value)
+            val call = this.retained(elemTy, value)
             return this.ownTempOf(elemTy, call)
         }
         return value
@@ -5377,13 +5380,13 @@ class CBackend() {
             }
             this.line("if (${at} >= 0) {")
             this.indent += 1
-            this.line("${slot} = ${retained(vt, hit)};")
+            this.line("${slot} = ${this.retained(vt, hit)};")
             this.indent -= 1
             this.line("} else {")
             this.indent += 1
             this.openScope()
             val fv = this.coercedTo(fallback, vt)
-            this.line("${slot} = ${retained(vt, fv)};")
+            this.line("${slot} = ${this.retained(vt, fv)};")
             this.closeScope()
             this.indent -= 1
             this.line("}")
@@ -5403,7 +5406,7 @@ class CBackend() {
         this.own(slot, optTy)
         this.line("if (${at} >= 0) {")
         this.indent += 1
-        this.line("${slot} = ${optWrap(vt, retained(vt, hit))};")
+        this.line("${slot} = ${optWrap(vt, this.retained(vt, hit))};")
         this.indent -= 1
         this.line("}")
         return slot
@@ -5486,13 +5489,13 @@ class CBackend() {
         }
         this.line("if (${a} != NULL) {")
         this.indent += 1
-        this.line("${slot} = ${retained(ty, a)};")
+        this.line("${slot} = ${this.retained(ty, a)};")
         this.indent -= 1
         this.line("} else {")
         this.indent += 1
         this.openScope()
         val b = this.expr(rhs)
-        this.line("${slot} = ${retained(ty, b)};")
+        this.line("${slot} = ${this.retained(ty, b)};")
         this.closeScope()
         this.indent -= 1
         this.line("}")
@@ -5623,7 +5626,7 @@ class CBackend() {
         }
         val ty = this.ety(e)
         if (ty != null and countedC(ty)) {
-            val call = retained(ty, access)
+            val call = this.retained(ty, access)
             return this.ownTempOf(ty, call)
         }
         return access
@@ -5646,7 +5649,7 @@ class CBackend() {
         }
         this.line("if (${receiver} != NULL) {")
         this.indent += 1
-        val value = optWrap(inner, retained(ty, access))
+        val value = optWrap(inner, this.retained(ty, access))
         this.line("${slot} = ${value};")
         this.indent -= 1
         this.line("}")
@@ -5666,7 +5669,7 @@ class CBackend() {
             if (elem != null) {
                 val l = this.expr(obj)
                 val v = this.coercedTo(e.args[0].value, elemTy)
-                val stored = retained(elemTy, v)
+                val stored = this.retained(elemTy, v)
                 this.line("keal_list_push(${l}, ${elemWord(elem, stored)});")
                 return "0"
             }
@@ -6163,7 +6166,7 @@ class CBackend() {
             if (slotTy != null and slotTy.kind == "Any") { ty2 = Ty("Any") }
             val rt = ty2
             if (rt != null) {
-                this.line("${slot} = ${retained(rt, v)};")
+                this.line("${slot} = ${this.retained(rt, v)};")
             } else {
                 this.line("${slot} = ${v};")
             }
@@ -7383,8 +7386,8 @@ class CBackend() {
                 val m = this.expr(obj)
                 val k = this.expr(index)
                 val v = this.coercedTo(value, vt)
-                val sk = retained(kt, k)
-                val sv = retained(vt, v)
+                val sk = this.retained(kt, k)
+                val sv = this.retained(vt, v)
                 this.line("keal_map_set(${m}, ${elemWord(kk, sk)}, ${elemWord(vk, sv)});")
                 return
             }
@@ -7409,11 +7412,11 @@ class CBackend() {
                 // The set can panic before it takes the reference; owning
                 // it in a temp keeps the unwind path exact, and a clean
                 // call transfers it by NULLing the temp.
-                this.ownTempOf(elemTy, retained(elemTy, v))
+                this.ownTempOf(elemTy, this.retained(elemTy, v))
             } else {
-                retained(elemTy, v)
+                this.retained(elemTy, v)
             }
-            val release = releaseFn(elemTy)
+            val release = this.releaseFn(elemTy)
             if (release != null) {
                 val old = this.temp()
                 this.line("const KealWord ${old} = keal_list_set(${l}, ${i}, ${elemWord(elem, stored)}, ${this.whereOf(e.file, e.line, e.col)});")
@@ -7456,12 +7459,12 @@ class CBackend() {
                 if (cell.elem.kind == "any") {
                     this.line("keal_any_box_release(${cellRef}->w.p);")
                 } else {
-                    val rel = releaseFn(cell.ty)
+                    val rel = this.releaseFn(cell.ty)
                     if (rel != null) {
                         this.line("${rel}(${elemUnword(cell.elem, "${cellRef}->w")});")
                     }
                 }
-                val stored = retained(cell.ty, v)
+                val stored = this.retained(cell.ty, v)
                 this.line("${cellRef}->w = ${elemWord(cell.elem, stored)};")
                 return
             }
@@ -7519,9 +7522,9 @@ class CBackend() {
                 this.expr(value)
             }
             if (ty != null and countedC(ty)) {
-                val release = releaseFn(ty)!!
+                val release = this.releaseFn(ty)!!
                 this.line("${release}(${varC});")
-                this.line("${varC} = ${retained(ty, v)};")
+                this.line("${varC} = ${this.retained(ty, v)};")
             } else {
                 this.line("${varC} = ${v};")
             }
@@ -7535,9 +7538,9 @@ class CBackend() {
         synthetic.ty = target.ty
         val v = this.expr(synthetic)
         if (ty != null and countedC(ty)) {
-            val release = releaseFn(ty)!!
+            val release = this.releaseFn(ty)!!
             this.line("${release}(${varC});")
-            this.line("${varC} = ${retained(ty, v)};")
+            this.line("${varC} = ${this.retained(ty, v)};")
         } else {
             this.line("${varC} = ${v};")
         }
