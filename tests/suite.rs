@@ -1610,6 +1610,127 @@ fn a_closed_pipe_ends_every_engine_the_same_way() {
 /// The fixture is built here rather than kept in `tests/`, because its output
 /// is 8,000 lines in an order that is nobody's business and every directory
 /// there belongs to a harness that would compare it.
+/// Every line a file's dump has, the dump of anything importing it has too.
+///
+/// `keal types` follows imports, so an importer's dump opens with everything
+/// its imports declare and then adds its own. Nothing in this repository ever
+/// said that, and Kealler depends on it: it subtracts each import's dump from
+/// the open file's to work out which entries are local, because the dump's
+/// `line:col` are ambiguous across files. If the property breaks, Kealler
+/// does not fail — it shows types from the wrong file, silently, which is a
+/// defect it has already shipped once.
+///
+/// Containment, and deliberately not a prefix. The diamond below is what
+/// settles it: `a` and `b` both import `c`, the importer holds `c` once at
+/// the front and then `fromA` and `fromB`, so `b`'s own dump — `c` then
+/// `fromB` — is not one run there. The bench that reported this property
+/// first called it a prefix, having only ever checked that the lines were
+/// all present; writing the assertion down is what found the difference.
+///
+/// The fixtures are written to a temp directory rather than under `tests/`,
+/// where every directory belongs to a harness that would try to run them.
+#[test]
+fn an_import_dump_is_contained_in_its_importer() {
+    let dir = std::env::temp_dir().join("keal-dump-prefix");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("cannot make a fixture directory");
+    let write = |name: &str, text: &str| {
+        std::fs::write(dir.join(name), text).expect("cannot write a fixture");
+    };
+    write("deep.keal", "public func deepest(n: Int): Int { return n * 2 }\n");
+    write(
+        "lib.keal",
+        "import \"./deep.keal\"\npublic func helper(s: String): Int { return deepest(s.length) }\n",
+    );
+    // An imported file with top-level statements of its own, not just
+    // declarations: the shape most likely to be dumped differently when it
+    // is the file asked about rather than one pulled in.
+    write(
+        "talks.keal",
+        "public func f(n: Int): Int { return n }\nval libLocal = 7\nprintln(\"lib speaks\")\n",
+    );
+    write("main.keal", "import \"./lib.keal\"\nimport \"./talks.keal\"\nprintln(helper(\"abc\") + f(1))\n");
+    write("c.keal", "public func shared(n: Int): Int { return n + 1 }\n");
+    write("a.keal", "import \"./c.keal\"\npublic func fromA(n: Int): Int { return shared(n) }\n");
+    write("b.keal", "import \"./c.keal\"\npublic func fromB(n: Int): Int { return shared(n) }\n");
+    write("diamond.keal", "import \"./a.keal\"\nimport \"./b.keal\"\nprintln(fromA(1) + fromB(2))\n");
+
+    let dump = |name: &str| -> Vec<String> {
+        let path = dir.join(name);
+        let out = Command::new(BIN)
+            .args(["types", &path.to_string_lossy()])
+            .output()
+            .expect("cannot run keal types");
+        assert!(
+            out.status.success(),
+            "{} did not check:\n{}",
+            name,
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // Every dump opens with `program`, which would only ever match at
+        // position zero and would say the second import is not there when it
+        // plainly is. Dropped from both sides rather than searched for.
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .skip(1)
+            .map(|l| l.to_string())
+            .collect()
+    };
+
+    for (importer, imports) in [
+        ("lib.keal", &["deep.keal"][..]),
+        ("main.keal", &["lib.keal", "talks.keal"][..]),
+        ("diamond.keal", &["a.keal", "b.keal"][..]),
+    ] {
+        let whole = dump(importer);
+        for name in imports {
+            let part = dump(name);
+            assert!(
+                whole.len() >= part.len(),
+                "{} dumps fewer lines than its import {}",
+                importer,
+                name
+            );
+            // CONTAINMENT, not contiguity, and the diamond is why. `a` and
+            // `b` both import `c`; the importer holds `c` once, at the front,
+            // with `fromA` and `fromB` after it — so `b`'s own dump, which is
+            // `c` then `fromB`, has `fromA` sitting in the middle of it there.
+            // A consumer may subtract these lines as a set. It may not assume
+            // they arrive in one run.
+            let mut left: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
+            for l in &whole {
+                *left.entry(l.as_str()).or_insert(0) += 1;
+            }
+            let missing: Vec<&String> = part
+                .iter()
+                .filter(|l| {
+                    let c = left.entry(l.as_str()).or_insert(0);
+                    if *c > 0 {
+                        *c -= 1;
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect();
+            assert!(
+                missing.is_empty(),
+                "{} lines of {}'s dump are missing from {}'s, so the two \
+                 disagree about what an import contributes.\n\
+                 Kealler subtracts one from the other to tell local entries \
+                 from imported ones; if this is deliberate, that subtraction \
+                 has to change with it.\n\
+                 first missing: {:?}",
+                missing.len(),
+                name,
+                importer,
+                missing.first()
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn concurrent_actors_do_not_tear_a_line() {
     let cc = c_driver();
