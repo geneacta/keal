@@ -1002,6 +1002,7 @@ impl Checker {
             enm: enm.clone(),
             name: Rc::from(name),
             ordinal: ordinal as u32,
+            fields: Rc::from(Vec::new()),
         };
         Some(Type::Enum(enm))
     }
@@ -3309,6 +3310,7 @@ impl Checker {
                 enm: enm.clone(),
                 name: Rc::from(name.as_str()),
                 ordinal: ordinal as u32,
+                fields: params.iter().map(|p| Rc::from(p.name.as_str())).collect(),
             },
             span,
             ty: Some(Type::Enum(enm.clone())),

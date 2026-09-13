@@ -562,6 +562,27 @@ impl Vm {
                     }));
                 }
 
+                Op::MakeVariant(k, n) => {
+                    let at = self.stack.len() - n as usize;
+                    let carried: Vec<Value> = self.stack.drain(at..).collect();
+                    let template = func.chunk.consts[k as usize].clone();
+                    let Value::Variant(t) = template else {
+                        unreachable!("MakeVariant on a constant that is not a variant")
+                    };
+                    let fields = t
+                        .fields
+                        .iter()
+                        .map(|(name, _)| name.clone())
+                        .zip(carried)
+                        .map(|(name, v)| (name, v))
+                        .collect();
+                    self.push(Value::Variant(std::rc::Rc::new(crate::value::VariantVal {
+                        enm: t.enm.clone(),
+                        name: t.name.clone(),
+                        ordinal: t.ordinal,
+                        fields,
+                    })));
+                }
                 Op::MakeList(n) => {
                     let at = self.stack.len() - n as usize;
                     let items: Vec<Value> = self.stack.drain(at..).collect();

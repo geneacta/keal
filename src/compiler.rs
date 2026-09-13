@@ -853,11 +853,33 @@ impl Compiler {
                 let k = self.fs().chunk.constant(Value::Comp(*c));
                 self.emit(Op::Const(k), span);
             }
-            ExprKind::Variant { enm, name, ordinal } => {
+            // `Shape.Circle(1.0)`: the checker left a `variant` callee, which
+            // is not a function and is not called — it is built, from values
+            // the stack carries rather than from one pooled constant.
+            ExprKind::Call { callee, args }
+                if matches!(callee.kind, ExprKind::Variant { .. }) =>
+            {
+                let ExprKind::Variant { enm, name, ordinal, fields } = &callee.kind else {
+                    unreachable!()
+                };
+                for a in args.iter() {
+                    self.expr(&a.value);
+                }
+                let template = Value::Variant(std::rc::Rc::new(crate::value::VariantVal {
+                    enm: enm.clone(),
+                    name: name.clone(),
+                    ordinal: *ordinal,
+                    fields: fields.iter().map(|n| (n.clone(), Value::Unit)).collect(),
+                }));
+                let k = self.fs().chunk.constant(template);
+                self.emit(Op::MakeVariant(k, args.len() as u32), span);
+            }
+            ExprKind::Variant { enm, name, ordinal, .. } => {
                 let v = Value::Variant(std::rc::Rc::new(crate::value::VariantVal {
                     enm: enm.clone(),
                     name: name.clone(),
                     ordinal: *ordinal,
+                    fields: Vec::new(),
                 }));
                 let k = self.fs().chunk.constant(v);
                 self.emit(Op::Const(k), span);

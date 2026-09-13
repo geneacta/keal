@@ -1,0 +1,33 @@
+// A variant that carries fields, on the two interpreters. The C backend
+// refuses this by name for now, which `programs_compile_and_agree_natively`
+// counts as the backend working rather than as a gap.
+//
+// A variant is a constructor and a pattern, never a type: there is no
+// `Circle` to name, so nothing here can ask for one.
+enum Shape { Circle(r: Float), Rect(w: Float, h: Float), Point }
+
+val c = Shape.Circle(1.5)
+val r = Shape.Rect(2.0, 3.0)
+val p = Shape.Point
+
+// What it prints reads like a record, because it holds what a record holds.
+assert("${c}" == "Circle(r=1.5)", "a carried variant shows what it carries: ${c}")
+assert("${r}" == "Rect(w=2.0, h=3.0)", "two fields, in order: ${r}")
+assert("${p}" == "Point", "a plain variant is still just its name: ${p}")
+
+// Equality goes into the payload rather than stopping at the name.
+assert(c == Shape.Circle(1.5), "same variant, same contents")
+assert(not (c == Shape.Circle(2.5)), "same variant, different contents")
+assert(not (c == p), "different variants of one enum")
+
+// A plain variant still keys a map. One that carries something does not, and
+// says so where it is used: `Circle(1.0)` and `Circle(2.0)` are two values
+// under one name, and this key holds the name alone.
+val counts: Map<Shape, Int> = {}
+counts[Shape.Point] = 1
+assert(counts.size == 1, "a plain variant keys a map as it always did")
+
+// Nesting, and a variant inside a list.
+val shapes = [c, r, p]
+assert(shapes.size == 3, "a carried variant is an ordinary value")
+assert("${shapes}" == "[Circle(r=1.5), Rect(w=2.0, h=3.0), Point]", "in a list: ${shapes}")

@@ -45,11 +45,14 @@ pub fn comp_word(c: u8) -> &'static str {
 /// A variant, and where it sits in its declaration. The ordinal is what the
 /// native engine stores; the interpreters carry the names because printing
 /// one has to say `Hearts` rather than `0`.
-#[derive(Debug, PartialEq)]
 pub struct VariantVal {
     pub enm: Rc<str>,
     pub name: Rc<str>,
     pub ordinal: u32,
+    /// What the variant carries, named, in declaration order. Empty for a
+    /// plain variant — which is still interned, so naming one stays a
+    /// refcount bump and never an allocation.
+    pub fields: Vec<(Rc<str>, Value)>,
 }
 
 /// A closure the bytecode VM created: a compiled body, the cells it captured,
@@ -449,7 +452,16 @@ impl MapKey {
             Value::Float(f) => MapKey::Float(f.to_bits()),
             // A variant keys a map, which is what makes `Map<Level, Int>`
             // the natural way to count by kind.
-            Value::Variant(v) => MapKey::Variant(v.enm.clone(), v.name.clone()),
+            //
+            // Only a plain one. A variant that carries something is two
+            // values under one name — `Circle(1.0)` and `Circle(2.0)` — and
+            // this key holds the name alone, so they would collide silently:
+            // the map would hold one entry and answer the second's value for
+            // the first's question. A record is refused here for the same
+            // reason and says so at the point of use; so does this.
+            Value::Variant(v) if v.fields.is_empty() => {
+                MapKey::Variant(v.enm.clone(), v.name.clone())
+            }
             Value::Null => MapKey::Null,
             _ => return None,
         })
@@ -513,7 +525,15 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
         // Interned, so the pointer answers almost always; the names settle
         // the rare case where two loads of one program made two copies.
         (Value::Variant(x), Value::Variant(y)) => {
-            Rc::ptr_eq(x, y) || (x.enm == y.enm && x.name == y.name)
+            if Rc::ptr_eq(x, y) {
+                return true;
+            }
+            if x.enm != y.enm || x.name != y.name || x.fields.len() != y.fields.len() {
+                return false;
+            }
+            // Same variant of the same enum: what it carries decides, field
+            // by field, in declaration order.
+            x.fields.iter().zip(y.fields.iter()).all(|(a, b)| values_equal(&a.1, &b.1))
         }
         (Value::Float(x), Value::Float(y)) => x == y,
         (Value::Bool(x), Value::Bool(y)) => x == y,

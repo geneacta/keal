@@ -362,7 +362,16 @@ pub enum ExprKind {
     /// names an enum. That is why no engine below the checker has to learn
     /// the resolution rule — six copies of one five-line test, all of which
     /// would have to agree byte for byte.
-    Variant { enm: std::rc::Rc<str>, name: std::rc::Rc<str>, ordinal: u32 },
+    /// One value of an enum, resolved by the checker — the parser never
+    /// builds one. `fields` names what the variant carries, in declaration
+    /// order, so that printing one can say `Circle(r=1.0)` without going
+    /// back to the declaration. Empty for a plain variant.
+    Variant {
+        enm: std::rc::Rc<str>,
+        name: std::rc::Rc<str>,
+        ordinal: u32,
+        fields: std::rc::Rc<[std::rc::Rc<str>]>,
+    },
     /// `name!(a, b)` — a macro, spliced where it is written rather than
     /// called. The arguments are expressions, unevaluated: the body decides
     /// whether each one runs, and how many times.

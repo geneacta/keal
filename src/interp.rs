@@ -311,11 +311,12 @@ impl Interp {
     pub fn eval(&mut self, e: &Expr, env: &Env) -> R<Value> {
         let span = e.span;
         match &e.kind {
-            ExprKind::Variant { enm, name, ordinal } => {
+            ExprKind::Variant { enm, name, ordinal, .. } => {
                 Ok(Value::Variant(std::rc::Rc::new(crate::value::VariantVal {
                     enm: enm.clone(),
                     name: name.clone(),
                     ordinal: *ordinal,
+                    fields: Vec::new(),
                 })))
             }
             // Expansion happens while the tree is checked, so a call that
@@ -520,7 +521,24 @@ impl Interp {
                 self.invoke_method(target, sum_name(name, obj), args, env, span)
             }
 
-            ExprKind::Call { callee, args } => self.eval_call(callee, args, env, span),
+            ExprKind::Call { callee, args } => {
+                // `Shape.Circle(1.0)`: the checker left a `variant` callee,
+                // which is not a function and is not called — it is built.
+                if let ExprKind::Variant { enm, name, ordinal, fields } = &callee.kind {
+                    let mut carried = Vec::with_capacity(args.len());
+                    for (i, a) in args.iter().enumerate() {
+                        let v = self.eval(&a.value, env)?;
+                        carried.push((fields[i].clone(), v));
+                    }
+                    return Ok(Value::Variant(std::rc::Rc::new(crate::value::VariantVal {
+                        enm: enm.clone(),
+                        name: name.clone(),
+                        ordinal: *ordinal,
+                        fields: carried,
+                    })));
+                }
+                self.eval_call(callee, args, env, span)
+            }
 
             ExprKind::Assign { target, op, value } => {
                 self.eval_assign(target, *op, value, env, span)?;

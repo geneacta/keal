@@ -136,7 +136,16 @@ fn render(rt: &mut dyn Runtime, v: &Value, span: Span, quote: bool, depth: usize
         Value::Int(n) => n.to_string(),
         // The bare variant name: `Hearts`, not `Suit.Hearts` — the type is
         // already known wherever one is printed.
-        Value::Variant(v) => v.name.to_string(),
+        Value::Variant(v) if v.fields.is_empty() => v.name.to_string(),
+        // One that carries something shows it, the way a record does, so the
+        // two shapes read alike wherever a program prints one.
+        Value::Variant(v) => {
+            let mut inner = Vec::with_capacity(v.fields.len());
+            for (n, x) in &v.fields {
+                inner.push(format!("{}={}", n, render(rt, x, span, true, depth + 1)?));
+            }
+            format!("{}({})", v.name, inner.join(", "))
+        }
         Value::Float(f) => format_float(*f),
         Value::Bool(b) => b.to_string(),
         Value::Comp(c) => crate::value::comp_word(*c).to_string(),

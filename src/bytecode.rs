@@ -126,6 +126,11 @@ pub enum Op {
     Throw,
 
     // ---- data ---------------------------------------------------------
+    /// Builds `Shape.Circle(1.0)`: the constant holds the empty variant —
+    /// enum, name, ordinal and the field names — and `n` values are taken
+    /// off the stack to fill it. A plain variant needs none of this and
+    /// stays one pooled constant, as it was.
+    MakeVariant(u32, u32),
     MakeList(u32),
     MakeMap(u32),
     MakeRange,

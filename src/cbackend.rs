@@ -2838,7 +2838,7 @@ impl CBackend {
             }
             ExprKind::Int(n) => format!("INT64_C({})", n),
             // The ordinal, and a comment so the C reads as the program did.
-            ExprKind::Variant { enm, name, ordinal } => {
+            ExprKind::Variant { enm, name, ordinal, .. } => {
                 format!("INT64_C({}) /* {}.{} */", ordinal, enm, name)
             }
             ExprKind::Float(f) => format_double(*f),
