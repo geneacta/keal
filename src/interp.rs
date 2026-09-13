@@ -579,6 +579,10 @@ impl Interp {
                     Some(s) => self.type_matches(s, ty) != *negated,
                     None => false,
                 },
+                WhenPattern::Variant { enm, name, .. } => match &subject_value {
+                    Some(Value::Variant(v)) => v.enm == *enm && v.name == *name,
+                    _ => false,
+                },
                 WhenPattern::In { range, negated } => {
                     let container = self.eval(range, env)?;
                     let Some(s) = &subject_value else {
@@ -594,6 +598,16 @@ impl Interp {
             // `is Point(x, y)` binds the fields for this arm only, and the
             // guard is judged with them already in scope.
             let scope = Scope::child(env);
+            if let WhenPattern::Variant { binds, .. } = &arm.pattern {
+                let Some(Value::Variant(v)) = &subject_value else {
+                    return err(arm.span, "a variant pattern needs a variant subject");
+                };
+                for (bind, (_, value)) in binds.iter().zip(v.fields.iter()) {
+                    if let Some(n) = bind {
+                        scope.define(n, value.clone());
+                    }
+                }
+            }
             if let WhenPattern::Is { binds: Some(d), .. } = &arm.pattern {
                 let subject = subject_value.as_ref().expect("`is` needs a subject");
                 for (name, value) in destructure(subject, d, arm.span)? {

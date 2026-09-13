@@ -1265,6 +1265,29 @@ impl Compiler {
                 }
                 Ok(vec![self.fs().chunk.emit_jump(Op::JumpIfFalse, span)])
             }
+            WhenPattern::Variant { enm, name, ordinal, binds, .. } => {
+                let slot = subject.expect("a variant pattern needs a subject");
+                let template = Value::Variant(std::rc::Rc::new(crate::value::VariantVal {
+                    enm: enm.clone(),
+                    name: name.clone(),
+                    ordinal: *ordinal,
+                    fields: Vec::new(),
+                }));
+                let k = self.fs().chunk.constant(template);
+                self.emit(Op::LoadLocal(slot), span);
+                self.emit(Op::IsVariant(k), span);
+                let jump = self.fs().chunk.emit_jump(Op::JumpIfFalse, span);
+                // The bindings come after the test, so they only run when the
+                // arm is taken. They belong to the arm's scope, which the
+                // caller has already pushed.
+                for (i, bind) in binds.iter().enumerate() {
+                    let Some(n) = bind else { continue };
+                    self.emit(Op::LoadLocal(slot), span);
+                    self.emit(Op::VariantField(i as u32), span);
+                    self.declare_and_store(n, span);
+                }
+                Ok(vec![jump])
+            }
             WhenPattern::Is { ty, negated, binds } => {
                 let slot = subject.expect("`is` needs a subject");
                 self.emit(Op::LoadLocal(slot), span);

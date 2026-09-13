@@ -31,3 +31,28 @@ assert(counts.size == 1, "a plain variant keys a map as it always did")
 val shapes = [c, r, p]
 assert(shapes.size == 3, "a carried variant is an ordinary value")
 assert("${shapes}" == "[Circle(r=1.5), Rect(w=2.0, h=3.0), Point]", "in a list: ${shapes}")
+
+// Taking one apart: a variant pattern binds what the variant carries, for
+// that arm only. `Shape.Point` needs no pattern of its own — it is a value
+// and matches as one.
+func area(sh: Shape): Float {
+    return when (sh) {
+        Shape.Circle(r) -> 3.14 * r * r
+        Shape.Rect(w, h) -> w * h
+        Shape.Point -> 0.0
+    }
+}
+assert(area(Shape.Circle(2.0)) == 12.56, "bound one field: ${area(Shape.Circle(2.0))}")
+assert(area(Shape.Rect(3.0, 4.0)) == 12.0, "bound two, in order")
+assert(area(Shape.Point) == 0.0, "a plain variant still matches as a value")
+
+// `_` names nothing, and the arm still counts as covering its variant.
+func kindOf(sh: Shape): String {
+    return when (sh) {
+        Shape.Circle(_) -> "circle"
+        Shape.Rect(_, _) -> "rect"
+        Shape.Point -> "point"
+    }
+}
+assert(kindOf(Shape.Circle(9.0)) == "circle", "underscore binds nothing and covers")
+assert(kindOf(Shape.Rect(1.0, 1.0)) == "rect", "two underscores")

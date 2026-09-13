@@ -362,7 +362,9 @@ impl Macros {
                             }
                         }
                         WhenPattern::In { range, .. } => self.expr(range, subst, at, depth)?,
-                        WhenPattern::Is { .. } | WhenPattern::Else => {}
+                        WhenPattern::Is { .. }
+                        | WhenPattern::Variant { .. }
+                        | WhenPattern::Else => {}
                     }
                     if let Some(g) = &mut arm.guard {
                         self.expr(g, subst, at, depth)?;

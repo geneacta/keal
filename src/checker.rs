@@ -3269,6 +3269,60 @@ impl Checker {
     /// A variant is a constructor and a pattern, never a type — so this
     /// produces the enum, never a type of its own, and nothing anywhere
     /// gains a subtyping edge.
+    /// `Shape.Circle(r)` in a `when` arm: a value pattern that is really a
+    /// variant pattern, which only this pass can tell.
+    ///
+    /// Left alone unless every piece fits — the subject is an enum, the
+    /// receiver names that enum, the variant carries fields, and every
+    /// argument is a plain name or `_`. Anything else stays a value pattern
+    /// and is checked as one, so a program that meant an expression still
+    /// gets the error an expression would get.
+    fn rewrite_variant_pattern(&mut self, pattern: &mut WhenPattern, subject: &Option<Type>) {
+        let Some(Type::Enum(want)) = subject else { return };
+        let WhenPattern::Values(values) = pattern else { return };
+        if values.len() != 1 {
+            return;
+        }
+        let e = &values[0];
+        let span = e.span;
+        let ExprKind::MethodCall { obj, name, args, safe: false } = &e.kind else { return };
+        let ExprKind::Ident(base) = &obj.kind else { return };
+        if self.lookup(base).is_some() {
+            return;
+        }
+        let key = self.global_key(base, span.file);
+        if key.as_str() != &**want {
+            return;
+        }
+        let Some(info) = self.enums.get(&key) else { return };
+        let Some(ordinal) = info.variants.iter().position(|v| &**v == name.as_str()) else {
+            return;
+        };
+        if info.fields[ordinal].is_empty() {
+            // A plain variant is a value, and `Shape.Point` already works as
+            // one. Only a carried variant needs a pattern of its own.
+            return;
+        }
+        let mut binds = Vec::with_capacity(args.len());
+        for a in args {
+            if a.name.is_some() {
+                return;
+            }
+            match &a.value.kind {
+                ExprKind::Ident(n) if n == "_" => binds.push(None),
+                ExprKind::Ident(n) => binds.push(Some(n.clone())),
+                _ => return,
+            }
+        }
+        *pattern = WhenPattern::Variant {
+            enm: Rc::from(key.as_str()),
+            name: Rc::from(name.as_str()),
+            ordinal: ordinal as u32,
+            binds,
+            span,
+        };
+    }
+
     fn variant_call(&mut self, e: &mut Expr, span: Span) -> Option<Type> {
         // Everything read out of the tree and the table first, so that the
         // rewrite below is not holding a borrow of what it overwrites.
@@ -4312,6 +4366,12 @@ impl Checker {
             // Facts that hold for every arm below this one.
             let mut below: Vec<(String, Type)> = Vec::new();
 
+            // `Shape.Circle(r) ->` parses as an ordinary value pattern,
+            // because only the checker knows `Shape` names an enum. Turned
+            // into a variant pattern here, before the arm is checked, so the
+            // names in the parentheses are bindings rather than expressions
+            // nobody declared.
+            self.rewrite_variant_pattern(&mut arm.pattern, &subject_ty);
             match &mut arm.pattern {
                 WhenPattern::Else => {
                     has_else = arm.guard.is_none();
@@ -4403,6 +4463,54 @@ impl Checker {
                             if let Some(n) = bind {
                                 in_arm.push((n.clone(), ty));
                             }
+                        }
+                    }
+                }
+
+                WhenPattern::Variant { enm, name, ordinal, binds, span } => {
+                    let (enm, name, ordinal, span) =
+                        (enm.clone(), name.clone(), *ordinal, *span);
+                    let binds = binds.clone();
+                    if closed.is_some() && arm.guard.is_none() {
+                        // The bare variant name, as `covers` gives it for a
+                        // plain one: the two kinds of arm cover the same enum
+                        // and have to be counted in the same words.
+                        let c = name.to_string();
+                        if covered.contains(&c) {
+                            self.error_note(
+                                span,
+                                format!("`{}` is already covered above", c),
+                                "the first matching arm wins, so this one can never run",
+                            );
+                        } else {
+                            covered.push(c);
+                        }
+                    }
+                    let params = self
+                        .enums
+                        .get(&*enm)
+                        .and_then(|i| i.fields.get(ordinal as usize))
+                        .cloned()
+                        .unwrap_or_default();
+                    if binds.len() != params.len() {
+                        self.error(
+                            span,
+                            format!(
+                                "`{}.{}` carries {} field(s), but the pattern names {}",
+                                enm,
+                                name,
+                                params.len(),
+                                binds.len()
+                            ),
+                        );
+                    }
+                    for (bind, p) in binds.iter().zip(params.iter()) {
+                        if let Some(n) = bind {
+                            let ty = match &p.ty {
+                                Some(te) => self.resolve(te),
+                                None => Type::Error,
+                            };
+                            in_arm.push((n.clone(), ty));
                         }
                     }
                 }

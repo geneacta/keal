@@ -312,6 +312,10 @@ func cloneEx(e: Ex): Ex {
         val pt = arm.patTyEx
         if (pt != null) { na.patTyEx = cloneTypeEx(pt) }
         na.patNegated = arm.patNegated
+        na.patEnum = arm.patEnum
+        na.patVariant = arm.patVariant
+        na.patOrdinal = arm.patOrdinal
+        for (b in arm.patBinds) { na.patBinds.add(b) }
         val bd = arm.binds
         if (bd != null) {
             val d = DestrN(bd.typeName, bd.binds, bd.line, bd.col)
@@ -1040,6 +1044,58 @@ package class Checker() {
     /// A variant is a constructor and a pattern, never a type — so this
     /// produces the enum, never a type of its own, and nothing anywhere gains
     /// a subtyping edge.
+    /// `Shape.Circle(r)` in a `when` arm: a value pattern that is really a
+    /// variant pattern, which only this pass can tell.
+    ///
+    /// Left alone unless every piece fits — the subject is an enum, the
+    /// receiver names that enum, the variant carries fields, and every
+    /// argument is a plain name or `_`. Anything else stays a value pattern
+    /// and is checked as one, so a program that meant an expression still
+    /// gets the error an expression would get.
+    proc rewriteVariantPattern(var arm: ArmN, subject: Ty?) {
+        unless (arm.patternKind == "values") { return }
+        if (arm.values.size != 1) { return }
+        val want = subject
+        if (want == null) { return }
+        unless (want.kind == "Enum") { return }
+        val e = arm.values[0]
+        unless (e.kind == "method") { return }
+        if (e.safe) { return }
+        val obj = e.kids[0]
+        unless (obj.kind == "ident") { return }
+        val base = obj.text
+        if (this.lookup(base) != null) { return }
+        val key = this.globalKey(base, e.file)
+        unless (key == want.name) { return }
+        unless (this.enums.contains(key)) { return }
+        val names = this.enums[key]!!
+        var ordinal = -1
+        var i = 0
+        while (i < names.size) {
+            if (names[i] == e.text) { ordinal = i }
+            i += 1
+        }
+        if (ordinal < 0) { return }
+        val carried = this.enumFields[key] ?: []
+        if (ordinal >= carried.size) { return }
+        // A plain variant is a value, and `Shape.Point` already works as one.
+        // Only a carried variant needs a pattern of its own.
+        if (carried[ordinal].size == 0) { return }
+        val binds: List<String> = []
+        for (a in e.args) {
+            unless (a.name == "") { return }
+            val v = a.value
+            unless (v.kind == "ident") { return }
+            binds.add(v.text)
+        }
+        arm.patternKind = "variant"
+        arm.patEnum = key
+        arm.patVariant = e.text
+        arm.patOrdinal = ordinal
+        arm.patBinds = binds
+        arm.values = []
+    }
+
     func variantCall(var e: Ex): Ty? {
         if (e.safe) { return null }
         val obj = e.kids[0]
@@ -4222,6 +4278,13 @@ package class Checker() {
             var inArm: List<Fact> = []
             val below: List<Fact> = []
 
+            // `Shape.Circle(r) ->` parses as an ordinary value pattern,
+            // because only the checker knows `Shape` names an enum. Turned
+            // into a variant pattern here, before the arm is checked, so the
+            // names in the parentheses are bindings rather than expressions
+            // nobody declared.
+            this.rewriteVariantPattern(arm, subjectTy)
+
             if (arm.patternKind == "else") {
                 if (arm.guard == null) {
                     hasElse = true
@@ -4280,6 +4343,42 @@ package class Checker() {
                     for (v in arm.values) {
                         for (f in this.narrowings(v, false)) { below.add(f) }
                     }
+                }
+            } else if (arm.patternKind == "variant") {
+                if (closed != null and arm.guard == null) {
+                    // The bare variant name, as `coversValue` gives it for a
+                    // plain one: the two kinds of arm cover the same enum and
+                    // have to be counted in the same words.
+                    val c = arm.patVariant
+                    if (covered.contains(c)) {
+                        this.errorNote(
+                            arm.file, arm.line, arm.col,
+                            "`${c}` is already covered above",
+                            "the first matching arm wins, so this one can never run"
+                        )
+                    } else {
+                        covered.add(c)
+                    }
+                }
+                val carriedAll = this.enumFields[arm.patEnum] ?: []
+                var params: List<ParamN> = []
+                if (arm.patOrdinal < carriedAll.size) { params = carriedAll[arm.patOrdinal] }
+                if (arm.patBinds.size != params.size) {
+                    this.error(
+                        arm.file, arm.line, arm.col,
+                        "`${arm.patEnum}.${arm.patVariant}` carries ${params.size} field(s), but the pattern names ${arm.patBinds.size}"
+                    )
+                }
+                var bi = 0
+                while (bi < arm.patBinds.size and bi < params.size) {
+                    val nm = arm.patBinds[bi]
+                    unless (nm == "_") {
+                        val te = params[bi].tyEx
+                        var ty = Ty("Error")
+                        if (te != null) { ty = this.resolve(te) }
+                        inArm.add(Fact(nm, ty))
+                    }
+                    bi += 1
                 }
             } else if (arm.patternKind == "is") {
                 val target = this.resolveIsType(arm.patTyEx!!)

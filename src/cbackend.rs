@@ -5754,6 +5754,15 @@ impl CBackend {
         let mut conds: Vec<String> = Vec::new();
         match &arm.pattern {
             WhenPattern::Else => {}
+            WhenPattern::Variant { enm, name, .. } => {
+                // The arm's position, not the pattern's: the twin reports at
+                // the arm, and `keal cgen` compares refusals byte for byte.
+                self.refuse(
+                    arm.span,
+                    &format!("matching `{}.{}`, a variant that carries fields", enm, name),
+                    "run it on the bytecode VM instead, which supports the whole language",
+                );
+            }
             WhenPattern::Values(values) => {
                 let mut hits = Vec::new();
                 for v in values {
@@ -8056,6 +8065,9 @@ fn collect_free_expr(e: &Expr, bound: &mut Vec<String>, free: &mut Vec<String>) 
                             collect_free_expr(v, bound, free);
                         }
                     }
+                    // Its binds are declared by the pattern, not read from
+                    // outside it, so there is nothing free here.
+                    WhenPattern::Variant { .. } => {}
                     WhenPattern::In { range, .. } => collect_free_expr(range, bound, free),
                     WhenPattern::Is { binds, .. } => {
                         if let Some(d) = binds {

@@ -126,6 +126,12 @@ pub enum Op {
     Throw,
 
     // ---- data ---------------------------------------------------------
+    /// Pops a value and pushes whether it is the variant the constant names.
+    /// The enum and the variant name decide; what it carries does not, which
+    /// is what separates a pattern test from `==`.
+    IsVariant(u32),
+    /// Pops a variant and pushes the field at this position.
+    VariantField(u32),
     /// Builds `Shape.Circle(1.0)`: the constant holds the empty variant —
     /// enum, name, ordinal and the field names — and `n` values are taken
     /// off the stack to fill it. A plain variant needs none of this and

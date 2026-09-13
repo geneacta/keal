@@ -562,6 +562,25 @@ impl Vm {
                     }));
                 }
 
+                Op::IsVariant(k) => {
+                    let want = func.chunk.consts[k as usize].clone();
+                    let Value::Variant(w) = want else {
+                        unreachable!("IsVariant on a constant that is not a variant")
+                    };
+                    let got = self.pop();
+                    let hit = match got {
+                        Value::Variant(v) => v.enm == w.enm && v.name == w.name,
+                        _ => false,
+                    };
+                    self.push(Value::Bool(hit));
+                }
+                Op::VariantField(i) => {
+                    let v = self.pop();
+                    let Value::Variant(v) = v else {
+                        unreachable!("VariantField on something that is not a variant")
+                    };
+                    self.push(v.fields[i as usize].1.clone());
+                }
                 Op::MakeVariant(k, n) => {
                     let at = self.stack.len() - n as usize;
                     let carried: Vec<Value> = self.stack.drain(at..).collect();

@@ -107,6 +107,14 @@ package class ArmN(package val line: Int, package val col: Int) {
     package var patTyEx: TypeEx? = null    // is
     package var patNegated: Bool = false   // is / in
     package var binds: DestrN? = null      // is T(a, b)
+    /// kind "variant": `Shape.Circle(r) ->`, one variant of the subject's
+    /// enum with what it carries bound for the arm. Written like a
+    /// construction and resolved by the checker, which is the only place
+    /// that knows `Shape` names an enum. "_" binds nothing.
+    package var patEnum: String = ""       // variant
+    package var patVariant: String = ""    // variant
+    package var patOrdinal: Int = 0        // variant
+    package var patBinds: List<String> = []  // variant
     package var guard: Ex? = null
     package var body: BlockN = BlockN()
 }

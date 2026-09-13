@@ -407,6 +407,16 @@ func pArg(a: ArgN): String {
 func pPattern(arm: ArmN): String {
     return when (arm.patternKind) {
         "else" -> "pattern else"
+        "variant" -> {
+            var bs = ""
+            var first = true
+            for (b in arm.patBinds) {
+                unless (first) { bs += ", " }
+                bs += b
+                first = false
+            }
+            "pattern variant ${arm.patEnum}.${arm.patVariant}(${bs})"
+        }
         "values" -> {
             var out = "pattern values"
             for (v in arm.values) { out += "\n" + indentBlock(pEx(v)) }

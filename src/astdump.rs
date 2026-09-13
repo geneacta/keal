@@ -604,6 +604,16 @@ fn arg_node(a: &Arg) -> String {
 fn when_arm_pattern(p: &WhenPattern) -> String {
     match p {
         WhenPattern::Else => "pattern else".to_string(),
+        WhenPattern::Variant { enm, name, binds, .. } => {
+            let bs: Vec<String> = binds
+                .iter()
+                .map(|b| b.clone().unwrap_or_else(|| "_".to_string()))
+                .collect();
+            // No position, as `pattern is` has none: the arm above it carries
+            // one already, and two compilers cannot disagree about a column
+            // they do not print.
+            format!("pattern variant {}.{}({})", enm, name, bs.join(", "))
+        }
         WhenPattern::Values(vs) => {
             let mut out = String::from("pattern values\n");
             for v in vs {

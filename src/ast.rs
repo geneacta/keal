@@ -421,6 +421,18 @@ pub enum WhenPattern {
     /// `is T`, or `is T(a, b)` which also binds the fields in the arm.
     Is { ty: TypeExpr, negated: bool, binds: Option<Destructuring> },
     In { range: Expr, negated: bool },
+    /// `Shape.Circle(r) ->` — one variant of the subject's enum, with the
+    /// fields it carries bound for the arm. Written like a construction and
+    /// resolved by the checker, which is the only place that knows `Shape`
+    /// names an enum; the parser leaves it as an ordinary value pattern.
+    /// `_` in a position binds nothing.
+    Variant {
+        enm: std::rc::Rc<str>,
+        name: std::rc::Rc<str>,
+        ordinal: u32,
+        binds: Vec<Option<String>>,
+        span: Span,
+    },
     Else,
 }
 
