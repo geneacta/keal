@@ -435,6 +435,10 @@ package class Checker() {
     /// order: that order is the ordinal a compiled program stores, and the
     /// order `values()` and a missing-variant message list them in.
     var enums: Map<String, List<String>> = {}
+    /// What each variant carries, in the order of `enums[key]`. Empty for a
+    /// plain variant. Kept as written rather than resolved: an enum is
+    /// collected before every type it may name is known.
+    var enumFields: Map<String, List<List<ParamN>>> = {}
     var enumVis: Map<String, String> = {}
     var enumFile: Map<String, Int> = {}
     /// Every macro the program declares, collected before anything is
@@ -1030,6 +1034,72 @@ package class Checker() {
     /// import alias, then an enum. So `val Suit = 3` shadows the enum the
     /// way any inner name shadows an outer one, and this can never take a
     /// name out from under a program.
+    /// `Shape.Circle(1.0)`: the receiver names an enum and the "method" names
+    /// one of its variants, which carries fields.
+    ///
+    /// A variant is a constructor and a pattern, never a type — so this
+    /// produces the enum, never a type of its own, and nothing anywhere gains
+    /// a subtyping edge.
+    func variantCall(var e: Ex): Ty? {
+        if (e.safe) { return null }
+        val obj = e.kids[0]
+        unless (obj.kind == "ident") { return null }
+        val base = obj.text
+        if (this.lookup(base) != null) { return null }
+        if (this.aliases.contains("${e.file}|${base}")) { return null }
+        val key = this.globalKey(base, e.file)
+        unless (this.enums.contains(key)) { return null }
+        val names = this.enums[key]!!
+        var ordinal = -1
+        var i = 0
+        while (i < names.size) {
+            if (names[i] == e.text) { ordinal = i }
+            i += 1
+        }
+        if (ordinal < 0) { return null }
+        val carried = this.enumFields[key] ?: []
+        if (ordinal >= carried.size) { return null }
+        val params = carried[ordinal]
+        // A plain variant is not callable; let the ordinary path say so.
+        if (params.size == 0) { return null }
+        val evis = this.enumVis[key] ?: ""
+        val efile = this.enumFile[key] ?: 0
+        this.checkVisible(e.file, e.line, e.col, "enum", key, evis, efile)
+        val vname = e.text
+        val args = e.args
+        // The node becomes `call` with a `variant` callee — the shape every
+        // engine already knows how to walk.
+        val callee = Ex("variant", e.line, e.col)
+        callee.file = e.file
+        callee.text = vname
+        callee.enumName = key
+        callee.iVal = ordinal
+        callee.ty = tyEnum(key)
+        if (args.size != params.size) {
+            this.error(
+                e.file, e.line, e.col,
+                "`${key}.${vname}` takes ${params.size} argument(s), but ${args.size} were given"
+            )
+            e.kind = "call"
+            e.kids = [callee]
+            return tyEnum(key)
+        }
+        var j = 0
+        while (j < args.size) {
+            val p = params[j]
+            val te = p.tyEx
+            var want = Ty("Error")
+            if (te != null) { want = this.resolve(te) }
+            val got = this.checkCoerced(args[j].value, want)
+            this.expectAssignable(got, want, args[j].value.file, args[j].value.line,
+                                  args[j].value.col, "field `${p.name}`")
+            j += 1
+        }
+        e.kind = "call"
+        e.kids = [callee]
+        return tyEnum(key)
+    }
+
     func resolveVariant(var e: Ex): Ty? {
         val obj = e.kids[0]
         unless (obj.kind == "ident") { return null }
@@ -1055,6 +1125,17 @@ package class Checker() {
                 "it has ${listNames(names)}"
             )
             return Ty("Error")
+        }
+        val carried = this.enumFields[key] ?: []
+        if (ordinal < carried.size and carried[ordinal].size > 0) {
+            val want: List<String> = []
+            for (p in carried[ordinal]) { want.add(p.name) }
+            this.errorNote(
+                e.file, e.line, e.col,
+                "`${key}.${e.text}` carries fields, so it has to be built",
+                "give it ${listNames(want)}"
+            )
+            return tyEnum(key)
         }
         e.kind = "variant"
         e.enumName = key
@@ -1098,15 +1179,11 @@ package class Checker() {
                     this.error(en.file, en.line, en.col, "enum `${en.name}` is declared twice")
                     continue
                 }
-                for (v in en.variants) {
-                    if (v.fields.size > 0) {
-                        this.error(v.file, v.line, v.col,
-                            "enum variant `${v.name}` carries fields, which is parsed but not yet checked")
-                    }
-                }
                 val names: List<String> = []
-                for (v in en.variants) { names.add(v.name) }
+                val carried: List<List<ParamN>> = []
+                for (v in en.variants) { names.add(v.name) carried.add(v.fields) }
                 this.enums[en.name] = names
+                this.enumFields[en.name] = carried
                 this.enumVis[en.name] = en.vis
                 this.enumFile[en.name] = en.file
             }
@@ -3052,6 +3129,11 @@ package class Checker() {
             return t
         }
         if (e.kind == "method") {
+            // `Shape.Circle(1.0)` — a variant that carries fields, built. It
+            // parses as a method call on `Shape`, and it is neither a method
+            // nor a receiver, so it is answered before either is looked up.
+            val built = this.variantCall(e)
+            if (built != null) { return built }
             val obj = e.kids[0]
             val name = e.text
             val ot = this.checkExpr(obj, null)

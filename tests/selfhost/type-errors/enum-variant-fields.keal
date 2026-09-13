@@ -1,7 +1,12 @@
-// A variant's fields parse — both compilers must build the same tree for
-// them — and the checker refuses them until an engine can run one. The two
-// halves land apart on purpose: a grammar that only one compiler knows
-// breaks the fixed point on every file, so it goes in first and alone.
+// A variant that carries fields is built, never named bare, and never a
+// type. `Circle` is a constructor and a pattern; `val c: Circle` is an
+// unknown type and stays one, which is what keeps this feature from adding
+// the case-to-enum assignability edge `docs/language.md` refuses.
 enum Shape { Circle(r: Float), Square(s: Float), Point }
-val p = Shape.Point
-println(p)
+
+val built = Shape.Circle(1.0)   // fine
+val plain = Shape.Point         // fine, and unchanged
+
+val bare = Shape.Circle                 // carries fields, so it has to be built
+val wrongArity = Shape.Square(1.0, 2.0) // takes 1 argument
+val wrongType = Shape.Circle("x")       // field `r` is a Float

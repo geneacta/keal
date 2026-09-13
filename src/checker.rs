@@ -169,6 +169,10 @@ fn list_names(names: &[String]) -> String {
 /// What the checker knows about an enum: its values, and who may name it.
 struct EnumInfo {
     variants: Vec<Rc<str>>,
+    /// What each variant carries, in the order of `variants`. Empty for a
+    /// plain variant. Kept as written rather than resolved: an enum is
+    /// collected before every type it may name is known.
+    fields: Vec<Vec<Param>>,
     vis: Vis,
     span: Span,
 }
@@ -971,6 +975,11 @@ impl Checker {
         let (vis, home) = (info.vis, info.span.file);
         let ordinal = info.variants.iter().position(|v| &**v == name);
         let known: Vec<String> = info.variants.iter().map(|v| v.to_string()).collect();
+        // Read before `check_visible`, which takes `self` mutably.
+        let carried: Vec<String> = match ordinal {
+            Some(i) => info.fields[i].iter().map(|p| p.name.clone()).collect(),
+            None => Vec::new(),
+        };
         self.check_visible(span, "enum", &key, vis, home);
         let Some(ordinal) = ordinal else {
             self.error_note(
@@ -980,6 +989,14 @@ impl Checker {
             );
             return Some(Type::Error);
         };
+        if !carried.is_empty() {
+            self.error_note(
+                span,
+                format!("`{}.{}` carries fields, so it has to be built", key, name),
+                format!("give it {}", list_names(&carried)),
+            );
+            return Some(Type::Enum(Rc::from(key.as_str())));
+        }
         let enm: Rc<str> = Rc::from(key.as_str());
         e.kind = ExprKind::Variant {
             enm: enm.clone(),
@@ -998,18 +1015,11 @@ impl Checker {
             self.error(en.span, format!("enum `{}` is declared twice", en.name));
             return;
         }
-        for v in &en.variants {
-            if !v.fields.is_empty() {
-                self.error(
-                    v.span,
-                    format!("enum variant `{}` carries fields, which is parsed but not yet checked", v.name),
-                );
-            }
-        }
         let variants: Vec<Rc<str>> = en.variants.iter().map(|v| Rc::from(v.name.as_str())).collect();
+        let fields: Vec<Vec<Param>> = en.variants.iter().map(|v| v.fields.clone()).collect();
         self.enums.insert(
             en.name.clone(),
-            EnumInfo { variants, vis: en.vis, span: en.span },
+            EnumInfo { variants, fields, vis: en.vis, span: en.span },
         );
     }
 
@@ -2891,6 +2901,17 @@ impl Checker {
             }
 
             ExprKind::MethodCall { obj, name, args, safe } => {
+                // `Shape.Circle(1.0)` — a variant that carries fields, built.
+                // It parses as a method call on `Shape`, and it is neither a
+                // method nor a receiver, so it is answered before either is
+                // looked up. Checked here means `resolve_variant` only ever
+                // sees a bare reference, and can say what that one is missing.
+                if let Some(t) = self.variant_call(e, span) {
+                    return t;
+                }
+                let ExprKind::MethodCall { obj, name, args, safe } = &mut e.kind else {
+                    unreachable!()
+                };
                 let (name, safe) = (name.clone(), *safe);
                 let ot = self.check_expr(obj, None);
                 let hint = self.var_narrowing_hint(obj);
@@ -3240,6 +3261,88 @@ impl Checker {
             self.expect_assignable(&got, want, arg.value.span, &format!("argument `{}`", ft.params[i].name));
         }
         ft.ret
+    }
+
+    /// `Shape.Circle(1.0)`: the callee names a variant that carries fields.
+    ///
+    /// A variant is a constructor and a pattern, never a type — so this
+    /// produces the enum, never a type of its own, and nothing anywhere
+    /// gains a subtyping edge.
+    fn variant_call(&mut self, e: &mut Expr, span: Span) -> Option<Type> {
+        // Everything read out of the tree and the table first, so that the
+        // rewrite below is not holding a borrow of what it overwrites.
+        let (key, vname) = {
+            let ExprKind::MethodCall { obj, name, safe: false, .. } = &e.kind else {
+                return None;
+            };
+            let ExprKind::Ident(base) = &obj.kind else { return None };
+            if self.lookup(base).is_some()
+                || self.aliases.contains_key(&(span.file, base.clone()))
+            {
+                return None;
+            }
+            (self.global_key(base, span.file), name.clone())
+        };
+        let (ordinal, params, vis, home) = {
+            let info = self.enums.get(&key)?;
+            let ordinal = info.variants.iter().position(|v| &**v == vname.as_str())?;
+            let params = info.fields.get(ordinal)?.clone();
+            if params.is_empty() {
+                // A plain variant is not callable; let the ordinary path say so.
+                return None;
+            }
+            (ordinal, params, info.vis, info.span.file)
+        };
+        let name = &vname;
+        self.check_visible(span, "enum", &key, vis, home);
+        let enm: Rc<str> = Rc::from(key.as_str());
+        // The arguments are taken out of the node, which is then rebuilt as
+        // `Call { callee: Variant, args }` — the shape every engine already
+        // knows how to walk.
+        let placeholder = ExprKind::Ident(String::new());
+        let mut args = match std::mem::replace(&mut e.kind, placeholder) {
+            ExprKind::MethodCall { args, .. } => args,
+            _ => unreachable!(),
+        };
+        let callee = Box::new(Expr {
+            kind: ExprKind::Variant {
+                enm: enm.clone(),
+                name: Rc::from(name.as_str()),
+                ordinal: ordinal as u32,
+            },
+            span,
+            ty: Some(Type::Enum(enm.clone())),
+            inst: None,
+        });
+        if args.len() != params.len() {
+            self.error(
+                span,
+                format!(
+                    "`{}.{}` takes {} argument(s), but {} were given",
+                    key,
+                    name,
+                    params.len(),
+                    args.len()
+                ),
+            );
+            e.kind = ExprKind::Call { callee, args };
+            return Some(Type::Enum(enm));
+        }
+        for (i, arg) in args.iter_mut().enumerate() {
+            let want = match &params[i].ty {
+                Some(te) => self.resolve(te),
+                None => Type::Error,
+            };
+            let got = self.check_coerced(&mut arg.value, &want);
+            self.expect_assignable(
+                &got,
+                &want,
+                arg.value.span,
+                &format!("field `{}`", params[i].name),
+            );
+        }
+        e.kind = ExprKind::Call { callee, args };
+        Some(Type::Enum(enm))
     }
 
     fn check_call(
