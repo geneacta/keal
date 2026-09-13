@@ -1,0 +1,8 @@
+// An enum is one word until one of its variants carries something, and then
+// every value of it is a pointer. The type says `Shape` either way, so this
+// is the one place a reader can see which — and `Repr::of` has to be told,
+// because `Type::Enum(name)` holds the name and nothing else.
+enum Plain { A, B }
+enum Carries { X(n: Int), Y }
+record Holder(val p: Plain, val c: Carries, val n: Int)
+println(1)

@@ -83,17 +83,57 @@ pub enum RefKind {
     Instance(String),
     /// `{ rc, code, captured… }`.
     Function,
+    /// `{ rc, ordinal, fields… }` — an enum one of whose variants carries
+    /// something. The others stay a bare ordinal, and this is why `Repr::of`
+    /// has to be told: the type says `Shape`, and only the declaration says
+    /// whether a `Shape` is a word or a pointer.
+    Variant(String),
+}
+
+/// Which enums have a variant that carries something.
+///
+/// `Repr::of` used to be a pure function of `Type`, and could be while every
+/// enum was one word. It cannot be now: `Type::Enum(name)` carries the name
+/// and nothing else, so the declaration has to arrive from somewhere. It
+/// arrives here rather than in the type, because `Type` derives `PartialEq`
+/// and `assignable_to` opens by comparing two of them — a flag in the type
+/// would make one built carelessly unassignable to itself, silently.
+pub trait EnumShapes {
+    fn carries(&self, enm: &str) -> bool;
+}
+
+/// Every enum is one word. What `keal layout` used before payloads existed,
+/// and what a caller that has no declarations to hand can still say.
+pub struct AllPlain;
+
+impl EnumShapes for AllPlain {
+    fn carries(&self, _enm: &str) -> bool {
+        false
+    }
+}
+
+impl<F: Fn(&str) -> bool> EnumShapes for F {
+    fn carries(&self, enm: &str) -> bool {
+        self(enm)
+    }
 }
 
 impl Repr {
     /// How a checked type is represented.
-    pub fn of(ty: &Type) -> Repr {
+    pub fn of(ty: &Type, enums: &dyn EnumShapes) -> Repr {
         match ty {
             Type::Unit | Type::Never => Repr::Zero,
             Type::Int => Repr::Int,
             // One word holding an ordinal: the whole value of a variant,
             // and of a comparison's outcome.
-            Type::Enum(_) | Type::Comp => Repr::Int,
+            Type::Comp => Repr::Int,
+            Type::Enum(name) => {
+                if enums.carries(name) {
+                    Repr::Ref(RefKind::Variant(name.to_string()))
+                } else {
+                    Repr::Int
+                }
+            }
             Type::Float => Repr::Float,
             Type::Bool => Repr::Bool,
             Type::Range => Repr::Range,
@@ -102,7 +142,7 @@ impl Repr {
             Type::Map(_, _) => Repr::Ref(RefKind::Map),
             Type::Fun(_) => Repr::Ref(RefKind::Function),
             Type::Class(name, _) => Repr::Ref(RefKind::Instance(name.to_string())),
-            Type::Nullable(inner) => Repr::Nullable(Box::new(Repr::of(inner))),
+            Type::Nullable(inner) => Repr::Nullable(Box::new(Repr::of(inner, enums))),
             // `null` on its own is only ever assigned into a `T?`.
             Type::Null => Repr::Nullable(Box::new(Repr::Zero)),
             Type::Any => Repr::Any,
@@ -221,6 +261,7 @@ impl fmt::Display for RefKind {
             RefKind::Map => write!(f, "Map"),
             RefKind::Function => write!(f, "Function"),
             RefKind::Instance(name) => write!(f, "{}", name),
+            RefKind::Variant(name) => write!(f, "{}", name),
         }
     }
 }
@@ -266,14 +307,19 @@ impl ObjectLayout {
 
 /// Lays out an object: the reference count first, then the fields in the
 /// order they were declared, each at the next offset its alignment allows.
-pub fn object_layout(name: &str, fields: &[(String, Type)], generic: bool) -> ObjectLayout {
+pub fn object_layout(
+    name: &str,
+    fields: &[(String, Type)],
+    generic: bool,
+    enums: &dyn EnumShapes,
+) -> ObjectLayout {
     // Every heap object starts with its count, so a value is one pointer.
     let mut offset = WORD;
     let mut align = WORD;
     let mut out = Vec::with_capacity(fields.len());
 
     for (fname, ty) in fields {
-        let repr = Repr::of(ty);
+        let repr = Repr::of(ty, enums);
         let layout = repr.layout().unwrap_or(Layout::new(WORD, WORD));
         let at = Layout::align_to(layout.align.max(1), offset);
         out.push(FieldLayout {
@@ -349,7 +395,7 @@ mod tests {
             ("flag".to_string(), Type::Bool),
             ("count".to_string(), Type::Int),
         ];
-        let laid = object_layout("Mixed", &fields, false);
+        let laid = object_layout("Mixed", &fields, false, &AllPlain);
         assert_eq!(laid.fields[0].offset, 8, "after the reference count");
         assert_eq!(laid.fields[1].offset, 16, "the integer is realigned");
         assert_eq!(laid.size, 24);
@@ -358,7 +404,7 @@ mod tests {
 
     #[test]
     fn an_empty_record_is_just_its_count() {
-        let laid = object_layout("Empty", &[], false);
+        let laid = object_layout("Empty", &[], false, &AllPlain);
         assert_eq!(laid.size, WORD);
     }
 }

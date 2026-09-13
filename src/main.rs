@@ -389,8 +389,23 @@ fn show_layout(path: &str) -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
+    // Which enums carry something, read from the program rather than guessed:
+    // a `Shape` is a word or a pointer depending on its declaration, and this
+    // table is the only place that says which.
+    let carriers: std::collections::HashSet<String> = program
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            ast::Item::Enum(en) if en.variants.iter().any(|v| !v.fields.is_empty()) => {
+                Some(en.name.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    let enums = move |name: &str| carriers.contains(name);
+
     for shape in &shapes {
-        let laid = object_layout(&shape.name, &shape.fields, shape.generic);
+        let laid = object_layout(&shape.name, &shape.fields, shape.generic, &enums);
         let kind = if shape.is_record { "record" } else { "class" };
         println!();
         if laid.generic {

@@ -1,0 +1,23 @@
+built-in representations
+  type         as                      size  align  notes
+  Int          i64                        8      8  C-compatible
+  Float        f64                        8      8  C-compatible
+  Bool         i8                         1      1  C-compatible
+  Unit         zero-sized                 0      1  C-compatible
+  Range        {i64, i64}                16      8  C-compatible
+  String       *String                    8      8  counted
+  List<T>      *List                      8      8  counted
+  Map<K, V>    *Map                       8      8  counted
+  (A) -> B     *Function                  8      8  counted
+  Any          {tag, word}               16      8  counted
+  Int?         {i8, i64}                 16      8  C-compatible, null needs a tag of its own
+  Bool?        i8?                        1      1  C-compatible, null fits in a spare pattern
+  String?      *String?                   8      8  counted, null fits in a spare pattern
+
+record Holder
+  32 bytes, align 8, 0 of which is padding
+  offset  size  field                as
+       0     8  <reference count>    usize
+       8     8  p: Plain             i64
+      16     8  c: Carries           *Carries
+      24     8  n: Int               i64
