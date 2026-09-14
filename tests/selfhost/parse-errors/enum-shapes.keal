@@ -1,2 +1,6 @@
 // What the parser refuses in an enum declaration.
-enum Shape { Circle(r: Float), Square }
+//
+// A variant carrying fields used to be here and is not any more: it is the
+// language now. What is left is what a variant still may not be — a name
+// bound to a number, a name used twice, `values`, and no variants at all.
+enum Shape { Circle = 200 }
