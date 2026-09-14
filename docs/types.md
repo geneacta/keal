@@ -153,6 +153,53 @@ the honest statement about small maps is that **there is no regression** —
 hashing is never slower, at any of these sizes, on either machine — and not
 a ratio, which at that size is noise wearing a number.
 
+## Reading a character out of a string
+
+`s[i]` costs the **length of the string**, on every access, whatever `i` is.
+So the obvious loop —
+
+```keal
+var i = 0
+while (i < s.length) { ... s[i] ... i += 1 }
+```
+
+— is quadratic in the length of the string, on all three engines. `chars()`
+gives the whole string as a `List<String>` once and indexing that list is a
+read, so the same scan is linear.
+
+Not linear in the index, which is the thing a reader is likely to assume and
+which would suggest that keeping accesses near the front is cheap. It is
+not: `keal_str_get` counts the string's characters for the bounds check
+before it looks for anything, so reading `s[0]` of a long string costs what
+reading its last character costs. A loop that only ever read `s[0]` would be
+quadratic too.
+
+Measured on Linux aarch64, the same scan at doubling lengths:
+
+| characters | `s[i]` | `chars()` |
+|---|---|---|
+| 1 000 | 0.0028s | 0.00012s |
+| 2 000 | 0.0107s | 0.00024s |
+| 4 000 | 0.0428s | 0.00052s |
+| 8 000 | 0.1695s | 0.00089s |
+| 16 000 | 0.6620s | 0.00177s |
+
+The claim is the shape of the two columns, not any row: doubling the length
+quadruples the first and doubles the second.
+
+There is a third cost in that loop and it is the smallest of the three:
+`s.length` in the condition is a full walk as well, paid every turn. Lifting
+it out is worth 28% natively and about 2% on the interpreters, which keep
+the character count while the C runtime recomputes it. `s[i]` is the rest.
+
+`chars()` is the answer for a scan and not for a single lookup: it builds a
+list of the whole string, so paying it to read one position is the cost it
+was meant to avoid. For one character of a long string, both are O(n) and
+`s[i]` at least does not allocate.
+
+Found by the Kealler and keal-view sessions, whose search over 296 files ran
+for 183 seconds without finishing, and whose first guess was the file count.
+
 ## A map over a closed key
 
 A `Map<K, V>` whose key type has finitely many values — a `Bool`, a `Comp`,
