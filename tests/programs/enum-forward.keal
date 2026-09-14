@@ -1,0 +1,14 @@
+// A variant may carry a type declared below it. Enums are collected in the
+// same pass as class members, after every name in the program is registered,
+// so the field types resolve where they are written rather than at each use.
+enum Node { Leaf(v: Int), Pair(l: Cell, r: Cell) }
+record Cell(val n: Int)
+
+val p = Node.Pair(Cell(1), Cell(2))
+assert("${p}" == "Pair(l=Cell(n=1), r=Cell(n=2))", "forward-declared field types: ${p}")
+
+val sum = when (p) {
+    Node.Leaf(v) -> v
+    Node.Pair(l, r) -> l.n + r.n
+}
+assert(sum == 3, "and they bind at their resolved type: ${sum}")

@@ -353,6 +353,34 @@ impl<'a> Lexer<'a> {
         *self.src.get(self.pos + 1).unwrap_or(&0)
     }
 
+    /// The whole character whose first byte was the one just consumed.
+    ///
+    /// This lexer walks bytes, so a character outside ASCII arrives as its
+    /// leading byte, and printing that byte as a `char` named something
+    /// else entirely: `é` was reported as `Ã`, `€` as `â`, `日` as `æ`. The
+    /// self-hosted twin walks characters and named them correctly, so the
+    /// two compilers disagreed about the text of this diagnostic — against
+    /// the first rule in CONTRIBUTING.md, and unnoticed because no file in
+    /// the corpus carries a character outside ASCII where one is not
+    /// allowed.
+    ///
+    /// `src` is the bytes of a `&str`, so the continuation bytes are there
+    /// and are valid; their count is what the leading byte says it is.
+    fn char_just_taken(&self, lead: u8) -> char {
+        let len = match lead {
+            0x00..=0x7f => 1,
+            0xc0..=0xdf => 2,
+            0xe0..=0xef => 3,
+            _ => 4,
+        };
+        let start = self.pos - 1;
+        let end = (start + len).min(self.src.len());
+        std::str::from_utf8(&self.src[start..end])
+            .ok()
+            .and_then(|s| s.chars().next())
+            .unwrap_or(lead as char)
+    }
+
     fn bump(&mut self) -> u8 {
         let c = self.peek();
         self.pos += 1;
@@ -394,6 +422,17 @@ impl<'a> Lexer<'a> {
     }
 
     fn run(mut self) -> Result<Vec<Token>, Diag> {
+        // A byte-order mark, which Windows PowerShell writes by default —
+        // `Set-Content -Encoding utf8` on 5.1 puts one at the head of every
+        // file it creates. So the first program a Windows user writes by
+        // hand began with three bytes that reached the dispatch below and
+        // were reported as a stray character, naming nothing the author had
+        // typed. It is zero width: `pos` moves past it and `col` does not,
+        // so the first real character is column 1, where the editor shows
+        // it. Before the shebang, since a file may carry both.
+        if self.allow_shebang && self.src.starts_with(b"\xef\xbb\xbf") {
+            self.pos += 3;
+        }
         // `#!/usr/bin/env keal` on the first line makes a script executable.
         // The line is skipped rather than removed, so every span still points
         // where the file says it does.
@@ -598,7 +637,8 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 other => {
-                    return Err(self.err(span, format!("unexpected character `{}`", other as char)))
+                    let named = self.char_just_taken(other);
+                    return Err(self.err(span, format!("unexpected character `{}`", named)))
                 }
             };
             self.push(tok, span);

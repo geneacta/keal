@@ -174,6 +174,14 @@ class Lexer(val src: String, val startLine: Int, val startCol: Int, val allowShe
     }
 
     proc run() {
+        // A byte-order mark, which Windows PowerShell writes by default —
+        // `Set-Content -Encoding utf8` on 5.1 puts one at the head of every
+        // file it creates. It is zero width, so `pos` moves past it and
+        // `col` does not: the first real character is column 1, where the
+        // editor shows it. Before the shebang, since a file may carry both.
+        if (this.allowShebang and this.peek() == "\u{FEFF}") {
+            this.pos += 1
+        }
         // A leading shebang belongs to the shell, not the program.
         if (this.allowShebang and this.peek() == "#" and this.peekAt(1) == "!") {
             while (this.peek() != "\n" and this.peek() != "") {

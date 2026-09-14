@@ -275,7 +275,13 @@ proc stampItem(var i: ItemN, f: Int) {
     val ed = i.enumDecl
     if (ed != null) {
         ed.file = f
-        for (v in ed.variants) { v.file = f }
+        for (v in ed.variants) {
+            v.file = f
+            // What a variant carries is stamped too. Without this its field
+            // types resolve against file 0, and a class private to the file
+            // the enum is declared in reads as invisible from beside it.
+            for (p in v.fields) { stampParam(p, f) }
+        }
     }
 }
 

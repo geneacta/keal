@@ -169,10 +169,13 @@ fn list_names(names: &[String]) -> String {
 /// What the checker knows about an enum: its values, and who may name it.
 struct EnumInfo {
     variants: Vec<Rc<str>>,
-    /// What each variant carries, in the order of `variants`. Empty for a
-    /// plain variant. Kept as written rather than resolved: an enum is
-    /// collected before every type it may name is known.
-    fields: Vec<Vec<Param>>,
+    /// What each variant carries, in the order of `variants`, resolved.
+    /// Empty for a plain variant.
+    ///
+    /// Resolved here rather than at each use, and it can be: enums are
+    /// collected in the same pass as class members, after every name in the
+    /// program is registered, so a variant may carry a type declared below it.
+    fields: Vec<Vec<(String, Type)>>,
     vis: Vis,
     span: Span,
 }
@@ -977,7 +980,7 @@ impl Checker {
         let known: Vec<String> = info.variants.iter().map(|v| v.to_string()).collect();
         // Read before `check_visible`, which takes `self` mutably.
         let carried: Vec<String> = match ordinal {
-            Some(i) => info.fields[i].iter().map(|p| p.name.clone()).collect(),
+            Some(i) => info.fields[i].iter().map(|f| f.0.clone()).collect(),
             None => Vec::new(),
         };
         self.check_visible(span, "enum", &key, vis, home);
@@ -1017,7 +1020,22 @@ impl Checker {
             return;
         }
         let variants: Vec<Rc<str>> = en.variants.iter().map(|v| Rc::from(v.name.as_str())).collect();
-        let fields: Vec<Vec<Param>> = en.variants.iter().map(|v| v.fields.clone()).collect();
+        let fields: Vec<Vec<(String, Type)>> = en
+            .variants
+            .iter()
+            .map(|v| {
+                v.fields
+                    .iter()
+                    .map(|p| {
+                        let ty = match &p.ty {
+                            Some(te) => self.resolve(te),
+                            None => Type::Error,
+                        };
+                        (p.name.clone(), ty)
+                    })
+                    .collect()
+            })
+            .collect();
         self.enums.insert(
             en.name.clone(),
             EnumInfo { variants, fields, vis: en.vis, span: en.span },
@@ -3364,7 +3382,7 @@ impl Checker {
                 enm: enm.clone(),
                 name: Rc::from(name.as_str()),
                 ordinal: ordinal as u32,
-                fields: params.iter().map(|p| Rc::from(p.name.as_str())).collect(),
+                fields: params.iter().map(|f| Rc::from(f.0.as_str())).collect(),
             },
             span,
             ty: Some(Type::Enum(enm.clone())),
@@ -3385,17 +3403,9 @@ impl Checker {
             return Some(Type::Enum(enm));
         }
         for (i, arg) in args.iter_mut().enumerate() {
-            let want = match &params[i].ty {
-                Some(te) => self.resolve(te),
-                None => Type::Error,
-            };
+            let (fname, want) = params[i].clone();
             let got = self.check_coerced(&mut arg.value, &want);
-            self.expect_assignable(
-                &got,
-                &want,
-                arg.value.span,
-                &format!("field `{}`", params[i].name),
-            );
+            self.expect_assignable(&got, &want, arg.value.span, &format!("field `{}`", fname));
         }
         e.kind = ExprKind::Call { callee, args };
         Some(Type::Enum(enm))
@@ -4504,13 +4514,9 @@ impl Checker {
                             ),
                         );
                     }
-                    for (bind, p) in binds.iter().zip(params.iter()) {
+                    for (bind, field) in binds.iter().zip(params.iter()) {
                         if let Some(n) = bind {
-                            let ty = match &p.ty {
-                                Some(te) => self.resolve(te),
-                                None => Type::Error,
-                            };
-                            in_arm.push((n.clone(), ty));
+                            in_arm.push((n.clone(), field.1.clone()));
                         }
                     }
                 }

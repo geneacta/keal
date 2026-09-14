@@ -91,6 +91,9 @@ class TrInfo() {
 class RetCtx(val isLambda: Bool, package val ty: Ty)
 
 /// One fact a guard proved about a variable.
+/// One field a variant carries, with its type resolved.
+class VFieldN(package val name: String, package val ty: Ty)
+
 class Fact(package val name: String, package val ty: Ty)
 
 /// A receiver with its `?` peeled: no base means the error is already out.
@@ -442,7 +445,11 @@ package class Checker() {
     /// What each variant carries, in the order of `enums[key]`. Empty for a
     /// plain variant. Kept as written rather than resolved: an enum is
     /// collected before every type it may name is known.
-    var enumFields: Map<String, List<List<ParamN>>> = {}
+    /// What each variant carries, in the order of `enums[key]`, RESOLVED.
+    /// Filled beside the class members rather than with the variant names,
+    /// because a variant may carry a class and the classes are not
+    /// registered when the names are collected.
+    var enumFields: Map<String, List<List<VFieldN>>> = {}
     var enumVis: Map<String, String> = {}
     var enumFile: Map<String, Int> = {}
     /// Every macro the program declares, collected before anything is
@@ -863,6 +870,12 @@ package class Checker() {
             val f = item.funDecl
             if (f != null and item.kind == "func") { this.collectFun(f) }
         }
+        // A variant's fields, now that every class it may name has been
+        // collected. Resolved once here rather than at each use: resolving
+        // late reads the type in whatever file is being checked at the time,
+        // which reports a class private to its own file as invisible to the
+        // enum declared beside it.
+        this.resolveEnumFields(program)
         // Externs after the classes, so a record named in an extern
         // signature already has its fields and can be judged C-compatible.
         for (item in program.items) {
@@ -1143,9 +1156,7 @@ package class Checker() {
         var j = 0
         while (j < args.size) {
             val p = params[j]
-            val te = p.tyEx
-            var want = Ty("Error")
-            if (te != null) { want = this.resolve(te) }
+            val want = p.ty
             val got = this.checkCoerced(args[j].value, want)
             this.expectAssignable(got, want, args[j].value.file, args[j].value.line,
                                   args[j].value.col, "field `${p.name}`")
@@ -1223,6 +1234,26 @@ package class Checker() {
         return null
     }
 
+    proc resolveEnumFields(program: ProgramN) {
+        for (item in program.items) {
+            val en = item.enumDecl
+            if (item.kind == "enum" and en != null) {
+                val carried: List<List<VFieldN>> = []
+                for (v in en.variants) {
+                    val one: List<VFieldN> = []
+                    for (p in v.fields) {
+                        val te = p.tyEx
+                        var ty = Ty("Error")
+                        if (te != null) { ty = this.resolve(te) }
+                        one.add(VFieldN(p.name, ty))
+                    }
+                    carried.add(one)
+                }
+                this.enumFields[en.name] = carried
+            }
+        }
+    }
+
     proc collectEnums(program: ProgramN) {
         for (item in program.items) {
             val en = item.enumDecl
@@ -1236,10 +1267,8 @@ package class Checker() {
                     continue
                 }
                 val names: List<String> = []
-                val carried: List<List<ParamN>> = []
-                for (v in en.variants) { names.add(v.name) carried.add(v.fields) }
+                for (v in en.variants) { names.add(v.name) }
                 this.enums[en.name] = names
-                this.enumFields[en.name] = carried
                 this.enumVis[en.name] = en.vis
                 this.enumFile[en.name] = en.file
             }
@@ -4361,7 +4390,7 @@ package class Checker() {
                     }
                 }
                 val carriedAll = this.enumFields[arm.patEnum] ?: []
-                var params: List<ParamN> = []
+                var params: List<VFieldN> = []
                 if (arm.patOrdinal < carriedAll.size) { params = carriedAll[arm.patOrdinal] }
                 if (arm.patBinds.size != params.size) {
                     this.error(
@@ -4372,12 +4401,7 @@ package class Checker() {
                 var bi = 0
                 while (bi < arm.patBinds.size and bi < params.size) {
                     val nm = arm.patBinds[bi]
-                    unless (nm == "_") {
-                        val te = params[bi].tyEx
-                        var ty = Ty("Error")
-                        if (te != null) { ty = this.resolve(te) }
-                        inArm.add(Fact(nm, ty))
-                    }
+                    unless (nm == "_") { inArm.add(Fact(nm, params[bi].ty)) }
                     bi += 1
                 }
             } else if (arm.patternKind == "is") {
