@@ -92,7 +92,7 @@ class RetCtx(val isLambda: Bool, package val ty: Ty)
 
 /// One fact a guard proved about a variable.
 /// One field a variant carries, with its type resolved.
-class VFieldN(package val name: String, package val ty: Ty)
+package class VFieldN(package val name: String, package val ty: Ty)
 
 class Fact(package val name: String, package val ty: Ty)
 
@@ -449,7 +449,7 @@ package class Checker() {
     /// Filled beside the class members rather than with the variant names,
     /// because a variant may carry a class and the classes are not
     /// registered when the names are collected.
-    var enumFields: Map<String, List<List<VFieldN>>> = {}
+    package var enumFields: Map<String, List<List<VFieldN>>> = {}
     var enumVis: Map<String, String> = {}
     var enumFile: Map<String, Int> = {}
     /// Every macro the program declares, collected before anything is

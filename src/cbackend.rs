@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use crate::ast::*;
-use crate::checker::ClassShape;
+use crate::checker::{ClassShape, EnumShape};
 use crate::span::{Diag, Span};
 use crate::types::Type;
 
@@ -27,9 +27,10 @@ const RUNTIME: &str = include_str!("runtime.c");
 pub fn emit(
     program: &Program,
     shapes: &[ClassShape],
+    enums: &[EnumShape],
     sources: &crate::span::Sources,
 ) -> Result<String, Vec<Diag>> {
-    emit_with(program, shapes, sources, false)
+    emit_with(program, shapes, enums, sources, false)
 }
 
 /// The same, with the switches a build can turn on that a program cannot ask
@@ -39,6 +40,7 @@ pub fn emit(
 pub fn emit_with(
     program: &Program,
     shapes: &[ClassShape],
+    enums: &[EnumShape],
     sources: &crate::span::Sources,
     audit: bool,
 ) -> Result<String, Vec<Diag>> {
@@ -54,6 +56,12 @@ pub fn emit_with(
     }) || program_uses_weak(program);
     b.actors_mode = program_uses_actors(program);
     b.weak_mode = program_uses_weak(program);
+    for e in enums {
+        b.enum_fields.insert(
+            e.name.clone(),
+            e.variants.iter().map(|(_, fs)| fs.clone()).collect(),
+        );
+    }
     for shape in shapes {
         b.shapes.insert(shape.name.clone(), shape.fields.clone());
         if shape.generic {
@@ -235,6 +243,11 @@ struct CBackend {
     /// Every enum the program declares, and its variants in order — the
     /// names table a `${suit}` needs, and the list `values()` builds.
     enums: HashMap<String, Vec<String>>,
+    /// What each variant of each enum carries, in the order of `enums`,
+    /// resolved. Empty for every variant of a plain enum, which is most of
+    /// them — and the table `ctype` and `retain_fn` ask before deciding
+    /// whether a value of this enum is a word or a counted pointer.
+    enum_fields: HashMap<String, Vec<Vec<(String, Type)>>>,
     audit_mode: bool,
     /// Release-to-walk pairs the audit registers before its mark phase,
     /// and the top-level bindings that phase starts from.
@@ -322,6 +335,7 @@ impl CBackend {
             at_top_level: false,
             weak_mode: false,
             enums: HashMap::new(),
+            enum_fields: HashMap::new(),
             audit_mode: false,
             audit_pairs: Vec::new(),
             audit_roots: Vec::new(),
@@ -456,6 +470,15 @@ impl CBackend {
 
     /// The C type a Keal type is emitted as, or `None` when this backend
     /// cannot represent it.
+    /// Whether any variant of this enum carries something, which decides
+    /// whether a value of it is one word or one pointer.
+    fn enum_carries(&self, name: &str) -> bool {
+        self.enum_fields
+            .get(name)
+            .map(|vs| vs.iter().any(|f| !f.is_empty()))
+            .unwrap_or(false)
+    }
+
     fn ctype(&mut self, ty: &Type, span: Span) -> Option<String> {
         match ty {
             Type::Int => Some("int64_t".to_string()),
@@ -464,7 +487,14 @@ impl CBackend {
             // hold a permanent zero — the ordinal is the whole value.
             // A `Comp` is an ordinal too — less, equal, greater — and beside
             // `Bool` in the same sense: the value is the word.
-            Type::Enum(_) | Type::Comp => Some("int64_t".to_string()),
+            Type::Comp => Some("int64_t".to_string()),
+            Type::Enum(name) => {
+                if self.enum_carries(name) {
+                    Some(format!("{}*", struct_name(name)))
+                } else {
+                    Some("int64_t".to_string())
+                }
+            }
             Type::Float => Some("double".to_string()),
             Type::Bool => Some("bool".to_string()),
             Type::Str => Some("KealStr*".to_string()),
@@ -548,6 +578,9 @@ impl CBackend {
         match ty {
             Type::Str => Some("keal_str_retain".to_string()),
             Type::Class(name, args) => Some(format!("{}_retain", struct_name_of(name, args))),
+            Type::Enum(name) if self.enum_carries(name) => {
+                Some(format!("{}_retain", struct_name(name)))
+            }
             Type::List(_) => Some("keal_list_retain".to_string()),
             Type::Fun(_) => Some("keal_fn_retain".to_string()),
             Type::Map(_, _) => Some("keal_map_retain".to_string()),
@@ -564,6 +597,9 @@ impl CBackend {
         match ty {
             Type::Str => Some("keal_str_release".to_string()),
             Type::Class(name, args) => Some(format!("{}_release", struct_name_of(name, args))),
+            Type::Enum(name) if self.enum_carries(name) => {
+                Some(format!("{}_release", struct_name(name)))
+            }
             Type::List(_) => Some("keal_list_release".to_string()),
             Type::Fun(_) => Some("keal_fn_release".to_string()),
             Type::Map(_, _) => Some("keal_map_release".to_string()),
@@ -615,7 +651,15 @@ impl CBackend {
             // representative will do.
             Type::Never => Elem::Int,
             Type::Int => Elem::Int,
-            Type::Enum(_) | Type::Comp => Elem::Int,
+            Type::Comp => Elem::Int,
+            Type::Enum(name) => {
+                if self.enum_carries(name) {
+                    let sn = struct_name(name);
+                    Elem::Ptr(sn.clone(), sn)
+                } else {
+                    Elem::Int
+                }
+            }
             Type::Bool => Elem::Bool,
             Type::Float => Elem::Float,
             Type::Str => Elem::Ptr("KealStr".into(), "keal_str".into()),
@@ -795,6 +839,21 @@ impl CBackend {
                 self.any_globals.insert(name.clone());
             }
         }
+        // The enums that carry something, before the classes: a class field
+        // may be one, and its struct has to exist by then.
+        let carriers: Vec<(String, Span)> = program
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Enum(en) if en.variants.iter().any(|v| !v.fields.is_empty()) => {
+                    Some((en.name.clone(), en.span))
+                }
+                _ => None,
+            })
+            .collect();
+        for (name, span) in carriers {
+            self.enum_struct(&name, span);
+        }
         for item in &program.items {
             if let Item::Class(c) = item {
                 self.class_struct(c);
@@ -857,6 +916,74 @@ impl CBackend {
 
     /// A class becomes a struct headed by its reference count, its fields in
     /// declaration order — the layout `keal layout` reports.
+    /// The struct, the count and the release for one enum that carries
+    /// something.
+    ///
+    /// `{ rc, ordinal, f0..fn }` — the widest variant decides how many slots,
+    /// and each slot is a `KealWord`, exactly as a list element is. Release
+    /// switches on the ordinal, because only the ordinal says which of those
+    /// slots hold a counted thing.
+    fn enum_struct(&mut self, name: &str, span: Span) {
+        let variants = self.enum_fields.get(name).cloned().unwrap_or_default();
+        let widest = variants.iter().map(|f| f.len()).max().unwrap_or(0);
+        let sn = struct_name(name);
+        let _ = writeln!(self.types, "typedef struct {} {};", sn, sn);
+        let mut body = String::new();
+        let _ = writeln!(body, "struct {} {{", sn);
+        let _ = writeln!(body, "    keal_rc_t rc;");
+        let _ = writeln!(body, "    int64_t ordinal;");
+        for i in 0..widest {
+            let _ = writeln!(body, "    KealWord f{};", i);
+        }
+        let _ = writeln!(body, "}};");
+        self.pending_structs.push(body);
+
+        let _ = writeln!(self.decls, "{}* {}_retain({}* o);", sn, sn, sn);
+        let _ = writeln!(self.decls, "void {}_release({}* o);", sn, sn);
+        let _ = writeln!(self.decls, "{}* {}_new(int64_t ordinal);", sn, sn);
+        let _ = write!(
+            self.defs,
+            "\n{n}* {n}_retain({n}* o) {{\n    if (o != NULL) {{ KEAL_RC_BUMP(o->rc); }}\n    return o;\n}}\n\
+             \n{n}* {n}_new(int64_t ordinal) {{\n    {n}* o = ({n}*)keal_alloc(sizeof({n}));\n    o->rc = 1;\n    o->ordinal = ordinal;\n    return o;\n}}\n",
+            n = sn
+        );
+
+        let mut rel = String::new();
+        let _ = write!(
+            rel,
+            "\nvoid {n}_release({n}* o) {{\n    if (o == NULL) {{ return; }}\n    if (KEAL_RC_DROP(o->rc)) {{ return; }}\n",
+            n = sn
+        );
+        let mut any_counted = false;
+        let mut arms = String::new();
+        for (ord, fields) in variants.iter().enumerate() {
+            let mut inner = String::new();
+            for (i, (_, ty)) in fields.iter().enumerate() {
+                let Some(elem) = self.elem_kind(ty, span) else { continue };
+                let Some(release) = self.elem_release(&elem) else { continue };
+                any_counted = true;
+                let _ = writeln!(inner, "            {}({});", release, elem.unword(&format!("o->f{}", i)));
+            }
+            if !inner.is_empty() {
+                let _ = write!(arms, "        case {}:\n{}            break;\n", ord, inner);
+            }
+        }
+        if any_counted {
+            let _ = write!(rel, "    switch (o->ordinal) {{\n{}        default: break;\n    }}\n", arms);
+        }
+        let _ = write!(rel, "    free(o);\n}}\n");
+        let _ = write!(self.defs, "{}", rel);
+    }
+
+    /// The release for one word-sized slot, or `None` when nothing counts it.
+    fn elem_release(&self, elem: &Elem) -> Option<String> {
+        match elem {
+            Elem::Int | Elem::Bool | Elem::Float => None,
+            Elem::Ptr(_, prefix) => Some(format!("{}_release", prefix)),
+            Elem::Any => Some("keal_any_unbox_release".to_string()),
+        }
+    }
+
     fn class_struct(&mut self, c: &ClassDecl) {
         // A generic class has no single layout; its structs are emitted per
         // instantiation, on demand.

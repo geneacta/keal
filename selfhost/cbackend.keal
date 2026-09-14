@@ -734,6 +734,15 @@ func elemWord(e: CElem, v: String): String {
     }
 }
 
+/// The release for one word-sized slot, or null when nothing counts it.
+func elemRelease(e: CElem): String? {
+    return when (e.kind) {
+        "int", "bool", "float" -> null
+        "any" -> "keal_any_unbox_release"
+        else -> e.prefix + "_release"
+    }
+}
+
 func elemUnword(e: CElem, w: String): String {
     return when (e.kind) {
         "int" -> "${w}.i"
@@ -872,6 +881,11 @@ class CBackend() {
     /// Every enum the program declares, and its variants in order — the
     /// names table a `${suit}` needs, and the list `values()` builds.
     var enumNamesOf: Map<String, List<String>> = {}
+    /// What each variant of each enum carries, in the order of `enumNamesOf`,
+    /// resolved. Empty for every variant of a plain enum, which is most of
+    /// them — and the table `ctype` and `retainFn` ask before deciding
+    /// whether a value of this enum is a word or a counted pointer.
+    var enumFieldsOf: Map<String, List<List<SField>>> = {}
     package var auditMode: Bool = false
     /// Release-to-walk pairs the audit registers before its mark phase,
     /// and the top-level bindings that phase starts from.
@@ -975,6 +989,7 @@ class CBackend() {
     func retainFn(t: Ty): String? {
         return when (t.kind) {
             "Str" -> "keal_str_retain"
+            "Enum" -> if (this.enumCarries(t.name)) { structName(t.name) + "_retain" } else { null }
             "Class" -> structNameOf(t.name, t.args) + "_retain"
             "List" -> "keal_list_retain"
             "Fun" -> "keal_fn_retain"
@@ -989,6 +1004,7 @@ class CBackend() {
     func releaseFn(t: Ty): String? {
         return when (t.kind) {
             "Str" -> "keal_str_release"
+            "Enum" -> if (this.enumCarries(t.name)) { structName(t.name) + "_release" } else { null }
             "Class" -> structNameOf(t.name, t.args) + "_release"
             "List" -> "keal_list_release"
             "Fun" -> "keal_fn_release"
@@ -1013,7 +1029,11 @@ class CBackend() {
         // permanent zero — the ordinal is the whole value.
         // A `Comp` is an ordinal too — less, equal, greater — and beside
         // `Bool` in the same sense: the value is the word.
-        if (t.kind == "Enum" or t.kind == "Comp") { return "int64_t" }
+        if (t.kind == "Comp") { return "int64_t" }
+        if (t.kind == "Enum") {
+            if (this.enumCarries(t.name)) { return structName(t.name) + "*" }
+            return "int64_t"
+        }
         if (t.kind == "Float") { return "double" }
         if (t.kind == "Bool") { return "bool" }
         if (t.kind == "Str") { return "KealStr*" }
@@ -1079,7 +1099,12 @@ class CBackend() {
     func elemKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
         // An empty literal types as `List<Nothing>`, and `Nothing` has no
         // values, so any representative will do.
-        if (t.kind == "Never" or t.kind == "Int" or t.kind == "Enum" or t.kind == "Comp") { return CElem("int", "", "") }
+        if (t.kind == "Never" or t.kind == "Int" or t.kind == "Comp") { return CElem("int", "", "") }
+        if (t.kind == "Enum") {
+            unless (this.enumCarries(t.name)) { return CElem("int", "", "") }
+            val sn = structName(t.name)
+            return CElem("ptr", sn, sn)
+        }
         if (t.kind == "Bool") { return CElem("bool", "", "") }
         if (t.kind == "Float") { return CElem("float", "", "") }
         if (t.kind == "Str") { return CElem("ptr", "KealStr", "keal_str") }
@@ -1528,6 +1553,16 @@ class CBackend() {
                 this.enumNamesOf[en.name] = names
             }
         }
+        // The enums that carry something, before the classes: a class field
+        // may be one, and its struct has to exist by then.
+        for (item in program.items) {
+            if (item.kind == "enum") {
+                val en = item.enumDecl!!
+                var carries = false
+                for (v in en.variants) { if (v.fields.size > 0) { carries = true } }
+                if (carries) { this.enumStruct(en.name, en.file, en.line, en.col) }
+            }
+        }
         // Which names the program binds at its top level, known before any
         // body is emitted — a class's methods included, which is a body this
         // pass once ran after.
@@ -1603,6 +1638,72 @@ class CBackend() {
         val fields = this.shapes[c.name]
         if (fields == null) { return }
         this.emitStruct(structName(c.name), fields, c.file, c.line, c.col, classHasDeinit(c))
+    }
+
+    /// Whether any variant of this enum carries something, which decides
+    /// whether a value of it is one word or one pointer.
+    func enumCarries(name: String): Bool {
+        val vs = this.enumFieldsOf[name]
+        if (vs == null) { return false }
+        for (f in vs) { if (f.size > 0) { return true } }
+        return false
+    }
+
+    /// The struct, the count and the release for one enum that carries
+    /// something.
+    ///
+    /// `{ rc, ordinal, f0..fn }` — the widest variant decides how many slots,
+    /// and each slot is a `KealWord`, exactly as a list element is. Release
+    /// switches on the ordinal, because only the ordinal says which of those
+    /// slots hold a counted thing.
+    proc enumStruct(name: String, file: Int, atLine: Int, col: Int) {
+        val variants = this.enumFieldsOf[name] ?: []
+        var widest = 0
+        for (f in variants) { if (f.size > widest) { widest = f.size } }
+        val sn = structName(name)
+        this.typesOut += "typedef struct ${sn} ${sn};\n"
+        var sbody = "struct ${sn} {\n"
+        sbody += "    keal_rc_t rc;\n"
+        sbody += "    int64_t ordinal;\n"
+        var i = 0
+        while (i < widest) { sbody += "    KealWord f${i};\n" i += 1 }
+        sbody += "};\n"
+        this.pendingStructs.add(sbody)
+
+        this.decls += "${sn}* ${sn}_retain(${sn}* o);\n"
+        this.decls += "void ${sn}_release(${sn}* o);\n"
+        this.decls += "${sn}* ${sn}_new(int64_t ordinal);\n"
+        this.defs += "\n${sn}* ${sn}_retain(${sn}* o) {\n    if (o != NULL) { KEAL_RC_BUMP(o->rc); }\n    return o;\n}\n"
+        this.defs += "\n${sn}* ${sn}_new(int64_t ordinal) {\n    ${sn}* o = (${sn}*)keal_alloc(sizeof(${sn}));\n    o->rc = 1;\n    o->ordinal = ordinal;\n    return o;\n}\n"
+
+        var rel = "\nvoid ${sn}_release(${sn}* o) {\n    if (o == NULL) { return; }\n    if (KEAL_RC_DROP(o->rc)) { return; }\n"
+        var anyCounted = false
+        var arms = ""
+        var ord = 0
+        while (ord < variants.size) {
+            var inner = ""
+            var j = 0
+            while (j < variants[ord].size) {
+                val e = this.elemKind(variants[ord][j].ty, file, atLine, col)
+                if (e != null) {
+                    val r = elemRelease(e)
+                    if (r != null) {
+                        anyCounted = true
+                        inner += "            ${r}(${elemUnword(e, "o->f${j}")});\n"
+                    }
+                }
+                j += 1
+            }
+            unless (inner == "") {
+                arms += "        case ${ord}:\n${inner}            break;\n"
+            }
+            ord += 1
+        }
+        if (anyCounted) {
+            rel += "    switch (o->ordinal) {\n${arms}        default: break;\n    }\n"
+        }
+        rel += "    free(o);\n}\n"
+        this.defs += rel
     }
 
     proc emitStruct(name: String, fields: List<SField>, file: Int, atLine: Int, col: Int, hasDeinit: Bool) {
@@ -8029,6 +8130,16 @@ if (programUsesWeak(loaded.program)) { backend.dropMode = true }
 backend.actorsMode = programUsesActors(loaded.program)
 backend.weakMode = programUsesWeak(loaded.program)
 backend.auditMode = wantsAudit
+for (name in checker.enumFields.keys()) {
+    val vs = checker.enumFields[name]!!
+    val out: List<List<SField>> = []
+    for (v in vs) {
+        val one: List<SField> = []
+        for (f in v) { one.add(SField(f.name, f.ty)) }
+        out.add(one)
+    }
+    backend.enumFieldsOf[name] = out
+}
 for (name in checker.classes.keys()) {
     val info = checker.classes[name]!!
     val fields: List<SField> = []

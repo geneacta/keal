@@ -147,6 +147,15 @@ enum ReturnCtx {
 
 /// What a later pass needs to know about a class's shape, once the checker
 /// has resolved its field types. This is what the layout pass consumes.
+/// One enum, and what each of its variants carries — resolved, in
+/// declaration order. The backend's parallel to `ClassShape`: an enum whose
+/// variants all carry nothing is a word, and one whose variants do not is a
+/// counted object, and only this says which.
+pub struct EnumShape {
+    pub name: String,
+    pub variants: Vec<(String, Vec<(String, Type)>)>,
+}
+
 pub struct ClassShape {
     pub name: String,
     /// Where it was declared, so a report can tell a program's own classes
@@ -301,6 +310,21 @@ impl Checker {
 
     /// Every class the program declares, in declaration order, with its
     /// fields resolved.
+    pub fn enum_shapes(&self) -> Vec<EnumShape> {
+        self.enums
+            .iter()
+            .map(|(name, info)| EnumShape {
+                name: name.clone(),
+                variants: info
+                    .variants
+                    .iter()
+                    .zip(info.fields.iter())
+                    .map(|(v, fs)| (v.to_string(), fs.clone()))
+                    .collect(),
+            })
+            .collect()
+    }
+
     pub fn class_shapes(&self) -> Vec<ClassShape> {
         self.class_order
             .iter()
