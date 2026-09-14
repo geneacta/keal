@@ -1,0 +1,5 @@
+error: unexpected character `é`
+  --> tests/errors/non-ascii.keal:9:5
+  |
+9 | val é = 1
+  |     ^

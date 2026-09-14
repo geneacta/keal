@@ -1,0 +1,9 @@
+// A character outside ASCII, where the language allows none.
+//
+// The Rust lexer walks bytes and the self-hosted twin walks characters, so
+// each had a different answer to "which character is this" and the
+// diagnostic named a different one on each side: `Ã` against `é`. Nothing
+// caught it, because no file in any corpus carried such a character where
+// it is not allowed. This one does, and the corpus comparison holds the two
+// to naming the same character as well as the same position.
+val é = 1

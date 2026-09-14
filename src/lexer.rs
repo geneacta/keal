@@ -436,7 +436,14 @@ impl<'a> Lexer<'a> {
         // `#!/usr/bin/env keal` on the first line makes a script executable.
         // The line is skipped rather than removed, so every span still points
         // where the file says it does.
-        if self.allow_shebang && self.src.starts_with(b"#!") {
+        //
+        // Read from `pos`, not from the start of the source: a file may
+        // carry a mark before the shebang, and `starts_with` on the whole
+        // slice then answered about the mark. The twin has always asked
+        // `peek`, so the oracle saying no to `\u{feff}#!/usr/bin/env keal`
+        // while the twin said yes would have been a disagreement about a
+        // real file, introduced by the very commit that removed one.
+        if self.allow_shebang && self.peek() == b'#' && self.peek2() == b'!' {
             while self.peek() != b'\n' && self.peek() != 0 {
                 self.bump();
             }

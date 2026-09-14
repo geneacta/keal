@@ -1,0 +1,16 @@
+﻿// This file begins with a UTF-8 byte-order mark, on purpose.
+//
+// Windows PowerShell writes one by default — `Set-Content -Encoding utf8`
+// on 5.1 puts one at the head of every file it creates — so it is the first
+// thing a Windows user meets, and the lexer used to read it as a stray
+// character before any of the program was seen.
+//
+// The mark is zero width, so it is skipped and not consumed: the first
+// real character of the next line is column 1, where an editor shows it.
+// That the assertions below run at all is what this file asserts.
+//
+// KEEP THE MARK. An editor that strips it on save turns this back into an
+// ordinary file, and the corpus stops asking the question.
+val greeting = "a mark is not a character"
+assert(greeting.length == 25)
+assert(1 + 1 == 2)
