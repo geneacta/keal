@@ -288,7 +288,7 @@ SIDEBAR = {
 # Empty until the first one is cut. The page then says what Kealler is and
 # what it is waiting for, rather than offering a download that does not exist
 # — and setting this to a version is the whole of publishing it.
-KEALLER_VERSION = "0.11.0"
+KEALLER_VERSION = "0.12.0"
 
 KEALLER_BUILDS = [
     ("kealler-macos-arm64", "macOS", "Apple silicon"),
@@ -350,6 +350,16 @@ KEALLER = {
              "of those five characters is now a test. What the table is allowed to do is "
              "narrow: it colours and decides nothing. No outline, no definition, no "
              "completion comes from it."),
+            ("Where a name is used — as an identifier, not as text",
+             "&#8679;&#8984;U asks <code>keal tokens</code>, the lexer that compiles the file, "
+             "and keeps only the tokens that <i>are</i> that name. On this editor&rsquo;s own "
+             "source, <code>count</code> is used 5 times and its letters appear 113 — the rest "
+             "are <code>counter</code>, comments, and text inside strings, and a comment is not "
+             "even a token. A name inside <code>${…}</code> <i>is</i> counted: the lexer reports "
+             "it with its own position, because it is the variable and not text. It is not "
+             "&ldquo;find references&rdquo; and does not claim to be — two unrelated locals "
+             "called <code>i</code> are both listed, since resolving that is scope and "
+             "visibility, which belong to the language."),
             ("Go to a definition anywhere, and to any name by typing it",
              "&#8984;B asks three questions in the order of what they cost and stops at the first "
              "that answers: this file&rsquo;s outline, free; the files it imports, 97&nbsp;ms for "
@@ -481,6 +491,16 @@ KEALLER = {
              "s'étend pas, c'est mesuré, et chacun de ces cinq caractères est devenu un test. "
              "Ce que la table a le droit de faire est étroit : elle colore et ne décide rien. "
              "Aucun plan, aucune définition, aucune complétion n'en sort."),
+            ("Où un nom est utilisé — comme identifiant, pas comme texte",
+             "&#8679;&#8984;U interroge <code>keal tokens</code>, le lexer qui compile le "
+             "fichier, et ne garde que les jetons qui <i>sont</i> ce nom. Sur le source de cet "
+             "éditeur, <code>count</code> est utilisé 5 fois et ses lettres apparaissent 113 — "
+             "le reste est <code>counter</code>, des commentaires et du texte dans des chaînes, "
+             "et un commentaire n'est même pas un jeton. Un nom dans <code>${…}</code> <i>est</i> "
+             "compté : le lexer le rapporte avec sa propre position, parce que c'est la variable "
+             "et non du texte. Ce n'est pas « trouver les références » et ça ne le prétend pas — "
+             "deux <code>i</code> locaux sans rapport sont tous deux listés, car résoudre cela "
+             "relève de la portée et de la visibilité, qui appartiennent au langage."),
             ("Aller à une définition où qu'elle soit, et à un nom en le tapant",
              "&#8984;B pose trois questions dans l'ordre de ce qu'elles coûtent et s'arrête à la "
              "première qui répond : le plan de ce fichier, gratuit ; les fichiers qu'il importe, "
