@@ -3595,6 +3595,13 @@ class CBackend() {
         }
         // The ordinal, and a comment so the C reads as the program did.
         if (e.kind == "variant") {
+            // Once ONE variant of an enum carries something, every value of
+            // that enum is a box — a plain variant of it included. Otherwise
+            // `Shape.Point` is an ordinal where a `K_Shape*` is expected,
+            // which `cc` catches and nothing before it does.
+            if (this.enumCarries(e.enumName)) {
+                return this.buildVariant(e.enumName, e.iVal, [], e)
+            }
             return "INT64_C(${e.iVal}) /* ${e.enumName}.${e.text} */"
         }
         if (e.kind == "float") { return formatDouble(e.fVal) }
@@ -6860,8 +6867,50 @@ class CBackend() {
         this.closeScope()
     }
 
+    /// `Shape.Circle(1.0)` — one counted box, the ordinal, and each field
+    /// stored in its slot as a word.
+    ///
+    /// The arguments are evaluated into temporaries first, so that a second
+    /// one that fails leaves the first released rather than owned by an
+    /// object nobody holds yet.
+    func buildVariant(enm: String, ordinal: Int, args: List<ArgN>, e: Ex): String {
+        val sn = structName(enm)
+        val all = this.enumFieldsOf[enm] ?: []
+        var fields: List<SField> = []
+        if (ordinal < all.size) { fields = all[ordinal] }
+        val stored: List<String> = []
+        var i = 0
+        while (i < args.size) {
+            val v = this.expr(args[i].value)
+            if (i < fields.size) {
+                val ty = fields[i].ty
+                val el = this.elemKind(ty, e.file, e.line, e.col)
+                if (el == null) {
+                    this.unsupported(e.file, e.line, e.col, "a variant field of this type")
+                    return "0"
+                }
+                stored.add(elemWord(el, this.retained(ty, v)))
+            }
+            i += 1
+        }
+        val tmp = this.temp()
+        this.line("${sn}* ${tmp} = ${sn}_new(INT64_C(${ordinal}));")
+        var j = 0
+        while (j < stored.size) {
+            this.line("${tmp}->f${j} = ${stored[j]};")
+            j += 1
+        }
+        this.own(tmp, tyEnum(enm))
+        return tmp
+    }
+
     func call(e: Ex): String {
         val callee = e.kids[0]
+        // `Shape.Circle(1.0)`: the checker left a `variant` callee, which is
+        // not a function and is not called — it is built.
+        if (callee.kind == "variant") {
+            return this.buildVariant(callee.enumName, callee.iVal, e.args, e)
+        }
         val args = e.args
         // Anything of function type is callable through its closure; a name
         // that is a program function, class or built-in dispatches directly.

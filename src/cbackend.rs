@@ -2966,7 +2966,15 @@ impl CBackend {
             ExprKind::Int(n) => format!("INT64_C({})", n),
             // The ordinal, and a comment so the C reads as the program did.
             ExprKind::Variant { enm, name, ordinal, .. } => {
-                format!("INT64_C({}) /* {}.{} */", ordinal, enm, name)
+                // Once ONE variant of an enum carries something, every value
+                // of that enum is a box — a plain variant of it included.
+                // Otherwise `Shape.Point` is an ordinal where a `K_Shape*` is
+                // expected, which `cc` catches and nothing before it does.
+                if self.enum_carries(enm) {
+                    self.build_variant(enm, *ordinal, &[], e.span)
+                } else {
+                    format!("INT64_C({}) /* {}.{} */", ordinal, enm, name)
+                }
             }
             ExprKind::Float(f) => format_double(*f),
             ExprKind::Bool(b) => b.to_string(),
@@ -6923,7 +6931,46 @@ impl CBackend {
         }
     }
 
+    /// `Shape.Circle(1.0)` — one counted box, the ordinal, and each field
+    /// stored in its slot as a word.
+    ///
+    /// The arguments are evaluated into temporaries first, so that a second
+    /// one that fails leaves the first released rather than owned by an
+    /// object nobody holds yet.
+    fn build_variant(&mut self, enm: &str, ordinal: u32, args: &[Arg], span: Span) -> String {
+        let sn = struct_name(enm);
+        let fields = self
+            .enum_fields
+            .get(enm)
+            .and_then(|vs| vs.get(ordinal as usize))
+            .cloned()
+            .unwrap_or_default();
+        let mut stored = Vec::with_capacity(args.len());
+        for (i, a) in args.iter().enumerate() {
+            let v = self.expr(&a.value);
+            let Some((_, ty)) = fields.get(i) else { continue };
+            let Some(elem) = self.elem_kind(ty, span) else {
+                self.unsupported(span, "a variant field of this type");
+                return "0".to_string();
+            };
+            let owned = self.retained(ty, &v);
+            stored.push(elem.word(&owned));
+        }
+        let tmp = self.temp();
+        self.line(format!("{}* {} = {}_new(INT64_C({}));", sn, tmp, sn, ordinal));
+        for (i, w) in stored.iter().enumerate() {
+            self.line(format!("{}->f{} = {};", tmp, i, w));
+        }
+        self.own(&tmp, &Type::Enum(std::rc::Rc::from(enm)));
+        tmp
+    }
+
     fn call(&mut self, e: &Expr, callee: &Expr, args: &[Arg]) -> String {
+        // `Shape.Circle(1.0)`: the checker left a `variant` callee, which is
+        // not a function and is not called — it is built.
+        if let ExprKind::Variant { enm, ordinal, .. } = &callee.kind {
+            return self.build_variant(enm, *ordinal, args, e.span);
+        }
         // Anything of function type is callable through its closure — a
         // local, a parameter, or the result of another call. A name that is
         // a program function, class or built-in dispatches directly instead.

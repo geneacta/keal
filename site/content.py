@@ -288,7 +288,7 @@ SIDEBAR = {
 # Empty until the first one is cut. The page then says what Kealler is and
 # what it is waiting for, rather than offering a download that does not exist
 # — and setting this to a version is the whole of publishing it.
-KEALLER_VERSION = "0.8.0"
+KEALLER_VERSION = "0.9.0"
 
 KEALLER_BUILDS = [
     ("kealler-macos-arm64", "macOS", "Apple silicon"),
@@ -391,6 +391,14 @@ KEALLER = {
              "server itself printed rather than from a port the editor picked. What it will "
              "never do is draw the page: kealeb emits HTML for a browser engine, and a picture "
              "that is <i>nearly</i> the page is wrong exactly where it is interesting."),
+            ("A kealeb page previewed, as that program prints it",
+             "Click <i>voir</i> beside a route and the file is built, then asked for that page "
+             "with kealeb&rsquo;s <code>--render</code> — a flag added for this, which puts a "
+             "browser&rsquo;s request through the same filter chain the server uses and prints "
+             "what comes back. Measured on a live page: <code>--render</code> and a real browser "
+             "fetch differ in the session token and in nothing else. What Kealler will never do "
+             "is draw the page. kealeb emits HTML for a browser engine; a picture that is "
+             "<i>nearly</i> the page is wrong exactly where it is interesting."),
             ("A preview that is the program's own output",
              "Building a keal-view program and showing the frame it drew — with no display "
              "involved, through <code>--snapshot</code>. No second renderer to keep in agreement "
@@ -501,6 +509,15 @@ KEALLER = {
              "<code>keal tokens</code> et non depuis un balayage du texte, et l'adresse à "
              "ouvrir dans un navigateur vient de la ligne que le serveur a lui-même imprimée, "
              "pas d'un port choisi par l'éditeur. Ce qu'il ne fera jamais : dessiner la page. "
+             "kealeb produit du HTML pour un moteur de navigateur, et une image <i>presque</i> "
+             "la page est fausse exactement là où c'est intéressant."),
+            ("Une page kealeb en aperçu, telle que ce programme l'imprime",
+             "Un clic sur <i>voir</i> à côté d'une route construit le fichier, puis lui demande "
+             "cette page avec le <code>--render</code> de kealeb — un drapeau ajouté pour cela, "
+             "qui fait passer la requête d'un navigateur par la chaîne de filtres que le serveur "
+             "utilise et imprime ce qui revient. Mesuré sur une page vivante : "
+             "<code>--render</code> et une vraie requête de navigateur diffèrent par le jeton de "
+             "session et par rien d'autre. Ce que Kealler ne fera jamais : dessiner la page. "
              "kealeb produit du HTML pour un moteur de navigateur, et une image <i>presque</i> "
              "la page est fausse exactement là où c'est intéressant."),
             ("Un aperçu qui est la sortie du programme lui-même",
