@@ -1,0 +1,15 @@
+// A `"""` string passes `${...}` through as text. It does not interpolate,
+// and it is not an error to write one.
+//
+// This file spent three weeks in `parse-errors/` under the name
+// `native-block-no-interpolation.keal`, asserting that the parser refuses
+// this. It never did. The file was born as `perr11.keal` and its contents
+// have not changed since — `git log --follow` says R100 — so the name was
+// wrong on the day it was written, in the commit that renamed the corpus so
+// that every test would say what it proves. It was the only file in that
+// directory which `keal check` accepted.
+//
+// What it proves, here, is the opposite and is worth keeping: the two
+// parsers agree on a raw string containing a `${`, and `keal emit-c` puts
+// those four characters into the C untouched.
+native """int passthrough = 1; /* a ${x} b */"""
