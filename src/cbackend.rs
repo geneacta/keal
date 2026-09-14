@@ -3681,27 +3681,27 @@ impl CBackend {
                 );
                 continue;
             }
+            // A buffer, not a chain of `keal_concat`: concatenating allocates
+            // an intermediate per field and gives none of them back, which is
+            // a leak per printed variant. `class_show` uses the buffer for
+            // exactly this reason and says so.
             let _ = writeln!(body, "    case {}: {{", i);
-            let mut acc = format!("keal_str_static({}, {})", c_string(vname), vname.len());
-            acc = format!("keal_concat({}, keal_str_static(\"(\", 1))", acc);
+            let _ = writeln!(body, "        KealBuf b;");
+            let _ = writeln!(body, "        keal_buf_init(&b);");
+            let _ = writeln!(body, "        keal_buf_lit(&b, {});", c_string(vname));
+            let _ = writeln!(body, "        keal_buf_lit(&b, \"(\");");
             for (j, (fname, fty)) in fields.iter().enumerate() {
                 let Some(elem) = self.elem_kind(fty, span) else { continue };
                 let read = elem.unword(&format!("v->f{}", j));
-                let Some(shown) = self.repr_call(fty, &read, span) else { continue };
+                let Some(shown) = self.try_repr(fty, &read, span) else { continue };
                 if j > 0 {
-                    acc = format!("keal_concat({}, keal_str_static(\", \", 2))", acc);
+                    let _ = writeln!(body, "        keal_buf_lit(&b, \", \");");
                 }
-                let label = format!("{}=", fname);
-                acc = format!(
-                    "keal_concat({}, keal_str_static({}, {}))",
-                    acc,
-                    c_string(&label),
-                    label.len()
-                );
-                acc = format!("keal_concat({}, {})", acc, shown);
+                let _ = writeln!(body, "        keal_buf_lit(&b, {});", c_string(&format!("{}=", fname)));
+                let _ = writeln!(body, "        keal_buf_str(&b, {});", shown);
             }
-            acc = format!("keal_concat({}, keal_str_static(\")\", 1))", acc);
-            let _ = writeln!(body, "        return {};", acc);
+            let _ = writeln!(body, "        keal_buf_lit(&b, \")\");");
+            let _ = writeln!(body, "        return keal_buf_finish(&b);");
             let _ = writeln!(body, "    }}");
         }
         let _ = writeln!(body, "    default: return keal_str_static(\"?\", 1);");

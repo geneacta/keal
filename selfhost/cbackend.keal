@@ -6516,6 +6516,17 @@ class CBackend() {
             if (rt0 != null) { rbase0 = tyNonNull(rt0) }
             val lbase = lbase0
             val rbase = rbase0
+            // Two boxes, not two words. Comparing the pointers would make
+            // `Circle(1.5) == Circle(1.5)` false, which is what both
+            // interpreters answer true to.
+            if (lbase != null) {
+                if (lbase.kind == "Enum" and this.enumCarries(lbase.name)) {
+                    val f = this.enumEq(lbase.name, e.file, e.line, e.col)
+                    var negate = ""
+                    if (op == "!=") { negate = "!" }
+                    return "(${negate}${f}(${a}, ${b}))"
+                }
+            }
             var listElem: Ty? = null
             if (lbase != null) {
                 if (lbase.kind == "List") { listElem = lbase.args[0] }

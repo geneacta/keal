@@ -288,7 +288,7 @@ SIDEBAR = {
 # Empty until the first one is cut. The page then says what Kealler is and
 # what it is waiting for, rather than offering a download that does not exist
 # — and setting this to a version is the whole of publishing it.
-KEALLER_VERSION = "0.10.0"
+KEALLER_VERSION = "0.11.0"
 
 KEALLER_BUILDS = [
     ("kealler-macos-arm64", "macOS", "Apple silicon"),
@@ -387,10 +387,15 @@ KEALLER = {
              "Java is absent because Temurin's link and checksum live in the <i>same</i> JSON "
              "document, so a parse that picks the wrong asset picks its matching checksum and "
              "the check passes — that fails open. Nothing touches your PATH."),
-            ("git in the margin and in the tree",
+            ("git in the margin and in the tree, and the diff itself",
              "<code>M</code>, <code>?</code> and <code>D</code> beside the files, and the diff "
              "in the gutter: green added, amber changed, red removed. Refreshed on open and on "
-             "save, not while you type, for the same reason the types are."),
+             "save, not while you type, for the same reason the types are. And the diff itself "
+             "on request, with git&rsquo;s own context, where a line still in the file takes you "
+             "to it and a removed one does not pretend to be anywhere. Nothing to show is three "
+             "facts and one of them is news: no git, a file git never heard of, a file with no "
+             "changes — and an empty diff is the same output for the last two, so it asks rather "
+             "than guessing from the silence."),
             ("Run it without freezing the editor, and see a web app's routes",
              "Every program is started detached, its output streaming into the Journal, with a "
              "way to stop it — because a server or any other program that does not end used to "
@@ -515,11 +520,16 @@ KEALLER = {
              "sa somme vivent dans le <i>même</i> document JSON : une analyse qui choisit le "
              "mauvais fichier choisit la somme qui va avec et la vérification passe — cette "
              "chaîne échoue ouverte. Rien ne touche votre PATH."),
-            ("git dans la marge et dans l'arbre",
+            ("git dans la marge et dans l'arbre, et le diff lui-même",
              "<code>M</code>, <code>?</code> et <code>D</code> à côté des fichiers, et le diff "
              "dans la gouttière : vert ajouté, ambre modifié, rouge supprimé. Rafraîchi à "
              "l'ouverture et à l'enregistrement, pas pendant la frappe, pour la même raison que "
-             "les types."),
+             "les types. Et le diff lui-même à la demande, avec le contexte de git, où une ligne "
+             "encore présente vous y emmène et une ligne supprimée ne prétend pas être quelque "
+             "part. « Rien à montrer » est trois faits dont un seul est une nouvelle : pas de "
+             "git, un fichier que git n'a jamais vu, un fichier sans modification — et un diff "
+             "vide est la même sortie pour les deux derniers, donc la question est posée plutôt "
+             "que devinée dans le silence."),
             ("L'exécuter sans geler l'éditeur, et voir les routes d'une application web",
              "Tout programme est lancé détaché, sa sortie arrivant au fil de l'eau dans le "
              "Journal, avec de quoi l'arrêter — parce qu'un serveur, ou tout programme qui ne "
