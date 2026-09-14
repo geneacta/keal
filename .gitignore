@@ -1,9 +1,15 @@
 /target
 dist/
 cbackend
-cbackend.c
 cbackend.o
 .bootstrap-check.c
+# `keal build x.keal` writes `x.c` and `x` into the CURRENT directory, not
+# beside the source. Run at the repository root — which every session does,
+# to try something — it leaves a generated file per program tried. This
+# listed `cbackend.c` by name until a 5949-line `processes.c` was committed
+# by accident; the root has no C of its own, so the whole shape is ignored
+# rather than each name as somebody trips over it.
+/*.c
 examples/interop/rust/target/
 examples/interop/rust/Cargo.lock
 examples/interop/go/libgodemo.a
