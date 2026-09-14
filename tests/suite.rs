@@ -91,6 +91,40 @@ fn check_snapshot(source: &Path, actual: &str) {
     );
 }
 
+/// A scratch directory named for its test and for this process.
+///
+/// Every one of these used to be a fixed path, wiped by whichever test was
+/// about to use it. Two suites on one machine — which is ordinary here now,
+/// with more than one session in the repository — then shared it, and one
+/// run's `remove_dir_all` deleted the other's output while a compiler was
+/// writing into it. What came back accused the code under test: "the
+/// emitted C does not compile", "cannot open output file", "can't create
+/// cbackend.o". Both of the sessions that hit it went looking in their own
+/// work first, and that is the cost worth avoiding — a check that fails for
+/// a reason which is not its own sends the reader somewhere else, and it
+/// costs the most to whoever has the best reason to believe they broke it.
+///
+/// The process id is enough. Two runs are two processes, and within one run
+/// no two tests share a name.
+fn scratch_at(base: PathBuf, name: &str) -> PathBuf {
+    let dir = base.join(format!("{}-{}", name, std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+fn scratch(name: &str) -> PathBuf {
+    scratch_at(std::env::temp_dir(), name)
+}
+
+/// The ones that have to sit beside the build rather than in the system's
+/// temporary directory — a native link wants what `target/release` holds,
+/// and the JVM tests want the repository's own view of itself. Same suffix,
+/// and `TMPDIR` does not reach them, which is why the suffix is not
+/// optional.
+fn scratch_in_target(name: &str) -> PathBuf {
+    scratch_at(root().join("target"), name)
+}
+
 /// The C driver this machine has, the way `keal build` looks for it: `CC`
 /// when set, then `cc`, `gcc`, `clang`. A Windows machine has the last two
 /// and not the first, and its tests should run rather than skip.
@@ -321,8 +355,7 @@ fn fetch_puts_a_dependency_where_an_import_finds_it() {
         eprintln!("skipping: no `git`");
         return;
     }
-    let dir = std::env::temp_dir().join("keal-fetch-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-fetch-test");
     let dep = dir.join("upstream");
     let project = dir.join("project");
     std::fs::create_dir_all(&dep).expect("cannot make the upstream directory");
@@ -525,8 +558,7 @@ fn a_main_runs_and_a_malformed_one_is_refused() {
 
     // `func main(): Int` — the Int is the exit code, as in C, and a code the
     // top level cannot produce is the proof that `main` itself ran.
-    let dir = std::env::temp_dir().join("keal-main-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-main-test");
     std::fs::create_dir_all(&dir).expect("cannot make a directory");
     std::fs::write(dir.join("code.keal"), "func main(): Int { return 7 }\n").unwrap();
     for engine in ENGINES {
@@ -581,8 +613,7 @@ fn no_exit_can_silence_the_audit() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
     }
-    let dir = std::env::temp_dir().join("keal-audit-exit");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-audit-exit");
     std::fs::create_dir_all(&dir).expect("cannot make a directory");
 
     let cycle = "class Node { var next: Node? = null }\nval a = Node()\nval b = Node()\n";
@@ -656,8 +687,7 @@ fn programs_compile_and_agree_natively() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
     }
-    let dir = std::env::temp_dir().join("keal-programs-native");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-programs-native");
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
 
     let mut refused = 0;
@@ -724,8 +754,7 @@ fn the_native_audit_says_what_the_interpreters_say() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
     }
-    let dir = std::env::temp_dir().join("keal-audit-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-audit-test");
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
     // Five shapes, not one: a plain cycle, a cycle a `weak` edge breaks,
     // the cycle a closure that captured `this` makes, and two actor programs
@@ -797,8 +826,7 @@ fn the_site_is_what_its_generator_would_write() {
         eprintln!("skipping: no Python");
         return;
     };
-    let dir = std::env::temp_dir().join("keal-site-drift");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-site-drift");
     let site = dir.join("site");
     std::fs::create_dir_all(&site).expect("cannot make a site directory");
     // The generator writes beside itself, so it is copied somewhere else
@@ -898,8 +926,7 @@ fn the_site_is_what_its_generator_would_write() {
 fn the_language_server_answers() {
     use std::io::{Read, Write};
 
-    let dir = std::env::temp_dir().join("keal-lsp-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-lsp-test");
     std::fs::create_dir_all(&dir).expect("cannot make a directory");
     let file = dir.join("main.keal");
     let on_disk = "enum Level { Debug, Info }\nval here = Level.Debug\nprintln(here)\n";
@@ -1077,8 +1104,7 @@ fn the_language_server_answers() {
 fn an_unsaved_buffer_wins_however_its_path_is_spelled() {
     use std::io::{Read, Write};
 
-    let dir = std::env::temp_dir().join("keal-lsp-case");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-lsp-case");
     std::fs::create_dir_all(&dir).expect("cannot make a directory");
     let lib = dir.join("Lib.keal");
     std::fs::write(&lib, "public func hello(): Int { return 1 }\n").unwrap();
@@ -1150,8 +1176,7 @@ fn the_index_finds_a_package_and_pins_it() {
         eprintln!("skipping: no `git`");
         return;
     }
-    let dir = std::env::temp_dir().join("keal-index-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-index-test");
     let (pkg, index, home, app) =
         (dir.join("geometry"), dir.join("index"), dir.join("home"), dir.join("app"));
     for d in [&pkg, &index.join("packages"), &home, &app] {
@@ -1264,8 +1289,7 @@ fn a_dependency_may_have_dependencies() {
         eprintln!("skipping: no `git`");
         return;
     }
-    let dir = std::env::temp_dir().join("keal-transitive-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-transitive-test");
     let (deep, mid, app) = (dir.join("deep"), dir.join("mid"), dir.join("app"));
     for d in [&deep, &mid, &app] {
         std::fs::create_dir_all(d).expect("cannot make a directory");
@@ -1444,8 +1468,7 @@ fn output_and_failure_arrive_in_the_order_they_happened() {
         return;
     }
     let src = "tests/runtime/print_then_fail.keal";
-    let dir = std::env::temp_dir().join("keal-stream-order");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-stream-order");
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
     let exe = dir.join("print_then_fail");
     let built = Command::new(BIN)
@@ -1514,8 +1537,7 @@ fn a_closed_pipe_ends_every_engine_the_same_way() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
     }
-    let dir = std::env::temp_dir().join("keal-broken-pipe");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-broken-pipe");
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
     let src = dir.join("flood.keal");
     std::fs::write(&src, "var i = 0\nwhile (i < 200000) { println(\"line ${i}\") i += 1 }\n")
@@ -1631,8 +1653,7 @@ fn a_closed_pipe_ends_every_engine_the_same_way() {
 /// where every directory belongs to a harness that would try to run them.
 #[test]
 fn an_import_dump_is_contained_in_its_importer() {
-    let dir = std::env::temp_dir().join("keal-dump-prefix");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-dump-prefix");
     std::fs::create_dir_all(&dir).expect("cannot make a fixture directory");
     let write = |name: &str, text: &str| {
         std::fs::write(dir.join(name), text).expect("cannot write a fixture");
@@ -1756,8 +1777,7 @@ fn concurrent_actors_do_not_tear_a_line() {
     }
     src.push_str("sys.run()\n");
 
-    let dir = std::env::temp_dir().join("keal-torn-lines");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-torn-lines");
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
     let path = dir.join("torn.keal");
     std::fs::write(&path, &src).expect("cannot write the fixture");
@@ -2005,7 +2025,7 @@ fn the_generated_c_compiles_without_warnings() {
         return;
     }
 
-    let dir = std::env::temp_dir().join("keal-c-warnings");
+    let dir = scratch("keal-c-warnings");
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
     let csrc = dir.join("out.c");
 
@@ -2203,8 +2223,7 @@ fn actors_are_clean_under_thread_sanitizer() {
     // the sanitizer runs — and on a platform where it cannot, the verdict
     // below is about the toolchain while reading like a verdict about Keal.
     {
-        let probe_dir = std::env::temp_dir().join("keal-tsan-probe");
-        let _ = std::fs::remove_dir_all(&probe_dir);
+        let probe_dir = scratch("keal-tsan-probe");
         std::fs::create_dir_all(&probe_dir).expect("cannot make a build directory");
         let src = probe_dir.join("probe.c");
         let bin = probe_dir.join("probe");
@@ -2242,7 +2261,7 @@ fn actors_are_clean_under_thread_sanitizer() {
     let emitted = keal(&["emit-c", path]);
     assert!(emitted.success, "{} did not emit C:\n{}", path, emitted.stderr);
 
-    let dir = std::env::temp_dir().join("keal-actor-tsan");
+    let dir = scratch("keal-actor-tsan");
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
     let csrc = dir.join("out.c");
     let bin = dir.join("out");
@@ -2367,7 +2386,7 @@ fn extern_programs_build_and_run() {
     for file in keal_files("tests/native-extern") {
         let path = relative(&file);
         let companion = file.with_extension("cpp");
-        let dir = std::env::temp_dir().join("keal-extern-test");
+        let dir = scratch("keal-extern-test");
         std::fs::create_dir_all(&dir).expect("cannot make a build directory");
 
         let mut cmd = Command::new(BIN);
@@ -2539,8 +2558,7 @@ fn selfhosted_emitter_agrees_with_the_oracle() {
 /// costs real seconds, and the corpus runs four times over.
 #[test]
 fn a_constexpr_that_cannot_finish_is_refused() {
-    let dir = std::env::temp_dir().join("keal-constexpr-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-constexpr-test");
     std::fs::create_dir_all(&dir).expect("cannot make a directory");
 
     let forever = dir.join("forever.keal");
@@ -2616,8 +2634,7 @@ fn the_compiler_compiles_itself() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
     }
-    let dir = root().join("target").join("bootstrap-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch_in_target("bootstrap-test");
     std::fs::create_dir_all(&dir).expect("cannot create the bootstrap dir");
 
     let built = Command::new(BIN)
@@ -2695,8 +2712,7 @@ fn a_companion_can_use_the_emitted_header() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
     }
-    let dir = std::env::temp_dir().join("keal-companion-header");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-companion-header");
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
 
     std::fs::write(
@@ -2769,8 +2785,7 @@ fn a_companion_can_use_the_emitted_header() {
 /// the whole mechanism untested.
 #[test]
 fn a_kealsql_import_reads_what_its_compiler_writes() {
-    let dir = std::env::temp_dir().join("keal-kealsql-import");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-kealsql-import");
     std::fs::create_dir_all(&dir).expect("cannot make a directory");
 
     // A stand-in that writes a module naming the run that made it, so a
@@ -2917,8 +2932,7 @@ fn bindgen_and_link_inputs_work_end_to_end() {
         return;
     }
 
-    let dir = root().join("target").join("bindgen-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch_in_target("bindgen-test");
     std::fs::create_dir_all(&dir).expect("cannot create the bindgen test dir");
 
     // The implementation of the clean half of tests/bindgen/sample.h.
@@ -3068,8 +3082,7 @@ fn jbind_works_end_to_end() {
         return;
     }
 
-    let dir = root().join("target").join("jbind-e2e");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch_in_target("jbind-e2e");
     std::fs::create_dir_all(&dir).expect("cannot create the jbind test dir");
 
     let generated = keal(&[
@@ -3147,8 +3160,7 @@ fn import_sugar_works_end_to_end() {
         return;
     }
 
-    let dir = root().join("target").join("sugar-e2e");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch_in_target("sugar-e2e");
     std::fs::create_dir_all(&dir).expect("cannot create the sugar test dir");
     std::fs::write(
         dir.join("main.keal"),
@@ -3215,8 +3227,7 @@ fn java_exceptions_are_catchable_natively() {
         return;
     }
 
-    let dir = root().join("target").join("jexc-e2e");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch_in_target("jexc-e2e");
     std::fs::create_dir_all(&dir).expect("cannot create the jexc test dir");
     std::fs::write(
         dir.join("main.keal"),
@@ -3279,8 +3290,7 @@ fn jvm_gateway_works_end_to_end() {
         return;
     }
 
-    let dir = root().join("target").join("jvm-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch_in_target("jvm-test");
     std::fs::create_dir_all(&dir).expect("cannot create the jvm test dir");
 
     let built = Command::new(BIN)
@@ -3330,8 +3340,7 @@ fn jvm_calls_work_from_actor_threads() {
         return;
     }
 
-    let dir = root().join("target").join("jvm-actor-test");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch_in_target("jvm-actor-test");
     std::fs::create_dir_all(&dir).expect("cannot create the jvm actor test dir");
 
     let built = Command::new(BIN)
@@ -3506,8 +3515,7 @@ fn keal_test_runs_this_repository() {
 /// waves through.
 #[test]
 fn keal_test_catches_what_it_is_for() {
-    let dir = std::env::temp_dir().join("keal-test-runner-corpus");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-test-runner-corpus");
     std::fs::create_dir_all(&dir).expect("cannot make a corpus directory");
 
     // Prints, with nothing beside it saying it should.
@@ -3569,8 +3577,7 @@ fn keal_test_catches_what_it_is_for() {
 /// stopped, said to be stuck, and the files after it are still tested.
 #[test]
 fn keal_test_stops_a_program_that_does_not() {
-    let dir = std::env::temp_dir().join("keal-test-runner-stuck");
-    let _ = std::fs::remove_dir_all(&dir);
+    let dir = scratch("keal-test-runner-stuck");
     std::fs::create_dir_all(&dir).expect("cannot make a corpus directory");
     std::fs::write(dir.join("aloop.keal"), "while (true) { }\n").expect("cannot write");
     std::fs::write(dir.join("zafter.keal"), "assert(1 == 1, \"yes\")\n").expect("cannot write");
@@ -3659,7 +3666,7 @@ fn a_compiled_program_stops_recursing_and_can_catch_itself() {
         eprintln!("skipping: no C compiler found as `{}`", cc);
         return;
     }
-    let dir = std::env::temp_dir().join("keal-depth-catchable");
+    let dir = scratch("keal-depth-catchable");
     std::fs::create_dir_all(&dir).expect("cannot make a build directory");
     let src = dir.join("caught.keal");
     std::fs::write(
