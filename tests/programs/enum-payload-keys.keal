@@ -1,0 +1,14 @@
+// A plain variant of a carrying enum still keys a map on the interpreters,
+// and one that carries something does not: `Circle(1.0)` and `Circle(2.0)`
+// are two values under one name, and the key holds the name alone.
+//
+// The C backend refuses the whole enum as a key, by name, rather than pick
+// between two wrong answers — keying on the box makes every construction its
+// own key, keying on the ordinal brings back the collision. So this file is
+// interpreter-only on purpose, which is why it is not in `enum-payloads`.
+enum Shape { Circle(r: Float), Point }
+
+val counts: Map<Shape, Int> = {}
+counts[Shape.Point] = 1
+assert(counts.size == 1, "a plain variant keys a map as it always did")
+assert((counts[Shape.Point] ?: 0) == 1, "and reads back")

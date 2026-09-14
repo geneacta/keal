@@ -705,6 +705,20 @@ impl CBackend {
     /// strings by content.
     fn key_kind(&mut self, ty: &Type, span: Span) -> Option<Elem> {
         match ty {
+            // A plain variant of a carrying enum is a valid key on the
+            // interpreters, and a carried one is refused there at the point
+            // of use — two values under one name would be one key. Here the
+            // value is a pointer, so keying on it would make every
+            // construction a distinct key; keying on the ordinal would bring
+            // back the collision the interpreters refuse. Refused by name
+            // until it is one or the other in all three.
+            Type::Enum(name) if self.enum_carries(name) => {
+                self.unsupported(
+                    span,
+                    &format!("map keys of `{}`, an enum with a variant that carries fields", name),
+                );
+                None
+            }
             Type::Never | Type::Int | Type::Bool | Type::Float | Type::Str | Type::Enum(_)
             | Type::Comp => {
                 self.elem_kind(ty, span)
@@ -3641,6 +3655,62 @@ impl CBackend {
 
     /// The function turning one of an enum's ordinals back into its name,
     /// emitted once per enum and only for an enum a program actually shows.
+    /// `Circle(r=1.5)` — what a carried variant shows, which is what a
+    /// record shows, because it holds what a record holds. A plain variant of
+    /// the same enum still shows its bare name.
+    fn enum_show(&mut self, name: &str, span: Span) -> String {
+        let f = format!("K_{}_show", flatten(name));
+        if self.thunks.contains(&f) {
+            return f;
+        }
+        self.thunks.insert(f.clone());
+        let sn = struct_name(name);
+        let names = self.enums.get(name).cloned().unwrap_or_default();
+        let variants = self.enum_fields.get(name).cloned().unwrap_or_default();
+        let mut body = String::new();
+        let _ = writeln!(body, "    switch (v->ordinal) {{");
+        for (i, vname) in names.iter().enumerate() {
+            let fields = variants.get(i).cloned().unwrap_or_default();
+            if fields.is_empty() {
+                let _ = writeln!(
+                    body,
+                    "    case {}: return keal_str_static({}, {});",
+                    i,
+                    c_string(vname),
+                    vname.len()
+                );
+                continue;
+            }
+            let _ = writeln!(body, "    case {}: {{", i);
+            let mut acc = format!("keal_str_static({}, {})", c_string(vname), vname.len());
+            acc = format!("keal_concat({}, keal_str_static(\"(\", 1))", acc);
+            for (j, (fname, fty)) in fields.iter().enumerate() {
+                let Some(elem) = self.elem_kind(fty, span) else { continue };
+                let read = elem.unword(&format!("v->f{}", j));
+                let Some(shown) = self.repr_call(fty, &read, span) else { continue };
+                if j > 0 {
+                    acc = format!("keal_concat({}, keal_str_static(\", \", 2))", acc);
+                }
+                let label = format!("{}=", fname);
+                acc = format!(
+                    "keal_concat({}, keal_str_static({}, {}))",
+                    acc,
+                    c_string(&label),
+                    label.len()
+                );
+                acc = format!("keal_concat({}, {})", acc, shown);
+            }
+            acc = format!("keal_concat({}, keal_str_static(\")\", 1))", acc);
+            let _ = writeln!(body, "        return {};", acc);
+            let _ = writeln!(body, "    }}");
+        }
+        let _ = writeln!(body, "    default: return keal_str_static(\"?\", 1);");
+        let _ = writeln!(body, "    }}");
+        let _ = writeln!(self.decls, "KealStr* {}({}* v);", f, sn);
+        let _ = write!(self.defs, "\nKealStr* {}({}* v) {{\n{}}}\n", f, sn, body);
+        f
+    }
+
     /// An enum nobody prints costs not one byte of table.
     fn enum_names(&mut self, name: &str) -> String {
         let f = format!("K_{}_name", flatten(name));
@@ -5043,8 +5113,13 @@ impl CBackend {
             // list and map generators refused by name instead, which is why
             // the record was the one that got through.
             Type::Enum(name) => {
-                let f = self.enum_names(&name.to_string());
-                format!("{}({})", f, expr)
+                if self.enum_carries(name) {
+                    let f = self.enum_show(&name.to_string(), span);
+                    format!("{}({})", f, expr)
+                } else {
+                    let f = self.enum_names(&name.to_string());
+                    format!("{}({})", f, expr)
+                }
             }
             Type::Class(cname, cargs) => {
                 format!("{}_show({})", struct_name_of(cname, cargs), expr)
@@ -5755,6 +5830,25 @@ impl CBackend {
                 self.is_arm_with_binds(arm, ty, d, subject_slot.as_ref(), slot.as_deref().zip(slot_ty.as_ref()));
                 continue;
             }
+            // `Shape.Circle(r)` binds what the variant carries, for this arm
+            // and the guard above it, so it cannot ride the condition chain
+            // either.
+            if let WhenPattern::Variant { enm, ordinal, binds, span, .. } = &arm.pattern {
+                if binds.iter().any(|b| b.is_some()) {
+                    let (enm, ordinal, binds, span) =
+                        (enm.clone(), *ordinal, binds.clone(), *span);
+                    self.variant_arm_with_binds(
+                        arm,
+                        &enm,
+                        ordinal,
+                        &binds,
+                        span,
+                        subject_slot.as_ref(),
+                        slot.as_deref().zip(slot_ty.as_ref()),
+                    );
+                    continue;
+                }
+            }
             // The test gets a scope of its own, closed before the branch, so
             // anything it allocated — a string candidate, say — is released
             // whether or not the arm is taken. Only the boolean crosses over.
@@ -5798,6 +5892,73 @@ impl CBackend {
     /// and each field binds borrowed — the subject's own temp keeps the
     /// instance alive for the whole `when`. The guard runs after the binds,
     /// inside the tag test; when it fails, the chain simply falls through.
+    /// `Shape.Circle(r) ->` — the ordinal decides, and what the variant
+    /// carries is read out of its slots for this arm.
+    ///
+    /// The bindings BORROW, as `is C(a, b)` already does: the `when` holds
+    /// the subject for the whole arm, so what it carries outlives the body.
+    #[allow(clippy::too_many_arguments)]
+    fn variant_arm_with_binds(
+        &mut self,
+        arm: &WhenArm,
+        enm: &str,
+        ordinal: u32,
+        binds: &[Option<String>],
+        span: Span,
+        subject: Option<&(String, Type)>,
+        filled: Option<(&str, &Type)>,
+    ) {
+        let Some((sslot, _)) = subject else {
+            self.unsupported(span, "a variant pattern without a `when` subject");
+            return;
+        };
+        let fields = self
+            .enum_fields
+            .get(enm)
+            .and_then(|vs| vs.get(ordinal as usize))
+            .cloned()
+            .unwrap_or_default();
+        self.open_if(&format!("{}->ordinal == INT64_C({})", sslot, ordinal));
+        self.indent += 1;
+        self.open_scope();
+        for (bind, (_, fty)) in binds.iter().zip(fields.iter()) {
+            let Some(bname) = bind else { continue };
+            let Some(ct) = self.ctype(fty, span) else { continue };
+            let Some(elem) = self.elem_kind(fty, span) else { continue };
+            let i = binds.iter().position(|b| b.as_deref() == Some(bname.as_str())).unwrap_or(0);
+            self.line(format!(
+                "KEAL_LOCAL const {} {} = {};",
+                ct,
+                mangle(bname),
+                elem.unword(&format!("{}->f{}", sslot, i))
+            ));
+            self.declare_local(bname, fty, false);
+        }
+        let guard = arm.guard.as_ref().map(|g| {
+            self.open_scope();
+            let c = self.expr(g);
+            let t = self.temp();
+            self.line(format!("const bool {} = {};", t, c));
+            self.close_scope();
+            t
+        });
+        if let Some(g) = &guard {
+            self.open_if(g);
+            self.indent += 1;
+        }
+        self.open_scope();
+        self.branch_body(&arm.body.stmts, filled);
+        self.close_scope();
+        self.line("break;");
+        if guard.is_some() {
+            self.indent -= 1;
+            self.line("}");
+        }
+        self.close_scope();
+        self.indent -= 1;
+        self.line("}");
+    }
+
     fn is_arm_with_binds(
         &mut self,
         arm: &WhenArm,
@@ -5889,14 +6050,9 @@ impl CBackend {
         let mut conds: Vec<String> = Vec::new();
         match &arm.pattern {
             WhenPattern::Else => {}
-            WhenPattern::Variant { enm, name, .. } => {
-                // The arm's position, not the pattern's: the twin reports at
-                // the arm, and `keal cgen` compares refusals byte for byte.
-                self.refuse(
-                    arm.span,
-                    &format!("matching `{}.{}`, a variant that carries fields", enm, name),
-                    "run it on the bytecode VM instead, which supports the whole language",
-                );
+            WhenPattern::Variant { ordinal, .. } => {
+                let Some((sslot, _)) = subject else { return None };
+                conds.push(format!("{}->ordinal == INT64_C({})", sslot, ordinal));
             }
             WhenPattern::Values(values) => {
                 let mut hits = Vec::new();
@@ -5955,9 +6111,57 @@ impl CBackend {
     }
 
     /// `subject == candidate`, spelled correctly for the subject's type.
+    /// `Circle(1.5) == Circle(1.5)` — the ordinal, then field by field, as
+    /// the interpreters compare them. A plain variant of a carrying enum
+    /// still compares by ordinal alone, because it carries nothing.
+    fn enum_eq(&mut self, name: &str, span: Span) -> String {
+        let f = format!("K_{}_eq", flatten(name));
+        if self.thunks.contains(&f) {
+            return f;
+        }
+        self.thunks.insert(f.clone());
+        let sn = struct_name(name);
+        let variants = self.enum_fields.get(name).cloned().unwrap_or_default();
+        let mut body = String::new();
+        let _ = writeln!(body, "    if (a == b) {{ return true; }}");
+        let _ = writeln!(body, "    if (a == NULL || b == NULL) {{ return false; }}");
+        let _ = writeln!(body, "    if (a->ordinal != b->ordinal) {{ return false; }}");
+        let _ = writeln!(body, "    switch (a->ordinal) {{");
+        for (i, fields) in variants.iter().enumerate() {
+            if fields.is_empty() {
+                continue;
+            }
+            let _ = writeln!(body, "    case {}:", i);
+            for (j, (_, fty)) in fields.iter().enumerate() {
+                let Some(elem) = self.elem_kind(fty, span) else { continue };
+                let l = elem.unword(&format!("a->f{}", j));
+                let r = elem.unword(&format!("b->f{}", j));
+                let cmp = match fty {
+                    Type::Str => format!("(keal_str_cmp({}, {}) == 0)", l, r),
+                    _ => format!("({} == {})", l, r),
+                };
+                let _ = writeln!(body, "        if (!{}) {{ return false; }}", cmp);
+            }
+            let _ = writeln!(body, "        return true;");
+        }
+        let _ = writeln!(body, "    default: return true;");
+        let _ = writeln!(body, "    }}");
+        let _ = writeln!(self.decls, "bool {}({}* a, {}* b);", f, sn, sn);
+        let _ = write!(self.defs, "\nbool {}({}* a, {}* b) {{\n{}}}\n", f, sn, sn, body);
+        f
+    }
+
     fn equality(&mut self, ty: &Type, slot: &str, rhs: &str, at: &Expr) -> String {
         match ty {
             Type::Str => format!("(keal_str_cmp({}, {}) == 0)", slot, rhs),
+            Type::Enum(name) if self.enum_carries(name) => {
+                // Two boxes, not two words: the ordinal first, then what the
+                // variant carries. Comparing the pointers would make
+                // `Circle(1.5) == Circle(1.5)` false, which is what the two
+                // interpreters answer true to.
+                let f = self.enum_eq(&name.to_string(), at.span);
+                format!("{}({}, {})", f, slot, rhs)
+            }
             Type::Int | Type::Float | Type::Bool | Type::Enum(_) | Type::Comp => {
                 format!("({} == {})", slot, rhs)
             }
@@ -6160,6 +6364,16 @@ impl CBackend {
         {
             let lbase = lty.as_ref().map(|t| t.non_null());
             let rbase = self.ety(rhs).map(|t| t.non_null());
+            // Two boxes, not two words. Comparing the pointers would make
+            // `Circle(1.5) == Circle(1.5)` false, which is what both
+            // interpreters answer true to.
+            if let Some(Type::Enum(name)) = &lbase {
+                if self.enum_carries(name) {
+                    let f = self.enum_eq(&name.to_string(), e.span);
+                    let negate = if op == BinOp::Ne { "!" } else { "" };
+                    return format!("({}{}({}, {}))", negate, f, a, b);
+                }
+            }
             let list_elem = match (&lbase, &rbase) {
                 (Some(Type::List(t)), _) | (_, Some(Type::List(t))) => Some((**t).clone()),
                 _ => None,
@@ -6252,7 +6466,11 @@ impl CBackend {
             Some(Type::Comp) => format!("keal_str_from_comp({})", v),
             // The names table, emitted once per enum that is ever shown.
             Some(Type::Enum(name)) => {
-                let f = self.enum_names(&name);
+                let f = if self.enum_carries(&name) {
+                    self.enum_show(&name, e.span)
+                } else {
+                    self.enum_names(&name)
+                };
                 format!("{}({})", f, v)
             }
             Some(Type::Class(name, args)) => {

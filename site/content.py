@@ -288,7 +288,7 @@ SIDEBAR = {
 # Empty until the first one is cut. The page then says what Kealler is and
 # what it is waiting for, rather than offering a download that does not exist
 # — and setting this to a version is the whole of publishing it.
-KEALLER_VERSION = "0.9.0"
+KEALLER_VERSION = "0.10.0"
 
 KEALLER_BUILDS = [
     ("kealler-macos-arm64", "macOS", "Apple silicon"),
@@ -350,6 +350,15 @@ KEALLER = {
              "of those five characters is now a test. What the table is allowed to do is "
              "narrow: it colours and decides nothing. No outline, no definition, no "
              "completion comes from it."),
+            ("Go to a definition anywhere, and to any name by typing it",
+             "&#8984;B asks three questions in the order of what they cost and stops at the first "
+             "that answers: this file&rsquo;s outline, free; the files it imports, 97&nbsp;ms for "
+             "twenty; then the project, 0.3&nbsp;s here and 1.16&nbsp;s on the largest repository "
+             "measured. &#8679;&#8984;O lists every declaration behind a filter. This is the one "
+             "thing here that does not come from the compiler, and it says so: <code>keal types</code> "
+             "gives a name&rsquo;s position with no file, so this reads each file&rsquo;s tokens and "
+             "asks its outline. A name declared twice is two answers — which the checker would "
+             "pick is scope and visibility, and that belongs to the language."),
             ("What the compiler thinks, where it happened",
              "<code>keal check</code> runs on the file you are looking at, and each thing it "
              "found is drawn on the line it names rather than in a list somewhere else."),
@@ -467,6 +476,16 @@ KEALLER = {
              "s'étend pas, c'est mesuré, et chacun de ces cinq caractères est devenu un test. "
              "Ce que la table a le droit de faire est étroit : elle colore et ne décide rien. "
              "Aucun plan, aucune définition, aucune complétion n'en sort."),
+            ("Aller à une définition où qu'elle soit, et à un nom en le tapant",
+             "&#8984;B pose trois questions dans l'ordre de ce qu'elles coûtent et s'arrête à la "
+             "première qui répond : le plan de ce fichier, gratuit ; les fichiers qu'il importe, "
+             "97&nbsp;ms pour vingt ; puis le projet, 0,3&nbsp;s ici et 1,16&nbsp;s sur le plus gros "
+             "dépôt mesuré. &#8679;&#8984;O liste toutes les déclarations derrière un filtre. C'est "
+             "la seule chose ici qui ne vienne pas du compilateur, et elle le dit : "
+             "<code>keal types</code> donne la position d'un nom sans le fichier, donc on lit les "
+             "jetons de chaque fichier et on interroge son plan. Un nom déclaré deux fois donne deux "
+             "réponses — lequel le vérificateur choisirait est une affaire de portée, et ça "
+             "appartient au langage."),
             ("Ce que le compilateur pense, là où ça se passe",
              "<code>keal check</code> tourne sur le fichier ouvert, et chaque chose trouvée est "
              "dessinée sur la ligne qu'elle nomme plutôt que dans une liste ailleurs."),

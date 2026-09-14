@@ -1469,6 +1469,17 @@ class CBackend() {
     }
 
     func keyKind(t: Ty, file: Int, atLine: Int, col: Int): CElem? {
+        // A plain variant of a carrying enum is a valid key on the
+        // interpreters, and a carried one is refused there at the point of
+        // use. Here the value is a pointer, so keying on it would make every
+        // construction a distinct key; keying on the ordinal would bring back
+        // the collision. Refused by name until it is one or the other in all
+        // three.
+        if (t.kind == "Enum" and this.enumCarries(t.name)) {
+            this.unsupported(file, atLine, col,
+                "map keys of `${t.name}`, an enum with a variant that carries fields")
+            return null
+        }
         if (t.kind == "Never" or t.kind == "Int" or t.kind == "Bool" or t.kind == "Float" or t.kind == "Str" or t.kind == "Enum" or t.kind == "Comp") {
             return this.elemKind(t, file, atLine, col)
         }
@@ -5334,6 +5345,9 @@ class CBackend() {
         // generators refused by name instead, which is why the record was the
         // one that got through.
         if (t.kind == "Enum") {
+            if (this.enumCarries(t.name)) {
+                return "${this.enumShow(t.name, file, atLine, col)}(${expr})"
+            }
             return "${this.enumNames(t.name)}(${expr})"
         }
         if (t.kind == "Class") {
@@ -6026,6 +6040,17 @@ class CBackend() {
                 this.isArmWithBinds(arm, arm.patTyEx!!, binds0, subjectSlot, subjectTy, slot, slotTy)
                 continue
             }
+            // `Shape.Circle(r)` binds what the variant carries, for this arm
+            // and the guard above it, so it cannot ride the condition chain
+            // either.
+            if (arm.patternKind == "variant") {
+                var namesOne = false
+                for (b in arm.patBinds) { unless (b == "_") { namesOne = true } }
+                if (namesOne) {
+                    this.variantArmWithBinds(arm, subjectSlot, slot, slotTy)
+                    continue
+                }
+            }
             // The test gets a scope of its own, closed before the branch;
             // only the boolean crosses over.
             var cond = ""
@@ -6068,6 +6093,63 @@ class CBackend() {
     /// and each field binds borrowed — the subject's own temp keeps the
     /// instance alive for the whole `when`. The guard runs after the binds,
     /// inside the tag test; when it fails, the chain simply falls through.
+    /// `Shape.Circle(r) ->` — the ordinal decides, and what the variant
+    /// carries is read out of its slots for this arm.
+    ///
+    /// The bindings BORROW, as `is C(a, b)` already does: the `when` holds
+    /// the subject for the whole arm, so what it carries outlives the body.
+    proc variantArmWithBinds(arm: ArmN, subjectSlot: String, slot: String, slotTy: Ty?) {
+        if (subjectSlot == "") {
+            this.unsupported(arm.file, arm.line, arm.col, "a variant pattern without a `when` subject")
+            return
+        }
+        val all = this.enumFieldsOf[arm.patEnum] ?: []
+        var fields: List<SField> = []
+        if (arm.patOrdinal < all.size) { fields = all[arm.patOrdinal] }
+        this.openIf("${subjectSlot}->ordinal == INT64_C(${arm.patOrdinal})")
+        this.indent += 1
+        this.openScope()
+        var bi = 0
+        while (bi < arm.patBinds.size and bi < fields.size) {
+            val bname = arm.patBinds[bi]
+            unless (bname == "_") {
+                val f = fields[bi]
+                val ct = this.ctype(f.ty, arm.file, arm.line, arm.col)
+                val el = this.elemKind(f.ty, arm.file, arm.line, arm.col)
+                if (ct != null and el != null) {
+                    this.line("KEAL_LOCAL const ${ct} ${mangle(bname)} = ${elemUnword(el, "${subjectSlot}->f${bi}")};")
+                    this.declareLocal(bname, f.ty, false)
+                }
+            }
+            bi += 1
+        }
+        var guardSlot = ""
+        val g = arm.guard
+        if (g != null) {
+            this.openScope()
+            val c = this.expr(g)
+            val t = this.temp()
+            this.line("const bool ${t} = ${c};")
+            this.closeScope()
+            guardSlot = t
+        }
+        unless (guardSlot == "") {
+            this.openIf(guardSlot)
+            this.indent += 1
+        }
+        this.openScope()
+        this.branchBody(arm.body.stmts, slot, slotTy)
+        this.closeScope()
+        this.line("break;")
+        unless (guardSlot == "") {
+            this.indent -= 1
+            this.line("}")
+        }
+        this.closeScope()
+        this.indent -= 1
+        this.line("}")
+    }
+
     proc isArmWithBinds(arm: ArmN, te: TypeEx, d: DestrN, subjectSlot: String, subjectTy: Ty?, slot: String, slotTy: Ty?) {
         if (subjectSlot == "") {
             this.unsupported(te.file, te.line, te.col, "`is` without a `when` subject")
@@ -6153,12 +6235,8 @@ class CBackend() {
     func armTest(arm: ArmN, subjectSlot: String, subjectTy: Ty?): String {
         val conds: List<String> = []
         if (arm.patternKind == "variant") {
-            this.refuse(
-                arm.file, arm.line, arm.col,
-                "matching `${arm.patEnum}.${arm.patVariant}`, a variant that carries fields",
-                "run it on the bytecode VM instead, which supports the whole language"
-            )
-            return ""
+            if (subjectSlot == "") { return "" }
+            conds.add("${subjectSlot}->ordinal == INT64_C(${arm.patOrdinal})")
         }
         if (arm.patternKind == "values") {
             val hits: List<String> = []
@@ -6208,6 +6286,14 @@ class CBackend() {
     /// `subject == candidate`, spelled correctly for the subject's type.
     func equality(t: Ty, slot: String, rhs: String, at: Ex): String {
         if (t.kind == "Str") { return "(keal_str_cmp(${slot}, ${rhs}) == 0)" }
+        if (t.kind == "Enum" and this.enumCarries(t.name)) {
+            // Two boxes, not two words: the ordinal first, then what the
+            // variant carries. Comparing the pointers would make
+            // `Circle(1.5) == Circle(1.5)` false, which is what the two
+            // interpreters answer true to.
+            val f = this.enumEq(t.name, at.file, at.line, at.col)
+            return "${f}(${slot}, ${rhs})"
+        }
         if (t.kind == "Int" or t.kind == "Float" or t.kind == "Bool" or t.kind == "Enum" or t.kind == "Comp") {
             return "(${slot} == ${rhs})"
         }
@@ -6528,6 +6614,96 @@ class CBackend() {
     /// The function turning one of an enum's ordinals back into its name,
     /// emitted once per enum and only for an enum a program actually shows.
     /// An enum nobody prints costs not one byte of table.
+    /// `Circle(r=1.5)` — what a carried variant shows, which is what a
+    /// record shows, because it holds what a record holds. A plain variant of
+    /// the same enum still shows its bare name.
+    func enumShow(name: String, file: Int, atLine: Int, col: Int): String {
+        val f = "K_" + flatten(name) + "_show"
+        if (this.thunks.contains(f)) { return f }
+        this.thunks[f] = true
+        val sn = structName(name)
+        var names: List<String> = []
+        if (this.enumNamesOf.contains(name)) { names = this.enumNamesOf[name]!! }
+        val variants = this.enumFieldsOf[name] ?: []
+        var body = "    switch (v->ordinal) {\n"
+        var i = 0
+        while (i < names.size) {
+            var fields: List<SField> = []
+            if (i < variants.size) { fields = variants[i] }
+            if (fields.size == 0) {
+                body += "    case ${i}: return keal_str_static(${cString(names[i])}, ${names[i].length});\n"
+            } else {
+                body += "    case ${i}: {\n"
+                var acc = "keal_str_static(${cString(names[i])}, ${names[i].length})"
+                acc = "keal_concat(${acc}, keal_str_static(\"(\", 1))"
+                var j = 0
+                while (j < fields.size) {
+                    val el = this.elemKind(fields[j].ty, file, atLine, col)
+                    if (el != null) {
+                        val read = elemUnword(el, "v->f${j}")
+                        val shown = this.reprCall(fields[j].ty, read, file, atLine, col)
+                        if (shown != null) {
+                            if (j > 0) { acc = "keal_concat(${acc}, keal_str_static(\", \", 2))" }
+                            val label = fields[j].name + "="
+                            acc = "keal_concat(${acc}, keal_str_static(${cString(label)}, ${label.length}))"
+                            acc = "keal_concat(${acc}, ${shown})"
+                        }
+                    }
+                    j += 1
+                }
+                acc = "keal_concat(${acc}, keal_str_static(\")\", 1))"
+                body += "        return ${acc};\n"
+                body += "    }\n"
+            }
+            i += 1
+        }
+        body += "    default: return keal_str_static(\"?\", 1);\n"
+        body += "    }\n"
+        this.decls += "KealStr* ${f}(${sn}* v);\n"
+        this.defs += "\nKealStr* ${f}(${sn}* v) {\n${body}}\n"
+        return f
+    }
+
+    /// `Circle(1.5) == Circle(1.5)` — the ordinal, then field by field, as
+    /// the interpreters compare them.
+    func enumEq(name: String, file: Int, atLine: Int, col: Int): String {
+        val f = "K_" + flatten(name) + "_eq"
+        if (this.thunks.contains(f)) { return f }
+        this.thunks[f] = true
+        val sn = structName(name)
+        val variants = this.enumFieldsOf[name] ?: []
+        var body = "    if (a == b) { return true; }\n"
+        body += "    if (a == NULL || b == NULL) { return false; }\n"
+        body += "    if (a->ordinal != b->ordinal) { return false; }\n"
+        body += "    switch (a->ordinal) {\n"
+        var i = 0
+        while (i < variants.size) {
+            val fields = variants[i]
+            if (fields.size > 0) {
+                body += "    case ${i}:\n"
+                var j = 0
+                while (j < fields.size) {
+                    val el = this.elemKind(fields[j].ty, file, atLine, col)
+                    if (el != null) {
+                        val l = elemUnword(el, "a->f${j}")
+                        val r = elemUnword(el, "b->f${j}")
+                        var cmp = "(${l} == ${r})"
+                        if (fields[j].ty.kind == "Str") { cmp = "(keal_str_cmp(${l}, ${r}) == 0)" }
+                        body += "        if (!${cmp}) { return false; }\n"
+                    }
+                    j += 1
+                }
+                body += "        return true;\n"
+            }
+            i += 1
+        }
+        body += "    default: return true;\n"
+        body += "    }\n"
+        this.decls += "bool ${f}(${sn}* a, ${sn}* b);\n"
+        this.defs += "\nbool ${f}(${sn}* a, ${sn}* b) {\n${body}}\n"
+        return f
+    }
+
     func enumNames(name: String): String {
         val f = "K_" + flatten(name) + "_name"
         if (this.thunks.contains(f)) { return f }
@@ -6573,7 +6749,11 @@ class CBackend() {
             call = "keal_str_from_comp(${v})"
         } else if (ty.kind == "Enum") {
             // The names table, emitted once per enum that is ever shown.
-            call = this.enumNames(ty.name) + "(${v})"
+            if (this.enumCarries(ty.name)) {
+                call = this.enumShow(ty.name, e.file, e.line, e.col) + "(${v})"
+            } else {
+                call = this.enumNames(ty.name) + "(${v})"
+            }
         } else if (ty.kind == "Class") {
             call = "${structNameOf(ty.name, ty.args)}_show(${v})"
         } else if (ty.kind == "List") {

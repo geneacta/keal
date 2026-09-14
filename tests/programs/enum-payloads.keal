@@ -20,13 +20,6 @@ assert(c == Shape.Circle(1.5), "same variant, same contents")
 assert(not (c == Shape.Circle(2.5)), "same variant, different contents")
 assert(not (c == p), "different variants of one enum")
 
-// A plain variant still keys a map. One that carries something does not, and
-// says so where it is used: `Circle(1.0)` and `Circle(2.0)` are two values
-// under one name, and this key holds the name alone.
-val counts: Map<Shape, Int> = {}
-counts[Shape.Point] = 1
-assert(counts.size == 1, "a plain variant keys a map as it always did")
-
 // Nesting, and a variant inside a list.
 val shapes = [c, r, p]
 assert(shapes.size == 3, "a carried variant is an ordinary value")
