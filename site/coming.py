@@ -196,7 +196,7 @@ LANGS = [
             ("Lambda", "Lambda", "[&](int x){ return x*2; }", "{ x -> x * 2 }"),
             ("Exception", "Exception", "throw / catch", "throw / catch"),
             ("Operator overload", "Surcharge d'opérateur", "operator+", "trait Add"),
-            ("Namespace", "Espace de noms", "namespace a { }", "one flat namespace, for now"),
+            ("Namespace", "Espace de noms", "namespace a { }", 'import "./a.keal" as a'),
         ],
         "notes": [
             ("Templates without the instantiation errors", "Des templates sans les erreurs d'instanciation",

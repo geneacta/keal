@@ -1079,25 +1079,60 @@ variant lives inside its enum and is always written `Suit.Hearts`.
 Natively an enum is one word — an ordinal. Nothing to retain, nothing to
 free: it is the cheapest thing in the language to send to an actor.
 
+### A variant that carries something
+
+```keal
+enum Shape { Circle(r: Float), Rect(w: Float, h: Float), Point }
+
+val c = Shape.Circle(1.5)
+println(c)                        // Circle(r=1.5)
+println(c == Shape.Circle(1.5))   // true — equality goes into the payload
+
+func area(sh: Shape): Float {
+    return when (sh) {
+        Shape.Circle(r) -> 3.14 * r * r
+        Shape.Rect(w, h) -> w * h
+        Shape.Point -> 0.0
+    }
+}
+```
+
+A variant that carries fields is a **constructor and a pattern, never a
+type**. `Shape.Circle(1.5)` builds one; `Shape.Circle(r)` in a `when` takes
+it apart, binding `r` for that arm only, and `_` binds nothing while still
+covering the variant. `Shape.Circle` bare and `val c: Circle` are both
+errors: there is no `Circle` to name, only `Shape`. That is what keeps this
+feature from adding a case-to-enum assignability edge — the first subtyping
+relation, in a language whose §20 lists inheritance as a non-goal. What a
+variant carries shows the way a record shows, `Circle(r=1.5)`, because it
+holds what a record holds; a plain variant of the same enum still shows its
+bare name.
+
+Natively, an enum with one carrying variant stops being a word: every value
+of that enum is a box, plain variants included — the rule is per enum, not
+per variant. Two things follow, and §20 lists both. The C backend refuses a
+carrying enum as a map key, because the interpreters key on the name alone
+(`Circle(1.0)` and `Circle(2.0)` land on one entry) and neither the box nor
+the ordinal reproduces that honestly. And a variant field the backend
+cannot render — a function, say — is left out of what the variant prints
+natively, where the interpreters print `<func>`.
+
 ### What an enum refuses
 
 | | |
 |---|---|
-| `enum Shape { Circle(r: Float) }` | a variant that carries something is a `record` |
+| `Shape.Circle` bare, or `val c: Circle` | a variant that carries fields is built, never named bare, and never a type |
 | `enum Http { Ok = 200 }` | write a function with a `when`, so adding a variant is an error rather than a wrong number |
 | `enum Empty { }` | a type with no values cannot be built; `Nothing` already means that |
 | `Hearts` bare, or `.hearts` | one spelling, `Suit.Hearts`, so two enums may share a name |
 | `Suit.Hearts < Suit.Spades` | declaration order is a spelling decision, not a semantic one |
 | a variant named `values` | `values()` is the list of an enum's variants |
 
-**No payloads, deliberately, for now.** A variant carrying data would need a
-case-to-enum assignability edge — this language's first subtyping relation,
-in a language whose §20 lists inheritance as a non-goal — threaded through
-assignability, joining *and* unification. What a program has meanwhile is
-`throw`/`catch` for failure and `T?` for absence, which are the two things
-payload enums are mostly used for, plus the record-with-a-tag idiom this
-compiler itself uses — whose tag `enum` upgrades from a `String` to a checked
-type, and whose `when` it makes exhaustive.
+**What a payload does not add.** No variant is a type, so nothing is ever
+assignable from `Circle` to `Shape` — there is no `Circle`. `throw`/`catch`
+for failure and `T?` for absence remain the two forms for what payload enums
+are mostly used for elsewhere; a carrying variant is for the third thing, a
+closed set of shapes that a `when` takes apart exhaustively.
 
 ---
 
@@ -1284,7 +1319,8 @@ import "./geometry.keal"
 
 Paths are relative to the importing file. A file is loaded at most once, so
 diamond imports and cycles are both fine, and what an import brings in is
-one flat namespace — there is no `geometry.` prefix yet.
+one flat namespace — unless the import says `as`, which keeps every
+name it brings behind a prefix; both forms are below.
 
 What it brings in is what the imported file **let** it bring in. A
 declaration that says nothing about who may name it is private to its own
@@ -1723,6 +1759,11 @@ front is most of the buffer.
 Strings are indexed by character, not byte: `"héllo".length` is 5 and
 `"héllo"[1]` is `"é"`. Negative indices count from the end.
 
+`toUpper` and `toLower` follow Unicode on the interpreters — `"é"` becomes
+`"É"`, `"straße"` becomes `"STRASSE"` — and ASCII only in a compiled
+program, where a letter outside it passes through unchanged. That is a
+divergence, listed in §20 rather than hidden here.
+
 ### `Int` and `Float`
 
 `Int`: `toFloat` · `abs` · `min(other)` · `max(other)` · `pow(exp)` · `toChar`
@@ -2127,11 +2168,20 @@ there is no cycle collector.
 ## 20. What is not here yet
 
 Class inheritance (a non-goal) · associated types on traits · generic
-traits · enum variants that carry data · `?.` on a built-in receiver in the
-C backend (refused by name; the interpreters answer `null`) · `List<Int?>`
-and the other lists of nullable value types · a network stack
-(HTTPS needs TLS, which belongs behind the interop boundary rather than
-hand-written in the runtime).
+traits · `List<Int?>` and the other lists of nullable value types · a
+network stack (HTTPS needs TLS, which belongs behind the interop boundary
+rather than hand-written in the runtime) · a formatter.
+
+And the places the C backend refuses by name, or answers differently,
+where the interpreters are the specification: `?.` on a built-in receiver
+(refused; the interpreters answer `null`) · a carrying enum as a map key
+(refused, §9½) · a `Range` held in a binding, a method taken as a value,
+`sorted` on a list of `Float`, and `m[k] += x` (all refused by name) ·
+`toUpper` and `toLower` beyond ASCII — `"é".toUpper()` is `É` on the
+interpreters and `é` natively, and `"straße"` becomes `STRASSE` there and
+`STRAßE` here · a class or a variant that holds a function, printed: the
+interpreters show `<func>`, natively the class panics where it is printed
+and the variant leaves the field out.
 
 Shipped since this list was first written, and no longer on it: `throw` /
 `try` / `catch` on all three engines — typed clauses included, natively —
@@ -2140,7 +2190,8 @@ through C11 (with C, C++, Rust, Go, Java and Kotlin interop), actors on
 real OS threads, `deinit`, `weak`, `Any` natively, visibility with
 `package` and `public`, a namespace that lets two modules declare the same
 name, dependencies with transitivity and a lockfile, `constexpr`,
-macros, `with` on records, and named arguments on a method call natively —
+macros, `with` on records, enum variants that carry data (§9½), and named
+arguments on a method call natively —
 which is also a parameter default that mentions `this`, since that is what
 `with` is made of. What the C
 backend still refuses, it refuses **by name** — `keal build` never

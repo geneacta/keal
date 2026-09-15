@@ -681,7 +681,12 @@ name — with a step budget, because a compiler that never answers is not a
 tool. Typed exceptions
 were the last thing on this list to be half-done, and are not anymore:
 `keal build` carries the thrown value through the C unwind, so
-`catch (e: Refused)` means the same thing on all three engines.)
+`catch (e: Refused)` means the same thing on all three engines. And enum
+variants carry data now: `Shape.Circle(1.5)` is built, shown as
+`Circle(r=1.5)`, compared into its payload and taken apart by a `when`, on
+all three engines — and a variant is a constructor and a pattern, never a
+type, which is what keeps it from being the language's first subtyping
+relation.)
 
 * **Cycles across several classes still leak silently** — `weak` breaks
   the ones you can see, and the checker cautions about the shape that
@@ -709,10 +714,8 @@ were the last thing on this list to be half-done, and are not anymore:
   on all three engines, as a catchable panic rather than a crash — what is
   left is the frame so large that the stack ends before the count does), a
   register-based VM if the
-  bytecode engine ever needs to be faster than it is, and enum variants
-  that carry data — refused for now because they would be this language's
-  first subtyping relation, and staged so they can arrive as an addition
-  rather than a rewrite.
+  bytecode engine ever needs to be faster than it is, and a formatter —
+  `keal lsp` reports, completes and renames, and does not yet lay out.
 
 Class inheritance is a **non-goal**: composition, traits with default
 methods and records cover the territory without the diamond.

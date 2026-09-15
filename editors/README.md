@@ -150,9 +150,9 @@ Colours come from your IDE theme's TextMate mapping rather than from a
 Keal-specific palette, so they will match whatever theme you already use.
 
 What a TextMate bundle cannot give you is structural editing — go to
-definition, rename, completion. That needs a language server, which is
-the honest next step for editor support in general (one server would
-serve VS Code, JetBrains, Neovim and Zed at once) and is not written yet.
+definition, rename, completion. That is the language server's job:
+`keal lsp` serves VS Code, JetBrains, Neovim, Helix and Zed at once, and
+`docs/language.md` §18 says what it does, and what it does not do yet.
 
 ## File icons
 

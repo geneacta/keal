@@ -2,9 +2,10 @@
 //! them.
 //!
 //! Every dependency is a git repository at an exact tag or commit, cloned
-//! into `.keal/deps/<name>/`. There is no resolution and no lockfile yet:
-//! a manifest names commits, so what was fetched yesterday is what is
-//! fetched today, and that is the whole promise this step makes.
+//! into `.keal/deps/<name>/`. There is no resolution: a manifest names tags
+//! or commits, `keal.lock` records the commit each name resolved to, and so
+//! what was fetched yesterday is what is fetched today — which is the whole
+//! promise this step makes.
 //!
 //! Nothing else in the compiler runs git. `import "dep:name/file.keal"`
 //! reads what is on disk and says so plainly when it is not there, so a
