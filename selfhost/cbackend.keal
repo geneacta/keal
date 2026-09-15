@@ -6644,26 +6644,31 @@ class CBackend() {
             if (fields.size == 0) {
                 body += "    case ${i}: return keal_str_static(${cString(names[i])}, ${names[i].length});\n"
             } else {
+                // A buffer, not a chain of `keal_concat`: concatenating
+                // allocates an intermediate per field and gives none of them
+                // back, which is a leak per printed variant. `classShow` uses
+                // the buffer for exactly this reason and says so.
                 body += "    case ${i}: {\n"
-                var acc = "keal_str_static(${cString(names[i])}, ${names[i].length})"
-                acc = "keal_concat(${acc}, keal_str_static(\"(\", 1))"
+                body += "        KealBuf b;\n"
+                body += "        keal_buf_init(&b);\n"
+                body += "        keal_buf_lit(&b, ${cString(names[i])});\n"
+                body += "        keal_buf_lit(&b, \"(\");\n"
                 var j = 0
                 while (j < fields.size) {
                     val el = this.elemKind(fields[j].ty, file, atLine, col)
                     if (el != null) {
                         val read = elemUnword(el, "v->f${j}")
-                        val shown = this.reprCall(fields[j].ty, read, file, atLine, col)
+                        val shown = this.tryRepr(fields[j].ty, read, file, atLine, col)
                         if (shown != null) {
-                            if (j > 0) { acc = "keal_concat(${acc}, keal_str_static(\", \", 2))" }
-                            val label = fields[j].name + "="
-                            acc = "keal_concat(${acc}, keal_str_static(${cString(label)}, ${label.length}))"
-                            acc = "keal_concat(${acc}, ${shown})"
+                            if (j > 0) { body += "        keal_buf_lit(&b, \", \");\n" }
+                            body += "        keal_buf_lit(&b, ${cString(fields[j].name + "=")});\n"
+                            body += "        keal_buf_str(&b, ${shown});\n"
                         }
                     }
                     j += 1
                 }
-                acc = "keal_concat(${acc}, keal_str_static(\")\", 1))"
-                body += "        return ${acc};\n"
+                body += "        keal_buf_lit(&b, \")\");\n"
+                body += "        return keal_buf_finish(&b);\n"
                 body += "    }\n"
             }
             i += 1
