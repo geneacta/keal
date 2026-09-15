@@ -34,23 +34,34 @@ LANDING = {
         "perf_p": "The tree-walking interpreter is the specification. The bytecode VM is the default. <code>keal build</code> compiles through C11 to a real executable. The suite runs every program on all three and demands byte-identical output.",
         "perf_cap": "fib(35) — the same program, on all three engines.",
         "built_h": "Written in Keal",
-        "built_p": "Three programs that use the language for what it is for, and report"
-                   " what they find. Each has found defects the suite could not: a map that"
+        "built_p": "Four programs that use the language for what it is for, and report"
+                   " what they find. Between them they have found defects the suite could not: a map that"
                    " looped after being emptied twice, a record that printed itself with a"
                    " pointer test for a value that is not one, a type the native backend"
                    " could not compile at all.",
+        # Each tile wears its program's own K, from `design/logos/`, in the
+        # colour that K is drawn in: name, what it is, one line on it, where
+        # it lives, the mark, the colour, and what the link invites you to do.
         "built": [
-            ("kealeb", "A web framework — routing, sessions, SQLite, live pages.",
-             "https://geneacta.github.io/kealeb/"),
-            ("keal-view", "A GUI framework — rasteriser, TrueType, layout, widgets.",
-             "https://geneacta.github.io/keal-view/"),
-            ("KealSql", "A language for PostgreSQL schemas and queries, compiled to SQL.",
-             "https://geneacta.github.io/kealsql/"),
+            ("kealeb", "Web framework",
+             "Routing, sessions, SQLite, live pages — a site is one Keal program.",
+             "https://geneacta.github.io/kealeb/", "assets/k-kealeb.png", "#F0694A",
+             "Visit the site"),
+            ("keal-view", "GUI framework",
+             "A rasteriser, TrueType, layout and widgets — windows drawn pixel by pixel, from Keal.",
+             "https://geneacta.github.io/keal-view/", "assets/k-keal-view.png", "#F2A23A",
+             "Visit the site"),
+            ("KealSql", "Query language",
+             "PostgreSQL schemas and queries, written once and compiled to the SQL a database checks.",
+             "https://geneacta.github.io/kealsql/", "assets/k-kealsql.png", "#6D6BE8",
+             "Visit the site"),
             # The only one whose page is here rather than on a site of its
             # own: Kealler's repository is private, so its downloads are cut
             # against this one and described on this site.
-            ("Kealler", "The IDE — written in Keal, drawn by keal-view.",
-             "kealler.html"),
+            ("Kealler", "The IDE",
+             "An editor written in Keal and drawn by keal-view, with the compiler's own language server inside.",
+             "kealler.html", "assets/k-kealler.png", "#9A97F5",
+             "Meet the editor"),
         ],
         "start_h": "Running in a minute.",
         "start_after": "Then take the tour — 30 minutes, every snippet runs →",
@@ -81,27 +92,36 @@ LANDING = {
         "perf_p": "L'interpréteur arborescent est la spécification. La VM à bytecode est le défaut. <code>keal build</code> compile via C11 vers un vrai exécutable. La suite exécute chaque programme sur les trois et exige une sortie identique à l'octet.",
         "perf_cap": "fib(35) — le même programme, sur les trois moteurs.",
         "built_h": "Écrit en Keal",
-        "built_p": "Trois programmes qui se servent du langage pour ce à quoi il sert, et"
-                   " rapportent ce qu'ils trouvent. Chacun a trouvé des défauts que la suite"
+        "built_p": "Quatre programmes qui se servent du langage pour ce à quoi il sert, et"
+                   " rapportent ce qu'ils trouvent. À eux tous ils ont trouvé des défauts que la suite"
                    " ne pouvait pas voir : une table qui bouclait après avoir été vidée deux"
                    " fois, un record qui s'imprimait avec un test de pointeur sur une valeur"
                    " qui n'en est pas une, un type que le backend natif ne savait pas"
                    " compiler du tout.",
         "built": [
-            # Les deux ont une moitié française, comme la barre de navigation
-            # le fait déjà pour keal-view : un lecteur français renvoyé vers
-            # l'anglais est une couture qu'on ne voit pas en écrivant.
-            ("kealeb", "Un cadriciel web — routage, sessions, SQLite, pages vivantes.",
-             "https://geneacta.github.io/kealeb/fr/"),
-            ("keal-view", "Un cadriciel graphique — rastériseur, TrueType, mise en page, widgets.",
-             "https://geneacta.github.io/keal-view/fr/"),
-            ("KealSql", "Un langage de schémas et de requêtes PostgreSQL, compilé vers SQL.",
-             "https://geneacta.github.io/kealsql/fr/"),
+            # Les trois sites ont une moitié française, comme la barre de
+            # navigation le fait déjà pour keal-view : un lecteur français
+            # renvoyé vers l'anglais est une couture qu'on ne voit pas en
+            # écrivant.
+            ("kealeb", "Cadriciel web",
+             "Routage, sessions, SQLite, pages vivantes — un site est un seul programme Keal.",
+             "https://geneacta.github.io/kealeb/fr/", "assets/k-kealeb.png", "#F0694A",
+             "Voir le site"),
+            ("keal-view", "Cadriciel graphique",
+             "Un rastériseur, TrueType, la mise en page et les widgets — des fenêtres dessinées pixel par pixel, depuis Keal.",
+             "https://geneacta.github.io/keal-view/fr/", "assets/k-keal-view.png", "#F2A23A",
+             "Voir le site"),
+            ("KealSql", "Langage de requêtes",
+             "Des schémas et des requêtes PostgreSQL, écrits une fois et compilés vers le SQL qu'une base vérifie.",
+             "https://geneacta.github.io/kealsql/fr/", "assets/k-kealsql.png", "#6D6BE8",
+             "Voir le site"),
             # Le seul dont la page est ici plutôt que sur un site à lui : le
             # dépôt de Kealler est privé, donc ses binaires sont produits par
             # celui-ci et décrits sur ce site.
-            ("Kealler", "L'IDE — écrit en Keal, dessiné par keal-view.",
-             "kealler.html"),
+            ("Kealler", "L'IDE",
+             "Un éditeur écrit en Keal et dessiné par keal-view, avec le serveur de langage du compilateur à l'intérieur.",
+             "kealler.html", "assets/k-kealler.png", "#9A97F5",
+             "Découvrir l'éditeur"),
         ],
         "start_h": "Opérationnel en une minute.",
         "start_after": "Puis faites le tour — 30 minutes, chaque extrait s'exécute →",

@@ -554,11 +554,19 @@ def landing(lang):
         "bh": t["built_h"], "bp": t["built_p"],
         # Linked out rather than described: these are somebody else's
         # repositories, and a page that summarised them would go stale the
-        # first time one of them changed.
+        # first time one of them changed. The whole tile is the link, it
+        # wears the program's own K, and its colour is the K's, set once on
+        # the tile so the stylesheet can tint the glow, the eyebrow and the
+        # arrow from it without knowing which program it is.
         "built": "".join(
-            '<div class="card"><h3><a href="%s">%s <span>&#8599;</span></a></h3><p>%s</p></div>'
-            % (url, name, blurb)
-            for name, blurb, url in t["built"]
+            '<a class="tile" href="%s" style="--tile:%s">'
+            '<img class="tile-k" src="%s%s" alt="" width="72" height="72">'
+            '<div class="tile-body"><div class="eyebrow">%s</div>'
+            '<h3>%s <span>%s</span></h3><p>%s</p>'
+            '<span class="tile-go">%s &rarr;</span></div></a>'
+            % (url, colour, "" if lang == "en" else "../", asset_tag(mark), kind, name,
+               "&#8599;" if url.startswith("http") else "&#8594;", blurb, go)
+            for name, kind, blurb, url, mark, colour, go in t["built"]
         ),
         "sh": t["start_h"],
         "start": code_window("shell", "git clone https://github.com/geneacta/keal\ncd keal\ncargo build --release\n./bootstrap.sh"),

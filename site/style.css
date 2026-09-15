@@ -153,12 +153,37 @@ pre { overflow-x: auto; }
            letter-spacing: .08em; margin-bottom: 12px; text-transform: uppercase; }
 .card h3 { margin: 0 0 8px; font: 600 16px Sora, sans-serif; color: var(--ink); }
 .card p { margin: 0; font: 400 13.5px/1.6 Sora, sans-serif; color: var(--dim); }
-/* The "Written in Keal" cards link out. `a { color: inherit }` above is what
-   the rest of the site wants, and here it would make a link read as plain
-   text — so these say so, with the arrow that marks an outbound link. */
-.built .card h3 a { color: var(--accent); }
-.built .card h3 a span { font-size: .85em; opacity: .8; }
-.built .card h3 a:hover { text-decoration: underline; }
+/* ---- "Written in Keal": one tile per program, wearing its own K ----
+   The whole tile is the link. `--tile` is set inline on each, in the colour
+   its K is drawn in, and everything tinted here — the glow in the corner,
+   the eyebrow, the arrow, the shadow the K casts — is mixed from that one
+   value, so a fifth program is a line of content and no new rules. Two
+   columns, not `auto-fit`: four tiles at a laptop's width fit three across
+   and leave the fourth alone on a row, and in one row they leave 200px of
+   text each beside a K. One column under 900px, with the `.cards` rule. */
+.built { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.tile { position: relative; display: flex; gap: 22px; align-items: flex-start;
+        background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+        padding: 26px 28px; text-decoration: none; overflow: hidden;
+        transition: border-color .18s ease, transform .18s ease, box-shadow .18s ease; }
+.tile::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+                background: radial-gradient(460px 180px at 0% 0%,
+                            color-mix(in srgb, var(--tile) 16%, transparent), transparent 72%);
+                opacity: .7; transition: opacity .18s ease; }
+.tile:hover { border-color: color-mix(in srgb, var(--tile) 55%, transparent);
+              transform: translateY(-2px);
+              box-shadow: 0 18px 40px -22px color-mix(in srgb, var(--tile) 70%, transparent); }
+.tile:hover::before { opacity: 1; }
+.tile-k { position: relative; flex: none; width: 72px; height: 72px; object-fit: contain;
+          margin-top: 2px;
+          filter: drop-shadow(0 8px 16px color-mix(in srgb, var(--tile) 40%, transparent)); }
+.tile-body { position: relative; min-width: 0; }
+.tile .eyebrow { color: var(--tile); margin-bottom: 6px; }
+.tile h3 { margin: 0 0 6px; font: 600 19px Sora, sans-serif; color: var(--ink); letter-spacing: -.01em; }
+.tile h3 span { color: var(--tile); font-size: .8em; opacity: .9; }
+.tile p { margin: 0 0 14px; font: 400 13.5px/1.6 Sora, sans-serif; color: var(--dim); }
+.tile-go { font: 500 12.5px 'JetBrains Mono', monospace; color: var(--tile); }
+.tile:hover .tile-go { text-decoration: underline; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { font: 500 11.5px 'JetBrains Mono', monospace; color: var(--mint);
         border: 1px solid rgba(169,235,205,.2); border-radius: 6px; padding: 3px 8px; }
@@ -307,7 +332,7 @@ footer .base { margin: 0 0 14px; font: 400 13px/1.6 Sora, sans-serif; color: var
 .dtoc-items a.on { color: var(--mint); border-left: 2px solid var(--accent); margin-left: -1.5px; }
 
 @media (max-width: 900px) {
-  .hero, .duo, .cards4, .cards3, .tgrid, .dgrid, footer { grid-template-columns: 1fr; display: grid; }
+  .hero, .duo, .cards4, .cards3, .built, .tgrid, .dgrid, footer { grid-template-columns: 1fr; display: grid; }
   .hero h1 { font-size: 38px; }
   /* A heading does not shrink on its own, and one word cannot be broken:
      "Documentation" at 40px is 314 points wide, in a column that is 225 at a
