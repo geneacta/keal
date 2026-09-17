@@ -377,12 +377,16 @@ KEAL_FN void keal_audit_report(void) {
 
 /* Every heap object begins with its count. A string is that count, a length,
  * and the bytes; `static_bytes` marks a literal, whose bytes are not ours to
- * free. */
+ * free. `chars` is the length in characters, counted once when the string is
+ * made: a string never changes, so the count never does, and `s.length` and
+ * `s[i]` stop walking the bytes to learn it. When `chars == len` every
+ * character is one byte, and an index is a byte offset. */
 typedef struct KealStr {
     keal_rc_t rc;
     int64_t len;
     const char* bytes;
     bool static_bytes;
+    int64_t chars;
 } KealStr;
 
 /* ---- catchable panics ------------------------------------------------ */
@@ -594,12 +598,25 @@ KEAL_FN void keal_str_release(KealStr* s) {
 
 /* ---- strings ---------------------------------------------------------- */
 
+/* Characters in `len` bytes of UTF-8: every byte that is not a continuation
+ * byte starts one. */
+KEAL_FN int64_t keal_utf8_count(const char* bytes, int64_t len) {
+    int64_t n = 0;
+    for (int64_t i = 0; i < len; i++) {
+        if (((unsigned char)bytes[i] & 0xC0) != 0x80) {
+            n++;
+        }
+    }
+    return n;
+}
+
 KEAL_FN KealStr* keal_str_owning(char* bytes, int64_t len) {
     KealStr* s = (KealStr*)keal_alloc(sizeof(KealStr));
     s->rc = 1;
     s->len = len;
     s->bytes = bytes;
     s->static_bytes = false;
+    s->chars = keal_utf8_count(bytes, len);
     return s;
 }
 
@@ -611,7 +628,43 @@ KEAL_FN KealStr* keal_str_static(const char* bytes, int64_t len) {
     s->len = len;
     s->bytes = bytes;
     s->static_bytes = true;
+    s->chars = keal_utf8_count(bytes, len);
     return s;
+}
+
+/* The 128 one-character ASCII strings, built into the binary. `s[i]` and
+ * `chars()` hand these out for a one-byte character instead of allocating a
+ * header and a byte for each: a loop over a string's characters then
+ * allocates nothing. Their count starts at 2^62, high enough that no
+ * program's releases bring it to zero, so a release is the ordinary
+ * decrement and never a free; the retain on the way out keeps it balanced
+ * all the same. Each has its terminating NUL, as every string does. */
+static const char keal_ascii_bytes[256] = {
+#define KEAL_AB(i) (char)(i), 0,
+#define KEAL_AB8(i) KEAL_AB(i) KEAL_AB(i + 1) KEAL_AB(i + 2) KEAL_AB(i + 3) \
+    KEAL_AB(i + 4) KEAL_AB(i + 5) KEAL_AB(i + 6) KEAL_AB(i + 7)
+    KEAL_AB8(0) KEAL_AB8(8) KEAL_AB8(16) KEAL_AB8(24)
+    KEAL_AB8(32) KEAL_AB8(40) KEAL_AB8(48) KEAL_AB8(56)
+    KEAL_AB8(64) KEAL_AB8(72) KEAL_AB8(80) KEAL_AB8(88)
+    KEAL_AB8(96) KEAL_AB8(104) KEAL_AB8(112) KEAL_AB8(120)
+#undef KEAL_AB8
+#undef KEAL_AB
+};
+static KealStr keal_ascii_chars[128] = {
+#define KEAL_AS(i) { INT64_C(1) << 62, 1, keal_ascii_bytes + 2 * (i), true, 1 },
+#define KEAL_AS8(i) KEAL_AS(i) KEAL_AS(i + 1) KEAL_AS(i + 2) KEAL_AS(i + 3) \
+    KEAL_AS(i + 4) KEAL_AS(i + 5) KEAL_AS(i + 6) KEAL_AS(i + 7)
+    KEAL_AS8(0) KEAL_AS8(8) KEAL_AS8(16) KEAL_AS8(24)
+    KEAL_AS8(32) KEAL_AS8(40) KEAL_AS8(48) KEAL_AS8(56)
+    KEAL_AS8(64) KEAL_AS8(72) KEAL_AS8(80) KEAL_AS8(88)
+    KEAL_AS8(96) KEAL_AS8(104) KEAL_AS8(112) KEAL_AS8(120)
+#undef KEAL_AS8
+#undef KEAL_AS
+};
+
+/* The one-character string for byte `c`, retained for the caller. */
+KEAL_FN KealStr* keal_str_ascii_char(unsigned char c) {
+    return keal_str_retain(&keal_ascii_chars[c & 0x7F]);
 }
 
 KEAL_FN KealStr* keal_str_empty(void) {
@@ -816,13 +869,7 @@ KEAL_FN KealStr* keal_str_from_comp(int64_t c) {
 
 /* `.length` counts characters, not bytes, as the interpreters do. */
 KEAL_FN int64_t keal_str_length(KealStr* s) {
-    int64_t n = 0;
-    for (int64_t i = 0; i < s->len; i++) {
-        if (((unsigned char)s->bytes[i] & 0xC0) != 0x80) {
-            n++;
-        }
-    }
-    return n;
+    return s->chars;
 }
 
 /* What the interpreters say when standard output will not take a write, word
@@ -867,11 +914,32 @@ KEAL_FN void keal_print(KealStr* s, bool newline) {
 /* ---- string methods ---------------------------------------------------- */
 
 /* Byte offset of the n-th character; `n` past the end returns `len`. */
+/* The byte at which character `n` starts, or `len` when there is no such
+ * character. One byte per character makes it the index itself; otherwise the
+ * walk starts from whichever end is nearer. */
 KEAL_FN int64_t keal_str_char_byte(KealStr* s, int64_t n) {
+    if (n >= s->chars) {
+        return s->len;
+    }
+    if (s->chars == s->len) {
+        return n;
+    }
+    if (n <= s->chars / 2) {
+        int64_t seen = 0;
+        for (int64_t i = 0; i < s->len; i++) {
+            if (((unsigned char)s->bytes[i] & 0xC0) != 0x80) {
+                if (seen == n) {
+                    return i;
+                }
+                seen++;
+            }
+        }
+        return s->len;
+    }
     int64_t seen = 0;
-    for (int64_t i = 0; i < s->len; i++) {
+    for (int64_t i = s->len - 1; i >= 0; i--) {
         if (((unsigned char)s->bytes[i] & 0xC0) != 0x80) {
-            if (seen == n) {
+            if (s->chars - 1 - seen == n) {
                 return i;
             }
             seen++;
@@ -1192,12 +1260,15 @@ KEAL_FN KealStr* keal_str_get(KealStr* s, int64_t i, const char* at) {
     if (idx < 0 || idx >= len) {
         char msg[128];
         snprintf(msg, sizeof msg,
-                 "index %" PRId64 " is out of bounds for a string of length %" PRId64, i, len);
+                 "index %" PRId64 " is out of bounds for a string of %" PRId64 " character(s)", i, len);
         keal_panic(msg, NULL, at);
         return NULL;
     }
     int64_t from = keal_str_char_byte(s, idx);
     int64_t to = keal_str_char_byte(s, idx + 1);
+    if (to - from == 1) {
+        return keal_str_ascii_char((unsigned char)s->bytes[from]);
+    }
     return keal_str_from_bytes(s->bytes + from, to - from);
 }
 
@@ -1977,7 +2048,9 @@ KEAL_FN KealList* keal_str_chars(KealStr* s) {
         while (j < s->len && ((unsigned char)s->bytes[j] & 0xC0) == 0x80) {
             j++;
         }
-        keal_list_push(l, (KealWord){ .p = keal_str_from_bytes(s->bytes + i, j - i) });
+        KealStr* c = j - i == 1 ? keal_str_ascii_char((unsigned char)s->bytes[i])
+                                : keal_str_from_bytes(s->bytes + i, j - i);
+        keal_list_push(l, (KealWord){ .p = c });
         i = j;
     }
     return l;

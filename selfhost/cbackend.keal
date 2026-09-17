@@ -5775,6 +5775,8 @@ class CBackend() {
         this.line("${slot} = ${value};")
         this.indent -= 1
         this.line("}")
+        // The access may be a method call, and a method can throw.
+        this.checkUnwind()
         return slot
     }
 
@@ -5935,10 +5937,17 @@ class CBackend() {
             return this.guarded(e, receiver, call)
         }
 
+        // A method can throw exactly as a function can, and a `try` around
+        // the call finds out the same way: the check after the call. The
+        // counted branch has always had it through `ownTempOf`; the two
+        // below did not, so a throw out of `this.m()` inside a `try` ran
+        // straight past the catch and out of the function with the unwind
+        // still armed.
         val ty = this.ety(e)
         if (ty == null) { return call }
         if (ty.kind == "Unit" or ty.kind == "Never") {
             this.line("${call};")
+            this.checkUnwind()
             return "0"
         }
         if (countedC(ty)) {
@@ -5948,6 +5957,7 @@ class CBackend() {
         if (c == null) { return "0" }
         val t = this.temp()
         this.line("const ${c} ${t} = ${call};")
+        this.checkUnwind()
         return t
     }
 

@@ -10,3 +10,11 @@ an Int: -1
 a message: seven is unlucky
 the outer clause took it: inner
 caught: integer overflow
+check: over the limit: 30
+4
+half: odd: 9
+n1
+name: negative: -1
+cond: odd: 9
+1
+guarded: odd: 3

@@ -52,6 +52,9 @@ func normalisePath(p: String): String {
 /// Nothing here fetches: what is on disk is what is read, so a project that
 /// commits its `.keal/deps/` builds with no network and no git at all.
 func resolveImport(rel: String, dir: String, importer: String): String {
+    // An absolute path is itself, as `Path::join` keeps it on the oracle
+    // side; only a relative one is taken from beside the importer.
+    if (rel.startsWith("/")) { return normalisePath(rel) }
     unless (rel.startsWith("dep:")) { return normalisePath(dir + "/" + rel) }
     var rest = rel.substring(4, rel.length)
     while (rest.startsWith("/")) { rest = rest.substring(1, rest.length) }

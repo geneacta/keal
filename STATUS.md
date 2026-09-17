@@ -393,6 +393,52 @@ not ours".
 
 ## IN FLIGHT
 
+**`s[i]` is a byte offset now, and `s.length` a field — natively, DONE
+(2026-09-17, Linux aarch64 bench).** The string representation was the
+fix, not `run()`'s signature: `KealStr` carries `chars`, counted once when
+the string is made, since a string never changes. `keal_str_length` reads
+it; `keal_str_char_byte` returns the index itself when `chars == len`
+(every character one byte) and otherwise walks from whichever end is
+nearer; and the 128 one-character ASCII strings are static, handed out by
+`s[i]` and `chars()` with a retain instead of an allocation — their count
+starts at 2^62 so a release is a decrement and never a free. Same probe as
+below (regex `zqx[0-9]+` findAll over text that never matches), same
+machine, minimum of three, before = `dist/kealc` of 2026-09-15:
+
+| | 10 000 | 20 000 | 40 000 | |
+|---|---|---|---|---|
+| native before | 0.181s | 0.629s | 2.548s | x3.5 x4.1 |
+| native after | 0.0004s | 0.0008s | 0.0016s | x2.0 x2.0 |
+| VM | 0.254s | 1.053s | 2.801s | x4.1 x2.7 |
+
+Linear now; the VM is still quadratic and untouched, because `Rc<str>`
+has nowhere to keep a count — the interpreters' fix is a representation
+change of their own and is not started. The same commit carries what the
+bench found while proving it:
+
+* **A throw out of a method call inside a `try` ran past the catch** in
+  the shapes that do not own the result: a Unit method, a scalar one, and
+  `x?.m()`. The counted branch had the unwind check through
+  `own_temp_of`; the others had none. Calibrated against the old backend:
+  `if (gate.half(9) > 0)` inside a `try` printed nothing, and the NEXT
+  `try` reported the stale message. Both backends check after every method
+  call now; `tests/native/trycatch.keal` holds the four shapes.
+* **`s.get(i)` and `s[i]` out of range said different things on the
+  interpreters themselves** — "of length 3" against "of 3 character(s)" —
+  and the native runtime said the first for both. One message now, the
+  characters one, on all three engines and for both spellings;
+  `tests/native/string-index.keal` pins it along with indexing from both
+  halves of a non-ASCII string.
+* **An absolute import path is accepted by the oracle and refused by the
+  twin.** `dir.join(rel)` keeps an absolute `rel`; the twin's
+  `dir + "/" + rel` does not, so `import "/abs/x.keal"` reads
+  `<dir>//abs/x.keal` there. Not documented either way (the reference says
+  paths are relative to the importing file); fixed in the twin to match
+  the oracle, one line in `resolveImport`. No corpus file for it: an
+  absolute path that exists on every machine does not, and one that fails
+  is shown with a drive letter by the oracle on Windows and without by the
+  twin. Verified by hand here, `keal cgen` against the twin, identical C.
+
 **`s[i]` costs the length of the string, every time (2026-09-09).** Reported
 by the Kealler and keal-view sessions; confirmed here on macOS, and one of
 their two claims came out the other way round.

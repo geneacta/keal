@@ -102,3 +102,53 @@ try {
 } catch (e: String) {
     println("caught: ${e}")
 }
+
+// A throw out of a method call inside a `try` reaches the catch whatever
+// the method returns — nothing, a scalar, or a value the caller must own —
+// and through a `?.` as well. The backend checks for the unwind after the
+// call in every one of these shapes, not only the owned one.
+class Gate(val limit: Int) {
+    proc check(n: Int) {
+        if (n > this.limit) { throw "over the limit: ${n}" }
+    }
+    func half(n: Int): Int {
+        if (n % 2 != 0) { throw "odd: ${n}" }
+        return n / 2
+    }
+    func name(n: Int): String {
+        if (n < 0) { throw "negative: ${n}" }
+        return "n${n}"
+    }
+}
+val gate = Gate(10)
+try {
+    gate.check(3)
+    gate.check(30)
+    println("unreached")
+} catch (e) {
+    println("check: " + e)
+}
+try {
+    println(gate.half(8))
+    println(gate.half(9))
+} catch (e) {
+    println("half: " + e)
+}
+try {
+    println(gate.name(1))
+    println(gate.name(-1))
+} catch (e) {
+    println("name: " + e)
+}
+try {
+    if (gate.half(9) > 0) { println("unreached") }
+} catch (e) {
+    println("cond: " + e)
+}
+val maybe: Gate? = Gate(1)
+try {
+    println(maybe?.half(2))
+    println(maybe?.half(3))
+} catch (e) {
+    println("guarded: " + e)
+}

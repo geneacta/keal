@@ -594,7 +594,7 @@ fn string_method(s: &Rc<str>, name: &str, args: &[Value], span: Span) -> R<Value
             if idx < 0 || idx as usize >= cs.len() {
                 return err(
                     span,
-                    format!("index {} is out of bounds for a string of length {}", i, cs.len()),
+                    format!("index {} is out of bounds for a string of {} character(s)", i, cs.len()),
                 );
             }
             Value::str(cs[idx as usize].to_string())

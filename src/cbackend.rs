@@ -5576,6 +5576,8 @@ impl CBackend {
         self.line(format!("{} = {};", slot, value));
         self.indent -= 1;
         self.line("}");
+        // The access may be a method call, and a method can throw.
+        self.check_unwind();
         slot
     }
 
@@ -5734,9 +5736,16 @@ impl CBackend {
             return self.guarded(e, &receiver, call);
         }
 
+        // A method can throw exactly as a function can, and a `try` around
+        // the call finds out the same way: the check after the call. The
+        // counted branch has always had it through `own_temp_of`; the two
+        // below did not, so a throw out of `this.m()` inside a `try` ran
+        // straight past the catch and out of the function with the unwind
+        // still armed.
         let Some(ty) = self.ety(e) else { return call };
         if ty == Type::Unit || ty == Type::Never {
             self.line(format!("{};", call));
+            self.check_unwind();
             return "0".to_string();
         }
         if Self::counted(&ty) {
@@ -5745,6 +5754,7 @@ impl CBackend {
         let Some(c) = self.ctype(&ty, e.span) else { return "0".to_string() };
         let t = self.temp();
         self.line(format!("const {} {} = {};", c, t, call));
+        self.check_unwind();
         t
     }
 

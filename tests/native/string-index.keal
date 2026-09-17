@@ -1,0 +1,81 @@
+// `s[i]`, `s.length` and `chars()` on strings that are one byte per
+// character and on strings that are not. The runtime counts characters
+// once, when the string is made; an index into an all-ASCII string is a
+// byte offset, and an index into the second half of any other string is
+// found by walking from the end. Every answer has to match the
+// interpreters, which count on every call.
+
+val ascii = "the quick brown fox"
+println(ascii.length)
+println(ascii[0] + ascii[4] + ascii[ascii.length - 1])
+
+val mixed = "café–naïve–résumé"
+println(mixed.length)
+var i = 0
+val out: List<String> = []
+while (i < mixed.length) {
+    out.add(mixed[i])
+    i++
+}
+println(out.join("|"))
+println(mixed[0] + mixed[3] + mixed[4] + mixed[mixed.length - 1])
+println(mixed.chars().size)
+println(mixed.chars().reversed().join(""))
+
+// Every character index in one string, from the front half and the back.
+val greek = "αβγδεζηθ"
+var j = greek.length - 1
+var back = ""
+while (j >= 0) {
+    back = back + greek[j]
+    j--
+}
+println(back)
+
+// The empty string, and the last index of a string made by concatenation.
+val empty = ""
+println(empty.length)
+val built = ascii + mixed
+println(built.length)
+println(built[built.length - 1])
+println(built[ascii.length])
+
+// Substrings and single characters keep counting right.
+val sub = mixed.substring(5, 10)
+println(sub)
+println(sub.length)
+println(sub[0] + sub[sub.length - 1])
+
+// A one-character ASCII string is shared, not allocated; sharing must not
+// show. Two equal characters compare equal and concatenate like any string.
+val a = ascii[0]
+val b = "t"
+println(a == b)
+println(a + a + b)
+var count = 0
+var k = 0
+while (k < ascii.length) {
+    if (ascii[k] == "o") { count++ }
+    k++
+}
+println(count)
+
+// A negative index counts from the end; past the front it is out of range,
+// and out of range fails the same way on every engine, whether written
+// `s[i]` or `s.get(i)`.
+println(ascii[-1] + mixed[-1])
+try {
+    println(mixed[mixed.length])
+} catch (e) {
+    println("caught: " + e)
+}
+try {
+    println(ascii[-20])
+} catch (e) {
+    println("caught: " + e)
+}
+try {
+    println(ascii.get(19))
+} catch (e) {
+    println("caught: " + e)
+}
